@@ -14,10 +14,12 @@ use crate::access::{self, GUARDIAN_ROLE, ORACLE_ROLE};
 use crate::storage;
 use crate::timelock::*;
 
-/// Pauses the controller. Requires the caller to hold `GUARDIAN_ROLE`.
+/// Pauses the controller and advances the emergency epoch, voiding every
+/// pending `Unpause`. Requires the caller to hold `GUARDIAN_ROLE`.
 pub(crate) fn pause(env: &Env, caller: &Address) {
     begin_immediate(env, caller, GUARDIAN_ROLE);
     controller_client(env).pause();
+    storage::bump_emergency_epoch(env);
 }
 
 /// Tightens the paused, frozen, and no-seize flags for `hub_asset` in the given spoke.
@@ -65,10 +67,9 @@ pub(crate) fn add_spoke(env: &Env, caller: &Address) -> u32 {
 }
 
 /// Revokes `role` from `account` without going through the timelock, and
-/// advances that pair's immediate-revocation epoch so a `GrantGovRole`
-/// proposed earlier cannot restore it. Only `GUARDIAN_ROLE` and `ORACLE_ROLE`
-/// can be revoked this way; panics with `GenericError::InvalidRole` for any
-/// other role.
+/// advances the emergency epoch so a `GrantGovRole` proposed earlier cannot
+/// restore it. Only `GUARDIAN_ROLE` and `ORACLE_ROLE` can be revoked this
+/// way; panics with `GenericError::InvalidRole` for any other role.
 pub(crate) fn revoke_role_immediate(env: &Env, account: &Address, role: &Symbol) {
     assert_with_error!(
         env,
@@ -76,5 +77,5 @@ pub(crate) fn revoke_role_immediate(env: &Env, account: &Address, role: &Symbol)
         GenericError::InvalidRole
     );
     access::apply_revoke_role(env, account, role);
-    storage::bump_hot_revocation_epoch(env, account, role);
+    storage::bump_emergency_epoch(env);
 }

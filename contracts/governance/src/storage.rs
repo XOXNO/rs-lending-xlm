@@ -1,19 +1,16 @@
 //! Persistent and instance storage access for the governance contract:
-//! controller and price-aggregator addresses, the owner epoch, the
-//! ownership-nomination nonce, and per-operation sidecar state
-//! (role-revocation target, recovery-operation marker, proposal owner epoch,
-//! cancelled nomination, execution guard), the id of the pending controller
-//! upgrade, and the immediate-revocation epoch of each account's role.
+//! controller and price-aggregator addresses, the owner, nomination and
+//! emergency epochs, and per-operation sidecar state (role-revocation
+//! target, recovery-operation marker, operation guard).
 
 use common::constants::{TTL_BUMP_SHARED, TTL_THRESHOLD_SHARED};
 use common::errors::GenericError;
 use common::types::PriceKey;
 
-use soroban_sdk::{contracttype, panic_with_error, Address, BytesN, Env, Symbol};
+use soroban_sdk::{contracttype, panic_with_error, Address, BytesN, Env, IntoVal, Val};
 
 /// Storage keys for governance contract state. `RoleRevocationTarget`,
-/// `RecoveryOp`, `ProposalOwnerEpoch`, `CancelledNomination` and
-/// `ExecutionGuard` are keyed per timelock operation id.
+/// `RecoveryOp` and `OperationGuard` are keyed per timelock operation id.
 #[contracttype]
 #[derive(Clone, Debug)]
 enum GovernanceKey {
@@ -22,207 +19,150 @@ enum GovernanceKey {
     RoleRevocationTarget(BytesN<32>),
     RecoveryOp(BytesN<32>),
     OwnerEpoch,
-    ProposalOwnerEpoch(BytesN<32>),
-    NominationNonce,
-    CancelledNomination(BytesN<32>),
-    ExecutionGuard(BytesN<32>),
-    PendingControllerUpgrade,
-    HotRevocationEpoch(Address, Symbol),
+    NominationEpoch,
+    EmergencyEpoch,
+    OperationGuard(BytesN<32>),
 }
 
-/// State an operation is bound to at proposal. Execution reverts once that
-/// state has moved.
+/// Instance counters an operation can be bound to at proposal.
+#[derive(Clone, Copy)]
+enum Epoch {
+    /// Completed ownership handovers.
+    Owner,
+    /// Ownership nominations made.
+    Nomination,
+    /// Emergency actions taken: guardian pauses, controller upgrades and
+    /// immediate role revocations.
+    Emergency,
+}
+
+impl Epoch {
+    fn key(self) -> GovernanceKey {
+        match self {
+            Epoch::Owner => GovernanceKey::OwnerEpoch,
+            Epoch::Nomination => GovernanceKey::NominationEpoch,
+            Epoch::Emergency => GovernanceKey::EmergencyEpoch,
+        }
+    }
+}
+
+/// The sanity band (min WAD, max WAD) of a price key as a
+/// `ConfigureAssetOracle` found it at proposal, or `Unbound` when the
+/// operation does not bind one.
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub(crate) enum ExecutionGuard {
-    /// Controller pause epoch an `Unpause` was proposed under.
-    PauseEpoch(u64),
-    /// Price key and proposal ledger of a `ConfigureAssetOracle`.
-    OracleBand(PriceKey, u32),
-    /// Account, role and that pair's immediate-revocation epoch a
-    /// `GrantGovRole` was proposed under.
-    RoleEpoch(Address, Symbol, u64),
+pub(crate) enum OracleBandGuard {
+    Unbound,
+    Bound(PriceKey, i128, i128),
 }
 
-/// Records `account` as the role-revocation target for `operation_id` in
-/// persistent storage and extends the entry's TTL.
-pub(crate) fn mark_role_revocation_target(env: &Env, operation_id: &BytesN<32>, account: &Address) {
-    let key = GovernanceKey::RoleRevocationTarget(operation_id.clone());
-    env.storage().persistent().set(&key, account);
-    env.storage()
-        .persistent()
-        .extend_ttl(&key, TTL_THRESHOLD_SHARED, TTL_BUMP_SHARED);
+/// Governance state an operation is bound to at proposal. Each `Some` field
+/// must still hold when the operation executes.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct OperationGuard {
+    pub owner_epoch: Option<u64>,
+    pub nomination_epoch: Option<u64>,
+    pub emergency_epoch: Option<u64>,
+    pub oracle_band: OracleBandGuard,
 }
 
-/// Marks `operation_id` as a recovery operation in persistent storage and
-/// extends the entry's TTL.
-pub(crate) fn mark_recovery_op(env: &Env, operation_id: &BytesN<32>) {
-    let key = GovernanceKey::RecoveryOp(operation_id.clone());
-    env.storage().persistent().set(&key, &true);
+impl OperationGuard {
+    pub(crate) const NONE: OperationGuard = OperationGuard {
+        owner_epoch: None,
+        nomination_epoch: None,
+        emergency_epoch: None,
+        oracle_band: OracleBandGuard::Unbound,
+    };
+
+    fn is_none(&self) -> bool {
+        *self == Self::NONE
+    }
+}
+
+/// Writes `value` under `key` in persistent storage and extends its TTL.
+fn set_with_ttl<V: IntoVal<Env, Val>>(env: &Env, key: &GovernanceKey, value: &V) {
+    env.storage().persistent().set(key, value);
     env.storage()
         .persistent()
-        .extend_ttl(&key, TTL_THRESHOLD_SHARED, TTL_BUMP_SHARED);
+        .extend_ttl(key, TTL_THRESHOLD_SHARED, TTL_BUMP_SHARED);
+}
+
+fn get_epoch(env: &Env, epoch: Epoch) -> u64 {
+    env.storage().instance().get(&epoch.key()).unwrap_or(0)
+}
+
+/// Advances `epoch`; panics with `GenericError::MathOverflow` on overflow.
+fn bump_epoch(env: &Env, epoch: Epoch) {
+    let next = get_epoch(env, epoch)
+        .checked_add(1)
+        .unwrap_or_else(|| panic_with_error!(env, GenericError::MathOverflow));
+    env.storage().instance().set(&epoch.key(), &next);
 }
 
 /// Returns the number of completed ownership handovers, 0 before the first.
 pub(crate) fn owner_epoch(env: &Env) -> u64 {
-    env.storage()
-        .instance()
-        .get(&GovernanceKey::OwnerEpoch)
-        .unwrap_or(0)
+    get_epoch(env, Epoch::Owner)
 }
 
-/// Advances the owner epoch. Panics with `GenericError::MathOverflow` on
-/// overflow.
 pub(crate) fn bump_owner_epoch(env: &Env) {
-    let next = owner_epoch(env)
-        .checked_add(1)
-        .unwrap_or_else(|| panic_with_error!(env, GenericError::MathOverflow));
-    env.storage()
-        .instance()
-        .set(&GovernanceKey::OwnerEpoch, &next);
-}
-
-/// Records the current owner epoch for `operation_id` in persistent storage
-/// and extends the entry's TTL.
-pub(crate) fn mark_proposal_owner_epoch(env: &Env, operation_id: &BytesN<32>) {
-    let key = GovernanceKey::ProposalOwnerEpoch(operation_id.clone());
-    env.storage().persistent().set(&key, &owner_epoch(env));
-    env.storage()
-        .persistent()
-        .extend_ttl(&key, TTL_THRESHOLD_SHARED, TTL_BUMP_SHARED);
-}
-
-/// Returns the owner epoch recorded for `operation_id`, or `None` if the
-/// operation carries no such record.
-pub(crate) fn proposal_owner_epoch(env: &Env, operation_id: &BytesN<32>) -> Option<u64> {
-    env.storage()
-        .persistent()
-        .get(&GovernanceKey::ProposalOwnerEpoch(operation_id.clone()))
+    bump_epoch(env, Epoch::Owner);
 }
 
 /// Returns the number of ownership nominations made, 0 before the first.
-pub(crate) fn nomination_nonce(env: &Env) -> u64 {
-    env.storage()
-        .instance()
-        .get(&GovernanceKey::NominationNonce)
-        .unwrap_or(0)
+pub(crate) fn nomination_epoch(env: &Env) -> u64 {
+    get_epoch(env, Epoch::Nomination)
 }
 
-/// Advances the nomination nonce. Panics with `GenericError::MathOverflow`
-/// on overflow.
-pub(crate) fn bump_nomination_nonce(env: &Env) {
-    let next = nomination_nonce(env)
-        .checked_add(1)
-        .unwrap_or_else(|| panic_with_error!(env, GenericError::MathOverflow));
-    env.storage()
-        .instance()
-        .set(&GovernanceKey::NominationNonce, &next);
+pub(crate) fn bump_nomination_epoch(env: &Env) {
+    bump_epoch(env, Epoch::Nomination);
 }
 
-/// Records the current nomination nonce as the nomination that the
-/// cancellation `operation_id` targets, and extends the entry's TTL.
-pub(crate) fn mark_cancelled_nomination(env: &Env, operation_id: &BytesN<32>) {
-    let key = GovernanceKey::CancelledNomination(operation_id.clone());
-    env.storage().persistent().set(&key, &nomination_nonce(env));
-    env.storage()
-        .persistent()
-        .extend_ttl(&key, TTL_THRESHOLD_SHARED, TTL_BUMP_SHARED);
+/// Returns the number of emergency actions taken, 0 before the first.
+pub(crate) fn emergency_epoch(env: &Env) -> u64 {
+    get_epoch(env, Epoch::Emergency)
 }
 
-/// Returns the nomination nonce the cancellation `operation_id` targets, or
-/// `None` if the operation carries no such record.
-pub(crate) fn cancelled_nomination(env: &Env, operation_id: &BytesN<32>) -> Option<u64> {
-    env.storage()
-        .persistent()
-        .get(&GovernanceKey::CancelledNomination(operation_id.clone()))
+pub(crate) fn bump_emergency_epoch(env: &Env) {
+    bump_epoch(env, Epoch::Emergency);
 }
 
-/// Records `guard` for `operation_id` in persistent storage and extends the
-/// entry's TTL.
-pub(crate) fn set_execution_guard(env: &Env, operation_id: &BytesN<32>, guard: &ExecutionGuard) {
-    let key = GovernanceKey::ExecutionGuard(operation_id.clone());
-    env.storage().persistent().set(&key, guard);
-    env.storage()
-        .persistent()
-        .extend_ttl(&key, TTL_THRESHOLD_SHARED, TTL_BUMP_SHARED);
+/// Records `account` as the role-revocation target for `operation_id`.
+pub(crate) fn mark_role_revocation_target(env: &Env, operation_id: &BytesN<32>, account: &Address) {
+    let key = GovernanceKey::RoleRevocationTarget(operation_id.clone());
+    set_with_ttl(env, &key, account);
 }
 
-/// Returns the execution guard recorded for `operation_id`, if any.
-pub(crate) fn execution_guard(env: &Env, operation_id: &BytesN<32>) -> Option<ExecutionGuard> {
-    env.storage()
-        .persistent()
-        .get(&GovernanceKey::ExecutionGuard(operation_id.clone()))
+/// Marks `operation_id` as a recovery operation.
+pub(crate) fn mark_recovery_op(env: &Env, operation_id: &BytesN<32>) {
+    set_with_ttl(env, &GovernanceKey::RecoveryOp(operation_id.clone()), &true);
 }
 
-/// Returns how many times `revoke_role_immediate` has revoked `role` from
-/// `account`, 0 before the first.
-pub(crate) fn hot_revocation_epoch(env: &Env, account: &Address, role: &Symbol) -> u64 {
-    env.storage()
-        .persistent()
-        .get(&GovernanceKey::HotRevocationEpoch(
-            account.clone(),
-            role.clone(),
-        ))
-        .unwrap_or(0)
-}
-
-/// Advances the immediate-revocation epoch of `role` for `account` and
-/// extends the entry's TTL. Panics with `GenericError::MathOverflow` on
-/// overflow.
-pub(crate) fn bump_hot_revocation_epoch(env: &Env, account: &Address, role: &Symbol) {
-    let key = GovernanceKey::HotRevocationEpoch(account.clone(), role.clone());
-    let next = hot_revocation_epoch(env, account, role)
-        .checked_add(1)
-        .unwrap_or_else(|| panic_with_error!(env, GenericError::MathOverflow));
-    env.storage().persistent().set(&key, &next);
-    env.storage()
-        .persistent()
-        .extend_ttl(&key, TTL_THRESHOLD_SHARED, TTL_BUMP_SHARED);
-}
-
-/// Returns the id of the last proposed `UpgradeController`, if it has not
-/// executed or been cancelled. It may have expired.
-pub(crate) fn pending_controller_upgrade(env: &Env) -> Option<BytesN<32>> {
-    env.storage()
-        .persistent()
-        .get(&GovernanceKey::PendingControllerUpgrade)
-}
-
-/// Records `operation_id` as the pending `UpgradeController` in persistent
-/// storage and extends the entry's TTL.
-pub(crate) fn set_pending_controller_upgrade(env: &Env, operation_id: &BytesN<32>) {
-    let key = GovernanceKey::PendingControllerUpgrade;
-    env.storage().persistent().set(&key, operation_id);
-    env.storage()
-        .persistent()
-        .extend_ttl(&key, TTL_THRESHOLD_SHARED, TTL_BUMP_SHARED);
-}
-
-/// Removes every sidecar entry recorded for `operation_id` from persistent
-/// storage, and the pending-controller-upgrade slot when it holds
-/// `operation_id`.
-pub(crate) fn clear_operation_sidecars(env: &Env, operation_id: &BytesN<32>) {
-    env.storage()
-        .persistent()
-        .remove(&GovernanceKey::RecoveryOp(operation_id.clone()));
-    env.storage()
-        .persistent()
-        .remove(&GovernanceKey::RoleRevocationTarget(operation_id.clone()));
-    env.storage()
-        .persistent()
-        .remove(&GovernanceKey::ProposalOwnerEpoch(operation_id.clone()));
-    env.storage()
-        .persistent()
-        .remove(&GovernanceKey::CancelledNomination(operation_id.clone()));
-    env.storage()
-        .persistent()
-        .remove(&GovernanceKey::ExecutionGuard(operation_id.clone()));
-    if pending_controller_upgrade(env).as_ref() == Some(operation_id) {
-        env.storage()
-            .persistent()
-            .remove(&GovernanceKey::PendingControllerUpgrade);
+/// Records `guard` for `operation_id` unless it binds nothing.
+pub(crate) fn set_operation_guard(env: &Env, operation_id: &BytesN<32>, guard: &OperationGuard) {
+    if !guard.is_none() {
+        set_with_ttl(
+            env,
+            &GovernanceKey::OperationGuard(operation_id.clone()),
+            guard,
+        );
     }
+}
+
+/// Returns the guard recorded for `operation_id`, or a guard binding nothing.
+pub(crate) fn operation_guard(env: &Env, operation_id: &BytesN<32>) -> OperationGuard {
+    env.storage()
+        .persistent()
+        .get(&GovernanceKey::OperationGuard(operation_id.clone()))
+        .unwrap_or(OperationGuard::NONE)
+}
+
+/// Removes every sidecar entry recorded for `operation_id`.
+pub(crate) fn clear_operation_sidecars(env: &Env, operation_id: &BytesN<32>) {
+    let storage = env.storage().persistent();
+    storage.remove(&GovernanceKey::RecoveryOp(operation_id.clone()));
+    storage.remove(&GovernanceKey::RoleRevocationTarget(operation_id.clone()));
+    storage.remove(&GovernanceKey::OperationGuard(operation_id.clone()));
 }
 
 /// Returns the account recorded as the role-revocation target for

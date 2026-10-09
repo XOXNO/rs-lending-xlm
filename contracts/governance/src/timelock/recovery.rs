@@ -26,7 +26,7 @@ pub(crate) fn propose_canceller_reset(
     clear_expired_operation(env, &operation);
     let id = schedule_operation(env, &operation, delay);
     storage::mark_recovery_op(env, &id);
-    storage::mark_proposal_owner_epoch(env, &id);
+    storage::set_operation_guard(env, &id, &guard::for_canceller_reset(env));
     id
 }
 
@@ -41,7 +41,7 @@ pub(crate) fn execute_canceller_reset(
     salt: BytesN<32>,
 ) {
     let operation = canceller_reset_operation(env, new_cancellers, salt);
-    let operation_id = prepare_execute(env, executor.as_ref(), &operation);
+    let (operation_id, _) = prepare_execute(env, executor.as_ref(), &operation);
     set_execute_operation(env, &operation);
     access::apply_canceller_reset(env, new_cancellers);
     finish_execute(env, &operation_id);

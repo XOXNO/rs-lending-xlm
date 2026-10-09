@@ -98,17 +98,14 @@ pub enum GenericError {
     /// The `CANCELLER` role would exceed `MAX_CANCELLERS` holders.
     CancellerLimitExceeded = 56,
 
-    /// An `Unpause` is proposed while the controller is open, or executes
-    /// after the controller was paused again since its proposal.
-    PauseEpochMismatch = 57,
+    /// An `Unpause` or `GrantGovRole` executes after an emergency action
+    /// (guardian pause, controller upgrade or immediate role revocation)
+    /// taken since its proposal.
+    EmergencyEpochMismatch = 57,
 
-    /// An `UpgradeController` is proposed while another is pending, or an
-    /// `Unpause` executes while one is.
-    ConflictingOperationPending = 58,
-
-    /// A `GrantGovRole` executes although the owner revoked the same role
-    /// from the same account with `revoke_role_immediate` after its proposal.
-    RoleRevokedAfterProposal = 59,
+    /// A `ConfigureAssetOracle` executes although the key's sanity band
+    /// changed since its proposal.
+    OracleBandChangedAfterProposal = 58,
 }
 
 /// Error codes for collateral, position, interest-rate-curve, and
@@ -241,10 +238,6 @@ pub enum OracleError {
     UnsupportedAquariusPool = 234,
 
     InsufficientAquariusLiquidity = 235,
-
-    /// A `ConfigureAssetOracle` executes although `set_sanity_band` narrowed
-    /// the key's band at or after the operation's proposal ledger.
-    SanityBandNarrowedAfterProposal = 236,
 }
 
 /// Error codes for spoke registration and per-spoke asset configuration

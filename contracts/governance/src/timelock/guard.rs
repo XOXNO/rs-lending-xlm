@@ -1,96 +1,104 @@
-//! Execution guards: governance state an operation is bound to when it is
-//! proposed, so an emergency action taken in between voids the operation
-//! instead of being undone by it; and the single pending-controller-upgrade
-//! slot that keeps an `Unpause` from executing ahead of an upgrade.
+//! Operation guards: governance state an operation is bound to when it is
+//! proposed, so a handover or emergency action taken in between voids the
+//! operation instead of being undone by it.
 
-use common::errors::{GenericError, OracleError};
-use controller_interface::ControllerClient;
+use common::errors::GenericError;
+use common::types::PriceKey;
 use price_aggregator_interface::PriceAggregatorClient;
 
-use soroban_sdk::{assert_with_error, panic_with_error, Address, BytesN, Env};
+use soroban_sdk::{assert_with_error, Address, BytesN, Env};
 
-use crate::op::AdminOperation;
-use crate::storage::{self, ExecutionGuard};
+use crate::op::{requires_owner_proposer, AdminOperation};
+use crate::storage::{self, OperationGuard, OracleBandGuard};
 
-use super::operation_live;
+/// Owner epoch a recovery operation carrying only the bare `RecoveryOp`
+/// marker is bound to: such a reset was proposed before resets recorded an
+/// epoch, so it may execute only until the first ownership handover.
+const LEGACY_RECOVERY_OWNER_EPOCH: u64 = 0;
 
-/// Returns whether a proposed `UpgradeController` is waiting or ready and
-/// not expired.
-fn controller_upgrade_pending(env: &Env) -> bool {
-    storage::pending_controller_upgrade(env).is_some_and(|id| operation_live(env, &id))
+/// Returns the sanity band the price aggregator holds for `key`, or
+/// `Unbound` when the key has no oracle.
+fn sanity_band(env: &Env, aggregator: &Address, key: &PriceKey) -> OracleBandGuard {
+    PriceAggregatorClient::new(env, aggregator)
+        .oracle(key)
+        .map_or(OracleBandGuard::Unbound, |oracle| {
+            OracleBandGuard::Bound(
+                key.clone(),
+                oracle.min_sanity_price_wad,
+                oracle.max_sanity_price_wad,
+            )
+        })
 }
 
-/// Panics with `GenericError::ConflictingOperationPending` if `op` is an
-/// `UpgradeController` while another one is pending; cancel it first.
-pub(crate) fn require_no_pending_upgrade(env: &Env, op: &AdminOperation) {
-    if let AdminOperation::UpgradeController(_) = op {
+/// Builds the guard `op` is bound to: the owner epoch for owner-only
+/// operations, the nomination epoch for a nomination cancellation, the
+/// emergency epoch for `Unpause` and `GrantGovRole`, and the current sanity
+/// band for `ConfigureAssetOracle`.
+pub(crate) fn for_op(env: &Env, op: &AdminOperation) -> OperationGuard {
+    OperationGuard {
+        owner_epoch: requires_owner_proposer(op).then(|| storage::owner_epoch(env)),
+        nomination_epoch: match op {
+            AdminOperation::TransferGovOwnership(args) if args.live_until_ledger == 0 => {
+                Some(storage::nomination_epoch(env))
+            }
+            _ => None,
+        },
+        emergency_epoch: matches!(
+            op,
+            AdminOperation::Unpause | AdminOperation::GrantGovRole(_)
+        )
+        .then(|| storage::emergency_epoch(env)),
+        oracle_band: match op {
+            AdminOperation::ConfigureAssetOracle(args) => {
+                sanity_band(env, &storage::get_price_aggregator(env), &args.key)
+            }
+            _ => OracleBandGuard::Unbound,
+        },
+    }
+}
+
+/// Returns the guard for a canceller reset: bound to the owner epoch only.
+pub(crate) fn for_canceller_reset(env: &Env) -> OperationGuard {
+    OperationGuard {
+        owner_epoch: Some(storage::owner_epoch(env)),
+        ..OperationGuard::NONE
+    }
+}
+
+/// Panics if the state `operation_id`'s guard bound it to has moved:
+/// `NotAuthorized` after an ownership handover, `EmergencyEpochMismatch`
+/// after an emergency action, `OracleBandChangedAfterProposal` when the
+/// aggregator at `target` no longer holds the recorded band. Returns the
+/// guard for the caller's own checks.
+pub(crate) fn require_holds(
+    env: &Env,
+    operation_id: &BytesN<32>,
+    target: &Address,
+) -> OperationGuard {
+    let guard = storage::operation_guard(env, operation_id);
+    let owner_epoch = guard.owner_epoch.or_else(|| {
+        storage::is_recovery_op(env, operation_id).then_some(LEGACY_RECOVERY_OWNER_EPOCH)
+    });
+    if let Some(epoch) = owner_epoch {
         assert_with_error!(
             env,
-            !controller_upgrade_pending(env),
-            GenericError::ConflictingOperationPending
+            epoch == storage::owner_epoch(env),
+            GenericError::NotAuthorized
         );
     }
-}
-
-/// Records the execution guard `op` needs under `operation_id`, if any, and
-/// fills the pending-controller-upgrade slot for an `UpgradeController`.
-///
-/// `Unpause` binds to the controller's current pause epoch and panics with
-/// `GenericError::PauseEpochMismatch` while the controller is open.
-/// `ConfigureAssetOracle` binds to its key and the proposal ledger.
-/// `GrantGovRole` binds to the account and role's immediate-revocation epoch.
-pub(crate) fn record(env: &Env, operation_id: &BytesN<32>, op: &AdminOperation) {
-    if let AdminOperation::UpgradeController(_) = op {
-        storage::set_pending_controller_upgrade(env, operation_id);
-    }
-    let guard = match op {
-        AdminOperation::Unpause => ExecutionGuard::PauseEpoch(
-            ControllerClient::new(env, &storage::get_controller(env))
-                .get_pause_epoch()
-                .unwrap_or_else(|| panic_with_error!(env, GenericError::PauseEpochMismatch)),
-        ),
-        AdminOperation::ConfigureAssetOracle(args) => {
-            ExecutionGuard::OracleBand(args.key.clone(), env.ledger().sequence())
-        }
-        AdminOperation::GrantGovRole(args) => ExecutionGuard::RoleEpoch(
-            args.account.clone(),
-            args.role.clone(),
-            storage::hot_revocation_epoch(env, &args.account, &args.role),
-        ),
-        _ => return,
-    };
-    storage::set_execution_guard(env, operation_id, &guard);
-}
-
-/// Panics if the state `operation_id` was bound to at proposal has moved.
-/// `target` is the contract the operation invokes. An `Unpause` also reverts
-/// with `GenericError::ConflictingOperationPending` while an
-/// `UpgradeController` is pending. An operation without a recorded guard
-/// passes.
-pub(crate) fn require_holds(env: &Env, operation_id: &BytesN<32>, target: &Address) {
-    match storage::execution_guard(env, operation_id) {
-        Some(ExecutionGuard::PauseEpoch(epoch)) => {
-            assert_with_error!(
-                env,
-                !controller_upgrade_pending(env),
-                GenericError::ConflictingOperationPending
-            );
-            assert_with_error!(
-                env,
-                ControllerClient::new(env, target).get_pause_epoch() == Some(epoch),
-                GenericError::PauseEpochMismatch
-            );
-        }
-        Some(ExecutionGuard::OracleBand(key, proposed_at)) => assert_with_error!(
+    if let Some(epoch) = guard.emergency_epoch {
+        assert_with_error!(
             env,
-            PriceAggregatorClient::new(env, target).sanity_band_narrowed_at(&key) < proposed_at,
-            OracleError::SanityBandNarrowedAfterProposal
-        ),
-        Some(ExecutionGuard::RoleEpoch(account, role, epoch)) => assert_with_error!(
-            env,
-            storage::hot_revocation_epoch(env, &account, &role) == epoch,
-            GenericError::RoleRevokedAfterProposal
-        ),
-        None => {}
+            epoch == storage::emergency_epoch(env),
+            GenericError::EmergencyEpochMismatch
+        );
     }
+    if let OracleBandGuard::Bound(key, _, _) = &guard.oracle_band {
+        assert_with_error!(
+            env,
+            sanity_band(env, target, key) == guard.oracle_band,
+            GenericError::OracleBandChangedAfterProposal
+        );
+    }
+    guard
 }

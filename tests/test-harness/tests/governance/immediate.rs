@@ -1,3 +1,4 @@
+use common::errors::GenericError;
 use governance::op::{
     AdminOperation, ConfigureAssetOracleArgs, RelaxSpokeAssetFlagsArgs, RoleArgs,
 };
@@ -397,7 +398,7 @@ fn oracle_reconfiguration_queued_before_a_band_narrowing_cannot_widen_it() {
 
     assert_contract_error(
         execute_oracle_config_as_stranger(&t, &args, &stale_salt),
-        errors::SANITY_BAND_NARROWED_AFTER_PROPOSAL,
+        GenericError::OracleBandChangedAfterProposal as u32,
     );
     let held = t.market_oracle_config(&usdc);
     assert_eq!(
@@ -424,11 +425,11 @@ fn oracle_reconfiguration_queued_before_a_band_narrowing_cannot_widen_it() {
     );
 }
 
-/// Mirror of the governance storage key that holds an operation's execution
-/// guard (same XDR encoding).
+/// Mirror of the governance storage key that holds an operation's guard (same
+/// XDR encoding).
 #[contracttype]
 enum GovernanceGuardKey {
-    ExecutionGuard(BytesN<32>),
+    OperationGuard(BytesN<32>),
 }
 
 #[test]
@@ -453,7 +454,7 @@ fn oracle_reconfiguration_without_a_guard_record_keeps_its_unbound_behaviour() {
         t.env
             .storage()
             .persistent()
-            .remove(&GovernanceGuardKey::ExecutionGuard(id.clone()));
+            .remove(&GovernanceGuardKey::OperationGuard(id.clone()));
     });
 
     t.env.ledger().with_mut(|l| l.sequence_number += 1);

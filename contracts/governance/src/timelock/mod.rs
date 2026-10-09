@@ -26,6 +26,7 @@ use stellar_governance::timelock::{
 use crate::access::EXECUTOR_ROLE;
 use crate::events::ExpiredOperationClearedEvent;
 use crate::op::{resolve_op, AdminOperation};
+use crate::storage::OperationGuard;
 use crate::{constants, storage};
 
 /// Classifies an operation by the minimum delay it must wait before execution.
@@ -95,11 +96,6 @@ fn grace_deadline(env: &Env, operation_id: &BytesN<32>) -> Option<u32> {
 /// has passed.
 fn operation_expired(env: &Env, operation_id: &BytesN<32>) -> bool {
     grace_deadline(env, operation_id).is_some_and(|deadline| env.ledger().sequence() > deadline)
-}
-
-/// Returns whether `operation_id` is waiting or ready and not expired.
-fn operation_live(env: &Env, operation_id: &BytesN<32>) -> bool {
-    grace_deadline(env, operation_id).is_some_and(|deadline| env.ledger().sequence() <= deadline)
 }
 
 /// Panics with `GenericError::TimelockOperationExpired` if `operation_id`'s
@@ -201,40 +197,21 @@ fn begin_immediate(env: &Env, caller: &Address, role: &str) {
     access_control::ensure_role(env, &Symbol::new(env, role), caller);
 }
 
-/// Owner epoch a recovery operation carrying only the bare `RecoveryOp`
-/// marker is bound to: such a reset was proposed before resets recorded an
-/// epoch, so it may execute only until the first ownership handover.
-const LEGACY_RECOVERY_OWNER_EPOCH: u64 = 0;
-
-/// Panics with `GenericError::NotAuthorized` if `operation_id` recorded an
-/// owner epoch that a later ownership handover has superseded. A recovery
-/// operation without a recorded epoch is bound to
-/// `LEGACY_RECOVERY_OWNER_EPOCH`.
-fn require_proposing_owner_tenure(env: &Env, operation_id: &BytesN<32>) {
-    let recorded = storage::proposal_owner_epoch(env, operation_id).or_else(|| {
-        storage::is_recovery_op(env, operation_id).then_some(LEGACY_RECOVERY_OWNER_EPOCH)
-    });
-    if let Some(epoch) = recorded {
-        assert_with_error!(
-            env,
-            epoch == storage::owner_epoch(env),
-            GenericError::NotAuthorized
-        );
-    }
-}
-
 /// Renews the governance instance's storage TTL, authorizes `executor` if
 /// present, computes `operation`'s id, and checks that the operation has not
-/// expired, was not proposed under a previous owner, and that the state its
-/// execution guard bound it to still holds. Returns the operation id.
-fn prepare_execute(env: &Env, executor: Option<&Address>, operation: &Operation) -> BytesN<32> {
+/// expired and that the state its guard bound it to still holds. Returns the
+/// operation id and its guard.
+fn prepare_execute(
+    env: &Env,
+    executor: Option<&Address>,
+    operation: &Operation,
+) -> (BytesN<32>, OperationGuard) {
     renew_instance(env);
     authorize_executor(env, executor);
     let operation_id = hash_operation(env, operation);
     require_operation_not_expired(env, &operation_id);
-    require_proposing_owner_tenure(env, &operation_id);
-    guard::require_holds(env, &operation_id, &operation.target);
-    operation_id
+    let guard = guard::require_holds(env, &operation_id, &operation.target);
+    (operation_id, guard)
 }
 
 /// Removes the operation's scheduled-ledger entry and clears any sidecar state

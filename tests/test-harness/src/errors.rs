@@ -57,8 +57,6 @@ pub mod codes {
     pub const SANITY_BOUND_VIOLATED: u32 = OracleError::SanityBoundViolated as u32;
     pub const INVALID_SANITY_BOUNDS: u32 = OracleError::InvalidSanityBounds as u32;
     pub const SANITY_BAND_MUST_TIGHTEN: u32 = OracleError::SanityBandMustTighten as u32;
-    pub const SANITY_BAND_NARROWED_AFTER_PROPOSAL: u32 =
-        OracleError::SanityBandNarrowedAfterProposal as u32;
 
     pub const SPOKE_NOT_FOUND: u32 = SpokeError::SpokeNotFound as u32;
     pub const SPOKE_DEPRECATED: u32 = SpokeError::SpokeDeprecated as u32;

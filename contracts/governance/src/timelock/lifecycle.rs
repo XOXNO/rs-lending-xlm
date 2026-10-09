@@ -14,8 +14,7 @@ use stellar_governance::timelock::{
 };
 
 use crate::access::{self, CANCELLER_ROLE, PROPOSER_ROLE};
-use crate::op::apply_self_op;
-use crate::op::AdminOperation;
+use crate::op::{apply_self_op, requires_owner_proposer, AdminOperation, CONTROLLER_UPGRADE_FN};
 use crate::storage;
 use crate::timelock::*;
 
@@ -28,10 +27,10 @@ use crate::timelock::*;
 /// upgrades, controller migration, the timelock minimum delay, price aggregator
 /// and oracle configuration, the swap aggregator, Blend pool approval, the
 /// revenue accumulator, and role grants also require the proposer to be the
-/// owner. These checks fail with
-/// `GenericError::NotAuthorized`. An owner-only operation records the current
-/// owner epoch, and execution rejects it after a later ownership handover.
-/// The delay comes from the operation's delay tier.
+/// owner. These checks fail with `GenericError::NotAuthorized`. The operation's
+/// guard records the governance state it is bound to, and execution rejects
+/// it once that state has moved. The delay comes from the operation's delay
+/// tier.
 pub(crate) fn propose(
     env: &Env,
     proposer: &Address,
@@ -39,8 +38,7 @@ pub(crate) fn propose(
     salt: BytesN<32>,
 ) -> BytesN<32> {
     begin_immediate(env, proposer, PROPOSER_ROLE);
-    let owner_only = requires_owner_proposer(op);
-    if owner_only {
+    if requires_owner_proposer(op) {
         assert_with_error!(
             env,
             proposer == &access::owner_or_panic(env),
@@ -55,7 +53,6 @@ pub(crate) fn propose(
             GenericError::NotAuthorized
         );
     }
-    guard::require_no_pending_upgrade(env, op);
     let (operation, delay_tier) = operation_for_admin_op(env, op, salt);
     let delay = operation_delay(env, delay_tier);
     clear_expired_operation(env, &operation);
@@ -63,46 +60,15 @@ pub(crate) fn propose(
     if let AdminOperation::RevokeGovRole(args) = op {
         storage::mark_role_revocation_target(env, &operation_id, &args.account);
     }
-    if owner_only {
-        storage::mark_proposal_owner_epoch(env, &operation_id);
-    }
-    if let AdminOperation::TransferGovOwnership(args) = op {
-        if args.live_until_ledger == 0 {
-            storage::mark_cancelled_nomination(env, &operation_id);
-        }
-    }
-    guard::record(env, &operation_id, op);
+    storage::set_operation_guard(env, &operation_id, &guard::for_op(env, op));
     operation_id
-}
-
-/// Returns whether `op` replaces code, prices, ownership or authority, so only
-/// the owner may propose it and only under that owner's tenure may it execute.
-fn requires_owner_proposer(op: &AdminOperation) -> bool {
-    matches!(
-        op,
-        AdminOperation::TransferGovOwnership(_)
-            | AdminOperation::TransferCtrlOwnership(_)
-            | AdminOperation::UpgradeGov(_)
-            | AdminOperation::UpgradeController(_)
-            | AdminOperation::UpgradePool(_)
-            | AdminOperation::UpgradePositionNft(_)
-            | AdminOperation::UpgradePriceAggregator(_)
-            | AdminOperation::MigrateController(_)
-            | AdminOperation::UpdateGovDelay(_)
-            | AdminOperation::SetPriceAggregator(_)
-            | AdminOperation::ConfigureAssetOracle(_)
-            | AdminOperation::EditOracleTolerance(_)
-            | AdminOperation::SetSwapAggregator(_)
-            | AdminOperation::ApproveBlendPool(_)
-            | AdminOperation::SetAccumulator(_)
-            | AdminOperation::GrantGovRole(_)
-    )
 }
 
 /// Executes a scheduled operation against `target` once its delay has elapsed and
 /// it has not expired, and returns the invocation's result. Rejects operations
 /// that target this contract itself (use `execute_self` for those). Clears the
-/// operation's scheduled state on completion.
+/// operation's scheduled state on completion. A controller upgrade counts as
+/// an emergency action and advances the emergency epoch.
 pub(crate) fn execute(
     env: &Env,
     executor: Option<Address>,
@@ -124,8 +90,13 @@ pub(crate) fn execute(
         predecessor,
         salt,
     };
-    let operation_id = prepare_execute(env, executor.as_ref(), &operation);
+    let (operation_id, _) = prepare_execute(env, executor.as_ref(), &operation);
     let result = execute_operation(env, &operation);
+    if operation.target == storage::get_controller(env)
+        && operation.function == Symbol::new(env, CONTROLLER_UPGRADE_FN)
+    {
+        storage::bump_emergency_epoch(env);
+    }
     finish_execute(env, &operation_id);
     result
 }
@@ -149,9 +120,9 @@ pub(crate) fn execute_self(
         operation.target == env.current_contract_address(),
         GenericError::InternalError
     );
-    let operation_id = prepare_execute(env, executor.as_ref(), &operation);
+    let (operation_id, guard) = prepare_execute(env, executor.as_ref(), &operation);
     set_execute_operation(env, &operation);
-    if targets_live_state(env, &operation_id, op) {
+    if targets_live_nomination(env, op, guard.nomination_epoch) {
         apply_self_op(env, op);
     }
     finish_execute(env, &operation_id);
@@ -159,10 +130,10 @@ pub(crate) fn execute_self(
 
 /// Returns `false` only for a nomination cancellation whose recorded
 /// nomination is no longer the pending one.
-fn targets_live_state(env: &Env, operation_id: &BytesN<32>, op: &AdminOperation) -> bool {
-    match (op, storage::cancelled_nomination(env, operation_id)) {
-        (AdminOperation::TransferGovOwnership(args), Some(nonce)) => {
-            access::nomination_cancel_is_current(env, &args.new_owner, nonce)
+fn targets_live_nomination(env: &Env, op: &AdminOperation, nomination_epoch: Option<u64>) -> bool {
+    match (op, nomination_epoch) {
+        (AdminOperation::TransferGovOwnership(args), Some(epoch)) => {
+            access::nomination_cancel_is_current(env, &args.new_owner, epoch)
         }
         _ => true,
     }
