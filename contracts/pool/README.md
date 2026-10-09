@@ -230,7 +230,7 @@ runs every `borrow` guard.
 | `require_liquidation_buffer` | `borrow`, `create_strategy` | `withdraw`, `flash_loan` | 112 |
 | `require_utilization_below_max` | `borrow`, `create_strategy`, non-liquidation `withdraw`, `claim_revenue` | `net_settle`, `seize_positions`, liquidation | 127 |
 | `require_supply_for_debt` | `borrow`, `create_strategy`, `withdraw`, `net_settle`, `claim_revenue` | — | 123 |
-| `require_market_value_within_ceiling` | `supply`, `flash_loan` fee, `create_strategy` fee | everything else | 33 |
+| `require_market_value_within_ceiling` | `supply`, `flash_loan` fee booking, `create_strategy` | everything else | 33 |
 
 **Liquidation buffer.** `require_liquidation_buffer` keeps a flat
 `LIQUIDATION_BUFFER_BPS` (200 bps) of the floored supplied amount for

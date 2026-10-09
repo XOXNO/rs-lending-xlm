@@ -92,10 +92,11 @@ let shortfall = max(0, uncovered - cash);
 ```
 
 `uncovered` is 0 when debt value covers claims. Because cash is a whole number of
-native units, the shortfall is the floor of the exact gap between claims and
-cash plus debt. Supply entry rejects a positive shortfall. Recapitalization
-credits at most that shortfall, refunds excess and mints no shares; a full fill
-leaves an exact gap below one native unit. Accrual adds the same interest to
+native units, the shortfall is the floor of the gap between claims and cash plus
+debt at RAY precision. That gap sits at most two raw RAY units below the exact
+gap. Supply entry rejects a positive shortfall. Recapitalization credits at most
+that shortfall, refunds excess and mints no shares; a full fill leaves the
+RAY-precision gap below one native unit. Accrual adds the same interest to
 claims and debt, up to RAY-precision rounding, so it does not turn that gap
 back into a shortfall.
 
@@ -471,8 +472,8 @@ The token-to-RAY maximum is also the admitted cap maximum. Caps are per spoke
 and bound usage at entry, not a market's total value or its interest, so the
 pool enforces the market value ceiling itself. Supply entry and flash and
 strategy fee booking reject a total above it with `MathOverflow`; the largest
-admitted cap therefore sits less than one whole token above the largest
-deposit an empty market accepts. Accrual caps interest at the room left below
+admitted cap therefore sits exactly one whole token above the largest deposit
+an empty market accepts. Accrual caps interest at the room left below
 the ceiling (see [compounding](#compounding-and-interest-allocation)), so
 market totals and the position values they bound stay representable, and
 repayment, withdrawal, liquidation, rate-model changes and index projections

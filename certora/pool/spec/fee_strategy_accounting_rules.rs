@@ -92,7 +92,7 @@ fn recapitalize_caps_cash_to_shortfall_and_refunds_excess(
     cvlr_assert!(post.supply_index == pre.supply_index);
     cvlr_assert!(post.borrow_index == pre.borrow_index);
     cvlr_assert!(shortfall != 0 || outcome.mutation.actual_amount == 0);
-    // A full fill leaves an exact gap below one asset unit.
+    // A full fill leaves the RAY-precision gap below one asset unit.
     cvlr_assert!(offered < shortfall || post.cash >= uncovered);
 }
 

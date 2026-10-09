@@ -59,9 +59,9 @@ pub(crate) fn require_backed_market(env: &Env, cache: &Cache) {
 ///
 /// Claims round down and debt rounds up at RAY precision; the difference
 /// floors to asset units once, then cash is subtracted. The result is the
-/// floor of the exact gap, so accrual, which adds the same interest to claims
-/// and debt up to RAY-precision rounding, does not turn a gap below one unit
-/// into a shortfall.
+/// floor of the RAY-precision gap, so accrual, which adds the same interest to
+/// claims and debt up to RAY-precision rounding, does not turn a gap below one
+/// unit into a shortfall.
 pub(crate) fn backing_shortfall(cache: &Cache) -> i128 {
     let env = cache.env();
     let claims = cache.supplied().mul_floor(env, cache.supply_index());

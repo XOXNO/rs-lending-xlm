@@ -62,13 +62,16 @@ fn leg(t: &LendingTest, asset: &str, amount: i128) -> Vec<(HubAssetKey, i128)> {
 }
 
 /// The largest deposit whose value fits `MAX_MARKET_VALUE_RAY` books; one raw
-/// unit more is rejected. The admitted cap sits less than one token above it.
+/// unit more is rejected. The admitted cap sits exactly one whole token above it.
 #[test]
 fn supply_at_the_market_value_ceiling_succeeds_and_one_unit_more_is_rejected() {
     for decimals in [3u32, 7, 18] {
         let mut t = setup_with_liquidity(decimals, 0.0);
         let ceiling = MAX_MARKET_VALUE_RAY / 10i128.pow(RAY_DECIMALS - decimals);
-        assert!(ceiling < max_cap_for_decimals(decimals));
+        assert_eq!(
+            max_cap_for_decimals(decimals) - ceiling,
+            10i128.pow(decimals)
+        );
         t.supply_raw(ALICE, "A", ceiling);
         assert_eq!(
             t.supply_balance_raw(ALICE, "A"),

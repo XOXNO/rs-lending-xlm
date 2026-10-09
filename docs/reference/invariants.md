@@ -130,10 +130,10 @@ incoming collateral tokens.
 New token-funded supply rejects a positive backing shortfall. The check
 subtracts ceiled debt value from floored supplied claims at RAY precision,
 floors the difference once to native token units, then subtracts tracked cash.
-The shortfall is the floor of the exact gap.
+The shortfall is the floor of that RAY-precision gap.
 
 Recapitalization fills at most that shortfall, refunds excess and mints no
-shares; a full fill leaves an exact gap below one native unit. Accrual adds the
+shares; a full fill leaves the RAY-precision gap below one native unit. Accrual adds the
 same interest to claims and debt, up to RAY-precision rounding, so it does not
 reopen that gap. It cannot restore a written-down index. The non-zero supply-index floor
 can leave residual claims requiring recapitalization; see the
