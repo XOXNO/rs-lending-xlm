@@ -5,13 +5,12 @@ use soroban_sdk::{assert_with_error, vec, Address, Env};
 
 use crate::account;
 use crate::config;
-use crate::context::Context;
 use crate::events::PositionAction;
 use crate::positions::get_debt_position_or_panic;
 use crate::risk::validation::require_authorized_caller;
 use crate::storage;
 use crate::strategies::{
-    borrow_into_controller, prefetch_strategy_prices, repay_debt_from_controller,
+    borrow_into_controller, prefetch_strategy_prices, repay_debt_from_controller, strategy_context,
     strategy_finalize, swap_tokens_or_passthrough, StrategyRepay,
 };
 
@@ -46,7 +45,7 @@ pub(crate) fn process_swap_debt(env: &Env, caller: &Address, params: SwapDebtPar
 
     let mut account = storage::get_account(env, account_id);
     account::require_owner_or_delegate(env, account_id, caller, &account.owner);
-    let mut cache = Context::new(env);
+    let mut cache = strategy_context(env);
     let existing_pos = get_debt_position_or_panic(env, &account, existing_debt);
 
     let extra_assets = vec![env, existing_debt.asset.clone(), new_debt.asset.clone()];

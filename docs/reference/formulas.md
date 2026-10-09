@@ -297,18 +297,25 @@ than it seizes. On an insolvent account the trim rounds each kept leg down to
 whole token units, so the kept
 value never exceeds the quote. A leg whose kept amount rounds to zero is
 dropped and its whole offer refunded; if no leg remains, `liquidate` reverts
-with `InvalidPayments` (16) and the estimate shows a zero payment. This insolvency
+with `InvalidPayments` (16) and the estimate shows a zero payment. An offer
+that reaches the quote seizes every collateral unit when the trim keeps the
+last trimmed leg, whose floor leaves the kept repayment less than one of that
+leg's native units below the quote. Any other plan, including an offer below
+the quote or one whose trim drops the last leg whole, seizes
+`repay * (1 + base)`. This insolvency
 branch does not promote the quote to full debt; bad-debt cleanup takes the unbacked
 residue. With `p == 0`, the target formula and dust promotion below apply instead.
 
 A partial seizure leg below 3 decimals takes whole token units only. When the
-repayment covers the whole debt, the leg rounds up to the held balance and
-the debt closes. Otherwise it rounds down: the dropped fraction's USD value,
+repayment covers the whole debt, the leg rounds up to the next whole unit,
+capped at the held balance, and the debt closes; if the pool would close the
+position at that request, the leg steps back one unit, or takes the held
+balance when that unit is the only one. Otherwise it rounds down: the dropped fraction's USD value,
 divided by `1 + bonus` and floored, is trimmed from the repayment and
 refunded, kept amounts rounding up, so the liquidator pays for the units it
 receives, and a plan that then seizes nothing reverts with `InvalidPayments`
-(16). Neither applies when an insolvent account's repayment reaches the
-collateral-backed quote: that call seizes every unit. Such a leg is its
+(16). Neither applies when an insolvent account's offer reaches the
+collateral-backed quote and the call seizes every unit, as above. Such a leg is its
 account's only supply position, so it is the whole collateral and the seizure
 stays proportional, and an action that leaves debt needs at least 2 whole
 units in it.
@@ -319,7 +326,7 @@ below `D`, the leg is the account's only supply position, and the leg holds at
 least one whole unit. Let `U` be the WAD USD value of one whole unit, `b` the
 bonus and `m = max(floor(U / 1e6), 1)` in raw WAD. Let `R` be the sum, over the
 account's debt legs, of the USD value of one base unit of that debt token. `R`
-is the per-leg ceiling rounding that a full close can record. The controller
+is the per-leg ceiling rounding that a full close can pull. The controller
 applies the first rule that matches:
 
 1. If `floor(U / (1 + b)) >= D + R`, the quote becomes `D`. The plan closes in
@@ -343,7 +350,10 @@ decimals and holds a whole unit stays liquidatable below `HF = 1`, by a
 one-unit sale or by a full close. There is one exception. While
 `floor(U / (1 + b)) - R < D <= ceil((U + m) / (1 + b))`, neither rule 1 nor
 rule 2 applies. If the curve quote then backs less than one unit, every offer
-reverts until accrual or a price move ends that state.
+reverts until accrual or a price move ends that state. A paused debt leg
+cannot be repaid, so the same revert occurs while the unpaused legs together
+back less than one unit at `1 + b`; this is an accepted limitation
+([ADR-0008](../explanation/decisions.md#adr-0008)).
 
 A rule-1 full close pays the liquidator one unit worth `U` for `D`. Its
 effective bonus is `U / D - 1`, not `b`. With `k` held units and liquidation
@@ -358,8 +368,9 @@ half-up, so an account at
 `C == D`, or a few raw WAD units above it, can compute a cap of `-1`. Such a
 covered account takes the band quote with the cap clamped to zero. A full close
 repays all of `D`, so no debt is left to socialize. Seizure floors to whole
-token units, so it takes `C` less at most one token unit per collateral leg.
-That unit stays with the account as collateral. Bad-debt cleanup does not
+token units, so it takes `C` less at most one token unit per collateral leg,
+or two when the request stops short of the pool's full close (see
+[seizure](#seizure-and-fees)). That residue stays with the account as collateral. Bad-debt cleanup does not
 sweep it, because the account has no debt.
 
 An ideal residual debt strictly between zero and $5 also promotes the quote to
@@ -370,7 +381,10 @@ also trims the inputs above the quote from the last leg backward before tokens
 are pulled, and execution pulls the trimmed amount. On a solvent account the
 trim floors the refund, so the kept amount can round up by one token unit. A
 full-debt quote trims nothing: the per-leg ceilings can exceed `D` by unit
-rounding, and the repayment credits every unit of them. Execution then pulls
+rounding. A leg paid at its ceiling is credited the debt it clears, valued
+with floor rounding, not the rounded-up units, so the rounding sizes no
+seizure and a band partial that closes one coarse leg cannot push `C` below
+`D`. Execution then pulls
 each merged offered amount and the pool refunds what exceeds each leg's debt,
 which is exactly the listed refund. Neither a full-debt quote nor the target
 health factor guarantees an executed full close after rounding or
@@ -382,7 +396,14 @@ Seizure is proportional to collateral value and capped at held value. The bonus
 is the capped seizure minus the floor-divided uncapped principal, bounded below
 by zero. A collateral cap below principal leaves no bonus to charge.
 
-Partial seizure floors the token amount and seized shares. Full seizure uses
+Partial seizure floors the token amount and seized shares. The pool closes a
+withdrawal at or above the half-up balance in full, so a partial transfer
+request that reaches it is lowered by one token unit and the account keeps its
+residue; Credit shares are unchanged. A rounded-down leg below 3 decimals
+drops that unit from the seizure in both modes and refunds its repayment; a
+rounded-up one on a full repayment steps back a unit in both modes, or takes
+the held balance when it is a single unit.
+Full seizure uses
 the half-up token amount to request a full pool withdrawal and takes the exact
 held shares for Credit mode; the pool payout still floors the supply claim.
 Bonus shares floor at the supply index and cannot exceed seized shares.

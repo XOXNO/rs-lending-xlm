@@ -419,7 +419,9 @@ self-liquidate.
 A Credit receiver must be a different account in the same spoke, in Normal
 mode, and controlled by the liquidator as owner or active delegate. `Credit(0)`
 can create a receiver in a deprecated spoke. Ownership and position limits
-still apply.
+still apply, except that an empty receiver takes every seized leg: those
+legs are already bounded by the limit that admitted them, so a lowered limit
+cannot block a `Credit(0)` receiver.
 
 <a id="inv-liq-02"></a>
 

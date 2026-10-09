@@ -301,3 +301,94 @@ fn a_multiply_leg_counts_its_own_collateral_toward_the_floor() {
     );
     t.assert_spoke_usage_matches_positions();
 }
+
+/// 10_000 USDC against `eth_debt` ETH and optional USDC debt on the three-asset
+/// book, then relisted at `TIGHT_TUPLE` with LTV `ltv`.
+fn stale_strategy_account(eth_debt: f64, usdc_debt: f64, ltv: u32) -> (LendingTest, u64) {
+    let mut t = LendingTest::new().three_asset_usdc_eth_wbtc().build();
+    t.supply(BOB, "ETH", 100.0);
+    t.supply(ALICE, "USDC", 10_000.0);
+    if usdc_debt > 0.0 {
+        t.borrow(ALICE, "USDC", usdc_debt);
+    }
+    t.borrow(ALICE, "ETH", eth_debt);
+    let account = t.account_id(ALICE);
+    assert_eq!(stamped_tuple(&t, account), STALE_TUPLE);
+    t.edit_asset_in_spoke("USDC", HARNESS_SPOKE, true, true, ltv, 7_000, 600);
+    (t, account)
+}
+
+/// The last USDC delta of the strategy's batch carries the stored tuple.
+fn assert_last_usdc_delta_matches(t: &LendingTest, account: u64) {
+    let batches = data_for_topic(&t.env.events().all(), "position", "batch_update");
+    let batch = as_vec(batches.last().unwrap());
+    let usdc = t.resolve_asset("USDC");
+    let usdc_val = ScVal::try_from_val(&t.env, &usdc.to_val()).unwrap();
+    let leg = as_vec(&batch[2])
+        .iter()
+        .rev()
+        .find(|leg| as_vec(leg)[2] == usdc_val)
+        .unwrap();
+    let leg = as_vec(leg);
+    let (threshold, bonus, fees) = stamped_tuple(t, account);
+    assert_eq!(
+        (leg[6].clone(), leg[7].clone(), leg[9].clone()),
+        (ScVal::U32(threshold), ScVal::U32(bonus), ScVal::U32(fees))
+    );
+    t.assert_spoke_usage_matches_positions();
+}
+
+/// CR-11. At the new threshold: 0.7 * 5_000 / 6_000 = 0.58 between the USDC
+/// withdrawal and the WBTC deposit, (3_500 + 0.8 * 5_000) / 6_000 = 1.25 after.
+#[test]
+fn a_swap_collateral_refresh_reads_the_finished_swap() {
+    let (mut t, account) = stale_strategy_account(3.0, 0.0, 6_500);
+    t.fund_router("WBTC", 10.0);
+    let swap = build_aggregator_swap(&t, "USDC", "WBTC", 0, f64_to_i128(0.0833333, 7));
+
+    t.swap_collateral(ALICE, "USDC", 5_000.0, "WBTC", &swap);
+
+    assert_last_usdc_delta_matches(&t, account);
+    assert_eq!(stamped_tuple(&t, account), TIGHT_TUPLE);
+}
+
+/// CR-11. At the new threshold: 0.7 * 7_000 / 7_000 = 0.7 between the USDC
+/// withdrawal and the ETH repayment, 0.7 * 7_000 / 4_000 = 1.225 after.
+#[test]
+fn a_swap_repayment_refresh_reads_the_repaid_debt() {
+    let (mut t, account) = stale_strategy_account(3.5, 0.0, 6_500);
+    t.fund_router("ETH", 10.0);
+    let swap = build_aggregator_swap(&t, "USDC", "ETH", 0, f64_to_i128(1.5, 7));
+
+    t.repay_debt_with_collateral(ALICE, "USDC", 3_000.0, "ETH", &swap, false);
+
+    assert_last_usdc_delta_matches(&t, account);
+    assert_eq!(stamped_tuple(&t, account), TIGHT_TUPLE);
+}
+
+/// CR-11. A same-market net settle of 3_000 USDC: the gate reads 0.7 between
+/// the supply leg and the debt leg, 0.7 * 7_000 / 4_000 = 1.225 after.
+#[test]
+fn a_net_settle_refresh_reads_both_settled_legs() {
+    let (mut t, account) = stale_strategy_account(1.75, 3_500.0, 6_500);
+    let no_route = soroban_sdk::Bytes::new(&t.env);
+
+    t.repay_debt_with_collateral(ALICE, "USDC", 3_000.0, "USDC", &no_route, false);
+
+    assert_last_usdc_delta_matches(&t, account);
+    assert_eq!(stamped_tuple(&t, account), TIGHT_TUPLE);
+}
+
+/// CR-11. The finalization gate still holds: with LTV 6_900, a swap that ends
+/// at (6_300 + 0.8 * 1_000) / 6_800 = 1.044 keeps the stale tuple.
+#[test]
+fn a_strategy_that_ends_under_the_floor_keeps_the_stale_tuple() {
+    let (mut t, account) = stale_strategy_account(3.4, 0.0, 6_900);
+    t.fund_router("WBTC", 10.0);
+    let swap = build_aggregator_swap(&t, "USDC", "WBTC", 0, f64_to_i128(0.0166666, 7));
+
+    t.swap_collateral(ALICE, "USDC", 1_000.0, "WBTC", &swap);
+
+    assert_last_usdc_delta_matches(&t, account);
+    assert_eq!(stamped_tuple(&t, account), STALE_TUPLE);
+}

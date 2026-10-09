@@ -161,7 +161,8 @@ pub(crate) fn update_account_threshold(
 
 /// Refreshes listed supply parameters to `scope`. Skips missing metadata,
 /// empty supply, or unresolved NFT ownership. Only `FullTuple` loads debt
-/// and enforces final health factor >= 1.05; writes only supply positions.
+/// and enforces final health factor >= 1.05 on an account with debt, so a
+/// debt-free account reads no price; writes only supply positions.
 fn sync_account_thresholds(
     env: &Env,
     account_id: u64,
@@ -234,7 +235,7 @@ fn sync_account_thresholds(
         storage::set_supply_positions(env, account_id, &account.supply_positions);
     }
 
-    if full_tuple {
+    if full_tuple && !account.debt_free() {
         let hf = calculate_account_risk_totals(
             env,
             cache,

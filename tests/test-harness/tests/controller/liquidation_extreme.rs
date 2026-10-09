@@ -1,6 +1,7 @@
 use crate::shared::get_indexes;
-use common::math::fp::Ray;
-use common::rates::unscale_borrow_ceil;
+use common::math::fp::{Ray, Wad};
+use common::math::fp_core::mul_div_ceil;
+use common::rates::{position_value_floor, unscale_borrow_ceil};
 use common::types::SeizeMode;
 use controller::constants::WAD;
 use governance::op::{AdminOperation, SpokeLiquidationCurveArgs};
@@ -511,13 +512,28 @@ fn ceil_debt(t: &LendingTest, account_id: u64, name: &str, decimals: u32) -> i12
     unscale_borrow_ceil(&t.env, Ray::from(scaled), Ray::from(index), decimals)
 }
 
+/// The floor-rounded WAD USD value of the leg's debt, which a full repayment of
+/// the leg clears.
+fn cleared_debt_usd(t: &LendingTest, account_id: u64, name: &str) -> i128 {
+    let hub = hub_asset(t.resolve_asset(name));
+    let (_, borrows) = t.ctrl_client().get_account_positions(&account_id);
+    let scaled = borrows.get(hub.clone()).expect("debt leg").scaled_amount;
+    let index = LiquidityPoolClient::new(&t.env, &t.resolve_market(name).pool)
+        .get_sync_data(&hub)
+        .state
+        .borrow_index;
+    let price = Wad::from(t.resolve_market(name).price_wad);
+    position_value_floor(&t.env, Ray::from(scaled), Ray::from(index), price).raw()
+}
+
 /// Two 3-decimal debt legs at $1 per unit whose ceiling-rounded balances
 /// together exceed the account's debt by at least one unit. A full close keeps
 /// each offer at its leg's ceiling without trimming: the estimate refunds only
-/// the offer above each ceiling, execution pulls the offers and nets exactly
-/// that, and every unit paid is credited to the seizure.
+/// the offer above each ceiling, and execution pulls the offers and nets
+/// exactly that. The seizure is credited only the debt cleared, so the
+/// ceiling units buy no collateral.
 #[test]
-fn test_full_close_of_ceiling_rounded_legs_credits_every_unit_pulled() {
+fn test_full_close_of_ceiling_rounded_legs_credits_the_debt_cleared() {
     let mut t = LendingTest::new()
         .with_market(asset("COL", 7, usd(1), 7500, 8000, 500, 1_000_000.0))
         .with_market(asset("D1", 3, usd(1_000), 7500, 8000, 500, 10_000.0))
@@ -572,10 +588,10 @@ fn test_full_close_of_ceiling_rounded_legs_credits_every_unit_pulled() {
             "only the offer above each ceiling is refunded"
         );
     }
+    let cleared = cleared_debt_usd(&t, account_id, "D1") + cleared_debt_usd(&t, account_id, "D2");
     assert_eq!(
-        estimate.max_payment_wad,
-        (d1 + d2) * unit_usd,
-        "every ceiling unit is credited"
+        estimate.max_payment_wad, cleared,
+        "the credit is the debt cleared"
     );
 
     let liquidator = t.get_or_create_user(LIQUIDATOR);
@@ -629,9 +645,10 @@ fn test_full_close_of_ceiling_rounded_legs_credits_every_unit_pulled() {
     assert_eq!(t.borrow_balance_raw(ALICE, "D2"), 0);
 
     let paid_usd = (before.0 - after.0 + before.1 - after.1) * unit_usd;
-    assert_eq!(
-        paid_usd, estimate.max_payment_wad,
-        "no unit is paid uncredited"
+    assert!(
+        paid_usd - estimate.max_payment_wad >= unit_usd
+            && paid_usd - estimate.max_payment_wad < 2 * unit_usd,
+        "the ceiling rounding is paid but not credited"
     );
     let seized = estimate.seized_collaterals.get(0).expect("COL leg").amount;
     let fee = estimate.protocol_fees.get(0).expect("COL fee").amount;
@@ -641,10 +658,66 @@ fn test_full_close_of_ceiling_rounded_legs_credits_every_unit_pulled() {
         "the liquidator receives the estimate"
     );
     let seized_usd = seized * col_price / 10_000_000;
-    let owed_usd = paid_usd * (10_000 + estimate.bonus_rate_bps) / 10_000;
+    let owed_usd = estimate.max_payment_wad * (10_000 + estimate.bonus_rate_bps) / 10_000;
     assert!(
         (seized_usd - owed_usd).abs() <= col_price / 10_000_000 + 1,
-        "seizure ${seized_usd} must match the payment plus bonus ${owed_usd}"
+        "seizure ${seized_usd} must match the credit plus bonus ${owed_usd}"
+    );
+}
+
+/// MC-1. A covered band account whose $10-per-unit K leg accrues to a
+/// fractional debt. Repaying K in full pulls its ceiling, a whole extra unit,
+/// but credits only the debt the leg clears, so the seizure leaves `C >= D`.
+#[test]
+fn test_full_repayment_of_a_coarse_leg_keeps_a_covered_account_covered() {
+    const BORROWER: &str = "borrower";
+    let mut t = LendingTest::new()
+        .with_market(asset("C", 3, usd(1_000), 8500, 9000, 500, 0.0))
+        .with_market(asset("F", 3, usd(1_000), 7500, 8000, 500, 0.0))
+        .with_market(asset("K", 3, usd(10_000), 7500, 8000, 500, 0.0))
+        .build();
+    t.supply_raw(BOB, "F", 30);
+    t.supply_raw(BOB, "K", 10);
+    t.supply_raw(BORROWER, "C", 50);
+    t.borrow_raw(BORROWER, "F", 18);
+    t.borrow_raw(BORROWER, "K", 2);
+    t.advance_and_sync(730 * 86_400);
+    let account_id = t.resolve_account_id(BORROWER);
+    let k_ceil = ceil_debt(&t, account_id, "K", 3);
+    let k_cleared = cleared_debt_usd(&t, account_id, "K");
+    assert!(
+        k_cleared < k_ceil * 10 * WAD - 5 * WAD,
+        "the K ceiling exceeds the debt by over half a unit"
+    );
+
+    let target = t.total_debt_raw(BORROWER) + 1_000_000;
+    let mut price = mul_div_ceil(
+        &t.env,
+        t.resolve_market("C").price_wad,
+        target,
+        t.total_collateral_raw(BORROWER),
+    );
+    t.set_price("C", price);
+    while t.total_collateral_raw(BORROWER) < target {
+        price += 1;
+        t.set_price("C", price);
+    }
+    t.assert_liquidatable(BORROWER);
+
+    let liquidator = t.get_or_create_user(LIQUIDATOR);
+    t.resolve_market("K").token_admin.mint(&liquidator, &k_ceil);
+    t.ctrl_client().liquidate(
+        &liquidator,
+        &account_id,
+        &vec![&t.env, (hub_asset(t.resolve_asset("K")), k_ceil)],
+        &SeizeMode::Transfer,
+    );
+
+    assert_eq!(t.borrow_balance_raw(BORROWER, "K"), 0, "the K leg closes");
+    let (collateral, debt) = (t.total_collateral_raw(BORROWER), t.total_debt_raw(BORROWER));
+    assert!(
+        collateral >= debt,
+        "a covered account stays covered: C {collateral} < D {debt}"
     );
 }
 
@@ -742,6 +815,41 @@ fn test_insolvent_liquidation_reverts_when_no_debt_unit_fits_the_backed_quote() 
     assert_contract_error(result, errors::INVALID_PAYMENTS);
     assert_eq!(t.token_balance_raw(LIQUIDATOR, "EXP"), 2);
     assert_eq!(t.borrow_balance_raw(ALICE, "EXP"), 2);
+}
+
+/// MC-3. $105 of collateral backs $100 at the 5% base bonus. An offer of $85
+/// of CHEAP and one $10 EXP unit stays below that quote, so it seizes only
+/// `repay * (1 + b)` and leaves the rest of the collateral with the account,
+/// even though one debt unit per leg would bridge the gap.
+#[test]
+fn test_insolvent_under_offer_within_a_debt_unit_of_the_quote_does_not_seize_all() {
+    let (mut t, account_id) = insolvent_book_with_a_ten_dollar_unit(usd(105) / 1_000);
+    let payments = vec![
+        &t.env,
+        (hub_asset(t.resolve_asset("CHEAP")), 85_0000000),
+        (hub_asset(t.resolve_asset("EXP")), 1),
+    ];
+    let estimate =
+        t.ctrl_client()
+            .get_liquidation_estimate(&account_id, &payments, &SeizeMode::Transfer);
+    assert_eq!(estimate.max_payment_wad, 95 * WAD);
+    let seized = estimate.seized_collaterals.get(0).expect("COL leg").amount;
+    assert_eq!(seized, 950_0000000, "$95 * 1.05 of COL at $0.105");
+
+    let liquidator = t.get_or_create_user(LIQUIDATOR);
+    t.resolve_market("CHEAP")
+        .token_admin
+        .mint(&liquidator, &85_0000000);
+    t.resolve_market("EXP").token_admin.mint(&liquidator, &1);
+    t.ctrl_client()
+        .liquidate(&liquidator, &account_id, &payments, &SeizeMode::Transfer);
+
+    assert_eq!(
+        t.supply_balance_raw(ALICE, "COL"),
+        50_0000000,
+        "the unseized collateral stays with the account"
+    );
+    assert_eq!(t.borrow_balance_raw(ALICE, "EXP"), 1);
 }
 
 #[test]
