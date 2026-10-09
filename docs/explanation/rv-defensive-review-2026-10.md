@@ -608,6 +608,197 @@ because its network policy denies the Stellar hosts. That LP mints settled on
 mainnet also answers R-A above: the live pool's pull matches the router's
 exact-amount grant.
 
+## Fifth pass: rounding audit
+
+The protocol team asked for a deep pass over every rounding in the arithmetic,
+with attention to loops and to places where several roundings could line up:
+bonuses, fees, bulk actions, liquidations that touch several collateral and
+debt legs, and debt repayment. Eleven lenses were run, one agent per lens, each
+told to report only what an attacker can steer beyond one unit per rounding
+boundary or amplify through repetition. Each lens rebuilt the exact rational
+value of every rounded intermediate, pinned the executed arithmetic to it (the
+deployed pool WASM, or the controller through its production entry points) and
+measured the gap as integers. The lenses left eight harness binaries
+(55 tests) that keep those bounds pinned.
+
+Outcome: nothing at medium or above. Every rounding sits inside the bound that
+`docs/reference/formulas.md` already states, loops do not amplify (the per-step
+remainder is below one unit, so a chain of two thousand one-unit operations
+loses exactly what its single final close loses), and no sequence of
+operations gives a user more than deposited, a free share, or a fee below the
+documented rate by more than the documented unit. One per-leg rounding is
+worth a hygiene change (the base liquidation bonus, below). Two documentation
+notes follow.
+
+### Suites added
+
+| Binary | Lens | Tests | What it pins |
+|---|---|---|---|
+| `rv_round_seizure_fees` | per-leg seizure (R-1) and per-leg transfer fee (R-2) | 10 | seizure floors, the one-unit fee bump, under-delivery scaling, the base-bonus half-up |
+| `rv_round_repayment_chains` | debt repayment across legs (R-3) and partial-liquidation chains (R-4) | 9 | seize-all tolerance, over-offer trims, per-leg ceilings on a full close, band and curve chains against one close |
+| `rv_round_bonus` | bonus derivation and the HF-preserving cap (R-5) | 7 | threshold bound, cap slack, par-band clamp, curve half-ups, estimate within collateral, live controller against an exact mirror |
+| `rv_round_pool_loops` | pool share boundaries under loops (R-6) | 4 | exact-wealth model over 450k operations, 2,000-step chains, deployed WASM at injected indexes |
+| `rv_round_interest` | accrual, allocation and revenue (R-7) | 5 | per-step stranding, cadence effects, revenue never above interest, index floor and ceiling |
+| `rv_round_bulk` | bulk actions, merges and order dependence (R-8) | 6 | duplicate legs merge before the pool rounds, threshold batches equal single calls, bulk indexes equal committed accrual |
+| `rv_round_valuation` | valuation chain and gates (R-9) | 9 | token-to-USD chain bracket, liquidation buffer and utilization gate, LP fair value, health-factor parity on 7-, 18- and 0-decimal legs, dust debt, min-borrow and whole-unit floors |
+| `rv_round_fees_clamps` | other fees (R-10) and silent clamps (R-11) | 5 | flash and strategy fee, router fee floors, PPM splits, revenue reclassification, every saturating or clamping site |
+
+### What held
+
+**Seizure and transfer fee, per leg.** Seizure floors cost the liquidator at
+most one token unit per leg and never pay below the principal; the fee bump
+(a positive sub-unit fee becomes one unit) moves at most one unit per leg from
+the liquidator to the protocol, capped at the realised excess, and the
+liquidator sees it in the estimate. On a deliberately coarse fixture leg (3
+decimals at $6,000, so one unit is $6) the bump charged $6.00 against an exact
+fee of $0.79 on one leg; five such legs bound the whole liquidation at $30.
+Under-delivery of a fee-on-transfer debt token scales every leg by the same
+floored ratio, never raises a fee, and keeps seized, credited and fee shares
+summing exactly. Credit mode is strictly finer: no token-unit floor, no bump,
+and a fee ceiling of under one raw share per leg.
+
+**Repayment across legs and liquidation chains.** The insolvent seize-all
+tolerance is one debt unit per repaid leg, paid once per account and never per
+step: a chain of four partials then an edge close took exactly the opening
+collateral and charged within the same tolerance as a single close. Band
+chains (thirty partials of 5 %, twelve of 8 %) kept the bonus flat and took
+less than one close of the same totals; curve chains took 67 BPS less. A full
+close after thirty days of accrual over-pays by the per-leg ceilings (one
+unit per leg, $1.07 on the fixture) and the excess stays in the pool as
+claim-less cash. Every one of these bounds is already stated in the formulas
+reference and in MC-3, F3 and F4 above.
+
+**Bonus derivation.** The threshold bound and the HF-preserving cap both
+round against the borrower by less than the raw WAD slack (relative 1e-21 on
+the executed seizure); the curve's two half-ups land within one BPS of the
+exact value and always inside the base-to-maximum range; the clamped cap of
+-1 at par is a documented full close at zero bonus. A third party cannot add
+a collateral leg to a victim (`require_third_party_existing_supply`), and
+topping up an existing high-bonus leg to raise the blended base costs more
+than it returns in every regime.
+
+**Pool share boundaries.** With one unit of a d-decimal token worth
+10^(27-d) RAY and every index at or below 1e36, each mint, burn and close
+rounds against the actor by strictly less than one native unit, and for
+tokens of nine decimals or fewer by at most 1e-9 of a unit. Loops do not
+amplify: supplying one unit two thousand times then withdrawing all pays
+1,999; borrowing one unit two thousand times owes 2,001. The lost unit stays
+in the pool as cash above floored claims plus ceiled debt, consumable only by
+a later recapitalisation. Eighteen-decimal tokens at an index above 5e35
+lose a whole share per partial operation; that index needs 1e9 of growth.
+
+**Accrual, allocation and revenue.** Each accrual step strands at most one raw
+RAY (1e-27 token) plus the floor of the supply-index update, which is booked
+to the treasury rather than lost; booked rewards never exceed accrued interest
+by more than one raw per step; amplification is linear in steps and stays
+below 1e-11 tokens per year at any admitted index. The cadence effects are
+the documented ones (a finer cadence raises the borrower index on a rising
+utilization curve, and the treasury's unclaimed revenue shares participate in
+later rewards). The pool's flash-fee loop, the revenue claim loop and both
+index limits behaved as documented.
+
+**Bulk actions and order.** Duplicate legs in one call are summed before the
+pool rounds, so a batch is exactly one leg per hub asset and gains at most one
+raw share over splitting across transactions. The pool's own batch rounds per
+entry against the caller-supplied position, which no controller path reaches
+with duplicates. Spoke usage moves by exact share deltas with no rounding
+site. Threshold batches equal single calls in every order and revert
+atomically; bulk indexes equal per-market reads and the committed state, so a
+plan priced on the simulated index executes on the identical one. Per-leg
+floor and ceil in the risk totals differ from an account-level rounding by at
+most 5e-18 USD, conservative.
+
+**Valuation.** The three-step token-to-USD chain brackets the exact value:
+floor at or below, ceil at or above, half-up between, each within one raw WAD
+plus the USD value of one raw asset unit per leg (1e-9 USD at the $1e9 price
+cap, 1e-17 USD at $1). Weighted collateral floors and risk debt ceils, so an
+account the controller calls liquidatable has an exact health factor below
+one plus at most 5e-9 relative, and one it calls healthy is exactly at or
+above one; a single 14-decimal feed tick moves the factor by a thousand
+times more than that window, so no one can steer the gate. Pinned live on
+7-decimal, 18-decimal and 0-decimal collateral at parity and one tick below.
+One base unit of an 18-decimal token at $0.001 keeps a risk debt of one raw
+WAD, so the no-debt sentinel never masks a position and the $5 floor stays
+armed until the unit is repaid. The pool's liquidation buffer sits within one
+unit below its exact ceiling and the utilization gate never admits a borrow
+the exact ratio would refuse. LP fair value is within 1e-11 relative on
+funded pools; one-share pools fail closed. The min-borrow and whole-unit
+floors bind at the exact base unit. Price-aggregator roundings are half a raw
+WAD per level, half a BPS on the tolerance ratio, and one feed quantum on the
+TWAP mean.
+
+**Other fees and clamps.** The flash and strategy fee is within half a unit of
+the rate, with the one-unit minimum documented; the router's static and
+referral fees are two independent floors that fall short of the exact rate by
+under two units per call, and the sender opts into them through the referral
+byte; PPM splits leave under one unit per hop; the residual policy forfeits at
+most `residual_allowance` to the admin bucket and reverts above it. Credit-mode
+fee shares round up by under one raw share per leg, transfer-mode revenue
+shares round down by the same. Every saturating or clamping site either fails
+closed, is documented with its economic result, or binds only outside the
+admitted domain (the share-domain edge, a health factor above 1e20, an index
+at 1e36).
+
+### Observation: the base bonus rounds half-up once per collateral leg
+
+`get_account_bonus_params` averages the listing bonuses by USD weight and
+rounds each leg's product to an integer BPS before summing, so the executed
+base can differ from the exact weighted average by up to half a BPS per
+supply leg: 2.5 BPS at the five-leg position limit. The borrower chooses the
+deposit sizes and can line every term up on a half. Four legs of $2,500 at a
+250 BPS listing give a base of 252; the adversarial five-leg book gives 253
+against an exact 250.5.
+
+Where it lands: in the solvent curve regime the base is the floor of the
+curve bonus, so the borrower who steered it up pays more and the one who
+steered it down saves at most 2.5 BPS of the repaid amount. The band regime
+replaces the base with the cap and is unaffected. In the insolvent regime the
+quote is the floor of collateral over one plus the base, so a higher base
+lowers what the liquidator pays for all of the collateral; the owner may
+self-liquidate, keeps the collateral, and the shortfall is socialised by
+bad-debt cleanup. The extra socialised amount is about 2 BPS of the collateral
+value, once per default: $240 per $1M. The skeptic re-derived the finder's
+numbers on the live controller (base 252, quote $6,730.39 against $6,731.71
+at the exact bonus) and rated the effect the documented half-unit per
+boundary at a hard-capped count of boundaries: about a 1 % increment to the
+bonus the same self-liquidation already captures by design.
+
+Low. The per-leg half-up is the documented formula, and the lever needs an
+insolvent account whose legs were sized for the rounding before the default.
+The hygiene fix is one rounding instead of N: sum the raw value-times-bonus
+products and divide by the collateral once, which bounds the gap at half a
+BPS for any number of legs. The test
+`rv_round_r1r2_base_bonus_half_up_once_per_leg_is_within_half_bps_per_leg`
+pins the current behaviour and will need its expected value changed with the
+fix.
+
+### Documentation notes
+
+- The one-unit-per-leg bounds above scale with the listing's unit value
+  (price over 10^decimals). Mainnet listings have sub-cent units; a 3-decimal
+  listing in the thousands of dollars turns each floor or bump into whole
+  dollars. The formulas reference states the bounds in units; a sentence on
+  the USD scale would help a listing review.
+- The pool unit test property that suppliers are never short under a finer
+  accrual cadence (`test_accrual_cadence_never_leaks_supplier_or_total_value`)
+  holds only off the rate cap, where utilization drift outweighs the
+  treasury's participation. On a capped or flat-rate market a finer cadence
+  moves exactly the treasury's pro-rata share of later rewards from suppliers
+  to the treasury (5.6 % of supplier interest at 105 % APR in the fixture).
+  This is the documented "unclaimed revenue compounds at the supplier rate"
+  effect, removed by claiming revenue; the test's comment should say so.
+- A payment leg for a debt asset the account no longer owes fails with
+  `OracleNotConfigured` rather than `DebtPositionNotFound`, because the price
+  is never loaded for an asset without a position. Cosmetic.
+- Account invariant 10 relies on `aggregate_payments` merging duplicate legs
+  in front of every pool batch. A future path that sent duplicates would not
+  revert at the pool; it would overwrite the first merged result. Worth a
+  comment at the merge.
+- The TWAP mean floors to one feed quantum. At the admitted minimum of one
+  oracle decimal that is up to $0.1 per token in the direction that
+  under-values debt; real feeds carry 8 or 14 decimals, so this is a listing
+  review item, not a code change.
+
 ## Scope and limits
 
 - The harness registers the controller natively and uses mocked
@@ -626,3 +817,9 @@ exact-amount grant.
   part of this pass; the eight suites, `make fmt-check`, `make docs-check`,
   `make access-control-check` and `cargo clippy -D warnings` on the eight
   binaries were.
+- The rounding pass measured the arithmetic the contracts execute against
+  exact rationals and the documented bounds; it did not re-derive the
+  documented bounds' economics (cadence dependence, the insolvent quote, the
+  whole-unit rules), which earlier passes and the formulas reference cover.
+  Its eight suites, `make fmt-check`, `make docs-check` and
+  `cargo clippy -D warnings` on the eight binaries were run.
