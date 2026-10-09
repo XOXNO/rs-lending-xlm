@@ -195,12 +195,14 @@ paths copy the listed tuple into the position. Each calls
 `refresh_supply_risk_params` with `FullTuple`:
 
 - A supply to that leg, through `process_deposit`. The owner, a delegate, or
-  any caller that tops up the leg can do this. A deposit to the leg from
-  `multiply`, `swap_collateral`, `flash_position` or `migrate_from_blend`
-  uses the same path. A Credit-mode liquidation credit to the leg does not.
+  any caller that tops up the leg can do this. A Credit-mode liquidation
+  credit to the leg does not.
 - A withdrawal that is not a liquidation and leaves a balance on a listed leg,
-  through `apply_withdraw_batch`. A single-leg strategy net-settlement uses
-  `merge_withdraw_leg`.
+  through `apply_withdraw_batch`.
+- A strategy (`multiply`, `swap_collateral`, `repay_debt_with_collateral`,
+  `swap_debt`, `flash_position` or `migrate_from_blend`) that deposits into the
+  leg or leaves a balance on it after a withdrawal or net settlement, through
+  `strategy_finalize`.
 - `update_account_threshold` with `has_risks`, for each listed leg.
 
 The refresh applies a tuple that favors the liquidator (a lower threshold, a
@@ -211,9 +213,11 @@ in asset-key order. Each gate sees the completed balances and any tuples already
 refreshed in that order; emitted deltas carry the resulting tuples.
 Otherwise the stored tuple stays. A lower bonus alone does not favor the
 liquidator, so the refresh applies it at any health factor.
-Within a strategy, a withdrawal leg refreshes before a subsequent repayment
-or replacement deposit. Final strategy checks refresh LTV without retrying
-the liquidation tuple.
+A strategy defers these refreshes: its legs record the touched positions, and
+`strategy_finalize` refreshes them in asset-key order after every deposit,
+withdrawal, repayment and net settlement is merged, before the final solvency
+check. Each gate therefore reads the account as the call leaves it. A changed
+tuple is emitted as a `ParamUpd` delta after the leg's own delta.
 `update_account_threshold` with `has_risks` also reverts if an account with
 debt ends with a health factor below 1.05. Thus it cannot apply the lower bonus
 to an account near liquidation, but a supply to the leg can. A position that

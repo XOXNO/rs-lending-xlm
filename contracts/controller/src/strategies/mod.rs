@@ -29,8 +29,17 @@ use common::types::Account;
 use soroban_sdk::{Address, Env, Vec};
 
 use crate::context::Context;
+use crate::positions::supply::refresh_deferred_supply_risk_params;
 use crate::positions::{enforce_post_pool_solvency, finalize_position_flow, PositionSides};
 use crate::risk::account_price_assets;
+
+/// Creates a strategy context that defers supply liquidation-tuple refreshes
+/// to `strategy_finalize`, so intermediate legs cannot gate them.
+pub(crate) fn strategy_context(env: &Env) -> Context {
+    let mut cache = Context::new(env);
+    cache.defer_supply_risk_refresh();
+    cache
+}
 
 /// Caches account and extra-asset prices before strategy funding or callbacks.
 pub(crate) fn prefetch_strategy_prices(
@@ -42,15 +51,17 @@ pub(crate) fn prefetch_strategy_prices(
     cache.fetch_prices(&assets);
 }
 
-/// Refreshes listed collateral LTV, checks solvency, health and collateral floor,
-/// then persists positions and spoke usage, removes an empty account, and emits
-/// the position batch.
+/// Refreshes the liquidation tuples of touched supply legs against the merged
+/// account, then listed collateral LTV, checks solvency, health and collateral
+/// floor, persists positions and spoke usage, removes an empty account, and
+/// emits the position batch.
 pub(crate) fn strategy_finalize(
     env: &Env,
     account_id: u64,
     account: &mut Account,
     cache: &mut Context,
 ) {
+    refresh_deferred_supply_risk_params(env, account, cache);
     let _ = enforce_post_pool_solvency(env, cache, account);
     finalize_position_flow(env, account_id, account, cache, PositionSides::Both, true);
 }

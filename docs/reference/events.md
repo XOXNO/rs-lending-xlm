@@ -90,7 +90,7 @@ Field lists use exact Rust types. Map key order is alphabetical, regardless of d
 | `LiqRepay = 4` | liquidated account repayment |
 | `LiqSeize = 5` | gross collateral debit, both seize modes |
 | `Multiply = 6` | multiply debt mint |
-| `ParamUpd = 7` | risk-parameter rewrite; no token movement. `update_account_threshold` emits it, and so does a borrow, withdrawal or account strategy for each supply leg whose stored LTV it restamps |
+| `ParamUpd = 7` | risk-parameter rewrite; no token movement. `update_account_threshold` emits it, and so does a borrow, withdrawal or account strategy for each supply leg whose stored LTV it restamps, and an account strategy for each touched supply leg whose liquidation tuple its finalization refreshes |
 | `SwDebtR = 8` | both new borrow and old repay in swap_debt |
 | `SwColWd = 9` | swap_collateral withdrawal |
 | `RpColWd = 10` | repay_debt_with_collateral withdrawal |

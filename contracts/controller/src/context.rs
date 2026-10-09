@@ -34,6 +34,7 @@ pub(crate) struct Context {
     verified_hubs: Map<u32, bool>,
     supply_updates: Vec<EventDepositDelta>,
     debt_updates: Vec<EventBorrowDelta>,
+    deferred_supply_refresh: Option<Map<HubAssetKey, bool>>,
 }
 
 impl Context {
@@ -57,7 +58,34 @@ impl Context {
             verified_hubs: Map::new(env),
             supply_updates: Vec::new(env),
             debt_updates: Vec::new(env),
+            deferred_supply_refresh: None,
         }
+    }
+
+    /// Defers liquidation-tuple refreshes of touched supply legs until
+    /// `take_deferred_supply_refresh`, so a multi-leg flow gates them on its
+    /// final balances.
+    pub(crate) fn defer_supply_risk_refresh(&mut self) {
+        self.deferred_supply_refresh = Some(Map::new(&self.env));
+    }
+
+    /// Records `hub_asset` for the deferred refresh. Returns whether refreshes
+    /// are deferred; the caller refreshes immediately otherwise.
+    pub(crate) fn defer_supply_refresh(&mut self, hub_asset: &HubAssetKey) -> bool {
+        match self.deferred_supply_refresh.as_mut() {
+            Some(legs) => {
+                legs.set(hub_asset.clone(), true);
+                true
+            }
+            None => false,
+        }
+    }
+
+    /// Ends deferral and returns the recorded legs in asset-key order.
+    pub(crate) fn take_deferred_supply_refresh(&mut self) -> Vec<HubAssetKey> {
+        self.deferred_supply_refresh
+            .take()
+            .map_or_else(|| Vec::new(&self.env), |legs| legs.keys())
     }
 
     /// Returns this context's environment.

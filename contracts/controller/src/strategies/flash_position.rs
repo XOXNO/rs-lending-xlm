@@ -20,7 +20,9 @@ use crate::positions::supply::process_deposit;
 use crate::positions::{require_can_supply, validate_position_entry_gates};
 use crate::risk::validation::require_authorized_caller;
 use crate::storage;
-use crate::strategies::{borrow_into_controller, prefetch_strategy_prices, strategy_finalize};
+use crate::strategies::{
+    borrow_into_controller, prefetch_strategy_prices, strategy_context, strategy_finalize,
+};
 
 pub(crate) struct FlashPositionParams<'a> {
     pub account_id: u64,
@@ -75,7 +77,7 @@ pub(crate) fn process_flash_position(
         FlashLoanError::InvalidFlashloanReceiver
     );
 
-    let mut cache = Context::new(env);
+    let mut cache = strategy_context(env);
     let pool_addr = cache.cached_pool_address();
     assert_with_error!(
         env,

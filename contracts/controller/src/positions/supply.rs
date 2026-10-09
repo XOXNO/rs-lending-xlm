@@ -321,7 +321,8 @@ pub(crate) fn apply_withdraw_batch(
     results
 }
 
-/// Merges a single supply result and refreshes its risk tuple and event.
+/// Merges a single supply result, refreshes its risk tuple unless refreshes
+/// are deferred, and records its event.
 pub(crate) fn merge_supply_leg(
     env: &Env,
     account: &mut Account,
@@ -330,17 +331,19 @@ pub(crate) fn merge_supply_leg(
     cache: &mut Context,
 ) {
     let mut position = merge_supply_balance(env, account, action, result, cache);
-    let config = cache.require_spoke_asset(account.spoke_id, &action.hub_asset);
-    refresh_supply_risk_params(
-        env,
-        cache,
-        account,
-        &action.hub_asset,
-        &mut position,
-        &config,
-        RiskRefreshScope::FullTuple,
-    );
-    update_or_remove_supply_position(account, &action.hub_asset, &position);
+    if !cache.defer_supply_refresh(&action.hub_asset) {
+        let config = cache.require_spoke_asset(account.spoke_id, &action.hub_asset);
+        refresh_supply_risk_params(
+            env,
+            cache,
+            account,
+            &action.hub_asset,
+            &mut position,
+            &config,
+            RiskRefreshScope::FullTuple,
+        );
+        update_or_remove_supply_position(account, &action.hub_asset, &position);
+    }
     cache.record_supply_position_update(
         events::PositionAction::Supply,
         &action.hub_asset,
@@ -384,8 +387,9 @@ fn merge_supply_balance(
     position
 }
 
-/// Refreshes touched legs after all balances/indexes are merged. Map iteration
-/// uses asset-key order so earlier tuple updates cannot depend on input order.
+/// Refreshes touched legs after all balances/indexes are merged, unless
+/// refreshes are deferred. Map iteration uses asset-key order so earlier tuple
+/// updates cannot depend on input order.
 fn refresh_batch_risk_params(
     env: &Env,
     account: &mut Account,
@@ -400,7 +404,8 @@ fn refresh_batch_risk_params(
             account,
             &hub_asset,
             position.scaled_amount,
-        ) {
+        ) || cache.defer_supply_refresh(&hub_asset)
+        {
             continue;
         }
         let config = cache.require_spoke_asset(account.spoke_id, &hub_asset);
@@ -419,7 +424,8 @@ fn refresh_batch_risk_params(
 }
 
 /// Merges a withdrawal result, usage, market index, and event state.
-/// Risk parameters refresh only for listed, nonempty positions outside liquidation.
+/// Risk parameters refresh only for listed, nonempty positions outside
+/// liquidation, and only when refreshes are not deferred.
 pub(crate) fn merge_withdraw_leg(
     env: &Env,
     account: &mut Account,
@@ -434,7 +440,7 @@ pub(crate) fn merge_withdraw_leg(
         leg_may_restamp_risk_params(kind, cache, account, hub_asset, outcome.new_scaled);
     let mut position = merge_withdraw_balance(env, account, hub_asset, outcome, cache);
 
-    if may_restamp {
+    if may_restamp && !cache.defer_supply_refresh(hub_asset) {
         let config: AssetConfig = cache.require_spoke_asset(account.spoke_id, hub_asset);
         refresh_supply_risk_params(
             env,
@@ -482,6 +488,52 @@ fn merge_withdraw_balance(
 
     update_or_remove_supply_position(account, hub_asset, &position);
     position
+}
+
+/// Ends deferred refreshes and refreshes the recorded supply legs in asset-key
+/// order against the merged account, buffering a `ParamUpd` delta for each
+/// changed leg. Skips legs that are gone, empty, or unlisted.
+pub(crate) fn refresh_deferred_supply_risk_params(
+    env: &Env,
+    account: &mut Account,
+    cache: &mut Context,
+) {
+    for hub_asset in cache.take_deferred_supply_refresh().iter() {
+        let Some(raw) = account.supply_positions.get(hub_asset.clone()) else {
+            continue;
+        };
+        let mut position = AccountPosition::from(&raw);
+        if !leg_may_restamp_risk_params(
+            WithdrawKind::Normal,
+            cache,
+            account,
+            &hub_asset,
+            position.scaled_amount,
+        ) {
+            continue;
+        }
+        let config = cache.require_spoke_asset(account.spoke_id, &hub_asset);
+        if !refresh_supply_risk_params(
+            env,
+            cache,
+            account,
+            &hub_asset,
+            &mut position,
+            &config,
+            RiskRefreshScope::FullTuple,
+        ) {
+            continue;
+        }
+        update_or_remove_supply_position(account, &hub_asset, &position);
+        let supply_index = cache.cached_market_index(&hub_asset).supply_index;
+        cache.record_supply_position_update(
+            events::PositionAction::ParamUpd,
+            &hub_asset,
+            supply_index.raw(),
+            0,
+            &position,
+        );
+    }
 }
 
 fn leg_may_restamp_risk_params(

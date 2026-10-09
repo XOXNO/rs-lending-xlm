@@ -374,13 +374,14 @@ in these paths:
 | Path | Code |
 |---|---|
 | A supply of the asset into the account | `process_deposit` |
-| A withdrawal of the asset that is not a liquidation and leaves a balance | `apply_withdraw_batch`; strategy net-settlement uses `merge_withdraw_leg` |
+| A withdrawal of the asset that is not a liquidation and leaves a balance | `apply_withdraw_batch` |
+| A strategy that deposits the asset or leaves a balance after withdrawing or net-settling it | `strategy_finalize` |
 | `update_account_threshold(caller, has_risks = true, account_ids)` | `sync_account_thresholds` |
 
 A liquidation never refreshes them. `update_account_threshold` with
 `has_risks = false` refreshes the LTV only.
 
-All three paths use the same gate (`apply_gated_liquidation_params`). A
+All four paths use the same gate (`apply_gated_liquidation_params`). A
 change favours the liquidator when it lowers LT, raises the bonus or lowers
 the fee. For an account with debt, such a change applies only when the
 account HF, calculated with the new LT, is at least 1.05
@@ -389,9 +390,10 @@ old LT, bonus and fee, and the call does not fail. A debt-free account always
 takes the new values. The supply gate includes the deposited collateral.
 Supply and normal withdrawal batches merge all balances and market indexes
 before refreshing touched positions in asset-key order. Each gate sees any
-tuples already refreshed in that order. Strategy withdrawal legs refresh
-before a subsequent repayment or replacement deposit; their final checks
-refresh LTV without retrying the liquidation tuple. The gate reads the prices
+tuples already refreshed in that order. A strategy refreshes its touched
+positions the same way once every leg, repayment and net settlement is merged,
+before its final solvency check, and emits each changed tuple as a `ParamUpd`
+delta. The gate reads the prices
 of all assets of the account. When the gate runs, a stale price or a price outside
 the band makes the call fail, also a supply.
 
