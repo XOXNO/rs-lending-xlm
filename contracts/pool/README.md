@@ -206,6 +206,11 @@ utilization → borrow rate (curve) → compound → borrow index
 
 `MAX_BORROW_INDEX_RAY` and `MAX_SUPPLY_INDEX_RAY` are `1e36`.
 
+`MAX_MARKET_VALUE_RAY` (`i128::MAX - RAY`) bounds total supply value and total
+debt value. Each chunk caps interest at the room left below it, so the borrow
+index stops short of what the rate implies, and a market with no room keeps
+both indexes. `global_sync` then emits `MarketValueCeilingEvent`.
+
 `compound_interest` (`common/src/rates/compound.rs`) is a fixed 9-term Taylor
 series, `1 + x + … + x⁸/8!`, with no early exit. At `x = 2` (a `2 × RAY`
 max rate untouched for a full year) it gives `7.387302` against
@@ -214,7 +219,7 @@ overestimate.
 
 ## Guards
 
-`guards.rs` holds four guards; `require_reserves` is on `Cache` in
+`guards.rs` holds five guards; `require_reserves` is on `Cache` in
 `cache/cash.rs`. `create_strategy` mints through `borrow::mint_debt`, so it
 runs every `borrow` guard.
 
@@ -225,6 +230,7 @@ runs every `borrow` guard.
 | `require_liquidation_buffer` | `borrow`, `create_strategy` | `withdraw`, `flash_loan` | 112 |
 | `require_utilization_below_max` | `borrow`, `create_strategy`, non-liquidation `withdraw`, `claim_revenue` | `net_settle`, `seize_positions`, liquidation | 127 |
 | `require_supply_for_debt` | `borrow`, `create_strategy`, `withdraw`, `net_settle`, `claim_revenue` | — | 123 |
+| `require_market_value_within_ceiling` | `supply`, `flash_loan` fee, `create_strategy` fee | everything else | 33 |
 
 **Liquidation buffer.** `require_liquidation_buffer` keeps a flat
 `LIQUIDATION_BUFFER_BPS` (200 bps) of the floored supplied amount for

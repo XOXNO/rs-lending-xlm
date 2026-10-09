@@ -238,8 +238,14 @@ Both indexes start at one RAY. Successful accrual with validated rate parameters
 cannot lower the borrow index and caps it at the protocol constant 10^36 raw
 RAY. At the ceiling, further accrual produces no borrower interest.
 
-Debt-value overflow can still revert accrual before that ceiling is reached.
-Bounded indexes do not guarantee representable position or market values.
+Accrual also keeps total debt value and total supply value at or below the
+market value ceiling, `i128::MAX` less one whole token in raw RAY. Interest that
+would carry a total past it is not charged: the borrow index grows only as far
+as the room left, and a market with no room keeps both indexes. The pool emits
+`MarketValueCeilingEvent` when the ceiling holds interest. Market value
+therefore cannot overflow accrual or the index projection that values accounts.
+Supply entry and flash and strategy fee booking reject a total above the
+ceiling. See [numeric limits](formulas.md#numeric-limits).
 
 <a id="inv-idx-02"></a>
 
@@ -272,8 +278,8 @@ identified market. See the [write-down calculation](formulas.md#bad-debt).
 
 No elapsed time means no accrual or accrual-timestamp advance. Longer intervals
 use forward chunks of at most 31,556,926,000 milliseconds. Mutating accrual and
-read-only index projection use the same calculation, including revenue shares
-in subsequent supply totals.
+read-only index projection use the same calculation, including the market value
+ceiling and revenue shares in subsequent supply totals.
 
 Each chunk selects its rate from starting utilization. Call cadence can change
 rates and rounded results; it does not guarantee cadence independence,

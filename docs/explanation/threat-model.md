@@ -316,9 +316,10 @@ liquidation.
 
 ## Numeric and resource limits
 
-Finite RAY value capacity can be exhausted before the index ceiling. Synchronizing
-an overlarge book can then fail before an otherwise risk-reducing operation.
-Caps must account for plausible index growth as well as token balances.
+Finite RAY value capacity can be exhausted before the index ceiling. Accrual
+then stops charging interest at the market value ceiling instead of failing, so
+risk-reducing operations keep working, but borrowers stop paying the configured
+rate. Caps must account for plausible index growth as well as token balances.
 Accrual cadence changes utilization and subsequent rates; bounded chunks do not
 make cadence neutral or prove exact conservation after integer rounding.
 See [numeric limits](../reference/formulas.md#numeric-limits).
@@ -349,7 +350,7 @@ these rows do not assign severity or establish exploitability.
 | Tamper.3 | Non-standard tokens/donations; measured receipts and separate books do not neutralize arbitrary token semantics. |
 | Tamper.4 | Malicious router/venue; measured input/output bounds apply, while payload minimum output remains router-enforced. |
 | Tamper.5 | Callback reentry/intermediate state; guards and host rules protect reachable paths, not hypothetical EVM behavior. |
-| Tamper.6 | Accrual manipulation/extremes; bounded indexes and chunks coexist with cadence and value-overflow risks. |
+| Tamper.6 | Accrual manipulation/extremes; bounded indexes, chunks and the market value ceiling coexist with cadence risk and interest held at the ceiling. |
 | Tamper.7 | Malicious upgrade; core upgrades are delayed, including price aggregator; standalone owners retain their own upgrade policy. |
 | Tamper.8 | Hostile Blend integration; allowlisting and measured settlement do not freeze an approved pool's code. |
 | Tamper.9 | False feed-nature label bypasses intended smoothing selection; nature is operator-asserted. |

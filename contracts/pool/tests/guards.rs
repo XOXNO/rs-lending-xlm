@@ -4,7 +4,9 @@ use super::*;
 use crate::cache::Cache;
 use crate::test_support::{hub, init_ledger};
 use crate::{LiquidityPool, LiquidityPoolClient};
-use common::constants::{BPS, LIQUIDATION_BUFFER_BPS, RAY, SUPPLY_INDEX_FLOOR_RAW};
+use common::constants::{
+    BPS, LIQUIDATION_BUFFER_BPS, MAX_MARKET_VALUE_RAY, RAY, SUPPLY_INDEX_FLOOR_RAW,
+};
 use common::math::fp_core::mul_div_ceil;
 use common::types::{MarketParamsRaw, PoolStateRaw};
 use soroban_sdk::testutils::Address as _;
@@ -295,4 +297,39 @@ fn test_backing_shortfall_is_zero_when_debt_covers_claims() {
     let t = TestSetup::new();
     assert_eq!(shortfall_for(&t, 1_000, 1_000, 0), 0);
     assert_eq!(shortfall_for(&t, 1_000, 1_001, 0), 0);
+}
+
+#[test]
+fn test_require_market_value_within_ceiling_admits_both_totals_at_the_ceiling() {
+    let t = TestSetup::new();
+    t.as_contract(|| {
+        let cache = cache_with(
+            &t.env,
+            &t.params,
+            MAX_MARKET_VALUE_RAY,
+            MAX_MARKET_VALUE_RAY,
+            0,
+        );
+        require_market_value_within_ceiling(&t.env, &cache);
+    });
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #33)")]
+fn test_require_market_value_within_ceiling_rejects_supply_value_above_it() {
+    let t = TestSetup::new();
+    t.as_contract(|| {
+        let cache = cache_with(&t.env, &t.params, MAX_MARKET_VALUE_RAY + 1, 0, 0);
+        require_market_value_within_ceiling(&t.env, &cache);
+    });
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #33)")]
+fn test_require_market_value_within_ceiling_rejects_debt_value_above_it() {
+    let t = TestSetup::new();
+    t.as_contract(|| {
+        let cache = cache_with(&t.env, &t.params, RAY, MAX_MARKET_VALUE_RAY + 1, 0);
+        require_market_value_within_ceiling(&t.env, &cache);
+    });
 }

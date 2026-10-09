@@ -2,10 +2,10 @@
 //!
 //! Callers run them after interest accrual and before committing state.
 
-use common::constants::{BPS, LIQUIDATION_BUFFER_BPS};
-use common::errors::CollateralError;
+use common::constants::{BPS, LIQUIDATION_BUFFER_BPS, MAX_MARKET_VALUE_RAY, RAY};
+use common::errors::{CollateralError, GenericError};
 use common::math::fp::Ray;
-use common::math::fp_core::mul_div_ceil;
+use common::math::fp_core::{mul_div_ceil, mul_div_floor_saturating};
 
 use soroban_sdk::{assert_with_error, panic_with_error, Env};
 
@@ -73,6 +73,23 @@ pub(crate) fn backing_shortfall(cache: &Cache) -> i128 {
         .checked_sub(env, debt)
         .to_asset_floor(env, cache.params().asset_decimals);
     uncovered.saturating_sub(cache.cash()).max(0)
+}
+
+/// Panics with `MathOverflow` if total supply value or total debt value exceeds
+/// [`MAX_MARKET_VALUE_RAY`].
+///
+/// Supply entry and flash and strategy fee booking raise total supply value
+/// outside accrual; accrual keeps both totals below the ceiling on its own.
+pub(crate) fn require_market_value_within_ceiling(env: &Env, cache: &Cache) {
+    let supplied =
+        mul_div_floor_saturating(env, cache.supplied().raw(), cache.supply_index().raw(), RAY);
+    let borrowed =
+        mul_div_floor_saturating(env, cache.borrowed().raw(), cache.borrow_index().raw(), RAY);
+    assert_with_error!(
+        env,
+        supplied <= MAX_MARKET_VALUE_RAY && borrowed <= MAX_MARKET_VALUE_RAY,
+        GenericError::MathOverflow
+    );
 }
 
 /// Panics with `PoolInsolvent` if supplied is zero while borrowed debt is non-zero.

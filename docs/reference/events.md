@@ -2,7 +2,7 @@
 
 Use this reference to decode protocol events and interpret their amounts, shares and configuration snapshots. Match both the emitting contract and the ordered topic vector.
 
-The contracts define 28 custom event types: controller 21, pool 3, governance 2, price aggregator 1 and DeFindex adapter 1. The position NFT, swap aggregator and XOXNO oracle define no custom events, but their inherited OpenZeppelin events remain observable. Subscribe to both controller and pool events to track account and market changes.
+The contracts define 29 custom event types: controller 21, pool 4, governance 2, price aggregator 1 and DeFindex adapter 1. The position NFT, swap aggregator and XOXNO oracle define no custom events, but their inherited OpenZeppelin events remain observable. Subscribe to both controller and pool events to track account and market changes.
 
 ## Wire rules and units
 
@@ -51,6 +51,7 @@ Field lists use exact Rust types. Map key order is alphabetical, regardless of d
 | `PoolMarketStateBatchEvent`<br>`["market", "batch_state_update"]` | single-value: `updates: Vec<PoolMarketStateEvent>` | Pool supply/borrow/withdraw/repay/seize_positions, update_indexes, recapitalize, flash_loan, create_strategy, net_settle, claim_revenue. update_indexes emits one single-row event per market. Suppressed for an empty batch. |
 | `PoolMarketParamsBatchEvent`<br>`["market", "batch_params_update"]` | single-value: `updates: Vec<PoolMarketParamsEvent>` | create_market/update_params: one full parameter row. |
 | `StrategyFeeEvent`<br>`["strategy", "fee"]` | map: `hub_id: u32, asset: Address, amount: i128, fee: i128, amount_sent: i128` | create_strategy only when fee != 0; amount_sent = requested amount minus fee, not receiver receipt. |
+| `MarketValueCeilingEvent`<br>`["market", "value_ceiling"]` | map: `hub_id: u32, asset: Address` | Any pool call that accrues the market, at most once per market per call, when the market value ceiling (`MAX_MARKET_VALUE_RAY`) held interest below what the rate implies. Precedes that call's state snapshot. |
 
 ### Governance events
 
