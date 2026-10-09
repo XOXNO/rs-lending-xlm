@@ -32,7 +32,7 @@ A controller verdict is conditional on these models:
 | `health_rules.rs` | Borrow and withdraw are safe or health-gated; the gate sees final totals; repay on an unhealthy account improves health |
 | `hf_lemma_rules.rs` | Position value is monotone in shares; ceil value is at least floor value |
 | `index_rules.rs` | View and accrue return the same projected index; indexes are monotone in time |
-| `liquidation_rules.rs` | Liquidation does not grow debt or seized collateral; bonus bounds; estimation leaves no dust; split partials never out-seize one close |
+| `liquidation_rules.rs` | Liquidation does not grow debt or seized collateral; bonus bounds; estimation leaves no dust; split partials never out-seize one close (assumes a base bonus of at most 500 BPS and the default curve) |
 | `market_guard_rules.rs` | Disabled markets, collateral-less borrow, delegate and recipient checks |
 | `position_rules.rs` | Each verb moves the position in its own direction only |
 | `solvency_rules.rs` | LTV borrow bound, zero-amount rejects, position limits, one index snapshot per call |

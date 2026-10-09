@@ -96,8 +96,9 @@ shares.
 Borrow draws must retain a 200 BPS liquidation buffer, rounded up from the
 floored supplied token value. Borrow, user withdrawal and revenue claims
 enforce the configured utilization ceiling; liquidation withdrawal skips it.
-That gate divides ceiled debt value by floored supply value and rounds the
-ratio up; debt against a zero floored supply value fails it.
+That gate is skipped when the ceiling is at least one RAY or when there is no
+debt. Otherwise it divides ceiled debt value by floored supply value, rounds the
+ratio up, and fails debt against a zero floored supply value.
 Withdrawal, net settlement and revenue claims reject zero total supply with
 outstanding debt. These checks apply at their respective boundaries; they do
 not establish full backing after every mutation.
@@ -251,7 +252,7 @@ below `HF = 1`, so its first bonus is already about
 `base + f * (max - base) * (H - 1) / (H - K)`. The maximum comes only from the
 blended threshold, not from the listed `liquidation_bonus`: `LT = 6000` gives
 `max = 6666`. With `H = 1.10`, `K = 0.80`, `f = 10000` and `base = 500`, the
-bonus is about 2557 BPS just below `HF = 1` and 4611 BPS at `HF = 0.90`. Size
+bonus is about 2555 BPS just below `HF = 1` and 4611 BPS at `HF = 0.90`. Size
 `H`, `K` and `f` from the bonus at `HF = 1` and at `K`, not from the listed
 bonus. The [Liqvid bonus curve](runbooks/liqvid-listing-params.md#4-the-bonus-curve)
 shows a full table.
@@ -282,10 +283,10 @@ branch does not promote the quote to full debt; bad-debt cleanup takes the unbac
 residue. With `p == 0`, the target formula and dust promotion below apply instead.
 
 A partial seizure leg below 3 decimals takes whole token units only. When the
-repayment covers the whole debt, the leg rounds up to the held balance and
-the debt closes. Otherwise it rounds down: the dropped fraction's USD value,
-divided by `1 + bonus` and floored, is trimmed from the repayment and
-refunded, kept amounts rounding up, so the liquidator pays for the units it
+repayment covers the whole debt, the leg rounds up to whole token units,
+capped at the held balance, and the debt closes. Otherwise it rounds down: the
+dropped fraction's USD value, divided by `1 + bonus` and floored, is trimmed
+from the repayment and refunded, kept amounts rounding up, so the liquidator pays for the units it
 receives, and a plan that then seizes nothing reverts with `InvalidPayments`
 (16). Neither applies when an insolvent account's repayment reaches the
 collateral-backed quote: that call seizes every unit. Such a leg is its

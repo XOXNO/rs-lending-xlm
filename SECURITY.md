@@ -58,6 +58,10 @@ We may credit reporters in release notes with their consent.
 A strong report identifies a concrete deviation from a protocol invariant,
 authorization boundary, accounting rule, price guarantee, or liveness property.
 
+Before you report, read the [threat model](docs/explanation/threat-model.md) and
+the [decision records](docs/explanation/decisions.md). Accepted trade-offs that
+they describe are not vulnerabilities.
+
 ## Supported versions
 
 Security fixes target the latest tag on main. Mainnet follows that release;

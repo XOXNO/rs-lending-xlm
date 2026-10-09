@@ -24,6 +24,7 @@ router fee entitlements and oracle signer configuration.
 | Price aggregator | Governance-owned deployment; owner configuration and upgrade | Sources, bands, feed metadata, actual owner and artifact |
 | Swap aggregator | Independent constructor administrator; owner-controlled fees, sweep and upgrade | Owner policy; no lending-governance router-upgrade route exists |
 | XOXNO oracle | Independent constructor administrator; signer/configuration and upgrade powers | Honest quorum participation, owner policy, and monitoring |
+| Aquarius pool (LP collateral) | Pool reserves, total shares and admin upgrade feed the LP price | Pool address, share token, `min_pool_value_wad` against live pool value |
 | DeFindex adapter | Fixed asset/hub/spoke/controller configuration; per-vault authenticated accounts | Correct immutable constructor inputs; no admin rescue interface |
 
 An address or owner gate proves neither multisig custody nor a timelock. An
@@ -42,9 +43,21 @@ operation tier:
 | Recovery | `max(minimum, 518400)` |
 
 The repository's [network configuration](../../configs/networks.json) sets the
-minimum to 12 ledgers on testnet and mainnet. Verify the deployed minimum and
-its review window before funding. Raising the configured minimum and changing a
-compiled tier floor are different actions.
+minimum to 12 ledgers on testnet and mainnet. A ledger closes about every 5
+seconds, so 12 ledgers is about 60 seconds. The compiled Sensitive floor is
+also 12 (`TIMELOCK_SENSITIVE_MIN_DELAY_LEDGERS`; the code marks it as an
+audit-period value and gives 120,960 as the target). Thus the Standard and
+Sensitive tiers have the same delay, and only the Recovery tier is longer.
+
+A window of 60 seconds is not a workable human review window. Each delay-based
+control in this model (Spoof.1, Tamper.7, Info.3, DoS.3, Elevation.1,
+Elevation.2) assumes a larger minimum or an automated canceller. After an
+ownership handover, the governance owner holds the CANCELLER role
+(`sync_owner_access_control`), and it can cancel any operation that is not in the
+Recovery tier. Verify the deployed minimum and role roster before funding.
+Raising the configured minimum and changing a compiled tier floor are different
+actions. `UpdateGovDelay` only raises the minimum, so raise it last: each later
+operation, such as a role revocation, waits for the new delay.
 
 GUARDIAN can immediately pause, tighten listing flags, and create empty hubs
 or spokes. ORACLE can immediately narrow sanity bands. The owner can revoke
@@ -55,14 +68,35 @@ position NFT, price aggregator and governance upgrades do not pause lending.
 
 A PROPOSER that is not the owner can schedule listing, cap, curve and limit
 changes. Ownership transfers, code upgrades and migration, the timelock
-minimum delay, price and swap sources, Blend approvals, the revenue accumulator
-and role grants need the owner as proposer. A stolen non-owner PROPOSER key can
-therefore schedule disruptive changes, such as listing flags, risk parameters,
-role revocations or an unpause, but cannot replace code or prices. It cannot
-change the minimum delay either. `UpdateGovDelay` can only raise the minimum,
-so no later delay update can lower it. An owner `UpgradeGov` can still replace
-the governance code and its delay rules
-([INV-AUTH-05](../reference/invariants.md#inv-auth-05)).
+minimum delay, oracle configuration and tolerance, price and swap aggregator
+changes, Blend approvals, the revenue accumulator and role grants need the owner
+as proposer (`timelock/lifecycle.rs`, `propose`). A stolen non-owner PROPOSER
+key cannot replace code or prices, and it cannot change the minimum delay.
+`UpdateGovDelay` can only raise the minimum, so no later delay update can lower
+it. An owner `UpgradeGov` can still replace the governance code and its delay
+rules ([INV-AUTH-05](../reference/invariants.md#inv-auth-05)).
+
+That key can still schedule these operations:
+
+- Risk-parameter edits of a listing. `validate_risk_bounds` accepts an LTV up
+  to one below the liquidation threshold and a threshold up to 100% when
+  `threshold * (1 + bonus) <= 100%`. A threshold of 100% needs a bonus of 0.
+- Cap edits, `max_utilization` up to 100%, and rate curves with a maximum of
+  200% a year.
+- `Unpause`, which reverses a guardian pause.
+- `SetPositionManager`. A manager acts only on accounts whose owner has
+  already delegated to it. Reactivating a manager revives those earlier
+  delegations.
+
+With a 60-second delay, a stolen PROPOSER key can list an asset with no risk
+buffer and no liquidation bonus, and then borrow against it. A price move
+after that creates bad debt for suppliers. The attacker cannot change prices, so
+this is a free option and not a drain. Its size is bounded by the borrowable
+cash of the borrowed market. As of the 2026-09-29 review, that cash was about
+USD 97,000 on mainnet (supplied minus borrowed in the Core hub; a chain-state
+reading, not a repository value). This is rated Low-Medium hardening. The
+governance owner can cancel a scheduled operation, but only inside the delay.
+Revoke a hot PROPOSER key first, and raise the delay last.
 
 Typed proposals perform proposal-time checks; targets retain execution-time
 validation. Ready operations must also be within the grace window. Anyone may
@@ -90,8 +124,10 @@ Controller account renewal requires the owner. Direct NFT renewal is
 permissionless and extends the Owner entry, its holder's Balance entry, and
 instance time to live (TTL); it does not renew the controller account. Archived
 persistent entries need restoration. Sequential NFT IDs are finite and are not
-recycled. Renewal and position limits do not guarantee that maximum-size
-operations fit network budgets.
+recycled. Anyone can extend or restore a ledger entry with the network
+operations `ExtendFootprintTtl` and `RestoreFootprint`, so entry renewal and
+restoration need no owner. Renewal and position limits do not guarantee that
+maximum-size operations fit network budgets.
 
 ## Token assumptions
 
@@ -100,6 +136,14 @@ arrived on supported supply, repay, recapitalization, and strategy paths.
 It is not a generic safety guarantee for arbitrary token contracts. Listing
 review must consider sender surcharges, false balances, rebases, clawbacks,
 upgrades, and semantics that can change after admission.
+
+A token issuer can freeze the pool address, claw back balances, or restrict
+transfers to an allowlist. Permissioned real-world-asset collateral on mainnet
+has this risk (for example USDY, USTRY, CETES, XAUM, USST, DEJTRSY, DEJAAA and
+the SPIKO tokens). A liquidation that must pay such collateral to a liquidator
+fails when the token rejects the transfer. Share credit avoids the payout but
+needs an authorized same-spoke receiver. `recapitalize` cannot repair a
+token-level loss. Set supply caps for these assets with this risk in mind.
 
 A token issuer can change the token's decimals after listing, for example with
 a `set_metadata` call. Pool decimals are fixed at listing, and the pool never
@@ -130,6 +174,13 @@ One token listed in several hubs shares physical pool custody even though
 market books are separate. Direct donations do not rewrite those books.
 Cash flash loans impose exact balance transitions and allowance repayment;
 receipt-tax compatibility elsewhere does not establish flash-loan compatibility.
+
+An Aquarius pool is a trust root for LP collateral. The LP price uses the
+pool's reserves and total shares, together with the leg prices from the price
+aggregator. Fair-value pricing resists swap manipulation. It does not resist an
+upgrade of the Aquarius pool code or a change of its share supply. Review the
+pool address, the share token and `min_pool_value_wad` against live pool value
+before a listing and after any venue change.
 
 Aquarius LP collateral earns venue rewards for its holder, which is the pool.
 The pool has no entrypoint to claim or forward them. The venue's reward claim
@@ -187,7 +238,12 @@ risk reads as a transaction-stable oracle.
 ## Price integrity and availability
 
 Two configured price legs must both be usable and agree within tolerance;
-one surviving leg is not a fallback. A single-source key has no top-level
+one surviving leg is not a fallback. The age-spread check
+(`MAX_LEG_AGE_SPREAD_SECONDS`, 3,600 seconds) applies only when both legs are
+`Market` feeds. Every dual-source market in `configs/mainnet/markets.json` has
+a `Fundamental` RedStone or Xoxno leg, so that check is not active there. A
+`Fundamental` leg is limited by its own `max_stale_seconds` and by the tolerance
+check. A single-source key has no top-level
 agreement check, although its transitive source may have multiple dependencies.
 Sanity bands constrain accepted prices but cannot establish economic correctness.
 
@@ -206,8 +262,20 @@ that is healthy at a report `p1` has `D <= LT * n * p1`, so the same result
 applies from that report. A liquidation does not decrease the units held for
 each unit of debt, so the result also applies after a liquidation. Thus
 lenders cannot lose while `LT < 1 / u`. The band ratio `u` is the threshold,
-not the price deviation. The Liqvid hub has LT 60% or 53% and `u` at most
-11/9, so it has a large margin.
+not the price deviation. The Liqvid listings on testnet have LT 53%
+(`configs/testnet/spokes.json`) and `u` at most 11/9, so they have a large
+margin.
+
+On mainnet, USDY (spokes 5 and 7) and USST (spoke 5) have LT 85% and LTV 80%
+(`configs/mainnet/spokes.json`). Their bands are single-source with `u` of 11/9,
+so `1 / u` is about 81.8%, and they do not meet the rule. This is a hardening
+item, not a vulnerability. A fresh borrow is capped by LTV, and 80% is below
+`1 / u`, so a price jump inside the band cannot make bad debt at borrow time.
+Bad debt needs the debt to grow past `1 / u` of the collateral value by
+interest, before a reversal from the band top to the band floor. The real
+feeds sit far from the band edges as of the 2026-09-29 review, and the exposure
+is small. Two fixes are possible: lower these LT values to 8100, or add an LT
+check to `validateConfigs` in `configs/script.sh`.
 
 This result has limits. It applies to one collateral leg. It prices the debt
 at its true value. If the debt feed can also move in its own band, the
@@ -217,8 +285,9 @@ result applies again only from a report in the new band at which the account
 is healthy.
 
 The borrower has less protection. The bonus `b` is the curve bonus at the
-reported HF, capped at `HF / LT - 1`. It is not the base bonus. On the default
-curve (target HF 1.10, maximum bonus at HF 0.80) with LT 60%, a reported HF of
+reported HF, capped at `HF / LT - 1`. It is not the base bonus. The next
+examples use the pinned test cases, which are not mainnet listings. On the
+default curve (target HF 1.10, maximum bonus at HF 0.80) with LT 60%, a reported HF of
 0.98 gives `b` of about 30%, not 5%. The curve 1.06/0.90/598 with LT 53% keeps
 `b` at or below 10%. One liquidation at the reported price `p` that pays `R`
 retires exactly `R` of debt. At true NAV, it costs the borrower at most
@@ -293,7 +362,22 @@ effective bonus is `U / D - 1`, not the quoted bonus `b`. With `k` held units
 and liquidation threshold `LT`, `HF < 1` bounds it at about
 `1 / (k * LT) - 1`. The borrower loses `U - D * (1 + b)` above the normal
 bonus, and `bonus_bps` shows only `b`. Listing review must note that expensive
-units with a low liquidation threshold raise this loss.
+units with a low liquidation threshold raise this loss. This path is dormant on
+mainnet: no listed asset has fewer than 5 decimals (`configs/mainnet/markets.json`),
+and the whole-unit rules apply below 3 decimals. Only the 0-decimal Liqvid
+listings on testnet use it.
+
+When collateral value is below debt, a liquidation pays the liquidator the full
+base bonus, and the suppliers bear it. The extra supplier loss is `C * b / (1 + b)`
+for collateral value `C`. The liquidator profit jumps by about
+`D * b / (1 + b)` of the debt `D` where `C` falls below `D`. That is 4.76% at a
+bonus of 500 BPS and 9.09% at 1000 BPS. In `configs/mainnet/spokes.json`, 35
+of the 73 listings have a bonus above 500 BPS. The owner decision on this
+behavior is open ([R-23](decisions-r23.md)), and the code keeps the current
+behavior. The supply cap check can fail open when the supply index is at its
+floor ([INV-HALT-03](../reference/invariants.md#inv-halt-03)). Accrual and
+bad-debt write-off can push utilization above the ceiling, and liquidation
+skips that ceiling ([INV-ACCT-08](../reference/invariants.md#inv-acct-08)).
 
 Liquidation planning and measured settlement enforce its accounting bounds.
 A missing universal final health-factor assertion alone does not establish a
@@ -330,6 +414,29 @@ batch if an included account's final health factor is below 1.05. Isolate and
 investigate that account; no earlier updates from the failed batch persist.
 An LTV-only refresh has no such final gate.
 
+## Off-chain operators and upgrade skew
+
+The keeper (`services/keeper`) is one off-chain service. It extends TTL for the
+controller, the pool, the position NFT, the price aggregator, the oracle
+adapter, the router, the RedStone adapter and account keys, and it restores
+entries that lapsed. If it stops for longer than its safety margin (21 days in
+`services/keeper/config/mainnet.yaml`), entries can archive and block exits
+until someone restores them. Anyone can run the network operations that extend
+or restore an entry. The keeper signer comes from a Key Vault secret that
+another service also uses. Index refresh is off on mainnet
+(`enable_index_refresh: false`). Accrual runs on demand, so that setting is not
+a safety control. A GUARDIAN can create hubs and spokes with no limit, and the
+keeper scans every spoke id against every configured market, so the scan can
+grow. No cap on that growth was found in the review (Unverified).
+
+Contracts share types (`common/src/types`) and client interfaces
+(`interfaces/`). An upgrade of one contract can break another that still holds
+the old layout. On 2026-09-05 an upgrade of the price aggregator alone broke
+controller pricing with a decoding size error until the controller was upgraded too.
+Before any single-contract upgrade, compare `common/src/types` and
+`interfaces/` with the deployed commit. A controller upgrade pauses lending, and
+the other upgrades do not.
+
 ## STRIDE register
 
 STRIDE groups threats into spoofing, tampering, repudiation, information
@@ -354,6 +461,9 @@ these rows do not assign severity or establish exploitability.
 | Tamper.8 | Hostile Blend integration; allowlisting and measured settlement do not freeze an approved pool's code. |
 | Tamper.9 | False feed-nature label bypasses intended smoothing selection; nature is operator-asserted. |
 | Tamper.10 | Upstream configuration changes after admission; structural checks and runtime age limits remain, but admission assumptions need monitoring. |
+| Tamper.11 | Token issuer freeze, clawback or allowlist blocks seizure or withdrawal of collateral; supply caps and share credit limit the effect. |
+| Tamper.12 | Aquarius pool code or share-supply change misprices LP collateral; fair-value pricing does not cover a change in the pool itself. |
+| Tamper.13 | Upgrade skew across shared types breaks a dependent contract; compare shared types with the deployed commit before an upgrade. |
 | Repudiate.1 | Denied admin actions; inherited governance lifecycle/role/ownership events exist, but application-event coverage is not universal. |
 | Repudiate.2 | Misread user/liquidation actions; use measured repayment and distinct gross/net batch tags, not one-batch assumptions. |
 | Repudiate.3 | Oracle application-event gaps; submission/configuration lack dedicated events, while inherited ownership events remain available. |
@@ -361,16 +471,17 @@ these rows do not assign severity or establish exploitability.
 | Info.2 | Liquidation competition and MEV; the bonus curve bounds terms, not ordering or liquidator profit. |
 | Info.3 | Visible pending governance changes allow anticipatory positioning; observability is intentional. |
 | Info.4 | Invalid quotes may contain prices; use validity flags or strict reads. |
-| DoS.1 | Price outage blocks valuation-dependent actions, including liquidation; fail-closed availability cost. Supply needs no price, so an indebted borrower can add a dust leg of any listed collateral and choose which feed outage shields the account. For an Aquarius LP leg, liquidity providers can cause that outage by withdrawing pool value below `min_pool_value_wad`. The same leg blocks bad-debt cleanup and force-socialization. |
+| DoS.1 | Price outage blocks valuation-dependent actions, including liquidation; fail-closed availability cost. Supply needs no price for an account whose stored risk tuple equals its listing. After governance tightens a listing, a supply to an indebted account values every leg (`risk/params.rs`), and it fails during an outage. An indebted borrower can add a dust leg of any listed collateral, up to the position limit of 5 legs, and choose which feed outage shields the account. For an Aquarius LP leg, liquidity providers can cause that outage by withdrawing pool value below `min_pool_value_wad`. The same leg blocks bad-debt cleanup and force-socialization. |
 | DoS.2 | Selected paused debt or no_seize collateral blocks liquidation; distinct flag policies matter. |
 | DoS.3 | False-alarm pause needs delayed reopening; emergency response is asymmetric. |
 | DoS.4 | Lost governance keys; proposer safeguards and owner-dependent canceller recovery do not restore a lost owner. |
 | DoS.5 | Resource exhaustion; limits do not substitute for real-WASM maximum-case measurements. |
-| DoS.6 | Archived storage blocks access until restoration; controller renewal is owner-authorized. |
+| DoS.6 | Archived storage blocks access until restoration. Controller account renewal through the contract needs the owner. Anyone can extend or restore an entry with the network operations `ExtendFootprintTtl` and `RestoreFootprint`, and the keeper does this. Archival costs fees; it does not lock an account. |
 | DoS.7 | Signer liveness loss prevents new aggregates; a prior aggregate can remain usable until stale. |
 | DoS.8 | Cash/utilization/cap limits reject otherwise desired actions; zero caps admit no new exposure. |
 | DoS.9 | Dust and zero-share movements; rejection/floors reduce griefing but do not guarantee liquidation profitability. |
 | DoS.10 | Router/oracle owner loss disables administration; existing oracle signers may continue, but future repair powers are lost. The source ABIs export no `renounce_ownership`; verify that the deployed artifacts match. |
+| DoS.11 | Keeper or TTL operator stops, or its scan grows; entries can archive until someone restores them. |
 | Elevation.1 | Governance-owner compromise; actual configured delay and approved replacement code determine exposure. |
 | Elevation.2 | Guardian attempts reopening; immediate flag ratchets reject it. Listing edits cannot clear flags either; only a delayed relaxation bound to the listing's flags epoch can, so one proposed before a later guardian action reverts. |
 | Elevation.3 | Role overlap/cancellation abuse; separation exempts owner and recovery has its own rules. |
@@ -380,7 +491,7 @@ these rows do not assign severity or establish exploitability.
 | Elevation.7 | Oracle owner changes code/signers; independent source comparison and bands constrain accepted prices, not all manipulation. |
 | Elevation.8 | Test powers in release WASM; feature and artifact checks cover only their actual build/export scope. |
 | Elevation.9 | Vault abuses adapter authority; adapter exposes supply/withdrawal, not borrowing or other vault accounts. |
-| Elevation.10 | ORACLE role narrows band to exclude market price; immediate fail-closed denial of service remains possible. |
+| Elevation.10 | ORACLE role narrows a band to exclude the market price. `set_sanity_band` accepts such a band, and every valuation-dependent action then fails closed, including liquidation and bad-debt cleanup. A key holder who also borrows can use this to keep an account from liquidation while the market moves. The loss is the bad debt formed before the band is widened by a delayed `ConfigureAssetOracle`. On mainnet, only the owner key holds ORACLE as of the 2026-09-29 review, and recovery takes about one minute at the current delay. A fix is to make `set_sanity_band` refuse a band that excludes the live price. |
 
 ## Review triggers and evidence limits
 

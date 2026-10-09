@@ -69,6 +69,9 @@ Every pull request should start with:
     make test
     make docs-check
     make access-control-check
+    make ops-script-check
+    make integration-validate
+    make wasm-size-check
 
 Then run the focused checks for the changed behavior:
 

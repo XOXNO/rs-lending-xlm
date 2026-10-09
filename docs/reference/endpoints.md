@@ -26,7 +26,7 @@ Every user mutation below requires the named caller, payer or liquidator to auth
 | `withdraw(caller: Address, account_id: u64, withdrawals: Vec<(HubAssetKey, i128)>, to: Option<Address>) -> Vec<(HubAssetKey, i128)>` | NFT owner/delegate | open | Zero means full withdrawal; returns the amounts paid. |
 | `repay(caller: Address, account_id: u64, payments: Vec<(HubAssetKey, i128)>)` | None | open | Anyone can repay; excess returns to caller. |
 | `liquidate(liquidator: Address, account_id: u64, debt_payments: Vec<(HubAssetKey, i128)>, seize_mode: SeizeMode) -> u64` | None; credit receiver owner/delegate | open | Pro-rata seizure; Transfer returns 0, Credit returns receiver id. |
-| `clean_bad_debt(caller: Address, account_id: u64)` | None | open | Debt exceeds collateral and collateral <= $5; socialize and burn NFT. |
+| `clean_bad_debt(caller: Address, account_id: u64)` | None | open | Debt exceeds collateral and collateral is at most a fixed $5 (not the configurable borrow floor); socialize and burn NFT. |
 | `flash_loan(caller: Address, asset: HubAssetKey, amount: i128, receiver: Address, data: Bytes)` | None | gated | Wasm callback; pool pulls exact principal plus fee. |
 | `flash_position(caller: Address, account_id: u64, spoke_id: u32, mode: PositionMode, debt: HubAssetKey, amount: i128, receiver: Address, data: Bytes, collaterals: Vec<(HubAssetKey, i128)>, refund_assets: Vec<Address>) -> u64` | NFT owner/delegate for existing id | gated | Mint fee-free debt; deposit declared collateral that the callback delivers. |
 | `multiply(caller: Address, account_id: u64, spoke_id: u32, collateral: HubAssetKey, debt_to_flash_loan: i128, debt: HubAssetKey, mode: PositionMode, swap: Bytes, initial_payment: Option<(HubAssetKey, i128)>, convert_swap: Option<Bytes>) -> u64` | NFT owner/delegate for existing id | gated | Borrow, swap and supply; optional initial capital. |
@@ -36,7 +36,7 @@ Every user mutation below requires the named caller, payer or liquidator to auth
 | `migrate_from_blend(caller: Address, account_id: u64, spoke_id: u32, hub_id: u32, blend_pool: Address, collateral_assets: Vec<Address>, supply_assets: Vec<Address>, debt_caps: Vec<(Address, i128)>) -> u64` | NFT owner/delegate for existing id | gated | Migrate caller’s position from approved Blend pool. |
 | `update_indexes(caller: Address, assets: Vec<HubAssetKey>)` | None | gated | Accrue specified markets. |
 | `claim_revenue(caller: Address, assets: Vec<HubAssetKey>) -> Vec<i128>` | None | gated | Pay only configured accumulator; return controller receipts. |
-| `update_account_threshold(caller: Address, has_risks: bool, account_ids: Vec<u64>)` | None | gated | Refresh LTV; optional risk refresh requires final HF >= 1.05. |
+| `update_account_threshold(caller: Address, has_risks: bool, account_ids: Vec<u64>)` | None | gated | Refresh LTV; optional risk refresh requires final HF >= 1.05. Skips accounts without metadata, supply or a resolvable NFT owner. |
 | `recapitalize(payer: Address, hub_asset: HubAssetKey, amount: i128) -> i128` | None | open | Measured backing injection; refund surplus; return amount applied. |
 | `renew_account(caller: Address, account_id: u64)` | NFT owner | open | Renew account and NFT ownership storage. |
 | `add_delegate(caller: Address, account_id: u64, delegate: Address)` | NFT owner | gated | Grant only to active approved manager; maximum 16. |
@@ -95,19 +95,19 @@ Undeclared callback assets receive neither credit nor refunds. There is no contr
 | --- | --- |
 | `is_liquidatable(account_id: u64) -> bool` | HF < 1 WAD |
 | `get_health_factor(account_id: u64) -> i128` | HF WAD; i128::MAX for missing/debt-free account |
-| `get_total_collateral_usd(account_id: u64) -> i128` | Unweighted USD WAD (half-up; same `C` as bad-debt eligibility) |
-| `get_total_borrow_usd(account_id: u64) -> i128` | Display debt USD WAD (half-up); cleanup/HF use ceil risk debt |
+| `get_total_collateral_usd(account_id: u64) -> i128` | Unweighted USD WAD (half-up; same `C` as bad-debt eligibility); zero if missing. |
+| `get_total_borrow_usd(account_id: u64) -> i128` | Display debt USD WAD (half-up; cleanup and HF use ceil risk debt); zero if missing. |
 | `get_collateral_amount(account_id: u64, hub_asset: HubAssetKey) -> i128` | Underlying token units; zero without position |
 | `get_borrow_amount(account_id: u64, hub_asset: HubAssetKey) -> i128` | Underlying token units; zero without position |
 | `get_account_positions(account_id: u64) -> ( Map<HubAssetKey, AccountPositionRaw>, Map<HubAssetKey, DebtPositionRaw>, )` | Supply/debt maps; empty if missing |
 | `get_account_attributes(account_id: u64) -> AccountAttributes` | Stored spoke and mode |
 | `account_exists(account_id: u64) -> bool` | Metadata existence |
-| `get_liquidation_estimate(account_id: u64, debt_payments: Vec<(HubAssetKey, i128)>, seize_mode: SeizeMode) -> LiquidationEstimate` | Shared liquidation plan; max 256 payment inputs |
-| `get_liquidation_collateral(account_id: u64) -> i128` | Threshold-weighted USD WAD; not a seizure ceiling |
-| `get_ltv_collateral_usd(account_id: u64) -> i128` | LTV-weighted USD WAD |
+| `get_liquidation_estimate(account_id: u64, debt_payments: Vec<(HubAssetKey, i128)>, seize_mode: SeizeMode) -> LiquidationEstimate` | Shared liquidation plan; max 256 payment inputs. Over 256 fails with InvalidPayments. |
+| `get_liquidation_collateral(account_id: u64) -> i128` | Threshold-weighted USD WAD; not a seizure ceiling; zero if missing. |
+| `get_ltv_collateral_usd(account_id: u64) -> i128` | LTV-weighted USD WAD after an in-memory LTV restamp; zero if missing. |
 | `get_pool_address() -> Address` | Configured pool |
 | `get_market_index(hub_asset: HubAssetKey) -> MarketIndexRaw` | Simulated accrued RAY indexes |
-| `get_market_indexes_detailed(hub_assets: Vec<HubAssetKey>) -> Vec<MarketIndexView>` | Accrued indexes and oracle status; at most 256 inputs |
+| `get_market_indexes_detailed(hub_assets: Vec<HubAssetKey>) -> Vec<MarketIndexView>` | Accrued indexes and oracle status; at most 256 inputs. Over 256 fails with InvalidPayments. |
 | `get_spoke(spoke_id: u32) -> SpokeConfig` | Spoke config |
 | `get_spoke_asset(spoke_id: u32, hub_asset: HubAssetKey) -> SpokeAssetConfig` | Listed risk config; fails if missing |
 | `get_spoke_usage(spoke_id: u32, hub_asset: HubAssetKey) -> SpokeUsageRaw` | RAY shares; default zero if absent |
@@ -206,7 +206,7 @@ Constructor `(admin: Address, min_delay: u32)` initializes the owner, access-con
 | `price_aggregator() -> Address` | Open view / resolver |
 | `execute(executor: Option<Address>, target: Address, function: Symbol, args: Vec<Val>, predecessor: BytesN<32>, salt: BytesN<32>) -> Val` | Ready scheduled operation; optional executor |
 | `cancel(canceller: Address, operation_id: BytesN<32>)` | CANCELLER_ROLE; recovery ops cannot be cancelled; target cannot cancel own revocation |
-| `get_min_delay() -> u32` | Open view / resolver |
+| `get_min_delay() -> u32` | Open view / resolver; ledgers |
 | `get_operation_state(operation_id: BytesN<32>) -> OperationState` | Open view / resolver |
 | `get_operation_ledger(operation_id: BytesN<32>) -> u32` | Open view / resolver |
 | `hash_operation(target: Address, function: Symbol, args: Vec<Val>, predecessor: BytesN<32>, salt: BytesN<32>) -> BytesN<32>` | Open view / resolver |
@@ -383,4 +383,4 @@ Constructor takes `asset: Address` and `init_args: Vec<Val> = [controller: Addre
 - [Pool ABI](../../interfaces/pool/src/lib.rs), [implementation](../../contracts/pool/src/lib.rs); [governance ABI](../../interfaces/governance/src/lib.rs), [implementation](../../contracts/governance/src/api.rs), [immediate authority](../../contracts/governance/src/timelock/immediate.rs).
 - [NFT implementation](../../contracts/position-nft/src/contract.rs); [router ABI](../../interfaces/swap-aggregator/src/lib.rs), [implementation](../../contracts/swap-aggregator/src/lib.rs); [price ABI](../../interfaces/price-aggregator/src/lib.rs).
 - [XOXNO oracle](../../contracts/xoxno-oracle/src/lib.rs), [admin](../../contracts/xoxno-oracle/src/admin.rs), [reads](../../contracts/xoxno-oracle/src/reads.rs), [submit](../../contracts/xoxno-oracle/src/submit.rs); [adapter](../../contracts/defindex-strategy/src/lib.rs).
-- Generated NFT/default ownership semantics use OpenZeppelin stellar-contracts revision `fbfde388e1b72afa93d6b1c922067879b20e81db`, pinned in [Cargo.toml](../../Cargo.toml).
+- Generated NFT/default ownership semantics use OpenZeppelin stellar-contracts revision `59b98f8e127f0e877a3870e8eb82fa282a4aadf3`, pinned in [Cargo.toml](../../Cargo.toml).

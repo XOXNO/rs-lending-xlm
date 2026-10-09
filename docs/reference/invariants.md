@@ -53,13 +53,20 @@ not imply that every operation preserves health or collateral value.
 
 ### INV-AUTH-04 — Emergency power only tightens
 
-Immediate guardian power can pause and add listing restrictions. Unpausing or
+Immediate guardian power can pause the controller, add listing restrictions
+(`paused`, `frozen`, `no_seize`) and create empty hubs and spokes. Unpausing or
 clearing restrictions requires a timelock under the repository wiring.
 
 A listing edit and the guardian flag method can only keep or tighten flags.
 Only the timelocked `relax_spoke_asset_flags` clears one, and only while the
 listing's flags epoch equals its `expected_epoch`. The oracle role's immediate
 `set_sanity_band` can only keep or narrow a band.
+
+A tighter setting is not always safe for liveness. `no_seize` on a collateral,
+`paused` on a debt asset, or a band that excludes the live price can block
+liquidation of the affected accounts until a timelocked operation reverses it.
+Global pause does not block liquidation. Treat the guardian and oracle keys as
+liveness-critical.
 
 <a id="inv-auth-05"></a>
 <a id="inv-auth-05--governance-delay-cannot-be-shortened"></a>
@@ -70,6 +77,10 @@ Construction requires a nonzero minimum delay. Delay updates can retain or
 increase it, up to 241920 ledgers; construction does not enforce that upper
 bound. Only the owner can propose `UpdateGovDelay`. Sensitive and Recovery
 delays also apply their compiled minimums.
+
+The compiled floors are 12 ledgers for the Sensitive tier and 518,400 ledgers for
+the Recovery tier. `configs/networks.json` sets the minimum to 12 ledgers on
+testnet and mainnet, so the Standard and Sensitive tiers share one delay there.
 
 These checks govern the deployed implementation and cannot constrain replacement
 Wasm.
@@ -82,6 +93,29 @@ An account retains its creation-time spoke. Existing-account supply, migration,
 multiply and flash-position calls must match that spoke; borrow, withdraw and
 repay use the stored binding. Credit-mode liquidation requires a receiver in
 the same spoke.
+
+<a id="inv-auth-07"></a>
+
+### INV-AUTH-07 — Timelock-skipping actions are a closed set
+
+Under the repository wiring, governance owns the controller and the price
+aggregator. An owner-gated mutation of the controller, the pool, the aggregator or
+governance runs only through a scheduled operation that is ready and not expired, with these
+exceptions:
+
+- The guardian's pause, flag tightening, and hub and spoke creation.
+- The oracle role's band narrowing.
+- The owner's immediate revocation of a guardian or oracle role.
+- The one-time owner calls that deploy the controller and the price aggregator.
+  Each panics if that contract is already deployed.
+
+A scheduled operation expires after 120,960 ledgers past its ready ledger. A
+proposer that is not the owner cannot schedule an ownership transfer, a code
+upgrade or migration, a delay update, a price-source or oracle-tolerance
+change, a swap-aggregator change, a Blend approval, an accumulator change or a
+role grant (`timelock/lifecycle.rs`, `propose`). See
+[governance powers](../explanation/threat-model.md#governance-windows-and-emergency-powers)
+for the effective delay.
 
 ## Accounting and cash
 
@@ -222,6 +256,41 @@ on-chain view enumerates accounts, so on a live network only the spoke-level
 identity (pool supplied minus the sum of spoke usage equals revenue) can be
 read.
 
+<a id="inv-acct-11"></a>
+
+### INV-ACCT-11 — Pool custody covers tracked cash
+
+For each pool market, the pool's token balance is at least its tracked cash.
+The two are equal unless someone donates tokens to the pool. Every inbound leg
+credits the measured receipt, and every outbound leg debits the amount it
+transfers, so no operation makes cash exceed the balance. A token that
+misreports its balance, or a `recapitalize` refund above the measured receipt,
+can break the statement. The controller measures both. The pool itself adds no
+bound to the refund; `test_recapitalize_refund_pays_out_tokens_the_pool_never_received`
+pins this. The proptest
+`prop_seed_adjusted_cash_conservation_and_token_custody` checks the equality
+after each operation of a random sequence. The Certora pool rules do not model
+the token.
+
+<a id="inv-acct-12"></a>
+
+### INV-ACCT-12 — Spoke usage equals the sum of account positions
+
+For each spoke and hub asset, stored scaled supply usage equals the sum of the
+scaled supply of that spoke's accounts. Stored scaled debt usage equals the sum
+of their scaled debt. Every position change applies its scaled delta to usage in
+the same transaction, and usage never becomes negative. Same-spoke Credit-mode
+liquidation moves shares between two accounts and reduces usage only by the fee.
+Bad-debt cleanup releases every removed position. `remove_asset_from_spoke`
+requires zero usage on both sides.
+
+An exit on a missing usage row is a no-op (`apply_exit`). The identity therefore
+relies on every entry having written a row, and a missing row hides drift
+instead of failing. The harness check `assert_spoke_usage_matches_positions`
+and the test `spoke_usage_tracks_positions.rs` run every share writer. The
+`usage_*` rules in `certora/controller/spec/spoke_rules.rs` cover each verb.
+
+
 ## Indexes and accrual
 
 <a id="inv-idx-01"></a>
@@ -288,6 +357,16 @@ total-supply share headroom. That conversion can leave reward value unrepresente
 exact conservation of booked supplier and revenue value is not guaranteed. See
 [interest allocation](formulas.md#compounding-and-interest-allocation).
 
+<a id="inv-idx-06"></a>
+
+### INV-IDX-06 — A rate-model change never reprices elapsed time
+
+Replacing a market's interest-rate model first accrues interest to the current
+ledger under the old model and commits it, then stores the new model
+(`replace_rate_model`). The controller also updates the market indexes before it
+calls the pool. Interest for time before the change uses the old model.
+`test_update_params_accrues_under_old_curve_after_time_advance` pins the order.
+
 ## Oracle validity
 
 <a id="inv-oracle-01"></a>
@@ -308,7 +387,10 @@ candidate is not accepted for valuation.
 
 A configured two-source price requires both usable legs. The accepted price
 is their integer midpoint, rounded down, within both the input range and the
-final sanity band. One surviving leg cannot serve as a fallback.
+final sanity band. The legs must agree within the oracle's tolerance ratio. When
+both legs are market-nature feeds, their timestamps must also differ by at most
+3,600 seconds; a larger gap makes the price stale. A midpoint overflow gives price
+zero, which is rejected. One surviving leg cannot serve as a fallback.
 
 A partial reading is unusable; a stale surviving leg reports staleness before
 disagreement. Separately admitted single-source configurations retain freshness,
@@ -340,6 +422,21 @@ observation timestamp.
 Discarding a required leg makes its single-source or dual-source configuration
 unusable under INV-ORACLE-01 and INV-ORACLE-02.
 
+<a id="inv-oracle-05"></a>
+
+### INV-ORACLE-05 — Debt-free supply and withdrawal read no price
+
+Supply and withdrawal on an account with no debt read no price: the solvency
+gate returns early for a debt-free account, and the threshold refresh values
+the account only when the account has debt. A stale or missing feed cannot
+block them. `test_stale_price_allows_supply_without_price_read` pins the supply
+case. An account with debt reads a price for every asset in the account, on the
+supply side and the debt side. One unusable feed therefore blocks borrowing,
+withdrawal with debt, strategies, liquidation and bad-debt cleanup for each
+account that holds that asset. A supply to an indebted account also reads
+prices when a listing change favors the liquidator (see
+[INV-AUTH-03](#inv-auth-03)).
+
 ## Account risk
 
 <a id="inv-risk-01"></a>
@@ -348,8 +445,9 @@ unusable under INV-ORACLE-01 and INV-ORACLE-02.
 
 Ordinary borrowing, withdrawal and account strategies apply final solvency gates
 after pool mutations. With debt remaining, LTV-weighted collateral must cover
-debt, health factor must be at least one, and LTV-weighted collateral must meet
-any nonzero configured floor. Debt-free accounts skip these numerical gates.
+debt, health factor must be at least one, LTV-weighted collateral must meet any
+nonzero configured floor, and every supply leg below 3 decimals must hold at
+least 2 whole units. Debt-free accounts skip all four gates.
 
 Listed LTV snapshots refresh before the shared gate. Listing and count checks
 precede entry; spoke caps use returned pool deltas and revert the whole
@@ -478,6 +576,28 @@ Ordinary liquidation and cleanup apply no final account-health or full-backing
 assertion. The index floor can leave a shortfall. Recapitalization fills that
 shortfall without restoring the lost index or deleted account.
 
+<a id="inv-liq-05"></a>
+
+### INV-LIQ-05 — The quoted bonus preserves health unless collateral is below debt
+
+For an account with a positive seizure proportion `p` and health factor
+`HF < 1`, the quote applies a bonus no higher than
+`floor(HF * BPS / p) - BPS`, except in the insolvent arm below. If that cap is
+below the base bonus, the quote is the whole debt at the capped bonus, and the
+bonus is not below zero. If collateral `C` is below debt `D`, the quote is
+`min(D, floor(C / (1 + base)))` at the base bonus, so the seizure can exceed the
+cap. A target-health quote that would leave debt above zero and below the dust
+threshold becomes the whole debt. Whole-unit legs ([INV-LIQ-02](#inv-liq-02)) and
+rounding can change the quote.
+
+The liquidator payoff is not continuous at `C = D`; see
+[R-23](../explanation/decisions-r23.md). The Certora split rules (the
+`liquidation-additivity` conf) prove that splitting a liquidation does not
+out-seize one close. They assume a base bonus of at most 500 BPS and the default
+curve, so they do not cover the mainnet listings above 500 BPS or the
+non-default curves. This is a proof-domain gap, not a found violation. It has no
+known fund-loss path (audit finding H-02, Low).
+
 ## Pauses, flags and caps
 
 <a id="inv-halt-01"></a>
@@ -521,6 +641,16 @@ borrow cap cannot saturate. See
 Exits consume no cap. Missing usage rows and zero deltas are no-ops, and stored
 usage cannot become negative. Same-spoke liquidation credit bypasses entry
 caps and books its fee as an exit.
+
+<a id="inv-halt-04"></a>
+
+### INV-HALT-04 — A deprecated spoke accepts no new exposure
+
+New supply, borrowing, strategy entry and account creation in a deprecated
+spoke revert (`active_spoke`, `require_listed_active_config`). Withdrawal,
+repayment and liquidation stay open, so existing positions can unwind.
+Liquidation in Credit mode with `Credit(0)` can create the receiver account in a
+deprecated spoke ([INV-LIQ-01](#inv-liq-01)).
 
 ## Storage and account lifecycle
 
@@ -618,7 +748,8 @@ create no account debt and use their own settlement checks.
 Protected monetary entrypoints reject an active flash guard. Six guarded
 windows cover cash flash loans, flash-position funding and callback, router
 calls, strategy withdrawal, strategy borrowing and Blend submission. Nested
-windows preserve an outer guard.
+windows preserve an outer guard. `add_delegate`, `remove_delegate` and
+`renew_account` stay reachable inside a guarded window.
 
 These windows do not wrap every token call or freeze NFT transfers and public
 risk views. A native fixture does not establish callback reachability under
@@ -654,9 +785,9 @@ before payout. This does not guarantee measured recipient receipt. The
 controller independently checks positive output and final account risk,
 without checking the payload minimum.
 
-All six account strategies refresh listed supply LTV and apply final collateral
-coverage, health and collateral-floor gates before persistence. Debt-free
-accounts skip those three numerical gates. Cash flash loans settle separately;
+All six account strategies refresh listed supply LTV and apply the four final
+gates of [INV-RISK-01](#inv-risk-01) before persistence. Debt-free
+accounts skip those gates. Cash flash loans settle separately;
 ordinary supply and repayment do not universally apply that final account gate.
 
 <a id="inv-strat-03"></a>

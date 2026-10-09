@@ -138,7 +138,9 @@ For each posted NAV `p`, do the step in the row that matches:
 | `p < 0.849 R` or `p > 1.03 R` | Prices fail closed. Freeze the listing. Make sure that the NAV is correct. Then propose a band around `p`. |
 
 When you propose a new band, also set the supply cap again for the new
-ceiling (section 7).
+ceiling (section 7). Propose the supply-cap edit only after `relaxAssetFlags`
+has executed. An edit that you propose during a freeze carries `frozen=true`
+and freezes the listing again when it executes after the relaxation.
 
 The freeze stops new borrows at a low NAV. A borrow at the LTV limit at `p`
 becomes liquidatable at `0.9434 p`. That point stays above the floor only
@@ -164,7 +166,7 @@ The factor 598 makes the bonus exactly 10 % at `K`:
 
 | HF | Bonus (this listing) | Bonus (previous listing) |
 |---|---|---|
-| just below 1 | 688 bps | 2557 bps |
+| just below 1 | 688 bps | 2555 bps |
 | 0.99 | 719 bps | 2761 bps |
 | 0.95 | 844 bps | 3583 bps |
 | 0.90 | 1000 bps | 4611 bps |
@@ -429,9 +431,11 @@ band, with no interest.
 
 ## 11. Apply order
 
-Nothing in this runbook is applied on chain. Steps 2 to 4 are timelocked
-governance operations: propose, wait for the delay, then execute. You can
-propose them at the same time, but execute them in the order below.
+On testnet, steps 2 to 4 have executed operation records in
+`configs/ops/testnet/`. The live restamp state of each account (step 5) is not
+recorded there. `configs/mainnet/spokes.json` has no Liqvid listing. Steps 2 to 4
+are timelocked governance operations: propose, wait for the delay, then execute.
+You can propose them at the same time, but execute them in the order below.
 
 1. **Adapter staleness.** The owner of the core Xoxno adapter sets
    `set_max_stale_seconds` to 93,600 with `make testnet setOracleMaxStale 93600`

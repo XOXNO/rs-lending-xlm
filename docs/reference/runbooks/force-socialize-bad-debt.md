@@ -19,7 +19,9 @@ or insurance payment. The account is deleted and its position NFT burns.
 1. Confirm the network, target controller, governance contract, account id,
    NFT owner, positions and spoke. `force_socialize_bad_debt` is owner-only.
    Governance, the controller owner, schedules `ForceSocializeBadDebt` on the
-   Sensitive delay tier; follow the
+   Sensitive delay tier. The delay is the larger of the governance minimum delay
+   and 12 ledgers. Read the live value with `get_min_delay` before you plan the
+   time window. Follow the
    [governance interface](../endpoints.md#governance) for proposal and execution.
 2. Confirm insolvency with the same risk totals the entrypoint uses: ceil-valued
    debt (`AccountRiskTotals.total_debt`) strictly greater than half-up unweighted

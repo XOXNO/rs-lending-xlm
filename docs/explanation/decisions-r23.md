@@ -115,7 +115,13 @@ real-valued model (not a harness run) gives these profits for the example:
 
 Today the insolvent bonus is a constant of the collateral mix. The Certora
 rule `split_liq_chain_bound_holds_when_health_never_recovers` uses this fact.
-The rule would not hold for `β(x)`. Two changes stop the split:
+The rule would not hold for `β(x)`. The rule assumes a base bonus of at most
+500 BPS and the default curve. Mainnet listings go up to 1000 BPS, and the
+proof does not cover accounts above 500 BPS or the non-default curves. No
+violation is known: a real-valued model (not a harness run) of the quote finds
+none, and the
+argument above does not depend on the value of `b`. Extend the assumed range
+or add a test that covers it. Two changes stop the split:
 
 - Make the insolvent quote all or nothing.
 - Store the bonus for each account at its first insolvent liquidation, and use
@@ -165,11 +171,15 @@ debt. This option is not acceptable.
 
 ## Options
 
+Options A, B and C here are not the audit's options (a), (b) and (c).
+
 ### A. Keep the code (recommended)
 
 No contract change. The pinning tests above hold the payoff shape. The
 residual risk is a wait gain of at most `D * b / (1 + b)` for each account:
-4.76 % of `D` at `b = 5 %`.
+4.76 % of `D` at `b = 5 %`. Mainnet listings use bonuses up to 1000 BPS
+(`configs/mainnet/spokes.json`), so the residual is up to 9.09 % of `D` for
+each account.
 
 ### B. Lower the base bonus of Liqvid collateral
 
@@ -177,6 +187,8 @@ This is a listing change only. The jump bound `D * b / (1 + b)` falls with `b`:
 
 | Base bonus | Jump bound | Window top |
 |---:|---:|---:|
+| 1000 BPS | 9.09 % of `D` | 1.0909 |
+| 900 BPS | 8.26 % of `D` | 1.0826 |
 | 500 BPS | 4.76 % of `D` | 1.0476 |
 | 200 BPS | 1.96 % of `D` | 1.0196 |
 | 100 BPS | 0.99 % of `D` | 1.0099 |

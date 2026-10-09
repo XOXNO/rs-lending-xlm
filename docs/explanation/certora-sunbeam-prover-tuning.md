@@ -45,7 +45,7 @@ Read the rule, fixture, feature path and every summary it reaches before interpr
 | Controller position books | Health/solvency and selected fixtures constrain stored positions. Frame rules can deliberately retain arbitrary state. Read the actual pre-map and well-formedness assumptions. |
 | Controller position limits | Fixture arrays derive from the limit and include a compile-time `POSITION_LIMIT_MAX == 5` assertion. Compilation does not establish fixture reachability. |
 | Pool summaries | Rate fields are constrained to the validated domain. Controller ghost caches reconcile index reads per market. Faithful and consistent summaries remain proof premises. |
-| Pool configuration | State-invariant and seize/settle fixtures vary decimals and reserve factor over governance's admitted domain; their rate curve remains fixed. Other families can use fixed fixtures. The symbolic 3–18 decimal domain excludes standalone pool metadata values 0–2. |
+| Pool configuration | State-invariant and seize/settle fixtures vary decimals and reserve factor over governance's admitted domain; their rate curve remains fixed. Other families can use fixed fixtures. The symbolic decimals domain is 0–18 (`MIN_ASSET_DECIMALS = 0`). A verdict recorded for the earlier 3–18 domain does not cover decimals 0–2; rerun the affected confs. |
 | Amount and price bounds | Families use different limits. A convenient bound below a representable ceiling is narrower than the production domain. Check intermediate arithmetic and trap-pruned paths too. |
 | Rule placement | Follow transitive helpers and resolved symbols. A controller import through `crate::types` can re-export common arithmetic. Keep each non-satisfy rule in one configuration per layer. |
 | Local CI | The default selection covers common and price-aggregator configurations. A successful local CI run does not establish controller or pool verification. |
@@ -161,6 +161,8 @@ The frontend claims and historical case above come from the September 2026 resea
 | Certora Documentation | `c19ad019` |
 | CVLR | `f1e3e08b`; repository pin `b8bfb4c9` |
 | cvlr-soroban | `70a9ddfc`; repository pin `5ff9d010` |
+
+Repository builds use the vendored copy in `vendor/` (the `[patch]` block in `Cargo.toml`). Do not compare it to upstream `5ff9d010` without that diff.
 
 The exact hosted backend build was not inspectable. Open-source behavior does not attest to the hosted service. The recorded cloud job cap was 7,200 seconds; verify service limits for each run.
 

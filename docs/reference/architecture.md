@@ -105,12 +105,18 @@ positive measured output and final account risk. These checks do not guarantee
 route quality. The [external integration section](../explanation/threat-model.md#routes-callbacks-and-external-integrations)
 covers this boundary and callback assumptions.
 
+The controller can also call a Blend pool to migrate a position into a lending
+account. The Blend pool is an external contract that the controller does not own.
+The same section covers approved Blend pools.
+
 ## Administration and availability
 
 Governance checks typed proposals before scheduling them; target contracts also
-validate at execution. Immediate powers cover guardian actions, oracle sanity-band
-tightening, hot-role revocation, and owner deployment bootstrap. Controller
-construction and upgrade leave the controller paused.
+validate at execution. Immediate powers, with no delay, are: guardian pause,
+guardian tightening of listing flags, guardian creation of hubs and spokes,
+oracle-role tightening of price sanity bands, owner revocation of guardian and
+oracle roles, and owner deployment of the controller and price aggregator.
+Controller construction and upgrade leave the controller paused.
 
 Global pause preserves designated exit and recovery entrypoints. Listing flags
 separately control entry, exits, and seizure. Price failures, listing restrictions,

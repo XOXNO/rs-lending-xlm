@@ -65,7 +65,7 @@ controller, a seeded pool rule has no havoced storage left.
 
 | Field | Fixture | Production range | Symbolic in |
 |---|---|---|---|
-| `asset_decimals` | 7 | `MIN_ASSET_DECIMALS..=MAX_ASSET_DECIMALS` (3..=18) | state-invariant, seize/settle, position-accounting, lifecycle |
+| `asset_decimals` | 7 | `MIN_ASSET_DECIMALS..=MAX_ASSET_DECIMALS` (0..=18) | state-invariant, seize/settle, position-accounting, lifecycle |
 | `reserve_factor` | 1_000 | `< BPS` | state-invariant, seize/settle |
 | rate curve | one mainnet-shaped curve | any curve `InterestRateModel::verify` accepts | fixed here; symbolic in the common rate rules |
 | `max_utilization` | `RAY` | `optimal_utilization..=RAY` | `params_with_max_util` sets `0.9 RAY` in the two utilization-cap rules |

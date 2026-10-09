@@ -6,7 +6,7 @@ SDK `try_` calls distinguish contract errors from host, authorization, storage, 
 
 ## Shared lending errors
 
-[Shared error definitions](../../common/src/errors.rs) group lending failures by domain. Gaps in the numeric ranges are reserved. The tables describe failure conditions; the checks a call reaches depend on its execution path.
+[Shared error definitions](../../common/src/errors.rs) group lending failures by domain. Numbers that are not listed are not declared. Do not reuse them for a new variant unless the owner confirms that no deployed artifact raised them. The tables describe failure conditions; the checks a call reaches depend on its execution path.
 
 ### Generic errors (1–55)
 
@@ -140,7 +140,7 @@ SDK `try_` calls distinguish contract errors from host, authorization, storage, 
 | 400 `FlashLoanOngoing` | A guarded monetary/maintenance call occurs while the controller flash flag is set, including nested flash_loan. | Avoid guarded reentry; renewal/delegate/admin calls are not universally covered. |
 | 401 `FlashloanNotEnabled` | The market's `is_flashloanable` parameter is false. | Choose a flash-loan-enabled market. |
 | 402 `InvalidFlashloanRepay` | The receiver's allowance to the pool is below principal plus fee, or the pool balance differs from the expected amount after payout, callback or repayment. | Hold principal plus fee and approve the pool pull; do not pre-push repayment. |
-| 409 `StrategyFeeExceeds` | The computed flash-loan fee is larger than the borrowed amount. | Report it; the market fee parameter is misconfigured. |
+| 409 `StrategyFeeExceeds` | The fee that a strategy call computes from `flashloan_fee` is larger than the amount. `flashloan_fee` is capped at 500 BPS, so a valid market cannot reach this check. | Report it; the stored market parameters are corrupt. |
 | 412 `InvalidFlashloanReceiver` | Flash receiver is not deployed Wasm; flash_position receiver is controller/pool; borrow/withdraw recipient is controller/pool. | Use a valid external receiver/recipient. |
 
 ### Strategy errors (500–505)
@@ -230,7 +230,7 @@ Reflector runtime TWAP errors, including 212, 219 and 222, make the source leg u
 
 ## Relevant inherited errors
 
-OpenZeppelin stellar-contracts revision `fbfde388e1b72afa93d6b1c922067879b20e81db` supplies the NFT, authorization and timelock helpers. A deployed contract can raise both its own errors and these overlapping inherited codes. An error declaration does not make an unexported extension callable.
+OpenZeppelin stellar-contracts revision `59b98f8e127f0e877a3870e8eb82fa282a4aadf3` supplies the NFT, authorization and timelock helpers. A deployed contract can raise both its own errors and these overlapping inherited codes. An error declaration does not make an unexported extension callable.
 
 | Namespace | Codes and handling |
 | --- | --- |

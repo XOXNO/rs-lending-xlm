@@ -6,13 +6,15 @@ liquidation, oracle and strategy properties.
 A verdict is valid only for the WASM it ran on. A compile, a submission or an
 older report is not a proof of the current code.
 
-| Directory | Proves |
+| Directory | Rules for |
 |---|---|
 | `common/` | Fixed-point math, rate curve, indexes, LP pricing. See [common/spec/README.md](common/spec/README.md) |
 | `pool/` | Shares, indexes, cash, revenue, bad debt, fees, flash loans. See [pool/spec/README.md](pool/spec/README.md) |
 | `controller/` | Entrypoint gates, authorization, solvency, liquidation, strategies. See [controller/spec/README.md](controller/spec/README.md) |
 | `price-aggregator/` | Source admission, freshness, tolerance, fail-closed pricing |
 | `shared/summaries/` | Cross-contract summaries the controller rules assume |
+
+Verdicts are conditional; see [What a verdict does not prove](#what-a-verdict-does-not-prove).
 
 Each contract directory has confs in `confs/` and rules in `spec/`. To find
 the conf that runs a rule:
@@ -50,10 +52,15 @@ a stale artifact. `CERTORA_JAVA_HEAP`, `-j <n>`,
 | `sanity` | Reachability witnesses, including every `-reverts-sanity` conf. Run this first |
 | `fast` | Stable math, rate and light controller rules, plus the pure-layer `-reverts` confs |
 | `core` | Main audit set: solvency, liquidation, strategies, pool accounting, oracle, host-state `-reverts` confs |
-| `heavy` | The 1800 s confs outside `core`, plus `lp-math-isqrt` |
+| `heavy` | The 1800 s confs outside `core`, plus `lp-math-isqrt` (expected to fail; see Known prover limits) |
 | `flash-position` | Flash-position strategy rules |
 | `manual` | `core` + `heavy` |
 | `all` | `sanity` + `fast` + `core` + `heavy` |
+
+`certora-fastRules.yml` offers `fast`, `core`, `heavy`, `sanity` and `all`. The
+`flash-position` and `manual` profiles run only through
+`certora-verification.yml` or `run_profile.py`. A `heavy` or `all` run always has
+one expected failure: `lp-math-isqrt`.
 
 `certora/scripts/check_orphans.py` keeps confs, rules and profiles in sync. It
 fails when:
@@ -72,6 +79,9 @@ fails when:
 **`certora-local.yml`** runs on pull requests that touch `certora/**`,
 `common/src/**`, `contracts/**/src/**`, `Cargo.toml` or `Cargo.lock`. It proves
 a default set of six confs on the self-hosted runner, 900 s per rule.
+Five of them are common confs and one is a price-aggregator conf. A green run
+says nothing about the controller or the pool. Dispatch `certora-fastRules.yml`
+or `certora-verification.yml` for those.
 
 - Fails on: a violation, a loop-unwind failure, `SANITY_FAILED`, a missing or
   empty rule log, a log with no verdict, a missing conf, or a dispatch rule the
@@ -231,6 +241,7 @@ weakening the property.
 | `SANITY_FAILED` on a revert rule | Expected; move the rule to a `-reverts` conf |
 | Arithmetic rule times out on every operand | Check that the WASM has a `name` section |
 | Which assert fails? | Set `multi_assert_check: true` on that conf for one run |
+| Job fails with `Usage limit reached` | This is a quota failure, not a proof result. Do not classify it as a violation or a timeout. Wait for the quota reset or run fewer jobs |
 
 ## References
 

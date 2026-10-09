@@ -39,6 +39,12 @@ operations, such as `Unpause`, still execute as proposed.
 
 ## Clear the flags
 
+Before you clear a flag, run `make <network> listOps`. If a `Waiting` or `Ready`
+`EditAssetInSpoke` for the same listing carries a flag that you clear, cancel it
+(`cancelOp`) or propose it again after the relaxation executes. An edit that
+executes after the relaxation sets the flag again, because the edit copies the
+live flag when the config omits it.
+
     make <network> relaxAssetFlags <config-spoke-id> <asset> <flags> SIGNER=<proposer>
 
 1. `<flags>` is a comma list of the flags to clear. The verb reads the live

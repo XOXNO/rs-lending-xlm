@@ -9,16 +9,21 @@ define exact properties, arithmetic, and risks.
 The numbered anchors provide stable references across documentation. Sections
 describe implemented behavior.
 
+[R-23](decisions-r23.md) is a proposed decision. It is not implemented behavior.
+It gets an ADR number when the owner decides.
+
 ## Authority and emergency control
 
 <a id="adr-0001"></a>
 
 ### ADR-0001: Governance, controller, and pool authority
 
-Governance owns the controller under the deployment helpers, and the controller
-owns the pool. The controller applies account and risk policy while the pool
-handles custody and accounting. This creates a shared trust boundary:
-controller bugs, upgrades, or authorized ownership changes can affect every market.
+Governance owns the controller and the price aggregator. The controller owns
+the pool and the position NFT. The controller applies account and risk policy
+while the pool handles custody and accounting. This creates one shared trust
+boundary: a controller bug, a controller upgrade, an aggregator change, or an
+authorized ownership change can affect every market. Ownership of the controller
+moves only by a two-step, owner-proposed transfer to a contract address.
 
 <a id="adr-0006"></a>
 
@@ -34,6 +39,13 @@ and owner-dependent recovery have distinct rules. Their security depends on
 the effective review window and key custody; see
 [governance powers](threat-model.md#governance-windows-and-emergency-powers).
 
+The delay is the configured minimum, raised to a compiled floor for Sensitive and
+Recovery operations. The review window is only as long as that delay. Read
+`timelock_min_delay_ledgers` in `configs/networks.json` and the on-chain value.
+Execution deletes the timelock entry of the operation, so an executed operation
+reads as Unset. Use the governance operation-executed event to prove execution;
+see the [event reference](../reference/events.md).
+
 <a id="adr-0007"></a>
 
 ### ADR-0007: Emergency ratchet
@@ -45,6 +57,13 @@ but never clears one. Clearing is a separate timelocked operation,
 flag call and every flag change advances the epoch, so a relaxation proposed
 before a later guardian action reverts when executed. The ORACLE role can
 narrow sanity bands; widening requires timelocked oracle reconfiguration.
+The guardian also has immediate `create_hub` and `add_spoke`; both create empty
+structures. Two guardian effects lower liquidation ability even though they raise
+flags: `no_seize` stops liquidation of accounts that hold the collateral, and a
+narrowed sanity band can make a price unavailable. Use them only with the
+freeze runbook. A guardian call that changes no flag still advances the flags
+epoch and voids a pending relaxation of that listing. The owner can remove a
+misbehaving guardian at once with `revoke_role_immediate`.
 The [listing-freeze runbook](../reference/runbooks/freeze-a-listing.md) gives the
 operator steps.
 
@@ -78,8 +97,12 @@ borrowers have had notice.
 
 An account retains its spoke throughout its lifetime. A caller cannot move
 existing debt into another risk regime by changing an argument. Governance can
-change listings, and any caller can refresh an account's stored risk values
-with `update_account_threshold`. No path rebinds the account.
+change listings. The stored risk values of an account refresh when the account
+supplies to a leg, withdraws (not by liquidation), passes a solvency gate (LTV
+only), or when any caller runs `update_account_threshold`. A change that favors
+liquidators applies to an account with debt only when the health factor is at
+least 1.05, so an account below that level keeps its stored values. A deprecated
+spoke keeps its existing accounts. No path rebinds the account.
 
 ## Accounting and loss allocation
 
@@ -107,7 +130,10 @@ which do not all follow the partial-operation rules.
 ### ADR-0012: Supplier-index loss allocation
 
 Eligible bad debt is removed by reducing the affected market's supply index,
-subject to a nonzero floor. Supplier claims in that market bear the write-down.
+subject to a nonzero floor. Eligible means insolvent with collateral at or below
+the fixed 5 USD dust threshold (permissionless), or insolvent with any collateral
+(owner-only forced cleanup). A supplier who exits before cleanup avoids the
+write-down. Supplier claims in that market bear the write-down.
 The floor protects share conversions but can leave unpaid backing; a displayed
 claim does not guarantee that the supplier can withdraw that amount.
 
@@ -127,7 +153,9 @@ sender surcharges, or false balances safe. See [token assumptions](threat-model.
 Exposure growth converts asset-unit caps to shares at the applicable index.
 A zero cap permits no new exposure; exits do not consume headroom. Same-spoke
 liquidation credit moves existing supply and its protocol fee reduces usage.
-It therefore does not require new supply-cap headroom.
+It therefore does not require new supply-cap headroom. The cap-to-shares
+conversion saturates and stops enforcing the cap at the supply-index floor; see
+[INV-HALT-03](../reference/invariants.md#inv-halt-03).
 
 <a id="adr-0016"></a>
 
@@ -164,13 +192,22 @@ rounded larger/smaller ratio; the reciprocal pair is validated at admission.
 Single-source keys have separate admission constraints. This makes source
 availability a condition of price availability; see [price risks](threat-model.md#price-integrity-and-availability).
 
+Two legs that are both Market feeds must also have timestamps within 3600 seconds
+of each other, or the price reads as stale. A Market leg paired with a Fundamental
+leg has no such bound. The accepted price carries the older timestamp. Because the
+price is a midpoint, one compromised leg can move it by up to half of the
+configured tolerance gap. Choose tolerance with that in mind. The runtime check
+uses only the upper ratio; the lower ratio is stored and validated but not read.
+
 <a id="adr-0005"></a>
 
 ### ADR-0005: Fail-closed valuation
 
 A valuation-dependent operation must obtain every required valid price in its
 context. Price failure aborts the operation. This protects risk decisions at
-the cost of withdrawal and liquidation availability during outages.
+the cost of withdrawal and liquidation availability during outages. One unusable
+price blocks every operation that values the same account, including
+liquidation. An account with no debt skips the solvency gate and needs no price.
 
 <a id="adr-0014"></a>
 
@@ -197,12 +234,12 @@ data, and feed-nature labels remain configuration assertions.
 
 ### ADR-0010: Cash flash-loan repayment
 
-Cash flash loans require a contract receiver and allowance of at least
+Cash flash loans require a deployed Wasm contract receiver and allowance of at least
 principal plus fee. The pool pulls exactly that amount and checks its expected balance after
 payout, after callback and after collection. A transfer to the pool during the
 callback fails the post-callback check, so only the pull repays. Excess
 allowance is permitted. Cash flash loans create no account debt and are
-distinct from account strategy settlement.
+distinct from account strategy settlement. Global pause blocks cash flash loans.
 
 <a id="adr-0011"></a>
 
@@ -212,9 +249,11 @@ The controller authorizes one exact input-token transfer invocation to the
 configured router, with no token allowance. Settlement ignores returned amounts,
 rejects excess measured spend, and requires positive measured output. Router minimum
 output is checked after fees but before payout, not independently by the
-controller. Controller-held unused input returns to the caller; router-internal
-residuals follow a capped admin-revenue policy. Final account risk checks
-do not guarantee route quality.
+controller. Controller-held unused input returns to the caller; router-held
+residue of each token becomes admin revenue up to
+`max(credited / 1,000,000, 1,000)` base units; a larger residue reverts. The
+floor is in base units and is not scaled by decimals. Final account risk checks
+do not guarantee route quality, and debt-free accounts skip them (INV-STRAT-02).
 
 <a id="adr-0018"></a>
 
@@ -260,7 +299,11 @@ declared collateral, be refunded when refund-listed, or remain uncredited.
 
 This is an authorized borrowing strategy, not a free cash-flash round trip.
 An already healthy account may support the new debt with little added
-collateral. Its origination-fee treatment differs from multiply.
+collateral. Multiply and swap debt charge the `flashloan_fee` of the market (the
+code calls it the strategy fee). Flash position, plain borrow and Blend migration
+charge no fee. A token that the callback sends to
+the controller, and that is in neither the collateral list nor the refund list,
+stays in the controller. No entrypoint recovers it.
 
 ## Verification boundaries
 
