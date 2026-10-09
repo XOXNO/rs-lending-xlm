@@ -29,13 +29,14 @@ bound payload only after its delay and within its grace window. Target
 contracts also validate at execution. Completed operations require a fresh
 proposal and delay before reuse.
 
-An operation can also be bound to the governance state it was proposed
-under. An owner-only operation records the owner epoch, so a handover voids
-the former owner's queued operations. Operations carry no predecessor, so
-where order matters governance enforces it directly: only one
-`UpgradeController` can be pending, an `Unpause` cannot execute while it is,
-and the upgrade advances the pause epoch, so reopening needs an `Unpause`
-proposed after the upgrade.
+Every proposal also records a guard: the governance state the operation is
+bound to. An owner-only operation records the owner epoch, so a handover voids
+the former owner's queued operations. `Unpause` and role grants record the
+emergency epoch, which a guardian pause, an executed controller upgrade and an
+immediate revocation advance, so an emergency voids what was queued before it.
+An oracle reconfiguration records the band it was proposed under. Operations
+carry no predecessor, so an `Unpause` proposed after an upgrade is proposed,
+but before it executes, can still reopen the old code for at most one delay.
 
 Execution is permissionless when the executor identity is omitted. Cancellation
 and owner-dependent recovery have distinct rules. Their security depends on
@@ -47,17 +48,16 @@ the effective review window and key custody; see
 ### ADR-0007: Emergency ratchet
 
 Immediate guardian actions can pause the controller and tighten listing flags.
-Reopening uses delayed administration. `Unpause` can only be proposed while the
-controller is paused and binds to that pause's epoch; every pause advances the
-epoch, so an `Unpause` proposed before a later pause reverts when executed. A listing edit can keep or tighten flags
-but never clears one. Removing a listing retains its set flags, and re-adding
-the asset to that spoke must keep or tighten them. Clearing is a separate timelocked operation,
+Reopening uses delayed administration; every guardian pause advances the
+emergency epoch, so an `Unpause` proposed before a later pause reverts when
+executed. A listing edit can keep or tighten flags but never clears one, and a
+listing with a set flag cannot be removed. Clearing is a separate timelocked operation,
 `relax_spoke_asset_flags`, bound to the listing's flags epoch. Every guardian
 flag call and every flag change advances the epoch, so a relaxation proposed
 before a later guardian action reverts when executed. The ORACLE role can
 narrow sanity bands; widening requires timelocked oracle reconfiguration
-proposed after the narrowing. The aggregator records each narrowing's ledger,
-and governance binds a `ConfigureAssetOracle` to its proposal ledger.
+proposed under the current band, since a `ConfigureAssetOracle` reverts once
+the band it was proposed under has changed.
 The [listing-freeze runbook](../reference/runbooks/freeze-a-listing.md) gives the
 operator steps.
 

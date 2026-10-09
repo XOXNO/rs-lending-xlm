@@ -54,7 +54,8 @@ Each spoke asset has three independent flags:
 | `no_seize` | The liquidation seizure leg. The only flag that stops a seizure |
 
 `set_spoke_asset_flags` and `edit_asset_in_spoke` can only keep or tighten a
-flag; clearing one reverts with `SpokeAssetFlagRelaxation`. To clear, use the
+flag; clearing one reverts with `SpokeAssetFlagRelaxation`, and so does
+`remove_asset_from_spoke` while a flag is set. To clear, use the
 owner-only, timelocked `relax_spoke_asset_flags`, which reverts unless
 `expected_epoch` equals the listing's flags epoch
 (`get_spoke_asset_flags_epoch`). See [`../governance/README.md`](../governance/README.md).
@@ -153,7 +154,7 @@ Owner only, except `accept_ownership` (pending owner).
 | `add_asset_to_spoke(input)`, `edit_asset_in_spoke(input)` | List or update a spoke asset's risk parameters and caps, validated against the pool decimals |
 | `set_spoke_asset_flags(spoke_id, hub_asset, paused, frozen, no_seize)` | Tighten flags only |
 | `relax_spoke_asset_flags(spoke_id, hub_asset, expected_epoch, paused, frozen, no_seize)` | Set any flag combination, clearing included, at the matching epoch |
-| `remove_asset_from_spoke(hub_asset, spoke_id)` | Unlist an asset with no usage in the spoke |
+| `remove_asset_from_spoke(hub_asset, spoke_id)` | Unlist an asset with no usage and no set flag in the spoke |
 | `deploy_pool(wasm_hash)`, `deploy_position_nft(wasm_hash, uri, name, symbol)` | Deploy and record the pool and the position NFT |
 | `create_liquidity_pool(hub_id, asset, params)` | Create a market on the pool |
 | `upgrade_liquidity_pool_params(hub_asset, params)` | Accrue, then replace the interest rate model |

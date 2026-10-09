@@ -112,7 +112,6 @@ Undeclared callback assets receive neither credit nor refunds. There is no contr
 | `get_spoke_asset(spoke_id: u32, hub_asset: HubAssetKey) -> SpokeAssetConfig` | Listed risk config; fails if missing |
 | `get_spoke_usage(spoke_id: u32, hub_asset: HubAssetKey) -> SpokeUsageRaw` | RAY shares; default zero if absent |
 | `get_spoke_asset_flags_epoch(spoke_id: u32, hub_asset: HubAssetKey) -> u64` | Listing flags epoch; zero if never written |
-| `get_pause_epoch() -> Option<u64>` | Current pause's epoch while paused, `None` while unpaused; every pause advances it |
 | `price_aggregator() -> Address` | Configured price aggregator |
 | `get_min_borrow_collateral_usd() -> i128` | LTV-weighted collateral floor WAD |
 | `is_blend_pool_approved(pool: Address) -> bool` | Migration allowlist |
@@ -139,7 +138,7 @@ Constructor `(admin: Address)` initializes the controller and starts it paused. 
 | `edit_asset_in_spoke(input: SpokeAssetArgs)` |
 | `set_spoke_asset_flags(spoke_id: u32, hub_asset: HubAssetKey, paused: bool, frozen: bool, no_seize: bool)` |
 | `relax_spoke_asset_flags(spoke_id: u32, hub_asset: HubAssetKey, expected_epoch: u64, paused: bool, frozen: bool, no_seize: bool)` |
-| `remove_asset_from_spoke(hub_asset: HubAssetKey, spoke_id: u32)` |
+| `remove_asset_from_spoke(hub_asset: HubAssetKey, spoke_id: u32)`; reverts `SpokeAssetFlagRelaxation` while a flag is set |
 | `deploy_pool(wasm_hash: BytesN<32>) -> Address` |
 | `deploy_position_nft(wasm_hash: BytesN<32>, uri: String, name: String, symbol: String) -> Address` |
 | `create_liquidity_pool(hub_id: u32, asset: Address, params: MarketParamsRaw) -> Address` |
@@ -213,13 +212,13 @@ Constructor `(admin: Address, min_delay: u32)` initializes the owner, access-con
 | `hash_operation(target: Address, function: Symbol, args: Vec<Val>, predecessor: BytesN<32>, salt: BytesN<32>) -> BytesN<32>` | Open view / resolver |
 | `resolve_oracle_tolerance(tolerance: u32) -> OracleTolerance` | Open view / resolver |
 | `resolve_asset_oracle(key: PriceKey, oracle: AssetOracle) -> AssetOracle` | Open view / resolver |
-| `propose(proposer: Address, op: AdminOperation, salt: BytesN<32>) -> BytesN<32>` | PROPOSER_ROLE; the proposer must also be the current owner for ownership transfers, code upgrades (`UpgradeGov`, `UpgradeController`, `UpgradePool`, `UpgradePositionNft`, `UpgradePriceAggregator`, `MigrateController`), the timelock minimum delay (`UpdateGovDelay`), price and swap sources (`SetPriceAggregator`, `ConfigureAssetOracle`, `EditOracleTolerance`, `SetSwapAggregator`), `ApproveBlendPool`, `SetAccumulator` and `GrantGovRole`; `RevokeGovRole` cannot target the proposer or the owner; `Unpause` needs a paused controller and binds to its pause epoch; only one `UpgradeController` can be pending, and `Unpause` cannot execute while it is |
-| `pause(caller: Address)` | GUARDIAN_ROLE; immediate |
+| `propose(proposer: Address, op: AdminOperation, salt: BytesN<32>) -> BytesN<32>` | PROPOSER_ROLE; the proposer must also be the current owner for ownership transfers, code upgrades (`UpgradeGov`, `UpgradeController`, `UpgradePool`, `UpgradePositionNft`, `UpgradePriceAggregator`, `MigrateController`), the timelock minimum delay (`UpdateGovDelay`), price and swap sources (`SetPriceAggregator`, `ConfigureAssetOracle`, `EditOracleTolerance`, `SetSwapAggregator`), `ApproveBlendPool`, `SetAccumulator` and `GrantGovRole`; `RevokeGovRole` cannot target the proposer or the owner. Every operation records a guard at proposal; see below |
+| `pause(caller: Address)` | GUARDIAN_ROLE; immediate; advances the emergency epoch |
 | `set_spoke_asset_flags(caller: Address, spoke_id: u32, hub_asset: HubAssetKey, paused: bool, frozen: bool, no_seize: bool)` | GUARDIAN_ROLE; immediate tightening only |
-| `set_sanity_band(caller: Address, key: PriceKey, min_wad: i128, max_wad: i128)` | ORACLE_ROLE; immediate tightening only; voids every `ConfigureAssetOracle` for the key proposed at or before this ledger |
+| `set_sanity_band(caller: Address, key: PriceKey, min_wad: i128, max_wad: i128)` | ORACLE_ROLE; immediate tightening only; a pending `ConfigureAssetOracle` for the key then reverts `OracleBandChangedAfterProposal` |
 | `create_hub(caller: Address) -> u32` | GUARDIAN_ROLE; immediate |
 | `add_spoke(caller: Address) -> u32` | GUARDIAN_ROLE; immediate |
-| `revoke_role_immediate(account: Address, role: Symbol)` | Owner; only guardian/oracle roles; a `GrantGovRole` of that role to that account proposed earlier reverts `RoleRevokedAfterProposal` |
+| `revoke_role_immediate(account: Address, role: Symbol)` | Owner; only guardian/oracle roles; advances the emergency epoch |
 | `execute_self(executor: Option<Address>, op: AdminOperation, salt: BytesN<32>)` | Ready scheduled self-operation; optional executor |
 | `propose_canceller_reset(new_cancellers: Vec<Address>, salt: BytesN<32>) -> BytesN<32>` | Owner; schedule uncancellable recovery; the list plus the owner's seat must fit `MAX_CANCELLERS` (32) |
 | `execute_canceller_reset(executor: Option<Address>, new_cancellers: Vec<Address>, salt: BytesN<32>)` | Ready recovery; optional executor; reverts `NotAuthorized` if ownership changed hands after the proposal |
@@ -228,7 +227,9 @@ Constructor `(admin: Address, min_delay: u32)` initializes the owner, access-con
 
 Governance exports no generic `grant_role`, `revoke_role`, `renounce_ownership`, `get_owner`, `schedule`, or `update_delay` endpoint. Role, owner, delay and upgrade changes go through `AdminOperation` handlers. The exceptions are `revoke_role_immediate`, the canceller reset and `accept_ownership`.
 
-`AdminOperation::TransferGovOwnership` with `live_until_ledger = 0` cancels a nomination. `propose` records the nomination nonce; every nomination advances it. At execution the cancel clears the pending owner only when no nomination has been made since and `new_owner` is still pending; otherwise it completes without effect, so it cannot void a later nomination.
+`propose` stores an operation guard beside the scheduled entry, and execution checks it. Owner-only operations and canceller resets record the owner epoch, which `accept_ownership` advances; a stale one reverts `NotAuthorized`. `Unpause` and `GrantGovRole` record the emergency epoch, which a guardian `pause`, an executed `UpgradeController` and `revoke_role_immediate` advance; a stale one reverts `EmergencyEpochMismatch`. `ConfigureAssetOracle` records the key's current sanity band from the aggregator's `oracle` view, if configured; execution reverts `OracleBandChangedAfterProposal` unless the band is unchanged. An operation scheduled without a guard is not checked.
+
+`AdminOperation::TransferGovOwnership` with `live_until_ledger = 0` cancels a nomination and records the nomination epoch, which every nomination advances. At execution the cancel clears the pending owner only when no nomination has been made since and `new_owner` is still pending; otherwise it completes without effect, so it cannot void a later nomination.
 
 `AdminOperation::RelaxSpokeAssetFlags(RelaxSpokeAssetFlagsArgs)` schedules controller `relax_spoke_asset_flags` on the Standard delay tier. `propose` rejects it with `SpokeFlagsEpochMismatch` when `expected_epoch` differs from the listing's live flags epoch; execution checks the epoch again.
 
@@ -315,7 +316,6 @@ Constructor `(owner: Address)` sets owner and emits OwnershipTransferCompleted.
 | `quotes(keys: Vec<PriceKey>) -> Map<PriceKey, PriceStatus>` | Open; unusable price status returned |
 | `price_spread(key: PriceKey) -> (i128, i128)` | Open; unusable price fails |
 | `oracle(key: PriceKey) -> Option<AssetOracle>` | Open view |
-| `sanity_band_narrowed_at(key: PriceKey) -> u32` | Open view; ledger of the key's last `set_sanity_band`, 0 if never |
 | `set_oracle(key: PriceKey, oracle: AssetOracle)` | Owner; a replacement keeps the stored `asset_decimals` |
 | `set_sanity_band(key: PriceKey, min_wad: i128, max_wad: i128)` | Owner |
 | `set_tolerance(key: PriceKey, tolerance: OracleTolerance)` | Owner |

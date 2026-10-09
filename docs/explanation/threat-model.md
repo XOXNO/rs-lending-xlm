@@ -48,15 +48,15 @@ compiled tier floor are different actions.
 
 GUARDIAN can immediately pause, tighten listing flags, and create empty hubs
 or spokes. ORACLE can immediately narrow sanity bands; a narrowing voids every
-`ConfigureAssetOracle` for that key proposed at or before it. A rogue ORACLE
-can thereby delay the owner's reconfiguration, and the owner's remedy is
-`revoke_role_immediate`. The owner can revoke
-those two hot roles immediately and perform one-time deployment bootstrap. An
-immediate revocation voids every `GrantGovRole` of that role to that account
-proposed before it.
+pending `ConfigureAssetOracle` for that key. A rogue ORACLE can thereby delay
+the owner's reconfiguration, and the owner's remedy is `revoke_role_immediate`.
+The owner can revoke those two hot roles immediately and perform one-time
+deployment bootstrap. A guardian pause, an executed controller upgrade and an
+immediate revocation each advance the emergency epoch, voiding every `Unpause`
+and `GrantGovRole` proposed before it. A rogue GUARDIAN can thereby delay a
+reopening or a grant; the remedy is the same revocation.
 Reopening, global position-manager changes, and ordinary upgrades use delayed
-operations. An `Unpause` must be proposed while the controller is paused and
-reverts if the controller was paused again after its proposal. Controller construction and upgrade pause the controller. Pool,
+operations. Controller construction and upgrade pause the controller. Pool,
 position NFT, price aggregator and governance upgrades do not pause lending.
 
 A PROPOSER that is not the owner can schedule listing, cap, curve and limit
@@ -77,14 +77,12 @@ before this binding existed carry no epoch and stay executable.
 
 Typed proposals perform proposal-time checks; targets retain execution-time
 validation. Ready operations must also be within the grace window. Anyone may
-execute with no executor identity and in any order. An `Unpause` executed
-ahead of a pending `UpgradeController` would reopen the controller on the code
-being replaced, so an `Unpause` cannot execute while an upgrade is pending,
-and the upgrade advances the pause epoch, voiding every earlier `Unpause`.
-Only the owner can propose an upgrade, and only one can be pending; a
-non-owner proposer cannot block it. Operations scheduled before these rules
-existed are not tracked by them. Supplying an executor identity
-requires its authorization and EXECUTOR role. Executor/canceller separation exempts the governance owner.
+execute with no executor identity and in any order. An executed controller
+upgrade advances the emergency epoch, so an `Unpause` proposed before it
+reverts; one proposed after the upgrade was proposed but before it executed
+can still reopen the old code for at most one delay, an accepted residual.
+Operations scheduled without a guard are not checked. Supplying an executor
+identity requires its authorization and EXECUTOR role. Executor/canceller separation exempts the governance owner.
 A revocation target cannot cancel its own removal, but an independent canceller
 can veto it. Owner-proposed Recovery operations cannot be cancelled and replace
 cancellers after their delay; they do not recover a lost owner key. A

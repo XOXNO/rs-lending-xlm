@@ -8,7 +8,7 @@ SDK `try_` calls distinguish contract errors from host, authorization, storage, 
 
 [Shared error definitions](../../common/src/errors.rs) group lending failures by domain. Gaps in the numeric ranges are reserved. The tables describe failure conditions; the checks a call reaches depend on its execution path.
 
-### Generic errors (1–59)
+### Generic errors (1–58)
 
 | Code / variant | Condition | Response |
 | --- | --- | --- |
@@ -50,9 +50,8 @@ SDK `try_` calls distinguish contract errors from host, authorization, storage, 
 | 54 `PositionNftAlreadyDeployed` | A position-NFT contract address is already recorded. | Use the recorded deployment. |
 | 55 `DivisionByZero` | A fixed-point multiply-divide received a zero denominator. Distinct from `MathOverflow`, which the same operations raise when the result does not fit `i128`. | Report it; a zero index or denominator is an internal inconsistency. |
 | 56 `CancellerLimitExceeded` | A canceller grant or canceller reset would leave more than `MAX_CANCELLERS` (32) `CANCELLER` holders, the owner included, or a proposed reset list has 32 or more entries. | Revoke a canceller first or shorten the reset list. |
-| 57 `PauseEpochMismatch` | `Unpause` is proposed while the controller is open, or executes after the controller was paused again since its proposal. | Propose `Unpause` during the pause it should end. |
-| 58 `ConflictingOperationPending` | An `UpgradeController` is proposed while another is waiting or ready, or an `Unpause` executes while one is. | Execute, cancel or let the pending upgrade expire first; an `Unpause` must then be proposed after the upgrade. |
-| 59 `RoleRevokedAfterProposal` | A `GrantGovRole` executes after the owner revoked the same role from the same account with `revoke_role_immediate` since its proposal. | Propose the grant again if it is still intended. |
+| 57 `EmergencyEpochMismatch` | An `Unpause` or `GrantGovRole` executes after an emergency action taken since its proposal: a guardian `pause`, an executed `UpgradeController` or a `revoke_role_immediate`. | Propose the operation again after the emergency. |
+| 58 `OracleBandChangedAfterProposal` | A `ConfigureAssetOracle` executes although the key's sanity band on the price aggregator differs from the band it had at proposal, for example after an `ORACLE` `set_sanity_band`. | Review the narrowing, then propose the reconfiguration again. |
 
 ### Collateral and market errors (100–135)
 
@@ -87,7 +86,7 @@ SDK `try_` calls distinguish contract errors from host, authorization, storage, 
 | 133 `SelfLiquidationNotAllowed` | Credit receiver id equals the liquidated account id. | Choose another receiver; owner self-liquidation is otherwise allowed. |
 | 134 `InvalidLiquidationCurve` | The target HF is outside (1 WAD, `MAX_LIQUIDATION_TARGET_HF_WAD`], the max-bonus HF is outside (0, target HF), or the bonus factor is outside (0, BPS]. | Fix the curve bounds in the proposal. |
 
-### Oracle errors (201–236)
+### Oracle errors (201–235)
 
 | Code / variant | Condition | Response |
 | --- | --- | --- |
@@ -118,7 +117,6 @@ SDK `try_` calls distinguish contract errors from host, authorization, storage, 
 | 232 `IndependenceNotDeclared` | Two sources share a provider contract while the policy requires disjoint sources, or the declared shared set is empty or differs from the actual one. | Declare the shared contracts, or use independent sources. |
 | 234 `UnsupportedAquariusPool` | LP attestation finds wrong pool kind, absent stable amp, nonpositive reserves or share supply. | Configure a supported, funded pool. |
 | 235 `InsufficientAquariusLiquidity` | The Aquarius pool's total value is below the source's `min_pool_value_wad` floor. | Wait for deeper pool liquidity. |
-| 236 `SanityBandNarrowedAfterProposal` | Governance executes a `ConfigureAssetOracle` whose key had its sanity band narrowed by `set_sanity_band` at or after the operation's proposal ledger. | Propose the reconfiguration again after reviewing the narrowing. |
 
 ### Spoke errors (300–319)
 
@@ -134,7 +132,7 @@ SDK `try_` calls distinguish contract errors from host, authorization, storage, 
 | 312 `SpokeBorrowCapReached` | The borrow would push the spoke's tracked borrows above its configured cap. | Borrow less, or wait for cap headroom. |
 | 315 `SpokeAssetPaused` | Listing paused blocks ordinary entry/exit or liquidation debt repayment. Seizure checks no_seize instead. | Wait for authorized reopening or operate on eligible assets. |
 | 316 `SpokeAssetFrozen` | Listing frozen blocks entry. | Exit remains permitted, subject to other gates. |
-| 317 `SpokeAssetFlagRelaxation` | The immediate guardian call, a listing edit, or re-adding a removed listing tries to clear `paused`, `frozen`, or `no_seize` that the listing held. | Clear flags through the timelocked `relax_spoke_asset_flags`. |
+| 317 `SpokeAssetFlagRelaxation` | The immediate guardian call or a listing edit tries to clear `paused`, `frozen`, or `no_seize`, or `remove_asset_from_spoke` targets a listing with one of them set. | Clear flags through the timelocked `relax_spoke_asset_flags`, then remove. |
 | 318 `SpokeAssetSeizureHalted` | A pro-rata collateral seizure leg has no_seize set. | Wait for authorized flag clearance; liquidation has no collateral-selection argument. |
 | 319 `SpokeFlagsEpochMismatch` | A `RelaxSpokeAssetFlags` proposal or `relax_spoke_asset_flags` names a flags epoch other than the listing's current one: a flag write occurred after the relaxation was prepared. | Read `get_spoke_asset_flags_epoch` and the live flags again, then propose a new relaxation. |
 

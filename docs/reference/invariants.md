@@ -54,17 +54,16 @@ not imply that every operation preserves health or collateral value.
 ### INV-AUTH-04 — Emergency power only tightens
 
 Immediate guardian power can pause and add listing restrictions. Unpausing or
-clearing restrictions requires a timelock under the repository wiring. An
-`Unpause` binds to the pause epoch in force when it is proposed, so one
+clearing restrictions requires a timelock under the repository wiring. Every
+guardian pause advances the governance emergency epoch, so an `Unpause`
 proposed before a later pause reverts.
 
-A listing edit and the guardian flag method can only keep or tighten flags.
-Removing a listing retains any set flag, and re-adding the asset to that spoke
-can only keep or tighten the retained flags. Only the timelocked
+A listing edit and the guardian flag method can only keep or tighten flags,
+and a listing with a set flag cannot be removed. Only the timelocked
 `relax_spoke_asset_flags` clears one, and only while the listing's flags epoch
-equals its `expected_epoch`. The oracle role's immediate
-`set_sanity_band` can only keep or narrow a band, and a `ConfigureAssetOracle`
-proposed at or before the narrowing's ledger reverts.
+equals its `expected_epoch`. The oracle role's immediate `set_sanity_band`
+can only keep or narrow a band, and a `ConfigureAssetOracle` proposed under
+the wider band reverts.
 
 <a id="inv-auth-05"></a>
 <a id="inv-auth-05--governance-delay-cannot-be-shortened"></a>
