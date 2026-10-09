@@ -140,9 +140,8 @@ fn revalidate_dependents(env: &Env, changed: &PriceKey) {
 /// Runs the full validation suite for `oracle` under `key`, covering sanity
 /// bounds, source shape and count, asset decimals, composition depth,
 /// staleness, smoothing, tolerance, the leg-spread budget, and source
-/// independence, with the
-/// smoothing and tolerance checks waived for Aquarius LP oracles. Panics if
-/// any check fails.
+/// independence, with the smoothing and tolerance checks waived for Aquarius
+/// LP oracles. Panics if any check fails.
 pub(crate) fn validate_asset_oracle(env: &Env, key: &PriceKey, oracle: &AssetOracle) {
     let mut session = Session::new(env);
     session.push_key(key);

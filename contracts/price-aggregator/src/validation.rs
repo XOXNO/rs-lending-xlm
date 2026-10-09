@@ -113,13 +113,13 @@ pub(crate) fn independence(
 }
 
 /// Returns whether a contract that can move a price by at most `reach` (a
-/// WAD ratio, `None` when unbounded) stays inside the single-source band cap:
-/// a band of `MAX_SINGLE_SOURCE_SANITY_BAND_BPS` spans the ratio
+/// WAD ratio) stays inside the single-source band cap: a band of
+/// `MAX_SINGLE_SOURCE_SANITY_BAND_BPS` spans the ratio
 /// `(BPS + cap) / (BPS - cap)`, 11/9.
-pub(crate) fn reach_within_single_source_cap(reach: Option<i128>) -> bool {
+pub(crate) fn reach_within_single_source_cap(reach: i128) -> bool {
     const CAP_RATIO_WAD: i128 =
         (BPS + MAX_SINGLE_SOURCE_SANITY_BAND_BPS) * WAD / (BPS - MAX_SINGLE_SOURCE_SANITY_BAND_BPS);
-    reach.is_some_and(|reach| reach <= CAP_RATIO_WAD)
+    reach <= CAP_RATIO_WAD
 }
 
 /// Returns whether `left` and `right` contain exactly the same addresses,
