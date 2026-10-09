@@ -397,17 +397,17 @@ fn an_insolvent_trim_that_removes_no_token_moves_the_excess_to_the_earlier_leg()
     let first = repaid.get_unchecked(0);
     assert_eq!(
         first.amount,
-        stroops(4),
-        "the earlier leg floors to 4 tokens"
+        stroops(4) + stroops(1) / 2,
+        "the earlier leg keeps 4.5 tokens"
     );
-    assert_eq!(first.usd_wad, 4 * WAD);
+    assert_eq!(first.usd_wad, 4 * WAD + WAD / 2);
     assert_eq!(
         floored.raw(),
         WAD / 10_000_000,
         "one unit of the floored leg"
     );
     assert_eq!(refunds.len(), 1, "one refund, for the earlier leg only");
-    assert_eq!(refunds.get_unchecked(0).amount, stroops(1));
+    assert_eq!(refunds.get_unchecked(0).amount, stroops(1) / 2);
 }
 
 /// Seizes `repay_usd_raw` at zero bonus from one $1 collateral leg of
