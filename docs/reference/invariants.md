@@ -433,8 +433,7 @@ Otherwise, when the quote seizes less than one unit plus a `1e-6` margin, it
 rises to the repayment that backs one unit plus the margin, if that repayment
 is below the whole debt. The seizure then refunds the margin, rounded down to
 whole debt-token units. Thus such an account stays liquidatable below `HF = 1`, by a one-unit
-sale or by a full close. When paused debt legs are all a plan leaves unpaid,
-a repayment that backs one unit at the account's `C / D` sells that unit. The exception is a debt in the narrow band where
+sale or by a full close. The exception is a debt in the narrow band where
 neither change applies: if the curve quote backs less than one unit, every
 offer reverts until accrual or a price move ends that state. See
 [whole-unit legs](formulas.md#bonus-and-target-repayment).

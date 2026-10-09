@@ -55,10 +55,12 @@ operator steps.
 The `frozen`, `paused`, and `no_seize` flags control different actions. Entry
 checks paused/frozen, ordinary exits check paused, and collateral seizure
 checks no_seize. A paused debt leg does not block repayment of another selected
-leg; pausing collateral alone does not block its seizure. When paused legs are
-all a liquidation leaves unpaid, a whole-unit collateral leg can sell one unit
-for the other legs at the account's `C / D`
-([formulas](../reference/formulas.md#bonus-and-target-repayment)).
+leg; pausing collateral alone does not block its seizure. One limitation is
+accepted: a collateral leg below 3 decimals seizes whole units, so when the
+unpaused debt legs together back less than one unit at `1 + bonus`, every
+offer reverts until the pause lifts, the price moves, or accrual ends that
+state. No mainnet listing is below 3 decimals; prefer `frozen` over `paused`
+for debt legs in a spoke that lists such collateral.
 
 A seizure restriction does not stop new supply. Non-dust no_seize collateral
 can therefore block an account's pro-rata liquidation. Operators should inspect

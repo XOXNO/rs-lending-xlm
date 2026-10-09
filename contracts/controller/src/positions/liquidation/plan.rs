@@ -70,14 +70,8 @@ pub(crate) fn build_liquidation_plan(
         cache,
     );
 
-    let (seized_collaterals, unbacked_usd) = calculate_seized_collateral(
-        env,
-        account,
-        totals.total_collateral,
-        totals.total_debt,
-        &repayment,
-        cache,
-    );
+    let (seized_collaterals, unbacked_usd) =
+        calculate_seized_collateral(env, account, totals.total_collateral, &repayment, cache);
     release_unbacked_repayment(env, &mut repayment, unbacked_usd);
     if unbacked_usd > Wad::ZERO && seized_collaterals.is_empty() {
         let repay_usd = repayment.repay_usd;
