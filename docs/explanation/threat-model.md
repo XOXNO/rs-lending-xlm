@@ -241,7 +241,9 @@ and provider-specific metadata. Provider separation is not proof of independent
 operators or upstream data. Feed-nature labels are configuration assertions.
 Non-LP admission probes can accept temporary market-condition failures.
 Changing an upstream key revalidates dependent source structure without a new
-live attestation for each dependent. Upstream changes do not erase the lending
+live attestation for each dependent. That revalidation scans the whole
+registry, so the registry admits at most `MAX_ORACLE_KEYS` (256) keys and
+reconfiguration of existing keys stays available at the cap. Upstream changes do not erase the lending
 aggregator's runtime age checks,
 but can invalidate assumptions made during admission.
 

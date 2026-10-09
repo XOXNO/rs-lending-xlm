@@ -112,6 +112,7 @@ SDK `try_` calls distinguish contract errors from host, authorization, storage, 
 | 230 `FactorOutOfBounds` | Scaled factor is outside stored bounds. | Inspect feed/config; widening bounds requires authorized reconfiguration. |
 | 231 `SourceCountOutOfRange` | Source count outside 1..2, LP mixed with other sources, or tolerance edit attempted on LP oracle. | Use one LP source or one/two allowed feed sources; no LP tolerance edit. |
 | 232 `IndependenceNotDeclared` | Two sources share a provider contract while the policy requires disjoint sources, or the declared shared set is empty or differs from the actual one. | Declare the shared contracts, or use independent sources. |
+| 233 `OracleRegistryFull` | `set_oracle` would register a new key while the registry already holds `MAX_ORACLE_KEYS` (256). Reconfiguring an existing key is always allowed. | Reuse an existing key, or move to a fresh aggregator through `SetPriceAggregator`. |
 | 234 `UnsupportedAquariusPool` | LP attestation finds wrong pool kind, absent stable amp, nonpositive reserves or share supply. | Configure a supported, funded pool. |
 | 235 `InsufficientAquariusLiquidity` | The Aquarius pool's total value is below the source's `min_pool_value_wad` floor. | Wait for deeper pool liquidity. |
 

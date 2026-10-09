@@ -1411,32 +1411,34 @@ fn quotes_do_not_replay_a_depth_failure_at_a_shallower_position() {
     assert_eq!(short_status.final_wad, WAD);
 }
 
-/// Ledger entries one `set_oracle` call reads or writes after `unrelated`
-/// other keys are registered. The first `set_oracle` on a contract indexes the
-/// registry once; the measured call is the one after it.
-fn set_oracle_footprint_beside(unrelated: u32) -> u32 {
+/// The registry only grows in a release build and every `set_oracle` scans it,
+/// so new keys stop at `MAX_ORACLE_KEYS`; existing keys stay reconfigurable.
+#[test]
+fn set_oracle_caps_new_keys_but_still_reconfigures_existing_ones() {
+    const MAX_ORACLE_KEYS: u32 = 256;
+
     let env = Env::default();
     env.mock_all_auths();
     let (_owner, client) = register_agg(&env);
     let (feed, feed_client) = register_feed(&env);
     feed_client.set_price(&String::from_str(&env, "NAV"), &WAD);
     let config = redstone_single(&env, &feed, "NAV", 900);
-    for _ in 0..unrelated {
+    for _ in 1..MAX_ORACLE_KEYS {
         client.seed_oracle(&PriceKey::Token(Address::generate(&env)), &config);
     }
-    client.set_oracle(&PriceKey::Token(Address::generate(&env)), &config);
 
-    client.set_oracle(&PriceKey::Token(Address::generate(&env)), &config);
-    let resources = env.cost_estimate().resources();
-    resources.disk_read_entries + resources.memory_read_entries + resources.write_entries
-}
+    let last_admitted = PriceKey::Token(Address::generate(&env));
+    client.set_oracle(&last_admitted, &config);
 
-/// The registry only grows, and a transaction may touch at most 400 ledger
-/// entries, so `set_oracle` must not read every registered key.
-#[test]
-fn set_oracle_footprint_does_not_grow_with_unrelated_keys() {
     assert_eq!(
-        set_oracle_footprint_beside(2),
-        set_oracle_footprint_beside(40)
+        client.try_set_oracle(&PriceKey::Token(Address::generate(&env)), &config),
+        Err(Ok(soroban_sdk::Error::from_contract_error(
+            Error::OracleRegistryFull as u32
+        )))
     );
+
+    let mut widened = config.clone();
+    widened.max_price_stale_seconds = 1_800;
+    client.set_oracle(&last_admitted, &widened);
+    assert_eq!(client.oracle(&last_admitted), Some(widened));
 }
