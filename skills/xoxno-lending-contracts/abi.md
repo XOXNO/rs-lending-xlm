@@ -1,9 +1,9 @@
 # ABI integration notes
 
-Companion to [SKILL.md](SKILL.md). This page is deliberately not an ABI or
-error catalogue.
+Use this page with [SKILL.md](SKILL.md). For full signatures and errors,
+use the sources below.
 
-## Canonical owners
+## Authoritative sources
 
 - Integrator clients and types: the `xoxno_contract_sdk::lending` modules,
   generated from the WASM the crate embeds (see
@@ -45,7 +45,7 @@ Token pulls are separate nested auth. `supply`, `repay`, `liquidate`, and
 initial payment to the controller. See
 [composing.md](composing.md#token-pull-ordering).
 
-## High-value behavior by operation
+## Operation rules
 
 | Operation | Integration behavior to preserve |
 |---|---|
@@ -67,7 +67,7 @@ initial payment to the controller. See
   Before a privileged action, also validate NFT ownership and
   `get_account_attributes`.
 - `get_health_factor(id)` returns WAD and uses `i128::MAX` when there is no
-  debt or no account.
+  debt, no account, or a saturated positive ratio.
 - `get_collateral_amount` and `get_borrow_amount` return accrued token base
   units. `get_account_positions` returns raw RAY-scaled shares.
 - `get_market_index` returns accrued RAY indexes without reading an oracle.

@@ -7,6 +7,12 @@ oracles, with one hub and one spoke. Governance owns the controller, as on
 mainnet, and every configuration step goes through the governance timelock.
 The tests run on the host; they do not need a Wasm build of your contract.
 
+The verified `xoxno-contract-sdk` version is `0.2.0`. It embeds protocol
+release `v1.1.0`, commit `1053ae033`. A fixture test proves behavior for that
+embedded WASM only. It does not verify later source changes, including the
+current low-decimal rules. Compare the target deployment with the embedded
+release before selecting the crate. Simulate against the target network.
+
 Enable the fixture only in the dev-dependencies:
 
 ```toml
@@ -59,10 +65,9 @@ auth mode of the `Env`.
 
 ## Test your own authorization
 
-`env.mock_all_auths()` accepts every `require_auth` in the call tree. A test
-with it passes even when your contract creates a wrong or missing
-authorization entry. Do not use it for the calls under test. Mock only the
-auth of external actors, per call:
+`env.mock_all_auths()` accepts every authorization request in the call tree.
+It can hide missing or incorrect contract authorizations. For the operation
+under test, mock only external users:
 
 - `client.mock_auths(&[MockAuth { .. }])` for a user call, with the exact
   arguments and sub-invocations the user signs

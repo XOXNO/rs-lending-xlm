@@ -49,7 +49,7 @@ balance or allowance check raises `InvalidFlashloanRepay`. Therefore:
 - hold at least `amount + fee` when the callback returns
 - use a short-lived allowance and checked addition
 
-Focused production shape:
+Cash callback example:
 
 ```rust
 use soroban_sdk::{contract, contractimpl, panic_with_error, Address, Bytes, Env};
@@ -94,9 +94,9 @@ direct invoker auth covers the `approve`; it needs no extra auth entry.
 Balance and profit checks belong before approval. The TTL constants are in
 [SKILL.md](SKILL.md#storage-ttl).
 
-The initiator is never the receiver itself. The pool calls the receiver while
-the initiator is still on the call stack, and the host rejects a call into a
-contract that is already on the stack (see [Reentrancy](#reentrancy)). Start
+The initiator is never the receiver itself. The pool calls the receiver while the initiator remains on the call stack.
+The host rejects calls to a contract already on that stack.
+See [Reentrancy](#reentrancy). Start
 the loan from an account or from a separate contract, and store its address as
 `cfg.operator`. A contract initiator authorizes its entrypoint against a
 stored address, as in [SKILL.md](SKILL.md#contract-caller-rules) rule 7.
@@ -134,7 +134,7 @@ After return, the controller:
 An undeclared token left on the controller is neither deposited nor refunded.
 Refunding unused debt tokens does not repay the minted debt.
 
-Focused callback shape:
+Position callback example:
 
 ```rust
 use soroban_sdk::{contractimpl, panic_with_error, token, Address, Bytes, Env};
@@ -185,15 +185,15 @@ parameters, so clippy's `too_many_arguments` lint fires in your crate. The
 The initiator is an account or a separate contract, as for flash loans. A
 contract initiator calls the resolve helper before `flash_position` and the
 store helper with the returned ID afterward; both helpers are in
-[positions.md](positions.md#canonical-local-account-pointer). The account the
-initiator opens or reuses is its own, not the receiver's.
+[positions.md](positions.md#canonical-local-account-pointer). A new account belongs to the initiator. Reuse requires current NFT ownership
+or an active delegate grant. The receiver does not acquire account ownership
+from the callback.
 
 ## Callback gate and payload
 
-Callbacks are public. Require auth from the configured pool/controller and
-compare the callback address argument with that configured address. Also bind
-the callback to an expected initiator/account/operation so a valid protocol
-caller cannot execute an unintended plan.
+Callbacks are public. Require authorization from the configured pool or
+controller. Check that the callback address equals the configured address.
+Check the expected initiator, account, and operation before you execute the plan.
 
 Encode a small `#[contracttype]` plan to XDR. Decode and validate token
 addresses, route, minimums, and expiry before moving funds. Do not trust

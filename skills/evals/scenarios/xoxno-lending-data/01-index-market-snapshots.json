@@ -12,7 +12,7 @@
     "Takes contract addresses from configs/networks.json / addresses.md instead of hardcoding a C... address in the code"
   ],
   "machine_checkable": [
-    "Generated TypeScript passes tsc --noEmit against @xoxno/sdk-js@1.0.214 and @stellar/stellar-sdk@16",
+    "Generated TypeScript passes tsc --noEmit against @xoxno/sdk-js@1.0.228 and @stellar/stellar-sdk@16",
     "No literal Soroban contract address (regex /C[A-Z2-7]{55}/) appears in the generated source",
     "The string '@xoxno/sdk-js/stellar' never appears without the '-lending' suffix"
   ]

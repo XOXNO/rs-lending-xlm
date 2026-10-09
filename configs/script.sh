@@ -256,7 +256,7 @@ get_signer_address() {
 invoke_view() {
 
     local output
-    output=$(stellar contract invoke --instruction-leeway "${INSTRUCTION_LEEWAY:-20000000}" --id "$1" $SOURCE_FLAG --network "$NETWORK" --send=no -- "${@:2}")
+    output=$(retry_tx stellar contract invoke --instruction-leeway "${INSTRUCTION_LEEWAY:-20000000}" --id "$1" $SOURCE_FLAG --network "$NETWORK" --send=no -- "${@:2}")
     if command -v jq >/dev/null 2>&1 && printf '%s' "$output" | jq . >/dev/null 2>&1; then
         printf '%s' "$output" | jq .
     else
@@ -679,8 +679,8 @@ parse_returned_u32() {
     printf '%s\n' "$1" | tail -n1 | tr -d '"' | grep -oE '[0-9]+' | tail -n1
 }
 
-RPC_RETRYABLE_RE='TxBadSeq|error sending request|tcp connect error|client error \(Connect\)|Connection refused|connection closed before message completed|dns error'
-STELLAR_TX_MAX_RETRIES=${STELLAR_TX_MAX_RETRIES:-4}
+RPC_RETRYABLE_RE='TxBadSeq|error sending request|tcp connect error|client error \(Connect\)|Connection refused|connection closed before message completed|connection reset|dns error|Request rejected .?(429|50[0-9])|status_code: (429|50[0-9])|Too Many Requests|error reading a body'
+STELLAR_TX_MAX_RETRIES=${STELLAR_TX_MAX_RETRIES:-6}
 STELLAR_TX_RETRY_DELAY=${STELLAR_TX_RETRY_DELAY:-4}
 
 retry_tx() {
@@ -704,10 +704,10 @@ retry_tx() {
             return "$rc"
         fi
         if [ "$attempt" -lt "$STELLAR_TX_MAX_RETRIES" ] && grep -qiE "$RPC_RETRYABLE_RE" "$errfile"; then
-            echo "  transient RPC error (attempt ${attempt}/${STELLAR_TX_MAX_RETRIES}); retrying in ${STELLAR_TX_RETRY_DELAY}s..." >&2
+            echo "  transient RPC error (attempt ${attempt}/${STELLAR_TX_MAX_RETRIES}); retrying in $(( STELLAR_TX_RETRY_DELAY * attempt ))s..." >&2
             sed 's/^/    | /' "$errfile" >&2
+            sleep $(( STELLAR_TX_RETRY_DELAY * attempt ))
             attempt=$(( attempt + 1 ))
-            sleep "$STELLAR_TX_RETRY_DELAY"
             continue
         fi
         cat "$errfile" >&2
@@ -725,7 +725,7 @@ precomputed_op_id() {
     gov=$(get_governance)
     args_file=$(mktemp)
     printf '%s' "$args_json" > "$args_file"
-    op_id=$(stellar contract invoke --instruction-leeway "${INSTRUCTION_LEEWAY:-20000000}" --id "$gov" $SOURCE_FLAG --network "$NETWORK" --send=no \
+    op_id=$(retry_tx stellar contract invoke --instruction-leeway "${INSTRUCTION_LEEWAY:-20000000}" --id "$gov" $SOURCE_FLAG --network "$NETWORK" --send=no \
         -- hash_operation \
         --target "$target" \
         --function "$function" \
@@ -911,7 +911,7 @@ schedule_via_gov_self_proposer() {
 }
 
 current_ledger_sequence() {
-    stellar ledger latest --network "$NETWORK" 2>/dev/null \
+    retry_tx stellar ledger latest --network "$NETWORK" 2>/dev/null \
         | awk -F': ' '/^Sequence:/ {print $2; exit}'
 }
 
@@ -942,7 +942,7 @@ op_ready_ledger() {
     local op_id=$1
     local gov
     gov=$(get_governance)
-    stellar contract invoke --instruction-leeway "${INSTRUCTION_LEEWAY:-20000000}" --id "$gov" $SOURCE_FLAG --network "$NETWORK" --send=no \
+    retry_tx stellar contract invoke --instruction-leeway "${INSTRUCTION_LEEWAY:-20000000}" --id "$gov" $SOURCE_FLAG --network "$NETWORK" --send=no \
         -- get_operation_ledger --operation_id "$op_id" | tr -d '"' | tr -d '[:space:]'
 }
 
@@ -950,7 +950,7 @@ op_state() {
     local op_id=$1
     local gov state
     gov=$(get_governance)
-    state=$(stellar contract invoke --instruction-leeway "${INSTRUCTION_LEEWAY:-20000000}" --id "$gov" $SOURCE_FLAG --network "$NETWORK" --send=no \
+    state=$(retry_tx stellar contract invoke --instruction-leeway "${INSTRUCTION_LEEWAY:-20000000}" --id "$gov" $SOURCE_FLAG --network "$NETWORK" --send=no \
         -- get_operation_state --operation_id "$op_id" | tr -d '"' | tr -d '[:space:]')
     if [ "$state" = "Unset" ]; then
         local path
@@ -965,10 +965,11 @@ op_state() {
 
 await_op_ready() {
     local op_id=$1
-    local started_at ready_ledger current state max_wait waited unset_seen sleep_s
+    local started_at ready_ledger current state max_wait waited unset_seen unread_seen sleep_s
     started_at=$(date +%s)
     max_wait=$(await_max_wait_seconds)
     unset_seen=0
+    unread_seen=0
 
     while true; do
         state=$(op_state "$op_id")
@@ -1010,6 +1011,15 @@ await_op_ready() {
                     exit 1
                 fi
                 echo "  Op ${op_id} read Unset (RPC lag?); retry ${unset_seen}/${UNSET_MAX_POLLS:-6}, sleeping ${AWAIT_POLL_SECONDS}s..." >&2
+                sleep "$AWAIT_POLL_SECONDS"
+                ;;
+            '')
+                unread_seen=$(( unread_seen + 1 ))
+                if [ "$unread_seen" -ge "${UNSET_MAX_POLLS:-6}" ]; then
+                    echo "ERROR: op ${op_id} state unreadable after ${unread_seen} polls." >&2
+                    exit 1
+                fi
+                echo "  Op ${op_id} state unreadable; retry ${unread_seen}/${UNSET_MAX_POLLS:-6}, sleeping ${AWAIT_POLL_SECONDS}s..." >&2
                 sleep "$AWAIT_POLL_SECONDS"
                 ;;
             *) echo "ERROR: unexpected op state '${state}' for ${op_id}." >&2; exit 1 ;;

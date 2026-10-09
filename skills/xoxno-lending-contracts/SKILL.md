@@ -1,6 +1,6 @@
 ---
 name: xoxno-lending-contracts
-description: Use when a Soroban contract must call XOXNO Lending on-chain, own or renew an account, compose controller verbs, implement a flash callback, or test the integration with the xoxno-contract-sdk fixture.
+description: "Use when a Soroban contract must call XOXNO Lending on-chain, own or renew an account, compose controller verbs, implement a flash callback, or test the integration with the xoxno-contract-sdk fixture."
 user-invocable: true
 argument-hint: "[what the contract must do on XOXNO Lending]"
 ---
@@ -11,12 +11,12 @@ Use this skill when the controller caller is another contract. Start with the
 protocol model, units, and deployed addresses in
 [`../xoxno-lending/SKILL.md`](../xoxno-lending/SKILL.md).
 
-## Route by task
+## Choose a task
 
 - Account creation, local pointer TTL, reconciliation, ownership, delegation,
   discovery, and DeFindex adapter PPS: [positions.md](positions.md)
 - Flash-loan and flash-position callbacks: [flash-loans.md](flash-loans.md)
-- Atomic multi-verb flows, swaps, liquidation, and keeper batching:
+- Atomic controller operations, swaps, liquidation, and keeper batches:
   [composing.md](composing.md)
 - Tests on the embedded protocol WASM with `LendingFixture`:
   [testing.md](testing.md)
@@ -28,9 +28,8 @@ protocol model, units, and deployed addresses in
 
 ## Dependencies
 
-Depend on the `xoxno-contract-sdk` crate from crates.io. It is MIT licensed,
-uses `soroban-sdk` 28, and embeds the WASM of an attested rs-lending-xlm
-release:
+Use `xoxno-contract-sdk` from crates.io. The crate uses the MIT license and
+`soroban-sdk` 28. It embeds protocol release WASM:
 
 ```toml
 [dependencies]
@@ -42,7 +41,8 @@ soroban-sdk = { version = "28", features = ["testutils"] }
 xoxno-contract-sdk = { version = "0.2", features = ["testutils"] }
 ```
 
-Use the crate version whose embedded release is the deployment you call. The
+Verified crate `0.2.0` embeds protocol `v1.1.0` at commit `1053ae033`.
+Use a crate whose embedded release matches the deployment you call. The
 compatibility table is in the crate README. Build the contract with
 `stellar contract build`; `soroban-sdk` 28 needs stellar-cli 25.2 or newer.
 
@@ -86,10 +86,13 @@ address constants into your contract.
 
 Your contract owns its instance and its persistent keys, and it renews them
 with its own constants. A ledger closes about every 5 seconds, so one day is
-86,400 / 5 = 17,280 ledgers. The values below are the ones the protocol uses
-for its own instance and per-user entries: renew below 30 days
-(518,400 ledgers), and extend the instance to 180 days (3,110,400 ledgers) and
-an account pointer to 120 days (2,073,600 ledgers).
+86,400 / 5 = 17,280 ledgers. The protocol uses these values for its instance and account entries:
+
+| Setting | Days | Ledgers |
+| --- | --- | --- |
+| Renewal threshold | 30 | 518,400 |
+| Instance extension | 180 | 3,110,400 |
+| Account pointer extension | 120 | 2,073,600 |
 
 ```rust
 const DAY_IN_LEDGERS: u32 = 17_280;
@@ -112,8 +115,8 @@ instance or persistent extension to the network maximum entry TTL.
    `open_account`, `deposit`, `supply`, `repay`, and `liquidate` do this. For
    a generated-client call, including `recapitalize`, call
    `authorize_transfer_as_current`.
-3. Run every controller read before that authorization. The controller verb
-   must be the next cross-contract call.
+3. Complete all contract reads before you create the authorization.
+   Make the controller operation your next contract call.
 4. `multiply` initial payment is the exception: authorize a transfer to the
    controller, not the pool.
 5. Renew your contract instance in every public entrypoint and callback with

@@ -1226,7 +1226,10 @@ sleep() { echo "$1" >> "$RUN_DIR/slept"; }
 H=$(printf '%064d' 5)
 curl() {
     local n; n=$(( $(cat "$RUN_DIR/curls" 2>/dev/null || echo 0) + 1 )); echo "$n" > "$RUN_DIR/curls"
-    if [ "$n" -le "${CURL_429:-0}" ]; then printf '{"error":"rate_limited","retry_after":60}\n429'; return; fi
+    if [ "$n" -le "${CURL_429:-0}" ]; then
+        [ "${CURL_CODE:-429}" != 000 ] || return 7
+        printf '{"error":"rate_limited","retry_after":60}\n%s' "${CURL_CODE:-429}"; return
+    fi
     case "$*" in
         *getLatestLedger*) printf '{"jsonrpc":"2.0","id":1,"result":{"sequence":100}}\n200';;
         *getTransaction*)
@@ -1294,6 +1297,22 @@ else [ "$rc" != 0 ] && [ "$n" = 7 ] && [ "$(wc -l < "$RUN_DIR/slept")" -eq 6 ] |
     assert [a['status'] for a in actions] == ([] if not always else ['FAIL']), actions
     assert not always or actions[0]['label'] == 'deployed_fetch' and '429' in actions[0]['note'], actions
 print('HTTP 429 on getTransaction, getLatestLedger, a view and a bytecode fetch backs off exponentially, bounded, hex-safe')
+
+for code in ['500', '502', '503', '504']:
+    shell(THROTTLED + f'''
+CURL_429=2 CURL_CODE={code} LANDED=1 BACKOFFS=2 AFTER=60
+[ "$(tx_status "$H")" = SUCCESS ] && [ "$(cat "$RUN_DIR/curls")" = 3 ] && backoffs || exit 1
+''')
+shell(THROTTLED + r'''
+CURL_429=1 CURL_CODE=000 BACKOFFS=1
+[ "$(latest_ledger 5)" = 100 ] && [ "$(cat "$RUN_DIR/curls")" = 2 ] && backoffs || exit 1
+''')
+shell(THROTTLED + r'''
+CURL_429=1 CURL_CODE=404
+if latest_ledger 5; then exit 1; fi
+[ "$(cat "$RUN_DIR/curls")" = 1 ] && [ ! -e "$RUN_DIR/slept" ] || exit 2
+''')
+print('A read-only JSON-RPC call backs off on HTTP 5xx and a dropped connection like a 429; a 4xx fails at once')
 
 shell(THROTTLED + r'''
 for payload in '{"jsonrpc":"2.0","id":1,"method":"sendTransaction","params":{"transaction":"AAAA"}}' '[{"method":"getLatestLedger"}]' 'garbage'; do
@@ -1516,3 +1535,50 @@ echo held >&150; exit 0''', '_', str(HERE), str(root)], env=env, capture_output=
         assert done.returncode == 1 and message in done.stderr, (bad, done.stderr)
 print('Two lanes never exceed E2E_RPC_SLOTS, reads never exceed E2E_RPC_READ_SLOTS; only local CLI verbs bypass the pool;'
       ' a slot timeout is a pre-sign failure, a nested hold is refused at once, and each wait is logged')
+
+with tempfile.TemporaryDirectory() as directory:
+    root = Path(directory)
+    (root/'bin').mkdir(); (root/'lib').mkdir(); (root/'fast').mkdir()
+    shutil.copy2(HERE/'bin/stellar', root/'bin/stellar')
+    shutil.copy2(HERE/'lib/core.sh', root/'lib/core.sh')
+    (root/'fast/sleep').write_text('#!/bin/bash\necho "$1" >> "$SLEPT"\n')
+    real = root/'real-stellar'
+    real.write_text('#!/bin/bash\nn=$(( $(cat "$SHIM_CALLS" 2>/dev/null || echo 0) + 1 )); echo "$n" > "$SHIM_CALLS"\nif [ "$n" -le "$FAILS" ]; then\n    echo partial\n    [ -z "${SIGNED:-}" ] || echo "Signing transaction: $(printf \'%064d\' 3)" >&2\n    printf \'%s\\n\' "$ERROR" >&2\n    exit 1\nfi\n[ "$1 $2" != \'tx simulate\' ] || { cat; exit 0; }\necho final\n')
+    for stub in (real, root/'fast/sleep'):
+        stub.chmod(0o755)
+    base = dict({k: v for k, v in os.environ.items() if k not in ('E2E_SLOT_FDS', 'E2E_RPC_DEADLINE')},
+                PATH=f"{root/'fast'}:{os.environ['PATH']}", E2E_STELLAR=str(real), E2E_SLOT_DIR=str(root/'slots'),
+                SHIM_CALLS=str(root/'calls'), SLEPT=str(root/'slept'), THROTTLE_RETRIES='3', ERROR='error: Request rejected `502`')
+    def shim(args, stdin=None, **extra):
+        for name in ('calls', 'slept'):
+            (root/name).unlink(missing_ok=True)
+        done = subprocess.run([str(root/'bin/stellar'), *args], env=dict(base, **extra), stdin=stdin or subprocess.DEVNULL,
+                              capture_output=True, text=True, timeout=30)
+        calls = int((root/'calls').read_text()) if (root/'calls').exists() else 0
+        slept = (root/'slept').read_text().split() if (root/'slept').exists() else []
+        return done, calls, slept
+    invoke = ['contract', 'invoke', '--id', 'C', '--send=yes', '--', 'f']
+    for error in ['error: Request rejected `429`', 'error: Request rejected `502`', 'error: Request rejected `503`',
+                  'error: error reading a body from connection', 'error: error sending request for url', 'error: connection reset by peer']:
+        done, calls, slept = shim(invoke, FAILS='2', ERROR=error)
+        assert done.returncode == 0 and done.stdout == 'final\n' and calls == 3 and len(slept) == 2, (error, done, calls, slept)
+        assert error not in done.stderr, (error, done.stderr)
+    envelope = root/'envelope.xdr'
+    envelope.write_text('AAAA-envelope\n')
+    with envelope.open() as stdin:
+        done, calls, slept = shim(['tx', 'simulate'], stdin=stdin, FAILS='1')
+    assert done.returncode == 0 and done.stdout == 'AAAA-envelope\n' and calls == 2 and len(slept) == 1, (done, calls, slept)
+    (root/'calls').unlink()
+    piped = subprocess.run(['bash', '-c', 'echo piped | "$0" tx simulate', str(root/'bin/stellar')], env=dict(base, FAILS='1'),
+                           capture_output=True, text=True, timeout=30)
+    assert piped.returncode == 1 and int((root/'calls').read_text()) == 1, piped
+    done, calls, slept = shim(invoke, FAILS='99')
+    assert done.returncode == 1 and calls == 4 and len(slept) == 3, (done, calls, slept)
+    assert done.stdout == 'partial\n' and done.stderr.count('Request rejected') == 1, done
+    for args, extra in [(invoke, dict(SIGNED='1')), (invoke, dict(ERROR='error: HostError: Error(Contract, #6) Request rejected `502`')),
+                        (invoke, dict(ERROR='error: Request rejected `404`')), (invoke, dict(ERROR='error: transaction submission timed out')),
+                        (['tx', 'send'], {}), (['keys', 'fund', 'a'], {}), (['keys', 'generate', 'a', '--fund'], {})]:
+        done, calls, slept = shim(args, FAILS='1', **extra)
+        assert done.returncode == 1 and calls == 1 and not slept, (args, extra, done, calls, slept)
+print('The CLI shim retries a 429, 5xx or lost connection before signing with the throttle backoff and replays a file stdin;'
+      ' it never retries a signed command, a contract error, a piped simulate, tx send or funding, and prints only the last attempt')

@@ -25,6 +25,7 @@ with tempfile.TemporaryDirectory() as directory:
 source "$1/lib/core.sh"; source "$1/lib/invoke.sh"; source "$1/lib/assets.sh"
 INTEG_DIR="$2"; LOG_DIR="$2"; RPC_URL=unused; XLM_SAC=X; AGGREGATOR=A
 label="$3"; mode="$4"; RUN_TS="$5"
+case "$mode" in rpc_*) sleep() { :; };; esac
 _assert_fail() { echo "$*" >&2; return 1; }
 record() { echo "$*" >> "$LOG_DIR/failures"; }
 extract_signing_hash() { cat "$1"; }

@@ -398,3 +398,49 @@ bash -c 'source "$1"; LISTING_EXISTS=yes ensure_asset_in_spoke 4 XLM 5' _ "$tmp/
 [ "$(wc -l < "$tmp/listing-reads" | tr -d ' ')" = 3 ] || fail 'each listing needs exactly one read'
 [ ! -e "$tmp/spoke-fetch" ] || fail 'explicit hub listing fetched discarded spoke data'
 echo 'operator market replay and qualified listing reads: OK'
+
+# Transient RPC failures before signing are retried with a growing delay; a signed
+# command and a contract error are not. An unreadable op state is polled again.
+cat > "$tmp/retry.sh" <<EOF
+$(grep '^RPC_RETRYABLE_RE=' "$SCRIPT")
+STELLAR_TX_MAX_RETRIES=6 STELLAR_TX_RETRY_DELAY=1
+sleep() { echo "\$1" >> '$tmp/retry-slept'; }
+stellar() {
+    local n=\$(( \$(cat '$tmp/retry-calls' 2>/dev/null || echo 0) + 1 )); echo "\$n" > '$tmp/retry-calls'
+    if [ "\$n" -le "\$FAILS" ]; then
+        [ -z "\${SIGNED:-}" ] || echo "Signing transaction: \$(printf '%064d' 1)" >&2
+        echo "\$ERROR" >&2; return 1
+    fi
+    echo '"Ready"'
+}
+$(extract retry_tx)
+EOF
+retry() { rm -f "$tmp/retry-calls" "$tmp/retry-slept"; env "$@" bash -c 'source "$1"; retry_tx stellar contract invoke' _ "$tmp/retry.sh" 2>/dev/null; }
+for error in 'error: Request rejected `429`' 'error: Request rejected `502`' 'error: Request rejected `503`' 'error: error reading a body from connection'; do
+    [ "$(retry FAILS=2 ERROR="$error")" = '"Ready"' ] || fail "retry_tx must retry: $error"
+    [ "$(tr '\n' ' ' < "$tmp/retry-slept")" = '1 2 ' ] || fail "retry_tx must back off 1 then 2 s: $(cat "$tmp/retry-slept")"
+done
+if retry FAILS=1 SIGNED=1 ERROR='error: Request rejected `502`' >/dev/null; then fail 'retry_tx must not retry a signed command'; fi
+[ "$(cat "$tmp/retry-calls")" = 1 ] || fail 'retry_tx resent a signed command'
+if retry FAILS=1 ERROR='error: HostError: Error(Contract, #6)' >/dev/null; then fail 'retry_tx must not retry a contract error'; fi
+[ "$(cat "$tmp/retry-calls")" = 1 ] || fail 'retry_tx retried a contract error'
+if retry FAILS=99 ERROR='error: Request rejected `429`' >/dev/null; then fail 'retry_tx must give up'; fi
+[ "$(cat "$tmp/retry-calls")" = 6 ] || fail "retry_tx must stop after STELLAR_TX_MAX_RETRIES: $(cat "$tmp/retry-calls")"
+
+cat > "$tmp/await.sh" <<EOF
+AWAIT_POLL_SECONDS=0 UNSET_MAX_POLLS=3
+sleep() { :; }
+await_max_wait_seconds() { echo 60; }
+op_state() {
+    local n=\$(( \$(cat '$tmp/await-calls' 2>/dev/null || echo 0) + 1 )); echo "\$n" > '$tmp/await-calls'
+    if [ "\$n" -le "\$BLANK" ]; then echo ''; else echo Ready; fi
+}
+$(extract await_op_ready)
+EOF
+rm -f "$tmp/await-calls"
+BLANK=2 bash -c 'source "$1"; await_op_ready OP' _ "$tmp/await.sh" 2>/dev/null || fail 'an unreadable op state must be polled again'
+[ "$(cat "$tmp/await-calls")" = 3 ] || fail 'await_op_ready must stop polling once the op is Ready'
+rm -f "$tmp/await-calls"
+if BLANK=99 bash -c 'source "$1"; await_op_ready OP' _ "$tmp/await.sh" 2>/dev/null; then fail 'a never-readable op state must fail'; fi
+[ "$(cat "$tmp/await-calls")" = 3 ] || fail 'an unreadable op state must stop after UNSET_MAX_POLLS'
+echo 'transient RPC retries and unreadable op states: OK'
