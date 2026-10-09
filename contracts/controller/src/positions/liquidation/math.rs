@@ -367,7 +367,9 @@ pub(crate) fn sum_repaid_usd(env: &Env, repaid_tokens: &Vec<RepayEntry>) -> Wad 
 /// The pool closes a withdrawal at or above the half-up balance in full. A
 /// partial transfer request that would reach it stops one native unit short,
 /// so the account keeps its residue; a rounded-down whole-unit leg drops that
-/// unit from the seizure and its repayment.
+/// unit from the seizure and its repayment, and a rounded-up one steps back a
+/// unit, or takes the held balance when it is a single unit, so both modes
+/// agree on whether the leg closes.
 pub(crate) fn calculate_seized_collateral(
     env: &Env,
     account: &Account,
@@ -411,8 +413,27 @@ pub(crate) fn calculate_seized_collateral(
             && seizure_ray < actual_ray
         {
             if repayment.repays_all_debt {
-                let whole = seizure_ray.to_asset_ceil(env, feed.asset_decimals);
-                seizure_ray = Ray::from_asset(env, whole, feed.asset_decimals).min(actual_ray);
+                let mut whole = seizure_ray.to_asset_ceil(env, feed.asset_decimals);
+                let mut whole_ray = Ray::from_asset(env, whole, feed.asset_decimals);
+                if whole_ray < actual_ray
+                    && pool_closes_position(
+                        env,
+                        whole,
+                        position.scaled_amount,
+                        market_index.supply_index,
+                        feed.asset_decimals,
+                    )
+                {
+                    // A single unit closes the leg in both modes instead of
+                    // leaving the plan with nothing to seize.
+                    whole -= 1;
+                    whole_ray = if whole == 0 {
+                        actual_ray
+                    } else {
+                        Ray::from_asset(env, whole, feed.asset_decimals)
+                    };
+                }
+                seizure_ray = whole_ray.min(actual_ray);
             } else {
                 let mut whole = seizure_ray.to_asset_floor(env, feed.asset_decimals);
                 if whole > 0

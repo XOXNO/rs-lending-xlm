@@ -359,6 +359,7 @@ fn seize_from_one_leg(
     decimals: u32,
     scaled: i128,
     repay_usd_raw: i128,
+    repays_all_debt: bool,
 ) -> (Vec<SeizeEntry>, Wad) {
     let contract = env.register(Controller, (Address::generate(env),));
     let hub_asset = hub_key(env);
@@ -391,7 +392,10 @@ fn seize_from_one_leg(
         cache.set_prices(prices);
         cache.put_market_index(&hub_asset, &index_raw());
         let total = Ray::from(scaled).to_wad(env);
-        let plan = plan_for_seizure(env, repay_usd_raw, 0);
+        let plan = NormalizedRepaymentPlan {
+            repays_all_debt,
+            ..plan_for_seizure(env, repay_usd_raw, 0)
+        };
         calculate_seized_collateral(env, &account, total, &plan, &mut cache)
     })
 }
@@ -406,7 +410,7 @@ fn a_partial_transfer_request_stops_short_of_the_pool_full_close() {
     let scaled = Ray::from_asset(&env, 10_270, 3).raw() + 2 * 10i128.pow(23);
     let repay = 10_270_060 * 10i128.pow(12);
 
-    let (seized, unbacked) = seize_from_one_leg(&env, 3, scaled, repay);
+    let (seized, unbacked) = seize_from_one_leg(&env, 3, scaled, repay, false);
 
     let entry = seized.get_unchecked(0);
     assert_eq!(entry.amount, 10_269, "one native unit below the full close");
@@ -431,7 +435,7 @@ fn a_rounded_down_whole_unit_seizure_stops_short_of_the_pool_full_close() {
     let env = Env::default();
     let scaled = Ray::from_asset(&env, 10, 0).raw() + RAY / 5;
 
-    let (seized, unbacked) = seize_from_one_leg(&env, 0, scaled, 10 * WAD + WAD / 100);
+    let (seized, unbacked) = seize_from_one_leg(&env, 0, scaled, 10 * WAD + WAD / 100, false);
 
     let entry = seized.get_unchecked(0);
     assert_eq!(entry.amount, 9);
@@ -441,6 +445,53 @@ fn a_rounded_down_whole_unit_seizure_stops_short_of_the_pool_full_close() {
         Wad::from(WAD + WAD / 100),
         "the dropped unit and fraction leave the repayment"
     );
+}
+
+/// MC-2. A plan that repays all debt rounds a whole-unit leg up: 2.6 of 3.4
+/// held units becomes 3, which the pool would treat as a full close and burn
+/// the 0.4 residue in Transfer mode while Credit kept it. The leg steps back
+/// to 2 units in both modes and the account keeps its residue.
+#[test]
+fn a_rounded_up_full_repayment_seizure_stops_short_of_the_pool_full_close() {
+    let env = Env::default();
+    for decimals in 0..MIN_BORROWABLE_ASSET_DECIMALS {
+        // 3.4 native units held; 2.6 native units of repayment at $1 per token.
+        let scaled = Ray::from_asset(&env, 34, decimals + 1).raw();
+        let repay = 26 * WAD / 10 / 10i128.pow(decimals);
+
+        let (seized, unbacked) = seize_from_one_leg(&env, decimals, scaled, repay, true);
+
+        let entry = seized.get_unchecked(0);
+        assert_eq!(entry.amount, 2, "{decimals} decimals");
+        assert_eq!(
+            entry.scaled_amount,
+            Ray::from_asset(&env, 2, decimals).raw()
+        );
+        let (burned, _) =
+            resolve_withdrawal(&env, entry.amount, Ray::from(scaled), Ray::ONE, decimals);
+        assert!(
+            burned < Ray::from(scaled),
+            "the pool takes the partial path"
+        );
+        assert_eq!(unbacked, Wad::ZERO, "a full repayment refunds nothing");
+    }
+}
+
+/// MC-2. With 1.3 held units and 0.6 to seize, stepping back would seize
+/// nothing; the leg closes in full instead, so Transfer and Credit agree.
+#[test]
+fn a_rounded_up_single_unit_full_repayment_seizure_closes_the_leg() {
+    let env = Env::default();
+    let scaled = Ray::from_asset(&env, 13, 1).raw();
+
+    let (seized, _) = seize_from_one_leg(&env, 0, scaled, 6 * WAD / 10, true);
+
+    let entry = seized.get_unchecked(0);
+    assert_eq!(
+        entry.amount, 1,
+        "the half-up balance requests the full close"
+    );
+    assert_eq!(entry.scaled_amount, scaled, "credit takes every share");
 }
 
 /// Ten stroops repaid at a 50% bonus seize 15: five stroops are realised above

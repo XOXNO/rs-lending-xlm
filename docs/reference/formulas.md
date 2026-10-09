@@ -378,7 +378,9 @@ Partial seizure floors the token amount and seized shares. The pool closes a
 withdrawal at or above the half-up balance in full, so a partial transfer
 request that reaches it is lowered by one token unit and the account keeps its
 residue; Credit shares are unchanged. A rounded-down leg below 3 decimals
-drops that unit from the seizure in both modes and refunds its repayment.
+drops that unit from the seizure in both modes and refunds its repayment; a
+rounded-up one on a full repayment steps back a unit in both modes, or takes
+the held balance when it is a single unit.
 Full seizure uses
 the half-up token amount to request a full pool withdrawal and takes the exact
 held shares for Credit mode; the pool payout still floors the supply claim.
