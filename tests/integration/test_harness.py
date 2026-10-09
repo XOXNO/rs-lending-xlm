@@ -254,11 +254,18 @@ classic_batch batch change_trust alice trust:USDC:$ISSUER trust:EURC:$ISSUER tru
 sends 1 && [ "$(command stellar tx decode < "$LOG_DIR/batch.signed.xdr" | jq .tx.tx.fee)" = {fee} ] || exit 2
 ''')
 for mode, env, sent in [('drop', '', 0), ('source', '', 0), ('body', '', 0), ('fee', '', 0), ('', f'KEY_ADDR={ISSUER}', 0),
-                        ('', 'STATUS=UNKNOWN', 1), ('', 'STATUS=FAILED', 1), ('', 'SEND_RC=1', 1)]:
+                        ('', 'STATUS=UNKNOWN', 1), ('', 'STATUS=FAILED', 1), ('', 'SEND_RC=1 STATUS=UNKNOWN', 1),
+                        ('', 'SEND_RC=1 STATUS=FAILED', 1)]:
     shell(CLASSIC + f'''
 LABEL=batch; MODE={mode}; {env}
 ! classic_batch batch change_trust alice trust:USDC:$ISSUER trust:EURC:$ISSUER trust:AQUA:$ISSUER || exit 1
 sends {sent} && [ "$(rows batch FAIL change_trust)" = 1 ] && [ "$(rows batch ok change_trust)" = 0 ] || exit 2
+''')
+shell(CLASSIC + '''
+LABEL=batch; SEND_RC=1
+classic_batch batch change_trust alice trust:USDC:$ISSUER trust:EURC:$ISSUER || exit 1
+sends 1 && [ "$(rows batch ok change_trust)" = 1 ] && [ "$(rows batch FAIL change_trust)" = 0 ] || exit 2
+jq -e -s 'length == 1 and .[0].cli_exit == 1' "$RUN_DIR/attempts.jsonl" >/dev/null || exit 3
 ''')
 shell(CLASSIC + '''
 LABEL=trust_USDC_alice

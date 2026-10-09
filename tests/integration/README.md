@@ -67,9 +67,14 @@ The pools live in `E2E_SLOT_DIR` (default `/tmp/rs-lending-e2e-slots-<uid>`),
 so every run of one user on one host shares them. A read that gets HTTP 429
 backs off with jitter for the `retry_after` the gateway sends (at most 120 s),
 or 8, 16, 32 and then 60 s, at most `THROTTLE_RETRIES` (default 6, 0 to 20)
-times. A signed send that gets 429 stays `UNKNOWN` and fails.
+times. The same backoff covers HTTP 5xx and a dropped connection on a
+read-only JSON-RPC call, and a `stellar` command that fails with 429, 5xx or a
+lost connection before it prints `Signing transaction:`. `tx send`, `keys fund`
+and `--fund` are never retried. A signed send that gets 429 stays `UNKNOWN` and fails.
 `parallel_e2e.sh` starts `prod-full`, `prod-caller` and `stress` first and the other lanes
-`E2E_LANE_STAGGER` seconds later (default 60).
+`E2E_LANE_STAGGER` seconds later (default 60). Every other launch waits
+`E2E_LANE_GAP` seconds (default 10, 0 to 999) after the previous one, so the
+lanes do not reach their funding phase in the same second.
 
 Do not edit scripts during a live run: Bash may read their remaining contents
 later. Use an immutable checkout or a copied harness for concurrent development.

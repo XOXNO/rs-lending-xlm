@@ -11,7 +11,7 @@
     "States that withdraw with remaining debt must pass the LTV, HF >= 1e18 and minimum borrow collateral gates, so repay before withdraw"
   ],
   "machine_checkable": [
-    "Generated TypeScript passes tsc --noEmit against @xoxno/sdk-js@1.0.214",
+    "Generated TypeScript passes tsc --noEmit against @xoxno/sdk-js@1.0.228",
     "For borrowScaledRay=1000000000000000000000000000 (1e27), borrowIndexRay=1000000000000000000000000001 (1e27+1) and decimals=7 the full-close amount is 10000001 base units (ceil), not 10000000"
   ]
 }

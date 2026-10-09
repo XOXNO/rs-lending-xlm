@@ -44,7 +44,7 @@ def orchestrator(base,**extra):
     (base/'bin').mkdir();(base/'bin/stellar').write_text(STELLAR);(base/'bin/stellar').chmod(0o755)
     (base/'bin/curl').write_text(CURL);(base/'bin/curl').chmod(0o755)
     env=dict(os.environ,INTEG_DIR=str(base),E2E_LANES='agg-core',NODE_BIN=str(base/'no_network'),
-        PATH=f"{base/'bin'}:{os.environ['PATH']}",STELLAR_CALLS=str(base/'calls'),**extra)
+        PATH=f"{base/'bin'}:{os.environ['PATH']}",STELLAR_CALLS=str(base/'calls'),**{'E2E_LANE_GAP':'0',**extra})
     return scripts,env,sorted(str(p) for p in wasms)
 
 def uploads(base):
@@ -220,6 +220,29 @@ for bad in ['-1','x','12345']:
         done=subprocess.run(['bash',str(scripts/'parallel_e2e.sh')],env=env,capture_output=True,text=True,timeout=30)
         assert done.returncode==2 and 'invalid E2E_LANE_STAGGER' in done.stderr and not (base/'calls').exists(),done.stderr
 print('An invalid E2E_LANE_STAGGER exits 2 before any upload')
+
+with tempfile.TemporaryDirectory() as directory:
+    base=Path(directory)
+    scripts,env,wasms=orchestrator(base,LANE_TIMEOUT='30s',E2E_LANE_STAGGER='2',E2E_LANE_GAP='1')
+    env['E2E_LANES']='agg-core prod-full sdk stress'
+    stub='#!/bin/bash\necho "lane $RUN_TS $(python3 -c "import time; print(time.time())")" >> "$STELLAR_CALLS"\necho "run complete"\n'
+    for name in ['full_e2e.sh','production.sh','sdk.sh']:(scripts/name).write_text(stub)
+    (scripts/'assert_green.sh').write_text('#!/bin/bash\necho "GREEN $RUN_TS"\n')
+    done=subprocess.run(['bash',str(scripts/'parallel_e2e.sh')],env=env,capture_output=True,text=True,timeout=60)
+    assert done.returncode==0,done.stderr
+    started={line.split()[1][len('fixture-'):]:float(line.split()[2]) for line in (base/'calls').read_text().splitlines() if line.startswith('lane ')}
+    order=['prod-full','stress','agg-core','sdk']
+    gaps=[started[b]-started[a] for a,b in zip(order,order[1:])]
+    assert gaps[0]>=0.9 and gaps[1]>=1.9 and gaps[2]>=0.9,(gaps,started)
+print('E2E_LANE_GAP spaces every launch; the stagger replaces the gap before the first non-critical lane')
+
+for bad in ['-1','x','1000']:
+    with tempfile.TemporaryDirectory() as directory:
+        base=Path(directory)
+        scripts,env,wasms=orchestrator(base,LANE_TIMEOUT='1s',E2E_LANE_GAP=bad)
+        done=subprocess.run(['bash',str(scripts/'parallel_e2e.sh')],env=env,capture_output=True,text=True,timeout=30)
+        assert done.returncode==2 and 'invalid E2E_LANE_GAP' in done.stderr and not (base/'calls').exists(),done.stderr
+print('An invalid E2E_LANE_GAP exits 2 before any upload')
 
 with tempfile.TemporaryDirectory() as directory:
     base=Path(directory)

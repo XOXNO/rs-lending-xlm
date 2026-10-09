@@ -1,151 +1,95 @@
 # Positions, ownership, and risk
 
-Companion to [SKILL.md](SKILL.md). The published
-`@xoxno/sdk-js@1.0.214` package does not export
-`computeAccountRisk`, `maxBorrow`, `maxWithdraw`, `maxSupply`, `maxRepay`,
-`projectAccountRisk`, `projectReserveApy`, or the other SDK math-module
-exports. Do not import those names in an application pinned to 1.0.214.
+Companion to [SKILL.md](SKILL.md). Use v1 position arrays for display.
+Use current contract state and prepared transaction simulation for mutations.
 
-Those APIs first ship in `1.0.218`; this skill does not document them. Code
-that uses them must pin a version whose published `dist/sdk/stellar/index.d.ts`
-exports the names, and the application's compile test must cover that tarball.
-On 1.0.214, implement application math from
-[../xoxno-lending/math.md](../xoxno-lending/math.md), or use authoritative
-contract views through [reads.md](reads.md).
-
-## Discover accounts without inventing identifiers
-
-`read.userPositions(owner)` returns position rows, not one row per account.
-Group by `accountId`:
+## Discover and select an account
 
 ```ts
 import {
-  XOXNOClient,
-  stellarLendingRead,
-  type AccountPositionDto,
-} from '@xoxno/sdk-js/stellar-lending'
+  createStellarLendingReadClient,
+  type LendingPosition,
+} from '@xoxno/sdk-js/stellar-lending/read'
 
-const read = stellarLendingRead(
-  new XOXNOClient({ apiUrl: 'https://api.xoxno.com' }),
-)
+const read = createStellarLendingReadClient({ baseUrl: 'https://api.xoxno.com' })
 
-export async function accountsOf(
-  owner: string,
-): Promise<Map<string, AccountPositionDto[]>> {
-  const { positions } = await read.userPositions(owner)
-  const accounts = new Map<string, AccountPositionDto[]>()
-  for (const row of positions) {
-    accounts.set(row.accountId, [...(accounts.get(row.accountId) ?? []), row])
-  }
-  return accounts
+export async function accountsOf(owner: string): Promise<LendingPosition[]> {
+  return read.positions(owner)
 }
 ```
 
-`accountId` is the position-NFT token id. It is globally identified by the
-position-NFT contract plus token id, but the UI string
-`` `${positionNftContract}-${accountId}` `` is only an application cache key,
-not a Soroban address and not a reserve identifier.
+Each item is one indexed owned position NFT. It already contains `supplied`
+and `borrow` arrays, `spokeName`, health, borrow limits, net APY, and an SVG URL.
+Do not regroup legs from several accounts into one risk calculation.
 
-An account lives on one spoke, but neither its numeric id nor that cache key
-encodes the spoke. A wallet can own multiple accounts on the same spoke.
-Therefore:
+Identify a position with `(network, nftContract, accountId)`. Identify each leg
+with `(hubId, sac)`. Neither an account id nor a token symbol encodes a spoke.
+A wallet can own several accounts on one spoke.
 
-1. Let the user or intent select `accountId`.
-2. Fetch `accountPositions(accountId)` or filter the grouped rows.
-3. Verify all rows agree on the expected `spokeId`.
-4. Match each leg with the complete `(spokeId, hubId, asset)` reserve key.
-5. Recheck `owner_of(accountId)` before preparing a mutation.
+Before an owner-wallet action:
 
-Do not select `positions[0]`, infer an account from an asset, or treat
-`spokeId` as an account identifier. A position-NFT transfer transfers control
-of the whole lending account; API ownership is index-time data.
+1. Select an explicit `accountId` from user intent.
+2. Verify its `spokeId` and each selected `(hubId, sac)` market.
+3. Recheck `owner_of(accountId)` on the network's position-NFT contract.
+4. Pass the selected id as the builder's `accountNonce`.
+5. Pass `sac` as the builder's `asset`.
+6. Prepare the exact transaction before requesting a signature.
 
-## Exact balances and rounding
+Do not choose `positions[0]` or infer an account from a token. NFT transfer
+transfers control of the entire lending account, including its debt.
+Indexed inventory can lag the transfer.
 
-The DTO contains:
+## Render balances and risk
 
-- `supplyScaledRay` / `borrowScaledRay`: RAY shares.
-- `liveSupplyIndexRay` / `liveBorrowIndexRay`: the index the API applied
-  (live, else the stored position index); `null` when it has neither.
-- `supplyAmount` / `borrowAmount`: RAY token quantities for display, not
-  builder amounts.
-- `entryLtvBps`, `entryLiquidationThresholdBps`, `entryLiquidationBonusBps`,
-  `entryLiquidationFeesBps`: the leg's stored risk weights (BPS). Supply,
-  withdraw, and `update_account_threshold` can refresh them; borrow and
-  strategy calls can refresh the LTV.
+| Field | Display rule |
+| --- | --- |
+| `amountRaw` | Integer token base-unit string; supply rounds down, debt rounds up. No RAY conversion. |
+| `amount` | Decimal whole-token string; no floating-point balance conversion is needed. |
+| `apy`, `netApy` | Fractions; multiply by 100 for percentage display. |
+| `hasDebt`, `healthFactor` | Display “No debt” only for `hasDebt === false`; otherwise show health or “Unavailable”. |
+| `borrowLimitUsd`, `availableBorrowUsd` | Account estimates before market and other action constraints. |
+| `priceUsd`, `valueUsd` | Nullable USD estimates. Missing price can leave raw balances available. |
+| `nftImage`, `logoUrl` | Display images; handle failed/missing images and SVG support. |
+| `dataStatus` | Inspect individual fields even when the whole item is incomplete. |
 
-For builder-ready amounts, use integer math and the protocol's directed
-rounding:
+Net APY is annual supply income minus debt cost, divided by positive net equity.
+It is null when required inputs or positive equity are unavailable. A missing
+health factor is not proof of safety. A `ready` item is not an admission check.
 
-- supply shares mint floor; borrow shares mint ceil;
-- partial withdrawal burns ceil;
-- repayment burns floor;
-- full withdrawal pays the floor balance and should be requested with the
-  protocol sentinel `amount: '0'`;
-- full debt close repays the ceiled debt, with a small accrual buffer; surplus
-  is refunded.
+## Transaction sizing and rounding
 
-The exact formulas and pseudocode are in
-[../xoxno-lending/math.md#shares-and-token-amounts](../xoxno-lending/math.md#shares-and-token-amounts).
-`get_collateral_amount` and `get_borrow_amount` return base units at the
-current ledger, rounded half-up. A full debt close needs the ceiled amount,
-which can be one unit above `get_borrow_amount`.
+Raw v1 balances are snapshot values. Interest can accrue before execution.
+Do not size a final repay or withdrawal from formatted display numbers.
 
-## Application-side risk
+- Full withdrawal uses the protocol sentinel `amount: '0'`.
+- Full debt close needs the ceiled current debt plus an accrual buffer.
+  There is no repay-all sentinel; excess is refunded.
+- Supply shares mint down; debt shares mint up. Partial withdrawal burns up;
+  partial repayment burns down.
 
-For 1.0.214, risk and max-action helpers are application code, not SDK calls.
-Keep the implementation in raw `bigint` WAD/RAY/BPS values:
+The controller's `get_collateral_amount` and `get_borrow_amount` views return
+current base units rounded half-up. Ceiled debt can be one unit higher than
+`get_borrow_amount`. See the
+[rounding reference](../xoxno-lending/math.md#shares-and-token-amounts).
 
-```text
-for each row in one account:
-  resolve reserve by (account.spokeId, row.hubId, row.asset)
-  resolve an accepted current index (RAY) and price (WAD)
-  collateralWad = shares * index / RAY, to WAD, * price / WAD; floor each step
-  rowDebtWad    = the same steps; ceil each step
-  ltvBps = min(reserve.collateralFactorBps, row.entryLiquidationThresholdBps)
-           // row.entryLtvBps in place of collateralFactorBps if unlisted
-  ltvWeightedCollateralWad = floor(collateralWad * ltvBps / BPS)
-  liquidationWeightedCollateralWad =
-    floor(collateralWad * row.entryLiquidationThresholdBps / BPS)
+## Risk checks before an action
 
-borrowLimitWad = sum(ltvWeightedCollateralWad)
-liquidationCollateralWad = sum(liquidationWeightedCollateralWad)
-debtWad = sum(rowDebtWad)
-healthFactorWad =
-  debtWad == 0 ? debtFree : floor(liquidationCollateralWad * WAD / debtWad)
-```
+Use current controller views for balances, prices, indexes, and stored risk
+parameters. Use `get_ltv_collateral_usd` for current LTV-weighted collateral
+in USD WAD. Listed collateral uses the current listing LTV. Unlisted
+collateral keeps its stored LTV. Each weight is capped by the stored
+liquidation threshold. Keep custom arithmetic in `bigint` WAD/RAY/BPS.
+Follow the [formulas](../xoxno-lending/math.md#health-factor-and-ltv-weighting).
+For a route preview, value collateral output at `amountOutMin`. Apply share
+rounding before valuation. Label the preview as an estimate.
 
-The borrow, withdraw, and strategy gates restamp each listed collateral leg's
-LTV to the current listing before they check. The health factor uses the
-stored liquidation threshold.
+Admission also checks collateral floors, caps, cash, utilization, halt flags,
+oracle validity, account rules, authorization, and operation-specific guards.
+For collateral with fewer than three decimals, the post-action token minimum
+is two base units while debt remains. This is separate from the USD floor.
+API flags do not reproduce every gate. Ledger state can change after successful
+preparation, so preparation does not guarantee execution.
 
-Admission also depends on more than health factor: the minimum collateral
-floor, reserve pause/freeze flags, borrow/supply caps, hub cash, liquidation
-buffer, utilization ceiling, oracle validity, and contract authorization.
-Implementing `maxBorrow` as only `(borrowLimit - debt) / price` is unsafe.
-
-For final decisions, simulate the prepared transaction. Contract simulation is
-the admission check; a client projection is only a preflight estimate.
-
-## Post-action preview
-
-An application preview may project share deltas using the formulas above, but
-must:
-
-- value the route at `amountOutMin`, not optimistic `amountOut`;
-- use current listed LTV; preserve an existing leg's stored liquidation
-  parameters unless the action supplies to or partially withdraws from that
-  leg, in which case model the gated liquidation-parameter refresh;
-- use the selected reserve's current settings for a newly opened leg;
-- apply share-mint/burn rounding before valuation;
-- keep comparisons in raw WAD `bigint`;
-- label any formatted number or float-derived leverage as an estimate.
-
-Never promise that a displayed health factor or leverage is admissible.
-Preparation can still fail because of price/index movement, stale oracle data,
-caps, liquidity, utilization, authorization, trustlines, route slippage,
-resource/footprint limits, sequence changes, or expired timebounds.
-
-After transaction `SUCCESS`, refetch positions and live state, reconcile the
-created/updated `accountId`, and recheck the position-NFT owner before another
-mutation.
+After `SUCCESS`, reconcile the returned account id, API positions, live state,
+and current NFT ownership. Follow the
+[transaction recovery policy](transactions.md#canonical-lifecycle).

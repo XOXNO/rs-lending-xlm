@@ -4,14 +4,14 @@
   ],
   "query": "My withdraw transaction fails in simulation with Error(Contract, #12). Help me close my whole USDC position and show the user what went wrong.",
   "expected_behavior": [
-    "Builds the close with buildStellarWithdrawTx amount \"0\" (full supplied position) using the account's accountNonce from userPositions, instead of guessing the exact balance and leaving dust",
+    "Build a full withdrawal with amount \"0\" and the selected v1 accountId as accountNonce.",
     "Prepares with prepareStellarBuiltTx(server, built, { network, invokedContractId: controllerAddress }) so the thrown error is tagged with the invoked contract id",
-    "Maps the code with mapSorobanError(raw) only after confirming the tag names the controller; explains the same number means something else when the pool, position NFT, or swap router panicked",
+    "Treat the top-level invoked-contract tag as context only. Pair code and emitting contract in the same diagnostic and trace propagated errors before mapping.",
     "Does not treat a null mapSorobanError result as 'no error' and surfaces the raw diagnostic",
-    "Re-fetches the account sequence and rebuilds before retrying instead of resubmitting the same prepared XDR"
+    "For a failed, unsubmitted simulation, refresh sequence before rebuilding. For a submitted transaction, resolve the original hash and network first."
   ],
   "machine_checkable": [
-    "Generated TypeScript passes tsc --noEmit against @xoxno/sdk-js@1.0.214",
+    "Generated TypeScript passes tsc --noEmit against @xoxno/sdk-js@1.0.228",
     "Source passes invokedContractId to prepareStellarBuiltTx or prepareStellarTxXdr"
   ]
 }

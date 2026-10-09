@@ -12,7 +12,7 @@
     "Does not claim the liquidator can repay by transferring tokens directly to the pool; the controller pulls the accepted amounts from the liquidator's balance, or the whole offer when the quote is the full debt (the pool refunds the excess)"
   ],
   "machine_checkable": [
-    "Generated TypeScript passes tsc --noEmit against @xoxno/sdk-js@1.0.214 and @stellar/stellar-sdk@16",
+    "Generated TypeScript passes tsc --noEmit against @xoxno/sdk-js@1.0.228 and @stellar/stellar-sdk@16",
     "Any StellarLiquidateArgs literal sets seizeMode to 'Transfer' or { Credit: <integer> }"
   ]
 }

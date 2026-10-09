@@ -44,9 +44,8 @@ Ship the whole set: every skill assumes `xoxno-lending` is available.
   (`--check` fails when it is stale). Never edit it by hand.
 - `xoxno-lending-contracts` claims about the `xoxno-contract-sdk` crate are verified against
   its public repository at the crate version named in that skill.
-- SDK claims are verified against the separate `sdk-js` repository at the version named in
-  the skill; API claims against `xoxno-api-v2` (production behind `api.xoxno.com`);
-  aggregator claims against `arb-algo`. Re-check them after a release of any of those.
+- Verify SDK claims against the named `sdk-js` release. Verify API claims
+  against `xoxno-api-v2`. Verify aggregator claims against `arb-algo`. Re-check them after a release of any of those.
 - `evals/scenarios/<skill>/` holds task scenarios in the stellar-dev-skill format, each
   encoding a mistake an agent makes without the skill. Run them before publishing a change.
 
@@ -55,3 +54,24 @@ Ship the whole set: every skill assumes `xoxno-lending` is available.
 A skill change is complete when its affected `evals/` scenario is updated,
 every `SKILL.md` remains under about 450 lines, and task-specific depth is
 disclosed through a companion file from the routing table.
+
+## Writing rules
+
+Apply the ASD-STE100 writing principles throughout each skill and companion
+reference. The skills use the full editorial profile. The public Mintlify
+docs use a separate, selective profile.
+
+1. Use one term for one technical meaning.
+2. Use active voice and direct instructions.
+3. Give one action per procedure step.
+4. Put conditions before the action they control.
+5. Keep procedural sentences at 20 words or fewer where possible.
+6. Keep descriptive sentences at 25 words or fewer where possible.
+7. Split long explanations into short paragraphs, lists, or tables.
+8. Preserve exact code names, types, units, and error namespaces.
+9. Describe the current interface only. Remove superseded examples and paths.
+10. Verify safety conditions against committed source and published exports.
+
+Technical names are necessary vocabulary. Code and formulas keep their exact
+syntax. These rules do not certify compliance with the official ASD-STE100
+dictionary; that dictionary was not available for this review.

@@ -284,6 +284,9 @@ pub(crate) fn merge_supply_leg(
 
     let mut position = account.get_or_create_supply_position(hub_asset, &asset_config);
     let old_scaled = position.scaled_amount;
+    let outcome = LegOutcome::from(result);
+    position.scaled_amount = outcome.new_scaled;
+    cache.put_market_index(hub_asset, &outcome.market_index);
 
     refresh_supply_risk_params(
         env,
@@ -294,9 +297,6 @@ pub(crate) fn merge_supply_leg(
         &asset_config,
         RiskRefreshScope::FullTuple,
     );
-
-    let outcome = LegOutcome::from(result);
-    position.scaled_amount = outcome.new_scaled;
 
     apply_leg_usage(
         env,
@@ -311,7 +311,6 @@ pub(crate) fn merge_supply_leg(
         &outcome,
     );
 
-    cache.put_market_index(hub_asset, &outcome.market_index);
     cache.record_supply_position_update(
         events::PositionAction::Supply,
         hub_asset,

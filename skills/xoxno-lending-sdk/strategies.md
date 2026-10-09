@@ -12,13 +12,15 @@ is not a lending transaction and must never be signed for these verbs.
 3. Request a quote with `slippage`, `platform: 'aggregator'`, `maxHops: 2`,
    `maxSplits: 1`, and `includePaths: true`.
 4. Omit `sender` and `router`; composition needs only `routeXdr`.
-5. Require an executable `routeXdr` and map it with
-   `mapQuoteResponseToStrategySwap(quote)`.
-6. Build the lending verb, then follow
-   [transactions.md#canonical-lifecycle](transactions.md#canonical-lifecycle).
+5. Verify the quote pair, input amount, and accepted output floor.
+6. Map the route with caller-owned expectations using `mapQuoteResponseToStrategySwap`.
+7. Build the lending operation.
+8. Follow the [transaction lifecycle](transactions.md#canonical-lifecycle).
 
-Preparation of the complete controller transaction is the only useful
-simulation. A quote-server simulation does not include lending accrual,
+The verified mapping call is in the
+[composition guide](../xoxno-swap-aggregator/composition.md#quote-for-composition).
+
+Prepare the complete controller transaction before signing. A quote-server simulation does not include lending accrual,
 transfers, pool guards, or post-action risk gates.
 
 ## Sizing rule per verb (what `amountIn` must equal)
@@ -110,9 +112,8 @@ For builder and risk decisions:
 
 Application formulas are pseudocode in
 [../xoxno-lending/math.md](../xoxno-lending/math.md).
-`@xoxno/sdk-js@1.0.214` exports no `projectAccountRisk` or `maxBorrow`. Later
-SDK versions export both; do not present their output as an admission
-guarantee.
+Use current raw contract state for a risk preview. Treat the result as an
+estimate. Simulate the complete transaction before signing.
 
 Even a careful client estimate or earlier simulation can fail later because
 of:
@@ -128,11 +129,16 @@ of:
 
 ### Complete example: 3× long on XLM funded by USDC debt
 
-Use `initialPayment` for the user's XLM, derive the desired extra XLM in raw
-base units, convert its WAD value to a net USDC amount, gross that amount up
-for the USDC flash fee, quote the net USDC → XLM route, and value
-`initialPayment + amountOutMin` against gross debt. This is a preview only;
-build `mode: 1` and require composed preparation before signing.
+1. Set the user's XLM as `initialPayment`.
+2. Calculate the additional XLM in token base units.
+3. Convert its WAD value to a net USDC amount.
+4. Include the USDC strategy fee in the gross debt amount.
+5. Quote the net USDC → XLM input.
+6. Value `initialPayment + amountOutMin` against gross debt.
+7. Build with `mode: 1`.
+8. Prepare the complete controller transaction.
+
+This produces a Multiply account. The leverage calculation is a preview.
 
 ## Repay and close
 
@@ -145,11 +151,14 @@ repay-with-collateral.
 
 ### Complete example: repay USDC debt with XLM collateral, same-token aware
 
-For XLM → USDC, reverse-quote the buffered ceiled debt and use `quote.amountIn`
-as `collateralAmount`; map its executable route into `steps`. If collateral
-and debt token addresses match, skip the quote and pass
-`buildSameTokenRepaySwapSteps()`. Set `closePosition` explicitly and prepare
-the complete controller transaction.
+If collateral and debt token addresses match, use
+`buildSameTokenRepaySwapSteps()` without a quote. Otherwise:
+
+1. Reverse-quote the ceiling-rounded debt with an accrual buffer.
+2. Use `quote.amountIn` as `collateralAmount`.
+3. Verify and map the executable route into `steps`.
+
+Set `closePosition` explicitly. Prepare the complete controller transaction.
 
 Re-quote whenever amount, direction, slippage, or reserve state changes, and
 again after meaningful user idle time. Route bytes are part of the prepared

@@ -1,6 +1,6 @@
 ---
 name: xoxno-lending-data
-description: Use when consuming XOXNO Lending data off-chain — indexing controller, pool, position-NFT, token, or oracle events; tracking account lifecycle; deriving liquidation accounting; building analytics; or calling the public Stellar lending REST API.
+description: "Use when consuming XOXNO Lending data off-chain — indexing controller, pool, position-NFT, token, or oracle events; tracking account lifecycle; deriving liquidation accounting; building analytics; or calling the public Stellar lending REST API."
 user-invocable: true
 argument-hint: "[indexing or analytics task]"
 ---
@@ -15,6 +15,20 @@ operational rules needed to consume it.
 
 Use [api.md](api.md) for the public REST surface and
 [addresses.md](../xoxno-lending/addresses.md) for deployment coordinates.
+
+## Wallet and application reads
+
+Use the [v1 arrays](api.md#integrator-v1-arrays) for portfolio and asset screens.
+The responses already include balances, prices, token labels/logos, APYs,
+capacity estimates, and one position per indexed owned NFT. Ordinary rendering
+needs no event indexing or manual joins. The optional SDK read entry handles
+pagination and exports the public types; plain HTTP works from any language.
+
+Keep raw strings and nullable fields intact. Follow pagination through an empty
+page with a next link. Indexed data and cached prices can lag the ledger;
+recheck NFT ownership and prepare transactions through the selected network's
+RPC before signing. See the
+[wallet guide](https://xoxno.com/docs/stellar-lending/dev/wallet-integration).
 
 ## Subscribe by contract address
 
@@ -38,7 +52,7 @@ Discover assets contract-address-first:
 
 1. Start with the token contract address from configuration, an event, or an
    explicit user selection.
-2. Resolve every reserve row for that address.
+2. Resolve every v1 asset row for that address.
 3. Select an explicit `(spoke_id, hub_id, asset)` tuple.
 4. Use symbol/name only as display metadata after identity is fixed.
 
@@ -124,8 +138,8 @@ state changed elsewhere.
 Group the successful transaction's controller events using the ordering in the
 canonical event reference. Pool, NFT, and token events can interleave.
 
-- `LiquidationEvent` reports measured debt retired (`repaid_usd_wad`, USD
-  WAD) and the bonus (`bonus_bps`, BPS), not collateral proceeds.
+- `LiquidationEvent` reports measured repayment value, capped at each planned
+  debt leg (`repaid_usd_wad`, USD WAD) and the bonus (`bonus_bps`, BPS), not collateral proceeds.
 - Target `LiqSeize` legs report gross collateral movement.
 - Credit receiver `LiqCredit` legs report net credited movement and omit
   zero-net legs.
@@ -135,10 +149,12 @@ canonical event reference. Pool, NFT, and token events can interleave.
   reports it in `protocol_fees`.
 
 For Credit mode, approximate per-asset fee from gross and net token movement.
-For exact share-fee derivation, snapshot the **prior scaled balance of both the
-liquidated target and the Credit receiver**, keyed by `(hub_id, asset)`, before
-applying transaction events. Every emitted `scaled_amount` is a resulting
-balance, not a delta:
+For exact share fees, process batches in event order. Apply earlier account
+changes first. For each identified Credit liquidation, use balances immediately
+before its target and receiver batches. An omitted receiver leg credits zero
+shares. Do not reuse transaction-start balances after earlier operations
+changed either account. Key prior balances by `(hub_id, asset)`.
+Every emitted `scaled_amount` is a resulting balance, not a delta:
 
 ```text
 target_seized_share_delta =
@@ -156,10 +172,11 @@ and the protocol's directed rounding. A newly created `Credit(0)` receiver has
 a prior balance of zero. Without both keyed prior balances, exact fee
 derivation is impossible from the resulting `scaled_amount` values alone.
 
-Do not reconstruct gross seizure from repayment times bonus. For profitability,
-use `seized_collaterals - protocol_fees` from `get_liquidation_estimate` before
-execution. Both use token amounts for `Transfer` and RAY supply shares for
-`Credit`. Follow the
+Do not reconstruct gross seizure from repayment times bonus. For profitability, use a conservative estimate of net proceeds. Transfer
+estimates can round a full claim above the pool payout. Clamp gross tokens
+to the floor of the held claim before subtracting the fee. Credit estimates
+use RAY supply shares; subtract the fee shares before conversion. Simulate
+the complete write and reconcile confirmed effects. Follow the
 [liquidation runbook](../xoxno-lending-liquidations/SKILL.md).
 
 ## Candidate discovery

@@ -26,7 +26,8 @@ and
 
 ## Canonical local account pointer
 
-This is the caller-owned half of account lifetime. It is adapted from
+Your contract must store and renew its account ID. These helpers implement
+the procedure from
 [`resolve_vault_account`](../../contracts/defindex-strategy/src/lib.rs):
 
 ```rust
@@ -82,10 +83,10 @@ fn resolve_account(env: &Env, controller: &ControllerClient) -> u64 {
 The TTL constants are in [SKILL.md](SKILL.md#storage-ttl). With the wrapper,
 pass `&lending.controller()` as the client.
 
-Call the resolve helper before any nested token authorization, call the
-controller verb, then call the store helper with a returned ID. Reconcile after
-an operation that can delete the account. Clear only on `Ok(Ok(false))`; a
-host or decode failure does not prove the account is gone.
+Resolve the stored ID before token authorization. Call the controller
+operation. Store any returned ID. After an operation that can delete the
+account, check `account_exists`. Remove the stored ID only after
+`Ok(Ok(false))`. Abort on a lookup failure.
 
 `XoxnoLending::resolve_account(stored)` returns the same branch: the stored ID
 while `account_exists` is true, else `NEW_ACCOUNT` (`0`), and a failed lookup
@@ -218,7 +219,8 @@ Before owner/delegate or owner-only work on a stored ID:
 These checks are preconditions and completion checks for your contract. They
 do not replace controller authorization. An NFT transfer moves the account,
 collateral, and debt. A grant from the previous owner is inactive after the
-transfer.
+transfer. It can become active again if NFT ownership returns to that owner
+and the manager registration and grant remain active.
 
 An owner may call `add_delegate` only for a governance-activated position
 manager. Delegates may borrow or withdraw to arbitrary recipients, so grant
@@ -235,7 +237,7 @@ result as a snapshot and re-check `owner_of` before acting.
   rounded half up
 - `get_account_positions`: raw maps; `scaled_amount` is RAY-scaled shares, and
   supply entries also carry their BPS risk parameters
-- `get_health_factor`: WAD; `i128::MAX` means no debt or no account
+- `get_health_factor`: WAD; `i128::MAX` can mean no debt, no account, or a saturated positive ratio
 - `get_market_index`: accrued RAY indexes, no oracle lookup
 
 Read token amounts from these views, or from the wrapper's `collateral`,

@@ -2,7 +2,7 @@
 
 Every route of the XOXNO Stellar swap quote server (`arb-algo/stellar-indexer`), with parameters, response fields, units, and error bodies. The payload a quote carries is in [payload.md](payload.md); using it inside a lending transaction is in [composition.md](composition.md); base URLs and the deployment check are in [SKILL.md](SKILL.md#base-urls-and-the-deployment-check).
 
-Sources: `arb-algo` commit `f2d5fe9` (2026-09-13), `stellar-indexer/src/server/{http,pipeline,discovery,bootstrap,liquidity}.rs`, `src/quote/{types,attach,fee}.rs`, `src/transaction/builder/{swap,envelope}.rs`; `@xoxno/sdk-js` 1.0.214 `STELLAR_NETWORKS[*].quoteUrl`.
+Sources: `arb-algo` commit `54de209a` (verified source), `stellar-indexer/src/server/{http,pipeline,discovery,bootstrap,liquidity}.rs`, `src/quote/{types,attach,fee}.rs`, `src/transaction/builder/{swap,envelope}.rs`; `@xoxno/sdk-js` 1.0.228 `STELLAR_NETWORKS[*].quoteUrl`.
 
 **Evidence boundary:** all HTTP routes, status bodies, retry behavior, exact-out handling,
 and envelope placeholders below are external behavior pinned to those revisions. They
@@ -53,14 +53,21 @@ Process liveness. A 200 does not mean quotes are fresh; use `/ready` for that.
 
 ### GET /ready
 
-`200` when `seconds_since_last_apply <= 30` (`STALENESS_THRESHOLD_SECS`), else `503` with the same body. Poll this, not `/api/v1/quote`, as a readiness check.
+Return status is `200` only when all readiness conditions hold:
+
+1. The serving epoch is active.
+2. Coverage age is at most 30 seconds.
+3. Observed ledger drift is at most 2 ledgers.
+
+Otherwise, the server returns `503`. Poll `/ready` for readiness.
+Use `/health` for process liveness. Preserve the readiness body for diagnosis.
 
 | Field | Type | Meaning |
-|---|---|---|
-| `ready` | boolean | `false` when stale |
-| `seconds_since_last_apply` | integer (u64) | Snapshot age in seconds |
-| `staleness_threshold_secs` | integer (u64) | `30` |
-| `last_applied_ledger` | integer (u32) | Snapshot ledger |
+| --- | --- | --- |
+| `ready` | boolean | All readiness conditions hold |
+| `seconds_since_last_apply` | u64 | Coverage age; maximum u64 when unknown |
+| `staleness_threshold_secs` | u64 | `30` |
+| `last_applied_ledger` | u32 | Ledger applied through the snapshot |
 | `pools` | integer | Indexed swap edges |
 
 ### GET /api/v1/config
@@ -93,7 +100,7 @@ Array of `TokenEntry`, sorted by pool count descending, then `id` ascending. Res
 | `pool` | string | LP only: pool contract that issued the shares (omitted otherwise) |
 | `assets` | string[] | LP only: constituent token ids in pool order (omitted otherwise) |
 
-The `@xoxno/sdk-js` 1.0.214 `StellarQuoteToken` type does not match this shape: the server never returns `kind`, `sacPeer`, `code` or `degree`. Type `getStellarQuoteTokens` output as the table above.
+Use the published `StellarQuoteToken` type from SDK `1.0.228`.
 
 ### GET /api/v1/prices
 
@@ -136,17 +143,17 @@ Errors (`DiscoveryError` `{code, error}`): `400 invalid_referral_id` (not a u32)
 ### GET /api/v1/quote
 
 Exactly one of `amount_in` (forward: maximize net output) or `amount_out` (reverse:
-minimize gross input). Processing order at the pinned revision: query deserialization,
-the `fresh=true` live-ledger check, parameter validation, referral lookup, route search.
-Do not depend on this order.
+minimize gross input). Every quote checks readiness before route search and
+again before response delivery. `fresh=true` adds a live RPC ledger check.
+Do not depend on internal validation order.
 
 #### Freshness and slippage (canonical)
 
 There is no quote expiry field. `snapshot` describes the search input, while the route's
 absolute `amountOutMin` is the on-chain protection. Use `/ready`, request `fresh=true`
 when ledger drift must reject the quote, and re-quote immediately before building.
-Never widen slippage to make stale bytes pass. `fresh=true` rejects drift above
-two ledgers with `409 snapshot_stale`; it does not reserve liquidity.
+Do not widen slippage to make an obsolete route execute. `snapshot_stale`
+can occur without `fresh=true`. A quote does not reserve liquidity.
 
 | Query param | Aliases | Type | Default | Constraint / meaning |
 |---|---|---|---|---|
@@ -161,10 +168,16 @@ two ledgers with `409 snapshot_stale`; it does not reserve liquidity.
 | `sender` | — | string | none | Account `G…` (56 chars). Requires `slippage`. Adds `transaction` (or `transactions[]` for `convertLiquidity`). Without `sender`, `slippage` alone still yields `routeXdr` |
 | `referral_id` | `referralId`, `referral` | integer | `0` | `0..=4294967295` (the payload stores a `u32`). `0` = no referral **and no protocol fee**. A nonzero id must be an **active** referral on the router: `lp_fee_for` looks it up and answers `400 invalid_request` (`unknown referral N`) when it is missing or inactive; the id is baked into `routeXdr` |
 | `simulate` | — | boolean | `true` | `true`: the server simulates and returns a prepared envelope (`transaction.simulated = true`) with the budget fallback ladder. `false`: unprepared envelope, no ladder. Ignored without `sender` |
-| `platform` | — | string | `"aggregator"` | Only value the `Platform` enum deserializes; kept for compatibility |
+| `platform` | — | string | `"aggregator"` | Only value accepted by the `Platform` enum |
 | `fresh` | — | boolean | `false` | Compare the live RPC ledger with the snapshot; `409` when drift > `MAX_FRESH_LEDGER_DRIFT = 2`. Costs one RPC call |
 
-Not a parameter: `router`. The router is fixed by the deployment (`AppState::router`, echoed by `/api/v1/config`); a `router` query key is silently ignored. The `router` field on the SDK's `StellarAggregatorQuoteRequestDto` is dead: leave it unset.
+Not a parameter: `router`. The router is fixed by the deployment (`AppState::router`, echoed by `/api/v1/config`); a `router` query key is silently ignored. Read the router from trusted configuration and check `/api/v1/config`.
+
+For reverse quotes, slippage also increases the requested output used to size
+input. Let `retainedPpm = 1_000_000 - floor(slippage × 1_000_000)`.
+The sizing target is `ceil(requestedOut × 1_000_000 / retainedPpm)`.
+The returned `amountIn` includes this buffer and any input-side fee.
+Verify that the encoded floor still meets the caller's requested output.
 
 #### Response: `QuoteResponse`
 
@@ -218,7 +231,7 @@ Not a parameter: `router`. The router is fixed by the deployment (`AppState::rou
 | `baseFee` | integer (u64) | At the pinned external revision: simulated total envelope fee (`100` base + `minResourceFee`), or unprepared placeholder `100`; never treat the placeholder as a usable resource fee |
 | `networkPassphrase` | string | Signing domain |
 | `notes` | string | Human checklist |
-| `simulated` | boolean | `true`: footprint, sender auth tree, and resource fee already attached; the client may skip its own simulation. `false`: run `simulateTransaction` + `assembleTransaction` first |
+| `simulated` | boolean | `true`: footprint, auth, and resource fee attached by the server. Re-prepare and inspect before signing. `false`: simulation and assembly are required |
 | `minResourceFee?` | string | Stroops, stringified; only when simulated |
 | `latestLedger?` | integer (u32) | Ledger observed by the server's simulation; distinct from `snapshot.ledger` |
 
@@ -228,7 +241,7 @@ Not a parameter: `router`. The router is fixed by the deployment (`AppState::rou
 |---|---|---|---|
 | 400 | `invalid_request` | Query deserialization failure; `slippage` not finite or outside `[0,1)`; `sender` without `slippage`; bad `sender` strkey; `referral_id > u32::MAX`; `from`/`to` not a `C…` id or `token … not tracked in snapshot`; both or neither of `amount_in`/`amount_out`; amount not an integer or outside `1..=i128::MAX`; `maxHops` outside `1..=6`; `maxSplits > 8`; `amountOut` above the liquidity route capacity; `unknown referral N` (nonzero id not active on the router); combined static + referral fee above 1000 bps; fee-adjusted amount outside the executable range; `simulate=false` envelope build failure | Fix the request. Do not resend unchanged |
 | 404 | `no_route` | Both tokens resolved, no path between them for the amount and limits | Do not retry as-is; change tokens or amount, or raise `maxHops` |
-| 409 | `snapshot_stale` | Only with `fresh=true`: live ledger − snapshot ledger > 2 | Re-quote (optionally after `/ready` returns 200). Never submit the stale quote |
+| 409 | `snapshot_stale` | Inactive serving epoch, coverage age above 30 seconds, or observed ledger drift above 2; `fresh=true` also checks the live RPC ledger | Re-quote (optionally after `/ready` returns 200). Never submit the stale quote |
 | 422 | `simulation_failed` | Server simulation failed. Only `Budget, ExceededLimit` means the route is too large; other diagnostics (auth, state) do not. A successful simulation may also report output `0`/below `amountOutMin` (`below execution minimum`) or no decodable output (`no valid delivered output`) | Re-quote unchanged first for missing/zero/below-min output. Reduce `maxSplits`/`maxHops` only for explicit `Budget, ExceededLimit`. Fix or surface other diagnostics |
 | 422 | `minimum_output_unreachable` | Net output below the enforced floor `max(slippage floor, amount_out target, 1)`; on a fallback attempt the floor is the one fixed by the first attempt (`preserve_output_minimum`) | Re-quote |
 | 500 | `internal_error` | Payload encoding failed; routed output unparsable; nonzero `referral_id` on a deployment with no router configured for fees | Retry unchanged once after a bounded delay; then report and fail |
@@ -249,59 +262,7 @@ Freshness: [the canonical policy above](#freshness-and-slippage-canonical).
 
 ## Client error handling
 
-```ts
-interface QuoteError { code: string; error: string }
-
-const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms))
-
-/** Returns the 200 Response; a `degraded` body is still a success. */
-export async function quote(
-  url: URL,
-  attempt = 0,
-  retriedInternal = false,
-): Promise<Response> {
-  const res = await fetch(url)
-  if (res.ok) return res
-  const body = (await res.json().catch(() => ({ code: 'unknown', error: '' }))) as QuoteError
-  switch (body.code) {
-    case 'invalid_request': // 400
-    case 'no_route': // 404
-      throw new Error(`fix the request: ${body.code}: ${body.error}`)
-    case 'snapshot_stale': // 409, only with fresh=true
-    case 'minimum_output_unreachable': // 422
-      if (attempt >= 3) throw new Error(body.error)
-      await sleep(2_000)
-      return quote(url, attempt + 1, retriedInternal) // new quote, same parameters
-    case 'simulation_failed': { // 422
-      const shouldRequoteUnchanged =
-        body.error.includes('below execution minimum') ||
-        body.error.includes('no valid delivered output')
-      if (shouldRequoteUnchanged) {
-        if (attempt >= 3) throw new Error(body.error)
-        await sleep(2_000)
-        return quote(url, attempt + 1, retriedInternal)
-      }
-      if (!body.error.includes('Budget, ExceededLimit')) throw new Error(body.error)
-      const splits = Number(url.searchParams.get('maxSplits') ?? 4)
-      const hops = Number(url.searchParams.get('maxHops') ?? 4)
-      if (splits === 1 && hops <= 2) throw new Error(body.error)
-      url.searchParams.set('maxSplits', String(Math.max(1, Math.floor(splits / 2))))
-      url.searchParams.set('maxHops', String(Math.max(Math.min(hops, 2), Math.floor(hops / 2))))
-      return quote(url, attempt, retriedInternal) // stops at 1 split and <= 2 hops
-    }
-    case 'internal_error': { // 500
-      if (retriedInternal) throw new Error(body.error)
-      await sleep(500)
-      return quote(url, attempt, true)
-    }
-    case 'upstream_error': // 502
-    case 'router_unavailable': { // 503
-      if (attempt >= 3) throw new Error(body.error)
-      await sleep(500 * 2 ** attempt + Math.random() * 250)
-      return quote(url, attempt + 1, retriedInternal)
-    }
-    default:
-      throw new Error(`${res.status} ${body.code}: ${body.error}`)
-  }
-}
-```
+Use the error-action table above. Apply bounded retries with backoff for
+transient service failures. Do not retry an invalid request unchanged.
+Keep one spelling for each query parameter. Do not add a camelCase alias
+when the URL already contains its snake_case equivalent.

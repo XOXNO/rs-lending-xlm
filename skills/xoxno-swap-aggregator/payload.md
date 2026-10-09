@@ -2,7 +2,7 @@
 
 The wire format the quote server puts in `routeXdr`, how the router decodes and executes it, what it authorizes, what it charges, and how to verify a payload before signing. Request/response fields are in [api.md](api.md); embedding a payload in a lending transaction or your own contract is in [composition.md](composition.md); router addresses in [../xoxno-lending/addresses.md](../xoxno-lending/addresses.md); lending-side signatures in [../xoxno-lending-contracts/abi.md](../xoxno-lending-contracts/abi.md); error resolution by contract id in [../xoxno-lending-troubleshooting/SKILL.md](../xoxno-lending-troubleshooting/SKILL.md).
 
-Sources: `rs-lending-xlm/contracts/swap-aggregator/src/{lib,types,program,execute/mod,execute/residual,fees,constants,vault,venues/mod,venues/auth}.rs`, `interfaces/swap-aggregator/src/lib.rs`, `common/src/token.rs`, `arb-algo/stellar-indexer/src/transaction/abi.rs` (commit `f2d5fe9`), `sdk-js/src/sdk/stellar/{swap,scval-encode}.ts` (1.0.214).
+Sources: `rs-lending-xlm/contracts/swap-aggregator/src/{lib,types,program,execute/mod,execute/residual,fees,constants,vault,venues/mod,venues/auth}.rs`, `interfaces/swap-aggregator/src/lib.rs`, `common/src/token.rs`, `arb-algo/stellar-indexer/src/transaction/abi.rs` (commit `54de209a`), `sdk-js/src/sdk/stellar/{swap,scval-encode}.ts` (1.0.228).
 
 ## Entry point and contract surface
 
@@ -15,7 +15,10 @@ pub trait SwapAggregatorInterface {
 }
 ```
 
-`swap_xdr` is the XDR serialization of the `StrategyPayload` ScVal: `lib.rs` runs `StrategyPayload::from_xdr(&env, &swap_xdr)` and panics with `Error::InvalidRouteXdr = 13` on failure, then `execute::run`. `total_in` is the gross input in atomic units — the quote's `amountIn`. The return value is the delivered output in atomic units of `token_out`, net of any output-side fee.
+`swap_xdr` contains the XDR serialization of a `StrategyPayload` ScVal.
+The router decodes it before execution. Decoding failure raises
+`InvalidRouteXdr` (13). `total_in` is gross input in token base units.
+Use the quote's `amountIn`. The return value is output after output-side fees.
 
 The snippet shows only `execute_strategy`. The
 [interface](../../interfaces/swap-aggregator/src/lib.rs) lists every aggregator method. The
@@ -35,7 +38,19 @@ pub struct StrategyPayload {
 }
 ```
 
-On the wire this is `ScVal::Map` with `Symbol` keys in lexicographic order `amounts`, `assets`, `ops`. `#[contracttype]` derives this layout, `abi.rs::StrategyPayload::to_scval` and `scval-encode.ts::scStruct` (sorted keys) emit it, and `arb-algo/stellar-indexer/tests/strategy_payload_abi.rs` pins it. `routeXdr` = base64 of that map's XDR (`abi.rs::to_xdr_bytes`, `Limits::none()`). A swap quote builds it with `build_strategy_payload_xdr_from_quote(quote, referral_id)` from the quote's `paths` (or its single `hops` path), `amountOutMin`, and the request's `referral_id`; a liquidity quote builds it with `builder/lp.rs::build_lp_strategy_payload`, or `builder/lp.rs::build_convert_strategy_payload` for an LP-to-LP conversion. The standalone envelope's `swap_xdr` argument carries the same bytes as `routeXdr`. Instructions address both registries by `u8` index, so an address shared by several hops is carried once.
+The payload is an `ScVal::Map`. Its symbol keys are `amounts`, `assets`, and
+`ops`, in that order. `routeXdr` is the base64 encoding of this map's XDR.
+Swap payloads use quote paths, minimum output, and referral ID.
+Liquidity payloads use the LP builders. Instructions use `u8` indices into
+both registries. Shared addresses appear once.
+
+For `transaction`, the `swap_xdr` argument contains the same bytes as
+`routeXdr`. LP conversion uses separate ordered transactions.
+Its optional `routeXdr` is an atomic alternative.
+
+The contract derives this map with `#[contracttype]`. The server encoder and
+SDK encoder emit the same layout. The aggregator's
+`tests/strategy_payload_abi.rs` checks the wire format.
 
 ## Packed program (`ops`) — VERSION 1
 
@@ -66,10 +81,9 @@ Instruction record (5 bytes):
 | `[4]` | `idx_c` | `token_out` → `assets` (≠ `idx_b`) | first index of the per-constituent floor run in `amounts` | index of `mint_min_shares` in `amounts` |
 
 The table maps each opcode to its on-chain adapter. It does **not** prove that a
-production pool or the quote server is ABI-compatible with that adapter. Treat production
-compatibility for Aquarius CLMM and stable pools, Phoenix stable pools, Sushi concentrated
-pools, and Comet weighted pools as unverified until a deployment test pins those pool
-contracts and the quote-server revision.
+production pool or the quote server is ABI-compatible with that adapter. Treat venue compatibility as unverified until a deployment test pins pool
+contracts and quote-server revision. This includes Aquarius CLMM/stable,
+Phoenix stable, Sushi concentrated, and Comet weighted pools.
 
 Mode byte → input sizing (`Mode::from_u8` in `program.rs`, `resolve_amount` in `execute/mod.rs`):
 
@@ -82,37 +96,75 @@ Mode byte → input sizing (`Mode::from_u8` in `program.rs`, `resolve_amount` in
 
 Unrecognized opcode, an out-of-range registry index, or a mode other than `All` on
 Burn/Mint → `InvalidRouteXdr = 13`. `Program::decode` runs these checks before any venue
-call. Checks that need pool metadata run during execution: an Aquarius Burn first calls
-`get_tokens` and `share_id`, then uses the pool's token count to validate the burn-floor
-run.
+call. Checks that need pool metadata run during execution. An Aquarius burn reads
+`get_tokens` and `share_id`. It uses the token count to validate the complete
+burn-floor run.
 
 ## `execute_strategy` semantics (`execute/mod.rs::run`)
 
-Order of operations, with the error raised on failure:
+The router applies these checks and effects in order:
 
-1. `sender.require_auth()`.
-2. `total_in <= 0` → `InvalidAmount = 3`.
-3. `Program::decode(ops, assets.len(), amounts.len())` — packed-program checks above;
-   venue-dependent LP checks happen during execution.
-4. `amounts[min_out] <= 0` → `SlippageExceeded = 5`.
-5. **Measured input credit:** `transfer_amount_measured(token_in, sender → router, total_in)` (`common/src/token.rs`) transfers under the sender's auth and credits the vault with `balance_after − balance_before`, not the declared `total_in`. A fee-on-transfer input shrinks the credited amount instead of drawing on the fee reserve.
-6. **Fee side:** `fee_on_input = referral_id != 0 && (!out_whitelisted || in_whitelisted)`; when true, `fees::apply_fees_on_token(token_in)` debits the vault before any hop.
-7. Instruction loop. Swap: resolve the input by mode (`InvalidAmount` if `<= 0`), `vault.withdraw`, `venues::dispatch_hop` — measures the router's own `token_in`/`token_out` balances around the venue call; received `<= 0` → `ZeroOutput = 7`; spent `!= amount_in` → `InvalidAmount` — then `vault.deposit(token_out, received)`. Burn: reads Aquarius pool tokens and share id, validates the full constituent-floor span, withdraws the vault's whole share-token balance, checks each receipt against its floor (`MinAmountsNotMet = 28`), and deposits every constituent. Mint: reads and validates Aquarius metadata, deposits the vault's constituent balances, and requires `mint_min_shares > 0` and `shares >= mint_min_shares` (`MinSharesNotMet = 27`).
-8. When the fee was not on input: `apply_fees_on_token(token_out)`.
-9. **Min-out check:** `total_out = vault.balance_of(token_out)`; `total_out < amounts[min_out]` → `SlippageExceeded = 5`.
-10. `vault.withdraw(token_out, total_out)` and `token_out.transfer(router → sender, total_out)`.
-11. **Residual rule** (`execute/residual.rs`): every remaining vault balance is accrued to the admin fee bucket, but only up to `residual_allowance(credited) = max(credited / 1_000_000, 1_000)` per token (`constants.rs`), where `credited` is that token's lifetime deposits in this call. A larger leftover → `ExcessiveResidual = 29` and the whole call reverts. Unspent input is never refunded to the sender; size `total_in` to what the route consumes.
-12. Return `total_out` (`i128`).
+1. Require sender authorization.
+2. Reject nonpositive `total_in` with `InvalidAmount` (3).
+3. Decode the packed program and validate registry indices.
+4. Reject a nonpositive output floor with `SlippageExceeded` (5).
+5. Transfer input from the sender and credit the measured balance increase.
+   Transfer fees can reduce this credit. Fee reserves do not cover the difference.
+6. Apply input-side fees when
+   `referral_id != 0 && (!out_whitelisted || in_whitelisted)`.
+7. Execute the instructions described below.
+8. Apply output-side fees if fees were not taken from input.
+9. Reject output below the encoded floor with `SlippageExceeded` (5).
+10. Transfer the output to the sender.
+11. Credit permitted residual balances to admin revenue.
+12. Return output in token base units.
 
-The vault (`vault.rs`) is an invocation-local ledger, not on-chain storage: the router custodies the tokens between hops and the vault tracks spendable balances plus lifetime credits. Nothing stays in router custody for the sender after the call.
+For each swap, resolve a positive input and withdraw it from the vault.
+Measure token balances around the venue call. Reject zero output with
+`ZeroOutput` (7). Reject a spend mismatch with `InvalidAmount` (3).
+Credit the measured output.
+
+For a burn, validate pool metadata and constituent floors.
+Burn the whole share balance. Require each receipt to meet its floor,
+or fail with `MinAmountsNotMet` (28). Credit each constituent.
+
+For a mint, validate metadata and a positive share floor.
+Deposit available constituents. Require the received shares to meet the
+floor, or fail with `MinSharesNotMet` (27).
+
+Each residual token has an allowance of `max(credited / 1_000_000, 1_000)`.
+`credited` is the token's total deposits during this call.
+A larger remainder raises `ExcessiveResidual` (29) and reverts the call.
+The router does not refund unused input. Set `total_in` to the route's
+required input.
+
+The vault exists only for the invocation. It tracks spendable balances and
+total credits while the router holds tokens between instructions.
+After the call, the router holds no balance for the sender.
 
 ## Authorization model
 
-The only signature is the sender's. `execute_strategy` calls `sender.require_auth()`, and the sender's auth entry must cover the nested `token_in.transfer(sender, router, total_in)`; simulation produces that tree (`transaction.simulated = true` envelopes already carry it — `attach_simulated_transaction` copies the simulator's `auth` into the op — and `simulateTransaction` produces it for a locally built one). Do **not** `transfer` or `approve` tokens to the router beforehand: the router pulls the input itself, and tokens sent ahead of time are not credited.
+For an account sender, authorization covers the router call and nested
+input-token transfer. Simulation produces this authorization tree.
+Check it before signing. Do not transfer or approve tokens before calling
+the router. Tokens sent earlier do not enter the invocation's vault.
 
-Every venue call is self-authorized by the router with invoker-contract auth (`venues/auth.rs::authorize_as_current` → `env.authorize_as_current_contract`): Phoenix and Sushi (`HopContext::authorize_pool_pull`) and Aquarius (`aquarius/pool.rs::invoke_pool_swap`) register `token_in.transfer(router, pool, amount_in)` before the pool pulls; Comet registers `token_in.approve(router, pool, amount_in, expiry)`, then `swap_exact_amount_in` with a nested entry for the pool's `transfer_from`, then clears the allowance; Soroswap transfers from the router to the pool directly. None of these appear in the sender's auth tree.
+The router authorizes venue calls itself:
 
-A contract calling the router (the lending controller in `contracts/controller/src/strategies/swap.rs`, or your own) is the `sender`: it runs `authorize_transfer_as_current(token_in, self, router, amount_in)` (`common/src/token.rs`) immediately before `execute_strategy(self, amount_in, swap)` and measures its own balance deltas afterward (`RouterOverspend = 501`, `NoSwapOutput = 502` in `common/src/errors.rs`). Details in [composition.md](composition.md).
+| Venue | Router authorization |
+| --- | --- |
+| Phoenix, Sushi, Aquarius | Exact nested token transfer from router to pool |
+| Comet | Approve input, authorize `transfer_from`, then clear the allowance |
+| Soroswap | Transfer input directly to the pool |
+
+These venue authorizations do not require separate sender signatures.
+
+A calling contract is the router's sender. Complete its reads first.
+Authorize the exact nested input-token transfer. Immediately call
+`execute_strategy`. Measure the calling contract's output balance increase.
+The lending controller checks overspend and missing output through
+`RouterOverspend` (501) and `NoSwapOutput` (502).
+See [composition.md](composition.md).
 
 ## Fees and referrals (`fees.rs`, `constants.rs`, `lib.rs`)
 
@@ -153,154 +205,41 @@ codes overlap. The canonical enum is
 
 ## Verify `routeXdr` before signing
 
-`verifyRouteBytes` works for standalone and composed quotes; it does not require a
-`transaction`. `verifyStandaloneEnvelope` adds envelope checks. `verifyRoutePayload`
-combines both for the standalone signing path. The envelope's actual
-`InvokeContractArgs.contract_address` is authoritative; `transaction.routerContract`
-is untrusted response metadata and is intentionally unused. Copy this snippet into an
-application module such as `verify-route-payload.ts`; the other examples import that
-module.
+Use the published SDK verifier. Do not copy a route decoder into the application.
 
 ```ts
-import { Buffer } from 'node:buffer'
-import { scValToNative, StrKey, xdr } from '@stellar/stellar-sdk' // ^16
+import { verifyStellarRouteBytes } from '@xoxno/sdk-js/stellar-lending'
 
-interface RouteQuote {
-  from: string
-  to: string
-  amountIn: string
-  amountOutMin: string
-  routeXdr: string
-}
-
-interface StandaloneQuote extends RouteQuote {
-  transaction: { envelopeXdr: string; simulated: boolean }
-}
-
-interface ExpectedRoute {
-  tokenIn: string
-  tokenOut: string
-}
-
-interface ExpectedStandalone extends ExpectedRoute {
-  router: string
-  signer: string
-  totalIn: string
-}
-
-function readEd25519Source(source: xdr.MuxedAccount, label: string): string {
-  if (source.switch().value !== xdr.CryptoKeyType.keyTypeEd25519().value) {
-    throw new Error(`${label} must be an unmuxed Ed25519 account`)
-  }
-  return StrKey.encodeEd25519PublicKey(source.ed25519())
-}
-
-export function verifyRouteBytes(quote: RouteQuote, expected: ExpectedRoute): void {
-  if (quote.from !== expected.tokenIn || quote.to !== expected.tokenOut) {
-    throw new Error('quote pair does not match requested pair')
-  }
-  const payload = scValToNative(xdr.ScVal.fromXDR(quote.routeXdr, 'base64')) as {
-    amounts: bigint[]
-    assets: string[]
-    ops: Buffer
-  }
-  const ops = payload.ops
-  if (ops.length < 10) throw new Error('program header is truncated')
-  if (ops[0] !== 1) throw new Error(`unsupported program version ${ops[0]}`)
-  const tokenIn = payload.assets[ops[1]]
-  const tokenOut = payload.assets[ops[2]]
-  if (tokenIn !== expected.tokenIn || tokenOut !== expected.tokenOut) {
-    throw new Error('encoded token pair does not match requested pair')
-  }
-  // ops[3] indexes amounts; it is not the amount.
-  const minOut = payload.amounts[ops[3]]
-  if (minOut === undefined || minOut !== BigInt(quote.amountOutMin)) {
-    throw new Error('encoded minimum output does not match quote.amountOutMin')
-  }
-  const opCount = ops[8]
-  const weightCount = ops[9]
-  if (ops.length !== 10 + 5 * opCount + 3 * weightCount) throw new Error('program length mismatch')
-}
-
-export function verifyStandaloneEnvelope(
-  quote: StandaloneQuote,
-  expected: ExpectedStandalone,
-): void {
-  // The standalone envelope must invoke execute_strategy(sender, total_in, swap_xdr)
-  // with swap_xdr == routeXdr bytes and total_in == the caller-requested amount.
-  const envelope = xdr.TransactionEnvelope.fromXDR(quote.transaction.envelopeXdr, 'base64')
-  const tx = envelope.v1().tx()
-  if (envelope.v1().signatures().length !== 0 || tx.operations().length !== 1) {
-    throw new Error('expected one unsigned invocation')
-  }
-  const source = readEd25519Source(tx.sourceAccount(), 'transaction source')
-  if (source !== expected.signer) throw new Error('transaction source does not match expected signer')
-
-  const operation = tx.operations()[0]
-  const operationSource = operation.sourceAccount()
-  if (operationSource && readEd25519Source(operationSource, 'operation source') !== expected.signer) {
-    throw new Error('operation source does not match expected signer')
-  }
-  const body = operation.body()
-  if (body.switch().value !== xdr.OperationType.invokeHostFunction().value) {
-    throw new Error('wrong operation type')
-  }
-  const hostFunction = body.invokeHostFunctionOp().hostFunction()
-  if (
-    hostFunction.switch().value !==
-    xdr.HostFunctionType.hostFunctionTypeInvokeContract().value
-  ) {
-    throw new Error('wrong host function type')
-  }
-  const call = hostFunction.invokeContract()
-  const invokedRouter = scValToNative(xdr.ScVal.scvAddress(call.contractAddress())) as string
-  if (invokedRouter !== expected.router) throw new Error('invoked router does not match expected router')
-  if (call.functionName().toString() !== 'execute_strategy') throw new Error('wrong function')
-  if (call.args().length !== 3) throw new Error('execute_strategy must have three arguments')
-  const sender = scValToNative(call.args()[0]) as string
-  if (sender !== expected.signer || sender !== source) {
-    throw new Error('sender argument does not match signer/source')
-  }
-  if (BigInt(quote.amountIn) !== BigInt(expected.totalIn)) {
-    throw new Error('quote amountIn does not match caller-requested totalIn')
-  }
-  const totalIn = scValToNative(call.args()[1]) as bigint
-  if (totalIn !== BigInt(expected.totalIn)) {
-    throw new Error('envelope total_in does not match caller-requested totalIn')
-  }
-  if (!Buffer.from(call.args()[2].bytes()).equals(Buffer.from(quote.routeXdr, 'base64'))) {
-    throw new Error('swap_xdr does not equal routeXdr')
-  }
-}
-
-export function verifyRoutePayload(
-  quote: StandaloneQuote,
-  expected: ExpectedStandalone,
-): void {
-  verifyRouteBytes(quote, expected)
-  verifyStandaloneEnvelope(quote, expected)
+export function checkRoute(
+  routeXdr: string, tokenIn: string, tokenOut: string,
+  amountIn: string, acceptedMinOut: string,
+) {
+  return verifyStellarRouteBytes(routeXdr, {
+    tokenIn, tokenOut, amountIn, minOut: acceptedMinOut,
+  })
 }
 ```
 
-Pass the pair and `totalIn` from caller-owned request state, not values copied from the
-response. `router` is the `aggregator` address from `configs/networks.json`;
-`/api/v1/config.router` is only a deployment cross-check. Pass the wallet account as
-`signer`. For composition, call `verifyRouteBytes` before building and then simulate the
-complete controller/contract transaction. For standalone use, call
-`verifyRoutePayload` before changing sequence or signing, prepare/simulate, and inspect
-`execute_strategy`'s delivered `i128`; a result below `amountOutMin` must be re-quoted.
+Take expectations from the caller's request. The verifier checks structure,
+token pair, encoded output floor, and fixed input limits. It does not prove
+venue behavior, liquidity, or transaction feasibility. Simulate the complete
+transaction before signing.
 
-## SDK encoder surface (`@xoxno/sdk-js` 1.0.214, `src/sdk/stellar/`)
+## Public SDK helpers
+
+Verified public exports in `@xoxno/sdk-js` version `1.0.228`:
 
 | Export | Use |
-|---|---|
-| `asStellarStrategySwapBytes(steps: unknown): xdr.ScVal` (`scval-encode.ts`) | Normalizes any accepted form into the `Bytes` argument. Accepts: base64 `routeXdr` string; `0x`-prefixed hex string; `Uint8Array`; `{ routeXdr }`; `{ swapXdr }`; `{ bytes: string \| Uint8Array }`; or a decoded `StellarStrategyPayloadInput` object (validated by `asStellarStrategyPayload`, then re-encoded locally). An empty `Uint8Array`, bare or as `bytes`, yields empty bytes (`emptyStrategySwapBytes`, the same-token passthrough case); an empty string throws |
-| `encodeStrategyPayload(payload): xdr.ScVal` | Lowers `{ paths, tokenIn, tokenOut, totalMinOut, referralId?, burnPool?, burnMinAmounts?, mintPool?, mintMinShares?, mintPoolTokens?, preSwapAmount?, preSwapFromA? }` into the `StrategyPayload` map. Throws on same-token, broken chain, more than 48 ops, 32 weights, 256 assets, or 126 amounts, a weight outside `1..=1_000_000`, or a referral outside u32 |
-| `encodeStrategyPayloadToBytes(payload): xdr.ScVal` | `scvBytes` of the map's XDR — the contract argument form |
-| `encodeStrategyPayloadToRouteXdr(payload): string` (`swap.ts`) | Base64 form, equivalent to the server's `routeXdr` |
-| `mapQuoteResponseToStrategySwap(quote, { referralId? })` (`swap.ts`) | Returns `{ routeXdr }` when the quote has a non-empty one; otherwise falls back to `mapQuoteResponseToStrategyPayload`. **Use this** |
-| `mapQuoteResponseToStrategyPayload(quote, { referralId? })` | Rebuilds a payload from `paths` (or one path from the flat `hops` when `paths` is absent) with `referralId ?? 0` and `totalMinOut = quote.amountOutMin` (throws when `amountOutMin` is missing). Loses the server-chosen referral and the Rust sweep slack. Inferred: on a multi-path quote fetched without `includePaths`, the concatenated `hops` do not chain and `encodeStrategyPayload` throws `hop does not chain onto its predecessor's output`. Only for tests and custom local routes |
-| `buildStellarExecuteStrategyTx({ network, caller, sourceSequence, routerAddress, totalIn, referralId?, fee?, timeoutSeconds? }, swap)` (`swap.ts`) | Unsigned XDR calling `execute_strategy(caller, totalIn, swap)`; `totalIn` = `quote.amountIn`; `swap` = any `asStellarStrategySwapBytes` form; `sourceSequence` is the account's current sequence (`TransactionBuilder` increments). `referralId` applies only when `swap` is a decoded payload without one |
-| `STELLAR_SWAP_VENUE_OPCODE`, `STELLAR_PROGRAM_VERSION = 1`, `PPM_DENOMINATOR = 1_000_000` (`scval-encode.ts`) | Constants mirroring `program.rs` |
+| --- | --- |
+| `mapQuoteResponseToStrategySwap` | Check and use a quote route. Pass caller-owned `expected` values. |
+| `verifyStellarRouteBytes` | Decode and check an existing route against caller expectations. |
+| `decodeStellarRouteBytes` | Decode a route for inspection. |
+| `encodeStrategyPayloadToRouteXdr` | Encode a custom local payload. Prefer the quote route for integrations. |
+| `buildStellarExecuteStrategyTx` | Build an unsigned direct router invocation. |
+| `prepareStellarBuiltTx` | Simulate and prepare the built transaction. |
+| `assertStellarPreparedTxAuth` | Check prepared invocation and authorization against `builtXdr`, caller, and deployment. |
 
-Standalone sign-and-submit is Example 2 in [SKILL.md](SKILL.md). `buildStellarExecuteStrategyTx` takes `routerAddress` from `configs/networks.json` `aggregator`; assert it equals `/api/v1/config.router`.
+The authorization checker does not establish every requested field of an
+externally built envelope. Use the local builder and compare preparation
+with that built XDR. The
+[standalone example](SKILL.md#example-2-prepare-a-standalone-swap) uses this flow.

@@ -57,7 +57,7 @@ Soroban resource fee.
 
 The exact controller signatures, option encoding, and return types are in
 [../xoxno-lending-contracts/abi.md](../xoxno-lending-contracts/abi.md).
-Controller methods without a dedicated 1.0.214 builder can use the exported
+Controller methods without a dedicated 1.0.228 builder can use the exported
 `buildTx(opts, method, params)` with ScVals encoded by the host's
 `@stellar/stellar-sdk`; verify the ABI first.
 
@@ -69,107 +69,99 @@ Controller methods without a dedicated 1.0.214 builder can use the exported
 3. Build unsigned XDR with its current sequence and fresh timebounds.
 4. Prepare through the host RPC with `prepareStellarBuiltTx`.
 5. Sign **only the prepared XDR** using the matching network passphrase.
-6. Parse and retain the signed envelope; compute and persist its hash before
-   sending.
-7. Submit. `PENDING`, `DUPLICATE`, and `TRY_AGAIN_LATER` all mean “poll the
-   original hash.”
-8. Confirm `SUCCESS` or `FAILED`. Always pass `attempts` to
-   `pollTransaction`: in Stellar SDK v16 the JSDoc states a default of 5
-   attempts, but the runtime uses `DEFAULT_GET_TRANSACTION_TIMEOUT = 30`.
-9. On `SUCCESS`, reconcile live state, indexed positions, returned account id,
-   and current NFT owner.
+6. Verify that the wallet signed the prepared transaction without changing it.
+7. Persist the original network, signed envelope, and hash before sending.
+8. Submit the signed envelope.
+9. Poll the original hash after `PENDING`, `DUPLICATE`, or `TRY_AGAIN_LATER`.
+10. Keep the outcome unknown after transport errors or polling limits.
+11. Confirm ledger `SUCCESS` or `FAILED` for that hash.
+12. After `SUCCESS`, reconcile the returned account id, indexed positions, and current NFT owner.
+
+Always pass an explicit `attempts` value to `pollTransaction`. A bounded poll
+that finds no transaction is not proof of failure.
+
+The helper below is for the first submission of a newly signed transaction.
+Recovery must use the original record and the policy below; do not treat a retry
+rejection as proof that the original failed.
 
 ```ts
 import { Transaction, TransactionBuilder, rpc } from '@stellar/stellar-sdk'
+import {
+  STELLAR_NETWORK_PASSPHRASE,
+  type StellarNetwork,
+} from '@xoxno/sdk-js/stellar-lending'
 
-export type SubmitOutcome =
-  | { hash: string; status: 'SUCCESS'; ledger: number }
-  | { hash: string; status: 'FAILED'; resultXdr?: string }
-  | { hash: string; status: 'UNKNOWN'; signedXdr: string }
+export type PendingRecord = {
+  network: StellarNetwork
+  hash: string
+  signedXdr: string
+}
 
 export async function submitPreparedSigned(
   server: rpc.Server,
+  network: StellarNetwork,
+  preparedXdr: string,
   signedXdr: string,
-  passphrase: string,
-): Promise<SubmitOutcome> {
-  // Parsing/shape errors are deterministic local failures and should throw.
-  const envelope = TransactionBuilder.fromXDR(signedXdr, passphrase)
-  if (!(envelope instanceof Transaction)) {
-    throw new Error('expected a prepared, signed transaction envelope')
+  persistPending: (record: PendingRecord) => Promise<void>,
+) {
+  const passphrase = STELLAR_NETWORK_PASSPHRASE[network]
+  const prepared = TransactionBuilder.fromXDR(preparedXdr, passphrase)
+  const signed = TransactionBuilder.fromXDR(signedXdr, passphrase)
+  if (!(signed instanceof Transaction) || signed.signatures.length === 0
+      || !signed.hash().equals(prepared.hash())) {
+    throw new Error('Wallet must sign the prepared transaction unchanged')
   }
-
-  const hash = envelope.hash().toString('hex')
-  persistPending(hash, signedXdr)
+  const record = { network, hash: signed.hash().toString('hex'), signedXdr }
+  await persistPending(record)
 
   let sent: Awaited<ReturnType<typeof server.sendTransaction>>
   try {
-    sent = await server.sendTransaction(envelope)
+    sent = await server.sendTransaction(signed)
   } catch {
-    // A transport exception does not reveal whether the RPC accepted it.
-    return { hash, status: 'UNKNOWN', signedXdr }
+    return { ...record, status: 'UNKNOWN' as const }
   }
-
   if (sent.status === 'ERROR') {
-    const detail = sent.errorResult?.toXDR('base64') ?? 'no errorResult'
-    markTerminalRejected(hash, detail)
-    throw new Error(`RPC rejected envelope before inclusion: ${detail}`)
+    return { ...record, status: 'REJECTED' as const, result: sent }
   }
-
-  // PENDING, DUPLICATE, and TRY_AGAIN_LATER all resolve by original hash.
-  let result: Awaited<ReturnType<typeof server.pollTransaction>>
   try {
-    result = await server.pollTransaction(hash, { attempts: 30 })
-  } catch {
-    // Poll transport failure says nothing about ledger status.
-    return { hash, status: 'UNKNOWN', signedXdr }
-  }
-  if (result.status === rpc.Api.GetTransactionStatus.SUCCESS) {
-    clearPending(hash)
-    return { hash, status: 'SUCCESS', ledger: result.ledger }
-  }
-  if (result.status === rpc.Api.GetTransactionStatus.FAILED) {
-    clearPending(hash)
-    return {
-      hash,
-      status: 'FAILED',
-      resultXdr: result.resultXdr?.toXDR('base64'),
+    const result = await server.pollTransaction(record.hash, { attempts: 30 })
+    if (result.status === 'SUCCESS' || result.status === 'FAILED') {
+      return { ...record, status: result.status, result }
     }
+  } catch {
+    // A polling error cannot prove whether the transaction landed.
   }
-  return { hash, status: 'UNKNOWN', signedXdr }
-}
-
-function persistPending(hash: string, signedXdr: string): void {
-  // Use durable application storage in production.
-  console.info('retain pending envelope', { hash, signedXdr })
-}
-
-function clearPending(hash: string): void {
-  console.info('clear terminal envelope', hash)
-}
-
-function markTerminalRejected(hash: string, detail: string): void {
-  // Replace the pending record with a durable terminal-rejection record.
-  console.info('mark terminal RPC rejection', { hash, detail })
+  return { ...record, status: 'UNKNOWN' as const }
 }
 ```
 
-`UNKNOWN` covers three cases: `sendTransaction` throws, `pollTransaction`
-throws, or polling ends at `NOT_FOUND`. It is not a failure and does not
-authorize a rebuild:
+The caller supplies durable storage and the RPC for the selected network.
+The helper cannot prove that input XDR was prepared or that the RPC matches the
+network; the host must enforce both. A signature's presence and an unchanged
+hash are local checks, not cryptographic verification of the signer identity.
+Only ledger `SUCCESS` proves execution.
 
-1. Keep the exact signed envelope and original hash.
-2. Query `getTransaction(originalHash)` again.
-3. If submission may not have arrived, resubmit the **unchanged signed
-   envelope**, then continue checking the same hash. Do this even when the
-   resubmission returns `ERROR`: the original may already have applied.
-4. Never change sequence, fee, operations, or route while that envelope's
-   timebounds remain valid.
-5. Rebuild, re-prepare, and re-sign only after its max timebound has expired
-   and the original hash has not reached `SUCCESS` or `FAILED`.
+Keep the pending record through reloads and mobile app switching. Mark it
+terminal after `SUCCESS`, `FAILED`, or a definitive first-send rejection.
+Retain rejection diagnostics. Local parsing, preparation, or signing failures
+before send do not submit anything.
 
-This prevents two distinct envelopes from both landing. Errors before
-submission (build, parse, signing, or preparation simulation) send nothing:
-fix the cause, then rebuild.
+`UNKNOWN` means send failed in transport, polling failed, or lookup stayed
+`NOT_FOUND`. It does not authorize a new transaction:
+
+1. Query the original hash on the recorded network's RPC.
+2. If retrying submission, send the exact original signed XDR and keep its hash.
+3. A retry `ERROR` does not prove that the original failed.
+4. Do not sign a replacement while the original envelope remains valid.
+5. After expiry, resolve the original hash and reconcile retained transaction
+   history and account state before deciding whether a replacement is needed.
+6. If available history cannot prove the outcome, keep the operation unresolved.
+   Do not automatically repeat it.
+
+XDR does not contain a network passphrase. Recovery uses the stored network even
+if the wallet has switched. Expiry prevents future inclusion; it does not prove
+that the transaction was never included. Serialize transactions from one Stellar
+source account to avoid sequence races.
 
 ## Error interpretation
 
@@ -179,8 +171,9 @@ Numeric codes overlap between controller, pool, router, NFT, governance, and
 DEX contracts.
 
 `invokedContractId` on `prepareStellarBuiltTx` prefixes a preparation error
-with the contract id you pass, normally the **top-level** contract. It does
-not identify a nested contract that panicked. Therefore:
+with the contract id you pass, normally the **top-level** contract. Resolve
+the actual emitter from diagnostics. Read its address and error from the same
+entry. An earlier handled error can belong to another contract. Therefore:
 
 - map a code only when diagnostics identify the emitting contract, or when the
   top-level contract itself is proven to be the emitter;
