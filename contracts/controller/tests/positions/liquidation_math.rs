@@ -351,6 +351,24 @@ fn partial_seizure_floors_amount_and_zero_fee_stays_zero() {
     assert_eq!(entry.protocol_fee, 0);
 }
 
+/// A leg at its ceiling is credited the floored debt it clears. A trim whose
+/// floored ratio removes no token keeps that credit instead of re-valuing the
+/// leg at its token amount, and lists no zero refund.
+#[test]
+fn a_trim_that_removes_no_token_keeps_the_legs_credit_and_lists_no_refund() {
+    let env = Env::default();
+    let credited = 5 * WAD / 2;
+    let mut repaid = vec![&env, repay_entry(&env, stroops(3), credited)];
+    let mut refunds = Vec::new(&env);
+
+    let floored = process_excess_payment(&env, &mut repaid, &mut refunds, Wad::from(1), false);
+
+    assert_eq!(floored, Wad::ZERO);
+    assert_eq!(refunds.len(), 0, "no zero-amount refund");
+    let entry = repaid.get_unchecked(0);
+    assert_eq!((entry.amount, entry.usd_wad), (stroops(3), credited));
+}
+
 /// Seizes `repay_usd_raw` at zero bonus from one $1 collateral leg of
 /// `decimals` holding `scaled` RAY tokens at index one. Returns the seizures,
 /// the unbacked repayment, and the position's scaled balance.

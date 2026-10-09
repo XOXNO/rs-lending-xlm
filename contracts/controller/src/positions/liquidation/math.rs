@@ -706,6 +706,7 @@ pub(crate) fn scale_seizures_to_received(
 /// inputs in `refunds`. A partial removal uses a floor-rounded ratio; with
 /// `keep_within_quote` it floors the kept amount instead, so the kept value
 /// never exceeds the quote, and drops a leg whose kept amount reaches zero.
+/// A removal that keeps every token leaves the leg's credited value as it is.
 /// Returns the WAD USD value of one native unit of the leg whose kept amount
 /// was floored, or zero when no leg kept a floored amount. No tokens move.
 fn process_excess_payment(
@@ -743,6 +744,12 @@ fn process_excess_payment(
                         .mul_floor(env, ratio)
                         .to_token_floor(env, decimals)
             };
+            if new_amount == entry.amount {
+                if !keep_within_quote {
+                    remaining_excess_usd = Wad::ZERO;
+                }
+                continue;
+            }
             let new_usd = Wad::from_token(env, new_amount, decimals).mul(env, price);
             refunds.push_back(PaymentTuple {
                 asset: entry.hub_asset.asset.clone(),
