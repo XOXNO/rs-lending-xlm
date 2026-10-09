@@ -2,12 +2,8 @@
 //! provider contracts, unsmoothed-market-leg presence, loosest staleness bound,
 //! and composition depth — by recursing through a source's dependencies.
 
-use common::constants::{BPS, WAD};
 use common::errors::OracleError;
-use common::math::fp_core::try_mul_div_half_up;
-use common::types::{
-    FeedNature, FeedSource, OracleTolerance, PriceKey, PriceSource, MAX_RESOLUTION_DEPTH,
-};
+use common::types::{FeedNature, FeedSource, PriceKey, PriceSource, MAX_RESOLUTION_DEPTH};
 use soroban_sdk::{panic_with_error, Address, Env, Vec};
 
 use crate::registry;
@@ -217,85 +213,6 @@ pub(crate) fn properties_of_config(
         None
     };
     ConfigProperties { first, second }
-}
-
-/// Upper bound on how far `contract` alone can move the price that `sources`
-/// blend under `tolerance`: the largest ratio, in WAD, between two prices it
-/// can produce while every other input holds still. `i128::MAX` means
-/// unbounded.
-///
-/// A feed served by `contract` is unbounded. A scaled factor it serves moves
-/// within `max_factor_wad / min_factor_wad`, times its reach into the quote.
-/// A nested key's price cannot leave its sanity band. An LP moves no further
-/// than its more exposed leg. Of two legs, the midpoint follows the less
-/// exposed one within the tolerance, `(BPS + upper) / (BPS + lower)`, and
-/// never exceeds the more exposed one. Every ratio rounds up.
-///
-/// Reads only registered oracles; `properties_of_config` has already proved
-/// the composition acyclic and within depth.
-pub(crate) fn contract_reach(
-    env: &Env,
-    contract: &Address,
-    sources: &Vec<PriceSource>,
-    tolerance: &OracleTolerance,
-) -> i128 {
-    let mut legs = sources
-        .iter()
-        .map(|source| source_reach(env, contract, &source));
-    let first = legs.next().unwrap_or(WAD);
-    let Some(second) = legs.next() else {
-        return first;
-    };
-    let tolerance_ratio = ratio_up(
-        env,
-        WAD,
-        BPS + i128::from(tolerance.upper_ratio_bps),
-        BPS + i128::from(tolerance.lower_ratio_bps),
-    );
-    let followed = ratio_up(env, first.min(second), tolerance_ratio, WAD);
-    followed.min(first.max(second))
-}
-
-/// `contract`'s reach into a single source; see [`contract_reach`].
-fn source_reach(env: &Env, contract: &Address, source: &PriceSource) -> i128 {
-    match source {
-        PriceSource::Feed(feed) if feed.provider.contract() == contract => i128::MAX,
-        PriceSource::Feed(_) => WAD,
-        PriceSource::Scaled(scaled) => {
-            let factor = if scaled.factor.provider.contract() == contract {
-                ratio_up(env, scaled.max_factor_wad, WAD, scaled.min_factor_wad)
-            } else {
-                WAD
-            };
-            ratio_up(env, factor, key_reach(env, contract, &scaled.quote), WAD)
-        }
-        PriceSource::AquariusLp(lp) | PriceSource::AquariusStableLp(lp) => {
-            key_reach(env, contract, &lp.key_a).max(key_reach(env, contract, &lp.key_b))
-        }
-    }
-}
-
-/// `contract`'s reach into the price registered for `key`, capped by that
-/// key's sanity band.
-fn key_reach(env: &Env, contract: &Address, key: &PriceKey) -> i128 {
-    let Some(oracle) = registry::get_oracle(env, key) else {
-        panic_with_error!(env, OracleError::OracleNotConfigured)
-    };
-    let band = ratio_up(
-        env,
-        oracle.max_sanity_price_wad,
-        WAD,
-        oracle.min_sanity_price_wad,
-    );
-    contract_reach(env, contract, &oracle.sources, &oracle.tolerance).min(band)
-}
-
-/// `x * y / d` for positive operands, rounded half up and then raised by one
-/// unit so it never falls below the exact quotient. Saturates at `i128::MAX`
-/// when the quotient does not fit or the divisor is not positive, so an
-/// unrepresentable reach counts as unbounded.
-fn ratio_up(env: &Env, x: i128, y: i128, d: i128) -> i128 {
-    try_mul_div_half_up(env, x, y, d).map_or(i128::MAX, |quotient| quotient.saturating_add(1))
 }
 
 /// Panics with `OracleDepthExceeded` if `depth` exceeds the maximum resolution

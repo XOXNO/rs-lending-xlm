@@ -1,6 +1,7 @@
 use super::*;
 use crate::registry;
 use crate::session::Session;
+use crate::validation::MAX_SHARED_FACTOR_RANGE_WAD;
 use common::types::{
     AssetOracle, FeedNature, FeedSource, IndependencePolicy, MultiFeedRef, OracleAssetRef,
     OracleReadMode, OracleTolerance, ProviderRef, ReflectorFeedRef, ScaledSource,
@@ -412,33 +413,38 @@ fn validate_solvbtc_sharing_its_quote(max_factor_wad: i128) {
     });
 }
 
-/// The deployed SolvBTC shape keeps its wide band: the shared adapter can move
-/// the price by at most 1.05 (ratio) x 1.10 (BTC pair) x 1.05 (SolvBTC pair),
-/// about 1.213, inside the single-source cap of 11/9.
+/// The deployed SolvBTC shape keeps its wide band: the shared adapter reaches
+/// the first leg only through a factor it can move by at most 1.05.
 #[test]
 fn test_mainnet_solvbtc_shape_keeps_the_band_cap_exemption() {
     validate_solvbtc_sharing_its_quote(SOLVBTC_MAX_FACTOR_WAD);
 }
 
-/// A ratio the shared adapter can double lets that one contract move both
-/// legs past the cap, so the pair is held to the single-source band.
+/// A factor range of exactly `MAX_SHARED_FACTOR_RANGE_WAD` is still bounded.
+#[test]
+fn test_a_shared_factor_at_the_range_limit_keeps_the_exemption() {
+    validate_solvbtc_sharing_its_quote(MAX_SHARED_FACTOR_RANGE_WAD);
+}
+
+/// One unit past the range limit, the shared adapter moves both legs and the
+/// pair is held to the single-source band.
+#[test]
+#[should_panic(expected = "Error(Contract, #226)")]
+fn test_a_shared_factor_past_the_range_limit_is_held_to_the_band_cap() {
+    validate_solvbtc_sharing_its_quote(MAX_SHARED_FACTOR_RANGE_WAD + 1);
+}
+
+/// The repo's former fixture: a ratio the shared adapter can double.
 #[test]
 #[should_panic(expected = "Error(Contract, #226)")]
 fn test_a_shared_contract_with_a_wide_factor_is_held_to_the_band_cap() {
     validate_solvbtc_sharing_its_quote(2 * 10i128.pow(18));
 }
 
-/// The shared adapter's reach into the BTC quote counts too: a 1.10 ratio
-/// alone is inside the cap, but with the quote's 1.10 it is not.
-#[test]
-#[should_panic(expected = "Error(Contract, #226)")]
-fn test_a_shared_contract_reaching_the_quote_is_held_to_the_band_cap() {
-    validate_solvbtc_sharing_its_quote(110 * 10i128.pow(16));
-}
-
-/// Admits the deployed SolvBTC shape, then applies `tolerance` to `target`:
+/// Stores a SolvBTC-shaped pair with the ratio capped at `max_factor_wad`
+/// without validating it, then re-applies the mainnet tolerance to `target`:
 /// the SolvBTC key itself, or its BTC quote when `on_quote`.
-fn retune_solvbtc_shape(upper_ratio_bps: u32, lower_ratio_bps: u32, on_quote: bool) {
+fn retune_solvbtc_shape(max_factor_wad: i128, on_quote: bool) {
     let env = Env::default();
     let reflector = Address::generate(&env);
     let adapter = Address::generate(&env);
@@ -447,14 +453,14 @@ fn retune_solvbtc_shape(upper_ratio_bps: u32, lower_ratio_bps: u32, on_quote: bo
     with_contract(&env, || {
         let btc = register_btc_reference_sharing(&env, &reflector, &adapter);
         let declared = Vec::from_array(&env, [adapter.clone()]);
-        let mut oracle = solvbtc_oracle(
+        let mut oracle = solvbtc_oracle_with_factor_cap(
             &env,
             &adapter,
             btc.clone(),
             IndependencePolicy::AllowShared(declared),
+            max_factor_wad,
         );
         oracle.max_sanity_price_wad = 300_000 * 10i128.pow(18);
-        crate::admin::validate_asset_oracle(&env, &solvbtc, &oracle);
         registry::store_oracle(&env, &solvbtc, &oracle);
 
         let target = if on_quote { btc } else { solvbtc };
@@ -462,35 +468,32 @@ fn retune_solvbtc_shape(upper_ratio_bps: u32, lower_ratio_bps: u32, on_quote: bo
             &env,
             target,
             OracleTolerance {
-                upper_ratio_bps,
-                lower_ratio_bps,
+                upper_ratio_bps: 10_500,
+                lower_ratio_bps: 9_524,
             },
         );
     });
 }
 
-/// Widening the pair tolerance to 10% lets the shared adapter move the price
-/// by 1.155 x 1.10, past 11/9, so the exempt band no longer validates.
+/// `set_tolerance` validates the whole oracle, not only the tolerance: a
+/// stored pair whose shared adapter can double the ratio no longer earns its
+/// wide band.
 #[test]
 #[should_panic(expected = "Error(Contract, #226)")]
-fn test_set_tolerance_cannot_widen_an_exempt_pair_past_the_band_cap() {
-    retune_solvbtc_shape(11_000, 9_091, false);
+fn test_set_tolerance_validates_the_stored_oracle() {
+    retune_solvbtc_shape(2 * 10i128.pow(18), false);
 }
 
-/// A 4% tolerance keeps the shared adapter's reach at 1.155 x 1.04, inside
-/// 11/9.
-#[test]
-fn test_set_tolerance_within_the_cap_keeps_the_exemption() {
-    retune_solvbtc_shape(10_400, 9_615, false);
-}
-
-/// Widening the BTC quote's tolerance to 25% widens the shared adapter's
-/// reach into every pair built on it; the dependent SolvBTC pair is
-/// revalidated and refuses the change.
+/// `set_tolerance` on a quote revalidates the pairs built on it.
 #[test]
 #[should_panic(expected = "Error(Contract, #226)")]
 fn test_set_tolerance_on_a_quote_revalidates_its_dependents() {
-    retune_solvbtc_shape(12_500, 8_000, true);
+    retune_solvbtc_shape(2 * 10i128.pow(18), true);
+}
+
+#[test]
+fn test_set_tolerance_keeps_a_valid_exempt_pair() {
+    retune_solvbtc_shape(SOLVBTC_MAX_FACTOR_WAD, false);
 }
 
 fn store_single(env: &Env, key: PriceKey, source: PriceSource, asset_decimals: u32) {

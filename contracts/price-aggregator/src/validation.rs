@@ -4,13 +4,12 @@
 //! check panics with the corresponding `OracleError` or `GenericError`
 //! variant when the configuration is invalid.
 
-use common::constants::{
-    BPS, MAX_ASSET_DECIMALS, MAX_REASONABLE_PRICE_WAD, MIN_ASSET_DECIMALS, WAD,
-};
+use common::constants::{MAX_ASSET_DECIMALS, MAX_REASONABLE_PRICE_WAD, MIN_ASSET_DECIMALS, WAD};
 use common::errors::{GenericError, OracleError};
+use common::math::fp_core::mul_div_ceil;
 use common::oracle::observation::{
-    MAX_LEG_AGE_SPREAD_SECONDS, MAX_ORACLE_DECIMALS, MAX_PRICE_STALE_SECONDS,
-    MAX_SINGLE_SOURCE_SANITY_BAND_BPS, MIN_ORACLE_DECIMALS, MIN_PRICE_STALE_SECONDS,
+    MAX_LEG_AGE_SPREAD_SECONDS, MAX_ORACLE_DECIMALS, MAX_PRICE_STALE_SECONDS, MIN_ORACLE_DECIMALS,
+    MIN_PRICE_STALE_SECONDS,
 };
 use common::types::{
     AquariusLpSource, FeedSource, IndependencePolicy, OracleReadMode, PriceKey, PriceSource,
@@ -112,14 +111,31 @@ pub(crate) fn independence(
     }
 }
 
-/// Returns whether a contract that can move a price by at most `reach` (a
-/// WAD ratio) stays inside the single-source band cap: a band of
-/// `MAX_SINGLE_SOURCE_SANITY_BAND_BPS` spans the ratio
-/// `(BPS + cap) / (BPS - cap)`, 11/9.
-pub(crate) fn reach_within_single_source_cap(reach: i128) -> bool {
-    const CAP_RATIO_WAD: i128 =
-        (BPS + MAX_SINGLE_SOURCE_SANITY_BAND_BPS) * WAD / (BPS - MAX_SINGLE_SOURCE_SANITY_BAND_BPS);
-    reach <= CAP_RATIO_WAD
+/// Widest factor range, `max_factor_wad / min_factor_wad` in WAD, through
+/// which a contract trusted by both legs of a pair may serve a `Scaled` leg
+/// before the pair loses its band-cap exemption.
+pub(crate) const MAX_SHARED_FACTOR_RANGE_WAD: i128 = WAD + WAD / 10;
+
+/// Returns whether `contract`, trusted by both legs of `sources`, serves some
+/// top-level `Scaled` leg through its factor with a range no wider than
+/// `MAX_SHARED_FACTOR_RANGE_WAD`. The contract can move that leg by at most
+/// the factor range, so the other leg still cross-checks it. A contract that
+/// reaches every leg through a plain `Feed`, or through a wider factor, moves
+/// both legs together and the pair keeps the single-source band cap. Nested
+/// keys are not inspected: each is admitted and band-capped by its own
+/// `set_oracle`.
+pub(crate) fn shared_contract_is_range_bounded(
+    env: &Env,
+    contract: &Address,
+    sources: &Vec<PriceSource>,
+) -> bool {
+    sources.iter().any(|source| match source {
+        PriceSource::Scaled(scaled) if scaled.factor.provider.contract() == contract => {
+            mul_div_ceil(env, scaled.max_factor_wad, WAD, scaled.min_factor_wad)
+                <= MAX_SHARED_FACTOR_RANGE_WAD
+        }
+        _ => false,
+    })
 }
 
 /// Returns whether `left` and `right` contain exactly the same addresses,
