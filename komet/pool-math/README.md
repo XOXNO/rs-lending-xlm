@@ -42,6 +42,7 @@ work without reducing the selected claim's input domain.
 | `scaled-supply` | `test_scaled_supply` | Nonnegative amount, positive index, decimals 0–27; rescale intermediate and floor must fit i128. |
 | `scaled-borrow` | `test_scaled_borrow` | Same domain; exact ceiling. |
 | `utilization` | `test_utilization_bounds` | `0 <= borrowed <= supplied`, `supplied > 0`; result in `[0,RAY]`. |
+| `utilization` | `test_utilization_exact`, `test_utilization_round_wrong` | All nonnegative i128 debt/supply with debt no greater than positive supply; zero supply permits any nonnegative debt. Zero or exact half-up quotient inequalities and `[0,RAY]` bounds. Separate false floor-rounding control at `borrowed=1`, `supplied=2*RAY`. |
 | `borrow-index` | `test_borrow_index_bounds` | `RAY <= old <= 10^36`, `RAY <= factor <= 8*RAY`; result in `[old,10^36]`. |
 | `borrow-double` | `test_borrow_double`, `test_borrow_double_wrong` | Every valid old borrow index, factor fixed at `2*RAY`; result exactly `min(2*old,10^36)`. Separate false uncapped control at `old=10^36/2+1`. |
 | `index-exact` | `test_borrow_index_exact` | Valid old index, factor at least RAY, representable pre-cap result; exact half-up growth and cap. |
@@ -75,8 +76,8 @@ models, 1,502 executions across its 17 positive claims passed; the deliberately
 false concrete utilization assertion failed as expected. These generated inputs
 can include premise-skipping cases; native witnesses exercise valid arithmetic
 and both cap branches. The fixed doubling theorem is now proved; the other
-broad-domain arithmetic claims below remain open. The current harness has 26
-exports: 22 positive claims and four deliberately false controls. All nine native boundary checks pass. The five
+broad-domain arithmetic claims below remain open. The current harness has 28
+exports: 23 positive claims and five deliberately false controls. All ten native boundary checks pass. The five
 new positive claims (signed-half, flash fee and the three settlements) passed
 500 additional concrete K executions; the false tie assertion failed.
 Settlement specifications retain both valuation rounding stages and

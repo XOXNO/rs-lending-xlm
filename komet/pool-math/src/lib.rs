@@ -31,7 +31,7 @@ use common::math::fp_core;
     feature = "controls"
 ))]
 use common::{constants::RAY, math::fp::Ray, rates};
-#[cfg(feature = "half-up")]
+#[cfg(any(feature = "half-up", feature = "utilization"))]
 use soroban_sdk::I256;
 use soroban_sdk::{contract, contractimpl, Env};
 
@@ -63,6 +63,13 @@ fn production_utilization(env: &Env, borrowed: i128, supplied: i128) -> i128 {
     rates::utilization(env, Ray::from(borrowed), Ray::from(supplied)).raw()
 }
 
+// Keep separate sign checks instead of a combined Wasm high-word OR.
+#[inline(never)]
+#[cfg(feature = "utilization")]
+fn nonnegative(amount: i128) -> bool {
+    amount >= 0
+}
+
 #[cfg(all(test, feature = "borrow-double"))]
 mod tests {
     use super::*;
@@ -82,6 +89,35 @@ mod tests {
         }
         assert!(!PoolMathProof::test_borrow_double_wrong(env));
     }
+}
+
+#[cfg(all(test, feature = "utilization"))]
+#[test]
+fn utilization_exact_covers_rounding_and_widening() {
+    let env = Env::default();
+    for (borrowed, supplied) in [
+        (0, 0),
+        (i128::MAX, 0),
+        (0, i128::MAX),
+        (1, 2 * RAY - 1),
+        (1, 2 * RAY),
+        (1, 2 * RAY + 1),
+        (1, 3),
+        (2, 3),
+        (RAY, RAY),
+        (i128::MAX / RAY, i128::MAX),
+        (i128::MAX, i128::MAX),
+    ] {
+        assert!(PoolMathProof::test_utilization_exact(
+            env.clone(),
+            borrowed,
+            supplied
+        ));
+    }
+    assert_eq!(production_utilization(&env, 1, 2 * RAY - 1), 1);
+    assert_eq!(production_utilization(&env, 1, 2 * RAY), 1);
+    assert_eq!(production_utilization(&env, 1, 2 * RAY + 1), 0);
+    assert!(!PoolMathProof::test_utilization_round_wrong(env));
 }
 
 #[inline(never)]
@@ -262,6 +298,38 @@ impl PoolMathProof {
         }
         let result = production_utilization(&env, borrowed, supplied);
         result >= 0 && result <= RAY
+    }
+
+    /// Exact half-up quotient for 0 <= borrowed <= supplied, plus zero supply.
+    /// Quotient inequalities use I256 integers, independently of fp_core.
+    #[cfg(feature = "utilization")]
+    pub fn test_utilization_exact(env: Env, borrowed: i128, supplied: i128) -> bool {
+        if !nonnegative(borrowed) || !nonnegative(supplied) {
+            return true;
+        }
+        if supplied == 0 {
+            return production_utilization(&env, borrowed, supplied) == 0;
+        }
+        let debt = I256::from_i128(&env, borrowed);
+        let denominator = I256::from_i128(&env, supplied);
+        if debt > denominator {
+            return true;
+        }
+        let result = production_utilization(&env, borrowed, supplied);
+        let numerator = debt
+            .mul(&I256::from_i128(&env, RAY))
+            .add(&I256::from_i128(&env, supplied / 2));
+        let quotient = I256::from_i128(&env, result);
+        result >= 0
+            && result <= RAY
+            && quotient.mul(&denominator) <= numerator
+            && numerator < quotient.add(&I256::from_i128(&env, 1)).mul(&denominator)
+    }
+
+    /// Deliberately false floor result at the exact positive half-way boundary.
+    #[cfg(feature = "utilization")]
+    pub fn test_utilization_round_wrong(env: Env) -> bool {
+        production_utilization(&env, 1, 2 * RAY) == 0
     }
 
     /// A zero denominator returns zero, for every signed i128 borrowed amount.
