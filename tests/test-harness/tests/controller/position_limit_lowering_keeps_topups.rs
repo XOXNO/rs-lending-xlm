@@ -51,8 +51,8 @@ fn a_credit_liquidation_into_an_over_limit_account_that_holds_the_asset_still_la
         .expect("seizing an asset the receiver already holds opens no slot");
 }
 
-/// MC-4. A `Credit(0)` receiver must take every seized leg even after the
-/// supply limit drops below the liquidated account's leg count, or a market
+/// MC-4. A `Credit(0)` receiver takes every seized leg even after the supply
+/// limit drops below the liquidated account's leg count; otherwise a market
 /// without cash leaves the account with no liquidation path at all.
 #[test]
 fn a_credit_zero_receiver_takes_every_seized_leg_after_the_limit_drops() {
@@ -71,10 +71,10 @@ fn a_credit_zero_receiver_takes_every_seized_leg_after_the_limit_drops() {
     assert_eq!(supply.len(), 2, "both seized legs are credited");
 }
 
-/// MC-4. The raised receiver limit stops at the liquidated account's leg
-/// count: an existing receiver still cannot open slots past it.
+/// MC-4. Only an empty receiver is exempt: a receiver with positions still
+/// cannot open slots past the lowered limit.
 #[test]
-fn an_existing_receiver_stays_bounded_by_the_liquidated_leg_count() {
+fn an_existing_receiver_keeps_the_lowered_position_limit() {
     let mut t = two_positions_then_limit_of_one();
     t.set_position_limits(2, 2);
     t.borrow(ALICE, "WBTC", 0.15);

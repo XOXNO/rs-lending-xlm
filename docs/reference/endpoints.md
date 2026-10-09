@@ -64,7 +64,7 @@ Seizure checks only `no_seize`. Liquidators cannot choose a different collateral
 
 ### Liquidation results
 
-Credit liquidation transfers supply shares without moving collateral tokens. The receiver must differ from the target, share its spoke and use Normal mode. `Credit(0)` can create a receiver in a deprecated spoke. Position limits apply, raised to the liquidated account's supply leg count; collateral permissions and supply caps do not gate this credit.
+Credit liquidation transfers supply shares without moving collateral tokens. The receiver must differ from the target, share its spoke and use Normal mode. `Credit(0)` can create a receiver in a deprecated spoke. Position limits apply to a receiver with positions, and an empty receiver takes every seized leg; collateral permissions and supply caps do not gate this credit.
 
 Liquidation estimates report gross seizure before protocol fees. Transfer-mode seizure and fees use token units; Credit-mode seizure and fees use RAY shares. `refunds` use debt-token units. Execution can differ from an estimate because prices, indexes and measured token delivery can change.
 

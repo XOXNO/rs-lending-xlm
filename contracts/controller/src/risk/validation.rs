@@ -1,8 +1,6 @@
 use crate::risk;
 use crate::spec_hooks;
-use common::constants::{
-    MIN_BORROWABLE_ASSET_DECIMALS, MIN_WHOLE_UNIT_COLLATERAL, POSITION_LIMIT_MAX,
-};
+use common::constants::{MIN_BORROWABLE_ASSET_DECIMALS, MIN_WHOLE_UNIT_COLLATERAL};
 use common::errors::*;
 use common::math::fp::Wad;
 use common::types::{Account, AccountPositionType, AggregatedPayments, HubAssetKey};
@@ -71,47 +69,14 @@ pub(crate) fn validate_bulk_position_limits(
     aggregated: &AggregatedPayments,
 ) {
     let limits = storage::get_position_limits(env);
-    let max_allowed = match position_type {
-        AccountPositionType::Deposit => limits.max_supply_positions,
-        AccountPositionType::Borrow => limits.max_borrow_positions,
-    };
-    require_new_slots_within(env, account, position_type, aggregated, max_allowed);
-}
 
-/// Checks a Credit-mode liquidation receiver's new supply slots against the
-/// supply limit, raised to the liquidated account's supply leg count capped at
-/// `POSITION_LIMIT_MAX`. A limit lowered below that count still admits a
-/// `Credit(0)` receiver for every seized leg.
-pub(crate) fn validate_credit_receiver_position_limit(
-    env: &Env,
-    receiver: &Account,
-    aggregated: &AggregatedPayments,
-    liquidated_supply_legs: u32,
-) {
-    let max_allowed = storage::get_position_limits(env)
-        .max_supply_positions
-        .max(liquidated_supply_legs.min(POSITION_LIMIT_MAX));
-    require_new_slots_within(
-        env,
-        receiver,
-        AccountPositionType::Deposit,
-        aggregated,
-        max_allowed,
-    );
-}
-
-/// Requires the held positions plus the distinct new slots in `aggregated` to
-/// stay within `max_allowed`. Adds no check when no new slot opens.
-fn require_new_slots_within(
-    env: &Env,
-    account: &Account,
-    position_type: AccountPositionType,
-    aggregated: &AggregatedPayments,
-    max_allowed: u32,
-) {
-    let current_count = match position_type {
-        AccountPositionType::Deposit => account.supply_positions.len(),
-        AccountPositionType::Borrow => account.borrow_positions.len(),
+    let (current_count, max_allowed) = match position_type {
+        AccountPositionType::Deposit => {
+            (account.supply_positions.len(), limits.max_supply_positions)
+        }
+        AccountPositionType::Borrow => {
+            (account.borrow_positions.len(), limits.max_borrow_positions)
+        }
     };
 
     let mut seen: Map<HubAssetKey, bool> = Map::new(env);
