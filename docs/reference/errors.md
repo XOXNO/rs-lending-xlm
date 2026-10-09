@@ -8,7 +8,7 @@ SDK `try_` calls distinguish contract errors from host, authorization, storage, 
 
 [Shared error definitions](../../common/src/errors.rs) group lending failures by domain. Gaps in the numeric ranges are reserved. The tables describe failure conditions; the checks a call reaches depend on its execution path.
 
-### Generic errors (1–58)
+### Generic errors (1–59)
 
 | Code / variant | Condition | Response |
 | --- | --- | --- |
@@ -52,6 +52,7 @@ SDK `try_` calls distinguish contract errors from host, authorization, storage, 
 | 56 `CancellerLimitExceeded` | A canceller grant or canceller reset would leave more than `MAX_CANCELLERS` (32) `CANCELLER` holders, the owner included, or a proposed reset list has 32 or more entries. | Revoke a canceller first or shorten the reset list. |
 | 57 `PauseEpochMismatch` | `Unpause` is proposed while the controller is open, or executes after the controller was paused again since its proposal. | Propose `Unpause` during the pause it should end. |
 | 58 `ConflictingOperationPending` | An `UpgradeController` is proposed while another is waiting or ready, or an `Unpause` executes while one is. | Execute, cancel or let the pending upgrade expire first; an `Unpause` must then be proposed after the upgrade. |
+| 59 `RoleRevokedAfterProposal` | A `GrantGovRole` executes after the owner revoked the same role from the same account with `revoke_role_immediate` since its proposal. | Propose the grant again if it is still intended. |
 
 ### Collateral and market errors (100–135)
 

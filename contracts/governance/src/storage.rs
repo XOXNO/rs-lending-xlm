@@ -2,14 +2,14 @@
 //! controller and price-aggregator addresses, the owner epoch, the
 //! ownership-nomination nonce, and per-operation sidecar state
 //! (role-revocation target, recovery-operation marker, proposal owner epoch,
-//! cancelled nomination, execution guard), and the id of the pending
-//! controller upgrade.
+//! cancelled nomination, execution guard), the id of the pending controller
+//! upgrade, and the immediate-revocation epoch of each account's role.
 
 use common::constants::{TTL_BUMP_SHARED, TTL_THRESHOLD_SHARED};
 use common::errors::GenericError;
 use common::types::PriceKey;
 
-use soroban_sdk::{contracttype, panic_with_error, Address, BytesN, Env};
+use soroban_sdk::{contracttype, panic_with_error, Address, BytesN, Env, Symbol};
 
 /// Storage keys for governance contract state. `RoleRevocationTarget`,
 /// `RecoveryOp`, `ProposalOwnerEpoch`, `CancelledNomination` and
@@ -27,6 +27,7 @@ enum GovernanceKey {
     CancelledNomination(BytesN<32>),
     ExecutionGuard(BytesN<32>),
     PendingControllerUpgrade,
+    HotRevocationEpoch(Address, Symbol),
 }
 
 /// State an operation is bound to at proposal. Execution reverts once that
@@ -38,6 +39,9 @@ pub(crate) enum ExecutionGuard {
     PauseEpoch(u64),
     /// Price key and proposal ledger of a `ConfigureAssetOracle`.
     OracleBand(PriceKey, u32),
+    /// Account, role and that pair's immediate-revocation epoch a
+    /// `GrantGovRole` was proposed under.
+    RoleEpoch(Address, Symbol, u64),
 }
 
 /// Records `account` as the role-revocation target for `operation_id` in
@@ -149,6 +153,32 @@ pub(crate) fn execution_guard(env: &Env, operation_id: &BytesN<32>) -> Option<Ex
     env.storage()
         .persistent()
         .get(&GovernanceKey::ExecutionGuard(operation_id.clone()))
+}
+
+/// Returns how many times `revoke_role_immediate` has revoked `role` from
+/// `account`, 0 before the first.
+pub(crate) fn hot_revocation_epoch(env: &Env, account: &Address, role: &Symbol) -> u64 {
+    env.storage()
+        .persistent()
+        .get(&GovernanceKey::HotRevocationEpoch(
+            account.clone(),
+            role.clone(),
+        ))
+        .unwrap_or(0)
+}
+
+/// Advances the immediate-revocation epoch of `role` for `account` and
+/// extends the entry's TTL. Panics with `GenericError::MathOverflow` on
+/// overflow.
+pub(crate) fn bump_hot_revocation_epoch(env: &Env, account: &Address, role: &Symbol) {
+    let key = GovernanceKey::HotRevocationEpoch(account.clone(), role.clone());
+    let next = hot_revocation_epoch(env, account, role)
+        .checked_add(1)
+        .unwrap_or_else(|| panic_with_error!(env, GenericError::MathOverflow));
+    env.storage().persistent().set(&key, &next);
+    env.storage()
+        .persistent()
+        .extend_ttl(&key, TTL_THRESHOLD_SHARED, TTL_BUMP_SHARED);
 }
 
 /// Returns the id of the last proposed `UpgradeController`, if it has not

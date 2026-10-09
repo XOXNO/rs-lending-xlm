@@ -67,7 +67,7 @@ council fits one transaction's event limit.
 | `set_spoke_asset_flags(caller, spoke_id, hub_asset, paused, frozen, no_seize)` | `GUARDIAN` | Tightens a listing's halt flags (see below) |
 | `create_hub(caller) -> u32`, `add_spoke(caller) -> u32` | `GUARDIAN` | Creates a controller hub or spoke |
 | `set_sanity_band(caller, key, min_wad, max_wad)` | `ORACLE` | Narrows an aggregator price band; a wider band reverts `SanityBandMustTighten`. A `ConfigureAssetOracle` for the key proposed at or before it reverts `SanityBandNarrowedAfterProposal` |
-| `revoke_role_immediate(account, role)` | owner | Strips `GUARDIAN` or `ORACLE` from `account` |
+| `revoke_role_immediate(account, role)` | owner | Strips `GUARDIAN` or `ORACLE` from `account`; a `GrantGovRole` of that pair proposed earlier then reverts `RoleRevokedAfterProposal` |
 
 ### Setup and ownership
 

@@ -38,6 +38,7 @@ pub(crate) fn require_no_pending_upgrade(env: &Env, op: &AdminOperation) {
 /// `Unpause` binds to the controller's current pause epoch and panics with
 /// `GenericError::PauseEpochMismatch` while the controller is open.
 /// `ConfigureAssetOracle` binds to its key and the proposal ledger.
+/// `GrantGovRole` binds to the account and role's immediate-revocation epoch.
 pub(crate) fn record(env: &Env, operation_id: &BytesN<32>, op: &AdminOperation) {
     if let AdminOperation::UpgradeController(_) = op {
         storage::set_pending_controller_upgrade(env, operation_id);
@@ -51,6 +52,11 @@ pub(crate) fn record(env: &Env, operation_id: &BytesN<32>, op: &AdminOperation) 
         AdminOperation::ConfigureAssetOracle(args) => {
             ExecutionGuard::OracleBand(args.key.clone(), env.ledger().sequence())
         }
+        AdminOperation::GrantGovRole(args) => ExecutionGuard::RoleEpoch(
+            args.account.clone(),
+            args.role.clone(),
+            storage::hot_revocation_epoch(env, &args.account, &args.role),
+        ),
         _ => return,
     };
     storage::set_execution_guard(env, operation_id, &guard);
@@ -79,6 +85,11 @@ pub(crate) fn require_holds(env: &Env, operation_id: &BytesN<32>, target: &Addre
             env,
             PriceAggregatorClient::new(env, target).sanity_band_narrowed_at(&key) < proposed_at,
             OracleError::SanityBandNarrowedAfterProposal
+        ),
+        Some(ExecutionGuard::RoleEpoch(account, role, epoch)) => assert_with_error!(
+            env,
+            storage::hot_revocation_epoch(env, &account, &role) == epoch,
+            GenericError::RoleRevokedAfterProposal
         ),
         None => {}
     }

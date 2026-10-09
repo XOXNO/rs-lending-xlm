@@ -105,6 +105,10 @@ pub enum GenericError {
     /// An `UpgradeController` is proposed while another is pending, or an
     /// `Unpause` executes while one is.
     ConflictingOperationPending = 58,
+
+    /// A `GrantGovRole` executes although the owner revoked the same role
+    /// from the same account with `revoke_role_immediate` after its proposal.
+    RoleRevokedAfterProposal = 59,
 }
 
 /// Error codes for collateral, position, interest-rate-curve, and

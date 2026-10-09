@@ -51,7 +51,9 @@ or spokes. ORACLE can immediately narrow sanity bands; a narrowing voids every
 `ConfigureAssetOracle` for that key proposed at or before it. A rogue ORACLE
 can thereby delay the owner's reconfiguration, and the owner's remedy is
 `revoke_role_immediate`. The owner can revoke
-those two hot roles immediately and perform one-time deployment bootstrap.
+those two hot roles immediately and perform one-time deployment bootstrap. An
+immediate revocation voids every `GrantGovRole` of that role to that account
+proposed before it.
 Reopening, global position-manager changes, and ordinary upgrades use delayed
 operations. An `Unpause` must be proposed while the controller is paused and
 reverts if the controller was paused again after its proposal. Controller construction and upgrade pause the controller. Pool,

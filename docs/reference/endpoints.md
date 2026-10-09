@@ -219,7 +219,7 @@ Constructor `(admin: Address, min_delay: u32)` initializes the owner, access-con
 | `set_sanity_band(caller: Address, key: PriceKey, min_wad: i128, max_wad: i128)` | ORACLE_ROLE; immediate tightening only; voids every `ConfigureAssetOracle` for the key proposed at or before this ledger |
 | `create_hub(caller: Address) -> u32` | GUARDIAN_ROLE; immediate |
 | `add_spoke(caller: Address) -> u32` | GUARDIAN_ROLE; immediate |
-| `revoke_role_immediate(account: Address, role: Symbol)` | Owner; only guardian/oracle roles |
+| `revoke_role_immediate(account: Address, role: Symbol)` | Owner; only guardian/oracle roles; a `GrantGovRole` of that role to that account proposed earlier reverts `RoleRevokedAfterProposal` |
 | `execute_self(executor: Option<Address>, op: AdminOperation, salt: BytesN<32>)` | Ready scheduled self-operation; optional executor |
 | `propose_canceller_reset(new_cancellers: Vec<Address>, salt: BytesN<32>) -> BytesN<32>` | Owner; schedule uncancellable recovery; the list plus the owner's seat must fit `MAX_CANCELLERS` (32) |
 | `execute_canceller_reset(executor: Option<Address>, new_cancellers: Vec<Address>, salt: BytesN<32>)` | Ready recovery; optional executor; reverts `NotAuthorized` if ownership changed hands after the proposal |

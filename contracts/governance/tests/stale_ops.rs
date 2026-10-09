@@ -629,3 +629,64 @@ fn proposing_unpauses_does_not_grow_instance_storage() {
 
     assert_eq!(instance_bytes(), before);
 }
+
+fn role_revoked_after_proposal() -> Error {
+    Error::from_contract_error(GenericError::RoleRevokedAfterProposal as u32)
+}
+
+#[test]
+fn role_grant_queued_before_a_hot_revocation_cannot_rearm_the_key() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (owner, _controller, gov) = register_with_controller(&env, MIN_DELAY);
+    let guardian = Address::generate(&env);
+    let first = queue(&gov, &owner, grant(&env, &guardian, GUARDIAN_ROLE), 1);
+    let stale = queue(&gov, &owner, grant(&env, &guardian, GUARDIAN_ROLE), 2);
+    wait_sensitive(&env);
+    execute_self(&gov, &first).expect("the guardian is granted");
+
+    gov.revoke_role_immediate(&guardian, &Symbol::new(&env, GUARDIAN_ROLE));
+
+    assert_eq!(
+        execute_self(&gov, &stale),
+        Err(role_revoked_after_proposal())
+    );
+    assert!(!gov.has_role(&guardian, &Symbol::new(&env, GUARDIAN_ROLE)));
+}
+
+#[test]
+fn role_grant_proposed_after_a_hot_revocation_executes() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (owner, _controller, gov) = register_with_controller(&env, MIN_DELAY);
+    let guardian = Address::generate(&env);
+    let first = queue(&gov, &owner, grant(&env, &guardian, GUARDIAN_ROLE), 1);
+    wait_sensitive(&env);
+    execute_self(&gov, &first).expect("the guardian is granted");
+    gov.revoke_role_immediate(&guardian, &Symbol::new(&env, GUARDIAN_ROLE));
+
+    let regrant = queue(&gov, &owner, grant(&env, &guardian, GUARDIAN_ROLE), 2);
+    wait_sensitive(&env);
+
+    execute_self(&gov, &regrant).expect("a grant proposed after the revocation executes");
+    assert!(gov.has_role(&guardian, &Symbol::new(&env, GUARDIAN_ROLE)));
+}
+
+#[test]
+fn role_grant_without_a_guard_record_keeps_its_unbound_behaviour() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (owner, _controller, gov) = register_with_controller(&env, MIN_DELAY);
+    let guardian = Address::generate(&env);
+    let first = queue(&gov, &owner, grant(&env, &guardian, GUARDIAN_ROLE), 1);
+    let legacy = queue(&gov, &owner, grant(&env, &guardian, GUARDIAN_ROLE), 2);
+    env.as_contract(&gov.address, || {
+        storage::clear_operation_sidecars(&env, &legacy.id);
+    });
+    wait_sensitive(&env);
+    execute_self(&gov, &first).expect("the guardian is granted");
+    gov.revoke_role_immediate(&guardian, &Symbol::new(&env, GUARDIAN_ROLE));
+
+    execute_self(&gov, &legacy).expect("a grant scheduled before the upgrade still applies");
+    assert!(gov.has_role(&guardian, &Symbol::new(&env, GUARDIAN_ROLE)));
+}
