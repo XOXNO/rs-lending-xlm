@@ -490,48 +490,33 @@ fn merge_withdraw_balance(
     position
 }
 
-/// Ends deferred refreshes and refreshes the recorded supply legs in asset-key
-/// order against the merged account, buffering a `ParamUpd` delta for each
-/// changed leg. Skips legs that are gone, empty, or unlisted.
+/// Ends deferred refreshes and refreshes the recorded supply legs the account
+/// still holds through the batch refresh, buffering a `ParamUpd` delta for
+/// each changed leg.
 pub(crate) fn refresh_deferred_supply_risk_params(
     env: &Env,
     account: &mut Account,
     cache: &mut Context,
 ) {
+    let mut positions: Map<HubAssetKey, AccountPositionRaw> = Map::new(env);
     for hub_asset in cache.take_deferred_supply_refresh().iter() {
-        let Some(raw) = account.supply_positions.get(hub_asset.clone()) else {
-            continue;
-        };
-        let mut position = AccountPosition::from(&raw);
-        if !leg_may_restamp_risk_params(
-            WithdrawKind::Normal,
-            cache,
-            account,
-            &hub_asset,
-            position.scaled_amount,
-        ) {
+        if let Some(raw) = account.supply_positions.get(hub_asset.clone()) {
+            positions.set(hub_asset, raw);
+        }
+    }
+    let before = positions.clone();
+    refresh_batch_risk_params(env, account, &mut positions, cache);
+    for (hub_asset, raw) in positions.iter() {
+        if before.get(hub_asset.clone()) == Some(raw.clone()) {
             continue;
         }
-        let config = cache.require_spoke_asset(account.spoke_id, &hub_asset);
-        if !refresh_supply_risk_params(
-            env,
-            cache,
-            account,
-            &hub_asset,
-            &mut position,
-            &config,
-            RiskRefreshScope::FullTuple,
-        ) {
-            continue;
-        }
-        update_or_remove_supply_position(account, &hub_asset, &position);
         let supply_index = cache.cached_market_index(&hub_asset).supply_index;
         cache.record_supply_position_update(
             events::PositionAction::ParamUpd,
             &hub_asset,
             supply_index.raw(),
             0,
-            &position,
+            &AccountPosition::from(&raw),
         );
     }
 }
