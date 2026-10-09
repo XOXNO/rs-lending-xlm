@@ -287,8 +287,10 @@ branch does not promote the quote to full debt; bad-debt cleanup takes the unbac
 residue. With `p == 0`, the target formula and dust promotion below apply instead.
 
 A partial seizure leg below 3 decimals takes whole token units only. When the
-repayment covers the whole debt, the leg rounds up to the held balance and
-the debt closes. Otherwise it rounds down: the dropped fraction's USD value,
+repayment covers the whole debt, the leg rounds up to the next whole unit,
+capped at the held balance, and the debt closes; if the pool would close the
+position at that request, the leg steps back one unit, or takes the held
+balance when that unit is the only one. Otherwise it rounds down: the dropped fraction's USD value,
 divided by `1 + bonus` and floored, is trimmed from the repayment and
 refunded, kept amounts rounding up, so the liquidator pays for the units it
 receives, and a plan that then seizes nothing reverts with `InvalidPayments`
