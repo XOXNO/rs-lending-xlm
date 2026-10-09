@@ -41,7 +41,6 @@ A price must pass three gates:
 | `quotes(keys) -> Map<PriceKey, PriceStatus>` | anyone | Soft read; a failing key returns `valid: false` with its `error_code` |
 | `price_spread(key) -> (low, high)` | anyone | The two leg prices (WAD). Fail-closed |
 | `oracle(key) -> Option<AssetOracle>` | anyone | The registered configuration |
-| `sanity_band_narrowed_at(key) -> u32` | anyone | Ledger of the key's last `set_sanity_band`, 0 if never |
 | `get_owner() -> Option<Address>` | anyone | The owner |
 | `set_oracle(key, oracle)` | owner | Registers a configuration after validation and attestation. A replacement must keep the stored `asset_decimals` (`InvalidOracleDecimals`) |
 | `set_sanity_band(key, min_wad, max_wad)` | owner | Narrows the accepted range; a wider band reverts `SanityBandMustTighten`. Live-probes first |
@@ -50,10 +49,6 @@ A price must pass three gates:
 
 Governance calls `set_sanity_band` on its immediate path. To widen a band, use
 the timelocked `ConfigureAssetOracle` operation, which calls `set_oracle`.
-`set_sanity_band` records its ledger, and governance rejects a
-`ConfigureAssetOracle` proposed at or before that ledger
-(`SanityBandNarrowedAfterProposal`), so an older reconfiguration cannot undo
-the narrowing.
 
 `seed_oracle` and `remove_oracle` write the registry with no auth, validation
 or attestation. They exist only under `cfg(test)` or the `testing` feature,

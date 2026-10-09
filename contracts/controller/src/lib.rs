@@ -525,12 +525,6 @@ impl ControllerInterface for Controller {
         storage::get_spoke_flags_epoch(&env, spoke_id, &hub_asset)
     }
 
-    /// Returns the sequence number of the current pause while paused, or
-    /// `None` while unpaused. Every pause advances it.
-    fn get_pause_epoch(env: Env) -> Option<u64> {
-        governance::pause_epoch(&env)
-    }
-
     /// Returns the configured price aggregator contract address.
     fn price_aggregator(env: Env) -> Address {
         storage::get_price_aggregator(&env)

@@ -54,9 +54,7 @@ Each spoke asset has three independent flags:
 | `no_seize` | The liquidation seizure leg. The only flag that stops a seizure |
 
 `set_spoke_asset_flags` and `edit_asset_in_spoke` can only keep or tighten a
-flag; clearing one reverts with `SpokeAssetFlagRelaxation`.
-`remove_asset_from_spoke` retains any set flag, and `add_asset_to_spoke` for
-that asset and spoke reverts the same way if it clears one. To clear, use the
+flag; clearing one reverts with `SpokeAssetFlagRelaxation`. To clear, use the
 owner-only, timelocked `relax_spoke_asset_flags`, which reverts unless
 `expected_epoch` equals the listing's flags epoch
 (`get_spoke_asset_flags_epoch`). See [`../governance/README.md`](../governance/README.md).
@@ -131,7 +129,6 @@ decimals.
 | `get_spoke_asset(spoke_id, hub_asset)` | Asset configuration in the spoke; reverts with `AssetNotInSpoke` if unlisted |
 | `get_spoke_usage(spoke_id, hub_asset)` | Supplied and borrowed usage, or zero |
 | `get_spoke_asset_flags_epoch(spoke_id, hub_asset)` | The `expected_epoch` for `relax_spoke_asset_flags`; 0 if no flag was written |
-| `get_pause_epoch()` | The current pause's epoch while paused, `None` while unpaused; every pause advances it, and `upgrade` advances it even when already paused |
 | `get_min_borrow_collateral_usd` | Minimum LTV-weighted collateral an account with debt must keep after a borrow, withdrawal or strategy call; 0 disables it |
 | `get_pool_address`, `price_aggregator` | Contract addresses |
 | `is_blend_pool_approved(pool)` | Whether `pool` is an approved migration source |

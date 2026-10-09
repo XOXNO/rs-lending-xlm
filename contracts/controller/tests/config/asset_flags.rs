@@ -96,11 +96,6 @@ fn epoch(env: &Env, asset: &Address) -> u64 {
     storage::get_spoke_flags_epoch(env, 1, &hub(asset))
 }
 
-fn listing_flags(env: &Env, asset: &Address) -> (bool, bool, bool) {
-    let config = storage::get_spoke_asset(env, 1, &hub(asset)).expect("listed");
-    (config.paused, config.frozen, config.no_seize)
-}
-
 fn listing(paused: bool, frozen: bool, no_seize: bool) -> SpokeAssetConfig {
     SpokeAssetConfig {
         is_collateralizable: true,
@@ -409,18 +404,19 @@ fn relisting_never_reuses_a_flags_epoch() {
         add_asset_to_spoke(&env, &listing_args(1, &asset, false, false, false));
         assert_eq!(epoch(&env, &asset), 1);
         set_spoke_asset_flags(&env, 1, hub(&asset), false, true, false);
+        relax_spoke_asset_flags(&env, 1, hub(&asset), 2, false, false, false);
 
         remove_asset_from_spoke(&env, hub(&asset), 1);
-        assert_eq!(epoch(&env, &asset), 2, "removal keeps the epoch");
+        assert_eq!(epoch(&env, &asset), 3, "removal keeps the epoch");
 
         add_asset_to_spoke(&env, &listing_args(1, &asset, false, true, false));
-        assert_eq!(epoch(&env, &asset), 3);
+        assert_eq!(epoch(&env, &asset), 4);
     });
 }
 
 #[test]
 #[should_panic(expected = "Error(Contract, #317)")]
-fn relisting_cannot_clear_the_flags_the_removed_listing_held() {
+fn flagged_listing_cannot_be_removed() {
     let env = Env::default();
     let contract = env.register(Controller, (Address::generate(&env),));
     let asset = Address::generate(&env);
@@ -429,14 +425,13 @@ fn relisting_cannot_clear_the_flags_the_removed_listing_held() {
         seed_spoke_and_pool(&env, 1);
         add_asset_to_spoke(&env, &listing_args(1, &asset, false, false, false));
         set_spoke_asset_flags(&env, 1, hub(&asset), true, true, false);
-        remove_asset_from_spoke(&env, hub(&asset), 1);
 
-        add_asset_to_spoke(&env, &listing_args(1, &asset, false, false, false));
+        remove_asset_from_spoke(&env, hub(&asset), 1);
     });
 }
 
 #[test]
-fn relisting_keeps_or_tightens_the_removed_listing_flags() {
+fn relaxed_listing_can_be_removed_and_relisted_open() {
     let env = Env::default();
     let contract = env.register(Controller, (Address::generate(&env),));
     let asset = Address::generate(&env);
@@ -444,31 +439,7 @@ fn relisting_keeps_or_tightens_the_removed_listing_flags() {
     env.as_contract(&contract, || {
         seed_spoke_and_pool(&env, 1);
         add_asset_to_spoke(&env, &listing_args(1, &asset, false, false, false));
-        set_spoke_asset_flags(&env, 1, hub(&asset), false, true, false);
-        remove_asset_from_spoke(&env, hub(&asset), 1);
-
-        add_asset_to_spoke(&env, &listing_args(1, &asset, false, true, true));
-        assert_eq!(listing_flags(&env, &asset), (false, true, true));
-
-        let relaxed_epoch = epoch(&env, &asset);
-        relax_spoke_asset_flags(&env, 1, hub(&asset), relaxed_epoch, false, false, false);
-        remove_asset_from_spoke(&env, hub(&asset), 1);
-        add_asset_to_spoke(&env, &listing_args(1, &asset, false, false, false));
-        assert_eq!(listing_flags(&env, &asset), (false, false, false));
-    });
-}
-
-#[test]
-fn relisting_consumes_the_retained_flags() {
-    let env = Env::default();
-    let contract = env.register(Controller, (Address::generate(&env),));
-    let asset = Address::generate(&env);
-
-    env.as_contract(&contract, || {
-        seed_spoke_and_pool(&env, 1);
-        add_asset_to_spoke(&env, &listing_args(1, &asset, false, true, false));
-        remove_asset_from_spoke(&env, hub(&asset), 1);
-        add_asset_to_spoke(&env, &listing_args(1, &asset, false, true, false));
+        set_spoke_asset_flags(&env, 1, hub(&asset), true, true, false);
         relax_spoke_asset_flags(
             &env,
             1,
@@ -478,10 +449,15 @@ fn relisting_consumes_the_retained_flags() {
             false,
             false,
         );
-        remove_asset_from_spoke(&env, hub(&asset), 1);
 
+        remove_asset_from_spoke(&env, hub(&asset), 1);
         add_asset_to_spoke(&env, &listing_args(1, &asset, false, false, false));
-        assert_eq!(listing_flags(&env, &asset), (false, false, false));
+
+        let config = storage::get_spoke_asset(&env, 1, &hub(&asset)).expect("listed");
+        assert_eq!(
+            (config.paused, config.frozen, config.no_seize),
+            (false, false, false)
+        );
     });
 }
 

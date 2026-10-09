@@ -74,35 +74,6 @@ pub(crate) fn remove_spoke_asset(env: &Env, spoke_id: u32, hub_asset: &HubAssetK
         .remove(&ControllerKey::SpokeAsset(spoke_id, hub_asset.clone()));
 }
 
-/// Stores the paused, frozen and no-seize flags of a removed listing and
-/// renews shared TTL.
-pub(crate) fn set_delisted_flags(
-    env: &Env,
-    spoke_id: u32,
-    hub_asset: &HubAssetKey,
-    flags: &(bool, bool, bool),
-) {
-    set_shared(
-        env,
-        &ControllerKey::DelistedSpokeAssetFlags(spoke_id, hub_asset.clone()),
-        flags,
-    );
-}
-
-/// Removes and returns the flags a removed listing held, if any.
-pub(crate) fn take_delisted_flags(
-    env: &Env,
-    spoke_id: u32,
-    hub_asset: &HubAssetKey,
-) -> Option<(bool, bool, bool)> {
-    let key = ControllerKey::DelistedSpokeAssetFlags(spoke_id, hub_asset.clone());
-    let flags = env.storage().persistent().get(&key);
-    if flags.is_some() {
-        env.storage().persistent().remove(&key);
-    }
-    flags
-}
-
 /// Returns scaled supply and debt usage in RAY, renewing shared TTL if present.
 pub(crate) fn get_spoke_usage(
     env: &Env,

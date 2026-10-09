@@ -191,8 +191,6 @@ pub trait ControllerInterface {
 
     fn get_spoke_asset_flags_epoch(env: Env, spoke_id: u32, hub_asset: HubAssetKey) -> u64;
 
-    fn get_pause_epoch(env: Env) -> Option<u64>;
-
     fn price_aggregator(env: Env) -> Address;
 
     fn get_min_borrow_collateral_usd(env: Env) -> i128;

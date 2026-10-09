@@ -31,8 +31,7 @@ pub(crate) fn edit_asset_in_spoke(env: &Env, args: &SpokeAssetArgs) {
 }
 
 /// Checks registration state and risk bounds, validates caps against pool
-/// decimals, then stores and emits the asset config. A new listing keeps or
-/// tightens the flags its removed predecessor held. Advances the flags epoch
+/// decimals, then stores and emits the asset config. Advances the flags epoch
 /// on a new listing or a flag change.
 fn upsert_spoke_asset(env: &Env, args: &SpokeAssetArgs, mutation: SpokeAssetMutation) {
     common_validate_risk_bounds(env, args.ltv, args.threshold, args.bonus);
@@ -56,16 +55,13 @@ fn upsert_spoke_asset(env: &Env, args: &SpokeAssetArgs, mutation: SpokeAssetMuta
                 storage::get_spoke_asset(env, args.spoke_id, &hub_asset).is_none(),
                 SpokeError::AssetAlreadyInSpoke
             );
-            if let Some(retained) = storage::take_delisted_flags(env, args.spoke_id, &hub_asset) {
-                require_flag_ratchet(env, retained, args.paused, args.frozen, args.no_seize);
-            }
             None
         }
         SpokeAssetMutation::Edit => {
             storage::get_spoke(env, args.spoke_id);
             let stored = storage::get_spoke_asset(env, args.spoke_id, &hub_asset)
                 .unwrap_or_else(|| panic_with_error!(env, SpokeError::AssetNotInSpoke));
-            require_flag_ratchet(env, flags(&stored), args.paused, args.frozen, args.no_seize);
+            require_flag_ratchet(env, &stored, args.paused, args.frozen, args.no_seize);
             Some(stored)
         }
     };
@@ -123,7 +119,7 @@ pub(crate) fn set_spoke_asset_flags(
 ) {
     let config = storage::get_spoke_asset(env, spoke_id, &hub_asset)
         .unwrap_or_else(|| panic_with_error!(env, SpokeError::AssetNotInSpoke));
-    require_flag_ratchet(env, flags(&config), paused, frozen, no_seize);
+    require_flag_ratchet(env, &config, paused, frozen, no_seize);
     write_spoke_asset_flags(env, spoke_id, hub_asset, config, paused, frozen, no_seize);
 }
 
@@ -174,29 +170,34 @@ fn write_spoke_asset_flags(
     .publish(env);
 }
 
-/// Allows only unchanged or tightened flags against the stored `(paused,
-/// frozen, no_seize)`. Clearing flags requires the timelocked
-/// `relax_spoke_asset_flags` path (ADR-0007, INV-AUTH-04).
+/// Allows only unchanged or tightened flags. Clearing flags requires the
+/// timelocked `relax_spoke_asset_flags` path (ADR-0007, INV-AUTH-04).
 fn require_flag_ratchet(
     env: &Env,
-    (was_paused, was_frozen, was_no_seize): (bool, bool, bool),
+    config: &SpokeAssetConfig,
     paused: bool,
     frozen: bool,
     no_seize: bool,
 ) {
     assert_with_error!(
         env,
-        (paused || !was_paused) && (frozen || !was_frozen) && (no_seize || !was_no_seize),
+        (paused || !config.paused) && (frozen || !config.frozen) && (no_seize || !config.no_seize),
         SpokeError::SpokeAssetFlagRelaxation
     );
 }
 
 /// Removes and emits a listed asset only when both scaled usage amounts are
-/// zero. A set paused, frozen or no-seize flag is retained for the next
-/// listing of the asset in this spoke.
+/// zero and no paused, frozen or no-seize flag is set. A flagged listing is
+/// relaxed through the timelocked `relax_spoke_asset_flags` first, so a
+/// removal and re-listing cannot clear a flag (ADR-0007, INV-AUTH-04).
 pub(crate) fn remove_asset_from_spoke(env: &Env, hub_asset: HubAssetKey, spoke_id: u32) {
     let config = storage::get_spoke_asset(env, spoke_id, &hub_asset)
         .unwrap_or_else(|| panic_with_error!(env, SpokeError::AssetNotInSpoke));
+    assert_with_error!(
+        env,
+        flags(&config) == (false, false, false),
+        SpokeError::SpokeAssetFlagRelaxation
+    );
     let usage = storage::get_spoke_usage(env, spoke_id, &hub_asset).unwrap_or_default();
     assert_with_error!(
         env,
@@ -205,10 +206,6 @@ pub(crate) fn remove_asset_from_spoke(env: &Env, hub_asset: HubAssetKey, spoke_i
     );
 
     storage::remove_spoke_asset(env, spoke_id, &hub_asset);
-    let retained = flags(&config);
-    if retained != (false, false, false) {
-        storage::set_delisted_flags(env, spoke_id, &hub_asset, &retained);
-    }
 
     RemoveSpokeAssetEvent {
         asset: hub_asset.asset,

@@ -1,6 +1,6 @@
-//! A listing edit, flag relaxation or removal-and-relisting queued before a
-//! guardian freeze cannot clear it when executed; a timely relaxation can; a
-//! `Sensitive` operation is ready at `max(min_delay, floor)`.
+//! A listing edit, flag relaxation or removal queued before a guardian freeze
+//! cannot clear it when executed; a timely relaxation can; a `Sensitive`
+//! operation is ready at `max(min_delay, floor)`.
 
 use controller::types::{HubAssetKey, PositionLimits};
 use governance::op::{
@@ -397,55 +397,62 @@ fn stale_removal_and_relisting_cannot_clear_a_guardian_freeze() {
     );
 
     gov.set_spoke_asset_flags(&guardian, &HARNESS_SPOKE, &key, &true, &true, &false);
-    let frozen_relist = relisting(&t, &key, (true, true, false));
 
     let delay = gov.get_min_delay();
     t.env.ledger().with_mut(|l| l.sequence_number += delay);
+    assert_contract_error(
+        execute_as_stranger(
+            &t,
+            "remove_asset_from_spoke",
+            soroban_sdk::vec![
+                &t.env,
+                key.clone().into_val(&t.env),
+                HARNESS_SPOKE.into_val(&t.env),
+            ],
+            7,
+        ),
+        errors::SPOKE_ASSET_FLAG_RELAXATION,
+    );
+    let held = t.ctrl_client().get_spoke_asset(&HARNESS_SPOKE, &key);
+    assert!(held.paused && held.frozen);
+    assert_contract_error(
+        t.try_supply(ALICE, "USDC", 10.0),
+        errors::SPOKE_ASSET_PAUSED,
+    );
+
+    // Relax first through the timelocked path, then the removal and a
+    // re-listing proposed afterwards both land.
+    let epoch = t
+        .ctrl_client()
+        .get_spoke_asset_flags_epoch(&HARNESS_SPOKE, &key);
+    let relax = clear_all(&key, epoch);
+    gov.propose(
+        &t.admin(),
+        &AdminOperation::RelaxSpokeAssetFlags(relax.clone()),
+        &salt(&t.env, 9),
+    );
+    t.env.ledger().with_mut(|l| l.sequence_number += delay);
+    execute_relax_as_stranger(&t, &relax, 9).expect("the relaxation clears the flags");
     execute_as_stranger(
         &t,
         "remove_asset_from_spoke",
         soroban_sdk::vec![
             &t.env,
             key.clone().into_val(&t.env),
-            HARNESS_SPOKE.into_val(&t.env)
+            HARNESS_SPOKE.into_val(&t.env),
         ],
         7,
     )
-    .expect("the zero-usage listing is removed");
-    assert_contract_error(
-        execute_as_stranger(
-            &t,
-            "add_asset_to_spoke",
-            soroban_sdk::vec![&t.env, stale_relist.into_val(&t.env)],
-            8,
-        ),
-        errors::SPOKE_ASSET_FLAG_RELAXATION,
-    );
-    assert_contract_error(
-        t.try_supply(ALICE, "USDC", 10.0),
-        errors::ASSET_NOT_IN_SPOKE,
-    );
-
-    // A relisting proposed after the freeze, carrying its flags, still lands.
-    gov.propose(
-        &proposer,
-        &AdminOperation::AddAssetToSpoke(frozen_relist.clone()),
-        &salt(&t.env, 9),
-    );
-    t.env.ledger().with_mut(|l| l.sequence_number += delay);
+    .expect("the relaxed listing is removed");
     execute_as_stranger(
         &t,
         "add_asset_to_spoke",
-        soroban_sdk::vec![&t.env, frozen_relist.into_val(&t.env)],
-        9,
+        soroban_sdk::vec![&t.env, stale_relist.into_val(&t.env)],
+        8,
     )
-    .expect("a relisting that keeps the retained flags executes");
+    .expect("the re-listing lands on a relaxed listing");
     let after = t.ctrl_client().get_spoke_asset(&HARNESS_SPOKE, &key);
-    assert!(after.paused && after.frozen && !after.no_seize);
-    assert_contract_error(
-        t.try_supply(ALICE, "USDC", 10.0),
-        errors::SPOKE_ASSET_PAUSED,
-    );
+    assert!(!after.paused && !after.frozen && !after.no_seize);
 }
 
 struct SensitiveCase {

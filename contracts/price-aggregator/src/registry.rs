@@ -1,41 +1,17 @@
 //! Persistent storage of oracle configurations: keyed lookup and storage with TTL
-//! extension, the registered-keys index, the ledger of each key's last band
-//! narrowing, and the event emitted on configuration changes.
+//! extension, the registered-keys index, and the event emitted on configuration
+//! changes.
 
 use common::constants::{TTL_BUMP_SHARED, TTL_THRESHOLD_SHARED};
 use common::types::{AssetOracle, PriceKey};
 use soroban_sdk::{contractevent, contracttype, Env, Vec};
 
 /// Storage keys: `Oracle` (persistent) holds one asset oracle's configuration,
-/// `OracleKeys` (instance) indexes all registered oracle keys, and
-/// `BandNarrowedAt` (persistent) holds the ledger of a key's last
-/// `set_sanity_band`.
+/// and `OracleKeys` (instance) indexes all registered oracle keys.
 #[contracttype]
 enum AggregatorKey {
     Oracle(PriceKey),
     OracleKeys,
-    BandNarrowedAt(PriceKey),
-}
-
-/// Records the current ledger as `key`'s last band narrowing, extending the
-/// entry's persistent-storage TTL.
-pub(crate) fn record_band_narrowing(env: &Env, key: &PriceKey) {
-    let storage_key = AggregatorKey::BandNarrowedAt(key.clone());
-    env.storage()
-        .persistent()
-        .set(&storage_key, &env.ledger().sequence());
-    env.storage()
-        .persistent()
-        .extend_ttl(&storage_key, TTL_THRESHOLD_SHARED, TTL_BUMP_SHARED);
-}
-
-/// Returns the ledger of `key`'s last band narrowing, or 0 if its band was
-/// never narrowed.
-pub(crate) fn band_narrowed_at(env: &Env, key: &PriceKey) -> u32 {
-    env.storage()
-        .persistent()
-        .get(&AggregatorKey::BandNarrowedAt(key.clone()))
-        .unwrap_or(0)
 }
 
 /// Returns the list of all currently registered oracle keys, or an empty list
