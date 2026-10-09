@@ -4,16 +4,18 @@
 //! check panics with the corresponding `OracleError` or `GenericError`
 //! variant when the configuration is invalid.
 
-use common::constants::{MAX_ASSET_DECIMALS, MAX_REASONABLE_PRICE_WAD, MIN_ASSET_DECIMALS, WAD};
+use common::constants::{
+    BPS, MAX_ASSET_DECIMALS, MAX_REASONABLE_PRICE_WAD, MIN_ASSET_DECIMALS, WAD,
+};
 use common::errors::{GenericError, OracleError};
 use common::math::fp_core::mul_div_ceil;
 use common::oracle::observation::{
-    MAX_LEG_AGE_SPREAD_SECONDS, MAX_ORACLE_DECIMALS, MAX_PRICE_STALE_SECONDS, MIN_ORACLE_DECIMALS,
-    MIN_PRICE_STALE_SECONDS,
+    MAX_LEG_AGE_SPREAD_SECONDS, MAX_ORACLE_DECIMALS, MAX_PRICE_STALE_SECONDS,
+    MAX_SINGLE_SOURCE_SANITY_BAND_BPS, MIN_ORACLE_DECIMALS, MIN_PRICE_STALE_SECONDS,
 };
 use common::types::{
-    AquariusLpSource, FeedSource, IndependencePolicy, OracleReadMode, PriceKey, PriceSource,
-    ProviderRef, ScaledSource, MAX_RESOLUTION_DEPTH, MAX_SOURCES, MIN_SOURCES,
+    AquariusLpSource, FeedSource, IndependencePolicy, OracleReadMode, OracleTolerance, PriceKey,
+    PriceSource, ProviderRef, ScaledSource, MAX_RESOLUTION_DEPTH, MAX_SOURCES, MIN_SOURCES,
 };
 use common::validation::validate_twap_records;
 use soroban_sdk::{panic_with_error, Address, Env, Vec};
@@ -111,28 +113,40 @@ pub(crate) fn independence(
     }
 }
 
-/// Widest factor range, `max_factor_wad / min_factor_wad` in WAD, through
-/// which a contract trusted by both legs of a pair may serve a `Scaled` leg
-/// before the pair loses its band-cap exemption.
-pub(crate) const MAX_SHARED_FACTOR_RANGE_WAD: i128 = WAD + WAD / 10;
+/// Ratio between the edges of the widest single-source sanity band,
+/// `(BPS + cap) / (BPS - cap)` in WAD: 11/9.
+const CAP_RATIO_WAD: i128 =
+    (BPS + MAX_SINGLE_SOURCE_SANITY_BAND_BPS) * WAD / (BPS - MAX_SINGLE_SOURCE_SANITY_BAND_BPS);
 
 /// Returns whether `contract`, trusted by both legs of `sources`, serves some
-/// top-level `Scaled` leg through its factor with a range no wider than
-/// `MAX_SHARED_FACTOR_RANGE_WAD`. The contract can move that leg by at most
-/// the factor range, so the other leg still cross-checks it. A contract that
-/// reaches every leg through a plain `Feed`, or through a wider factor, moves
-/// both legs together and the pair keeps the single-source band cap. Nested
-/// keys are not inspected: each is admitted and band-capped by its own
-/// `set_oracle`.
+/// top-level `Scaled` leg through its factor such that the factor range
+/// `max_factor_wad / min_factor_wad`, times the pair's tolerance ratio
+/// `(BPS + upper) / (BPS + lower)`, stays within `CAP_RATIO_WAD`. Both
+/// ratios round up.
+///
+/// One such leg is enough: the contract moves it by at most the factor range,
+/// and whatever it does to the other leg, the pair only prices while that leg
+/// sits within the tolerance of the anchored one, so the blended price moves
+/// by at most range times tolerance. A contract that reaches every leg through
+/// a plain `Feed`, or only through a wider factor, moves both legs together
+/// and the pair keeps the single-source band cap. Nested keys are not
+/// inspected: each is admitted and band-capped by its own `set_oracle`.
 pub(crate) fn shared_contract_is_range_bounded(
     env: &Env,
     contract: &Address,
     sources: &Vec<PriceSource>,
+    tolerance: &OracleTolerance,
 ) -> bool {
+    let tolerance_ratio_wad = mul_div_ceil(
+        env,
+        WAD,
+        BPS + i128::from(tolerance.upper_ratio_bps),
+        BPS + i128::from(tolerance.lower_ratio_bps),
+    );
     sources.iter().any(|source| match source {
         PriceSource::Scaled(scaled) if scaled.factor.provider.contract() == contract => {
-            mul_div_ceil(env, scaled.max_factor_wad, WAD, scaled.min_factor_wad)
-                <= MAX_SHARED_FACTOR_RANGE_WAD
+            let range_wad = mul_div_ceil(env, scaled.max_factor_wad, WAD, scaled.min_factor_wad);
+            mul_div_ceil(env, range_wad, tolerance_ratio_wad, WAD) <= CAP_RATIO_WAD
         }
         _ => false,
     })

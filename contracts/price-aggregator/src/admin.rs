@@ -170,7 +170,7 @@ pub(crate) fn validate_asset_oracle(env: &Env, key: &PriceKey, oracle: &AssetOra
         );
     } else {
         // A pair cross-checks its band only when no contract trusted by both
-        // legs can move them together.
+        // legs can move the blended price past the single-source cap.
         let exempt_from_band_cap = derived.second.as_ref().is_some_and(|second| {
             !validation::same_address_set(&derived.first.trust, &second.trust)
                 && derived
@@ -182,6 +182,7 @@ pub(crate) fn validate_asset_oracle(env: &Env, key: &PriceKey, oracle: &AssetOra
                             env,
                             &contract,
                             &oracle.sources,
+                            &oracle.tolerance,
                         )
                     })
         });

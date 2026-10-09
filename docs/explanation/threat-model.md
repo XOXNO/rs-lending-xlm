@@ -198,11 +198,13 @@ reports `p1` and `p2` in the same band have `p1 / p2 <= u = max / min`. The
 
 A pair escapes the cap only when its legs trust different contract sets and
 every contract they share serves some top-level `Scaled` leg through a factor
-with a `max/min` range of at most 1.1, so that contract moves that leg by at
-most 10% and the other leg still cross-checks it. A contract that reaches
-every leg through a plain feed, or through a wider factor, moves both legs
-together and the pair keeps the cap. Nested keys are not inspected; each is
-band-capped by its own admission.
+whose `max/min` range, times the pair's tolerance ratio, is at most `11/9`:
+the contract moves that leg by the factor range, and the other leg only prices
+within the tolerance of it. A contract that reaches every leg through a plain
+feed, or through a wider factor, moves both legs together and the pair keeps
+the cap. Nested keys are not inspected; each is band-capped by its own
+admission. The accepted residual: a shared contract that also serves a nested
+quote key can move the pair further, by up to that key's own band ratio.
 
 Lender safety depends only on the reported collateral prices. Bad debt occurs
 only when the reported collateral is less than the debt. Take one collateral
