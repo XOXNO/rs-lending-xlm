@@ -484,6 +484,130 @@ bound a single threshold cut (for example 500 bps per operation) so a ratchet
 takes several delays. The threat model's sentence on proposer powers should
 also name forced socialization, spoke removal and manager re-activation.
 
+## Fourth pass: second opinion on the Specula findings
+
+The protocol team received a TLA+-driven audit (Specula, run against commit
+a2486b25, which is the base of this branch; no contract source changed since).
+It reported 28 reproduced findings, 3 masked and 2 unfinished across the price
+oracle, governance and the lending core. Every one of them was re-derived here
+against HEAD by an independent reviewer, and every confirmation rated medium or
+above was handed to a second agent whose only job was to refute it or break the
+proposed fix. The reviewers wrote 22 harness binaries (`rv_specula_g1` through
+`rv_specula_o8`, 61 tests) that drive each mechanism through production entry
+points; all pass under an independent re-run.
+
+Outcome: 33 of 35 items are confirmed, most with corrections to location,
+precondition or reach; 2 are documented design. None was refuted. None of the
+7 challenges overturned a confirmation. The headline disagreement is severity,
+in both directions: the auditors' three High governance items and the High
+oracle item are medium or low here, and the item they dropped as already known
+is the one we rate high.
+
+### Verdict table
+
+Rating is the auditors' DeFi severity; ours weighs reachability under the
+mainnet configuration in this repository and who loses.
+
+| Target | ID | Auditors | Ours | Verdict and the correction that matters |
+|---|---|---|---|---|
+| Oracle | CR-1 | High | low | Confirmed. A Scaled leg with a Fundamental factor is labelled Fundamental, so the 3,600 s Market+Market spread bound is skipped. Needs a second config deviation to bite (a multi-hour market budget in the quote's subtree); no mainnet oracle has a Market partner for a Scaled leg; the blend's deviation check still bounds the drift to half the tolerance |
+| Oracle | CR-2 | Low | low | Confirmed. Same root; the misfire direction trips when a Fundamental sibling two levels down ages the Scaled leg's stamp. Not reachable with the mainnet shapes |
+| Oracle | MC-1 | Medium | medium | Confirmed. A ready `ConfigureAssetOracle` stores the whole oracle, band included, so a permissionless execute undoes an ORACLE narrowing for the entire grace window. Mirror of the flags epoch; the attacker only chooses timing of an owner-made proposal |
+| Oracle | CR-6 | Medium | low | Confirmed. `revalidate_dependents` reads every registered oracle; the cap is the per-transaction footprint limit (400 entries in the SDK snapshot), reached near 380 to 390 keys. Mainnet has about 32 keys |
+| Oracle | CR-7 | Low | low | Confirmed. The band-cap exemption tests trust-set inequality, not disjointness; a shared provider can move the price only within the factor bounds times the tolerance. Option A would break the mainnet SolvBTC band at the next revalidation |
+| Oracle | CR-10 | Low | low | Confirmed. `attest` admits a TWAP whose oldest sample is always past the budget; the safe bound is (records + 2) times the resolution |
+| Oracle | CR-11 | Low | low | Confirmed. Narrower than "never produces a price": the dual is valid whenever the partner lags enough; at the mainnet 300 s resolution the window can at most equal the bound |
+| Oracle | CR-13 | Low | low | Confirmed. `solve_stable_d` traps at line 52 for a one-stroop leg against a leg at the reserve guard; the final multiplication never traps. Checked arithmetic closes it |
+| Oracle | CR-16 | Low | low | Confirmed and wider: any unusable price of any supplied token blocks the full-tuple refresh of a debt-free account; the one-line guard closes it |
+| Oracle | MC-2 | masked | informational | Depth half confirmed, cycle half refuted (that error is position-independent). Only `quotes` can observe it |
+| Governance | MC-1 | High | medium | Confirmed, corrected: the flags are cleared on the add arm of the listing upsert, which skips the ratchet; removal keeps the epoch. The proposed fix does not close the class (a pre-queued listing of the same asset in another spoke or hub is unflagged too); an asset-level freeze epoch checked at execution does |
+| Governance | MC-2 | High | medium | Confirmed and wider: every owner-only operation the previous owner queued survives the handover, upgrades included. The guard belongs in `prepare_execute`, which serves all three execute paths. The new owner holds the canceller role and can cancel leftovers it can see |
+| Governance | MC-3 | High | medium | Confirmed, corrected: not "known in #90"; that merged PR documents owner-only, non-cancellable and slow, not survival across a handover. The chain of stale resets is finite (about 37 days after the handover). Storing an address in the recovery marker breaks live entries; reuse the owner-epoch sidecar instead |
+| Governance | MC-4 | Medium | medium | Confirmed for `Unpause`: a reopen proposed while open stays ready and lands the moment a guardian pauses, bundleable with the exploit. The band arm is oracle MC-1 again; the tolerance arm does not widen. A freeze runbook already tells operators to cancel pending reopens; the invariants assume the delay is served after the pause |
+| Governance | MC-5 | Medium | medium | Confirmed. Nothing orders ready operations; in an incident an `Unpause` proposed with a controller fix runs first and reopens the old code, and at the 7-day target tiers it is ready five days before the fix. Restoring the predecessor needs the Done marker kept and the self-execute path to carry it |
+| Governance | MC-6 | Medium | low | Confirmed, exact count depends on the owner's address kind and the live event-size limit, which could not be read here. Needs a malicious previous owner. A cap on growth closes it |
+| Governance | CR-1 | Medium | low | Confirmed. One-shot, bounded to the grace window, only against the same nominee. An idempotent zero-deadline cancel closes it without an interface change |
+| Governance | CR-6 | Low | informational | Confirmed; the ordinary-op variant is already pinned as accepted, the stuck recovery salt has no consequence |
+| Governance | CR-4 | masked | informational | Confirmed doc drift: four places cite the older OpenZeppelin revision |
+| Governance | CR-8 | dropped | high | Documented design, and the enabling condition for everything above: both tiers are 12 ledgers on mainnet and testnet, so a proposal is executable by anyone about one minute later. Raising the minimum delay is a Standard-tier operation that waits 12 ledgers |
+| Lending | MC-1 | Medium | low | Confirmed. A fully repaid coarse debt leg is credited at its ceiling-rounded amount; the crossing needs an account within one debt unit of insolvency, under a cent on the mainnet listings. Credit the cleared WAD value instead |
+| Lending | MC-2 | Medium | low | Confirmed, corrected: at most half a unit per leg stays in the pool as ownerless cash; nothing is burned and the socialization is not caused by it. Use the burned-shares result of `resolve_withdrawal`; the one-unit-lower variant is worse than the defect |
+| Lending | MC-3 | Medium | low | Confirmed exactly. The `seize_all` tolerance is one unit of every kept repayment leg, so an untrimmed under-offer within that sum takes all collateral. Bounded by the unit value of borrowable listings (under one cent on mainnet, dollars only with a coarse high-priced listing). Set it only when the pre-trim offer reached the quote |
+| Lending | MC-4 | Medium | low | Confirmed, corrected: not "no path"; the liquidator can supply the cash-less asset first and seize in Transfer mode. The Credit(0) limit fix is still right |
+| Lending | MC-5 | Medium | low | Confirmed under a precondition the table omits: the open legs' debt must back less than one whole collateral unit. The proposed rounding fix does not close its own reproduction; document the exception |
+| Lending | CR-21 | Medium | medium | Confirmed, corrected site: the panic is in the accrual kernel reached from `get_bulk_indexes`, so every valuation of an account holding the overflowed market reverts (views, withdraw, borrow, liquidation, cleanup); repay and supply still work. Recovery is upgrade-only |
+| Lending | CR-20 | dropped | low | Documented arithmetic limit; the docs understate its reach, not its existence |
+| Lending | CR-1 | Low | low | Confirmed; the reopened reported shortfall is at most one unit. Two-line RAY-precision fix |
+| Lending | CR-2 | Low | low | Confirmed; the invariant text, not the code, is what it contradicts. One guard in `mint_debt` closes it |
+| Lending | CR-10 | Low | informational | Confirmed; only listings whose threshold-to-LTV ratio is under 1.05 can end a withdraw there, and it needs a pending liquidator-favouring edit |
+| Lending | CR-11 | Low | informational | Confirmed in the protocol-conservative direction only |
+| Lending | CR-19 | Low | informational | Confirmed: the batch event, not the flash-position event, reports the entry owner. One-line re-read |
+| Lending | CR-7 | masked | informational | Confirmed and stronger: with collateral equal to debt the cap is at most zero, so both Certora rules are vacuous. Repair them as three rules, one per arm |
+| Lending | CR-24 | unfinished | informational | Confirmed test-fidelity gap: seeded cash without shares hides the backing gates in default fixtures |
+| Lending | CR-25 | unfinished | low | Confirmed: the Credit-mode estimate skips every receiver gate |
+
+### What the review changes about priorities
+
+**Before mainnet growth.** Raise the configured minimum delay. Every
+governance item above is an ordering or binding gap whose documented control is
+a canceller veto, and the veto has no window at 12 ledgers. Until the epoch
+fixes land, the freeze runbook's rule should be the general one: after any
+emergency action or ownership handover, cancel every pending operation that
+could undo it.
+
+**Next release, one mechanism for the governance family.** A single owner
+epoch stamped on owner-only proposals (the recovery reset included) and checked
+in `prepare_execute` closes MC-2 and MC-3 without a storage-type change. A
+pause epoch carried by `Unpause` closes MC-4; a per-key band epoch carried by
+`ConfigureAssetOracle` closes oracle MC-1; an asset-level freeze epoch checked
+by `AddAssetToSpoke` closes MC-1 for every spoke and hub. MC-5 needs the
+predecessor restored and the Done marker kept, which flips two pins in
+`rv_gov_identity` and the same-salt re-proposal rule, so it is the one change
+to design rather than patch. The lending items are small, local and
+independent: the pre-trim `seize_all` condition, crediting the cleared debt,
+using the burned-shares result, the `mint_debt` guard, the RAY-precision
+shortfall, the debt-free skip in `update_account_threshold`, the Credit(0)
+limit, the estimate's receiver gates, and checked arithmetic in the stable-LP
+pricer. CR-21 is the exception: it needs the accrual kernel to stop trapping,
+and the proposed "skip frozen legs" variant must be rejected because it
+misstates health.
+
+**Documentation.** Four OpenZeppelin revision citations, the ADR-0008 exception
+for whole-unit collateral, the INV-ACCT-09 scope wording, the proposer-power
+sentence in the threat model, and the two vacuous Certora rules.
+
+### Follow-up answers from the protocol team's questions
+
+**Does the seven-day timelock fix governance?** It restores the control the
+design relies on, not the role boundary. With the minimum raised to the
+120,960-ledger target, Standard and Sensitive both wait seven days and Recovery
+thirty, the update is one-way, and a canceller or a user has a week to act on
+anything a proposer schedules. What stays: a non-owner proposer still holds
+liquidation-terms authority, and `revoke_role_immediate` covers only the
+guardian and oracle roles, so a stolen proposer key is removed only after a
+Sensitive delay while each of its proposals is cancelled one by one. MC-5 also
+gets worse at the target tiers, because a reopen proposed with an incident fix
+is ready five days before the fix. The fix set is the delay, an immediate
+revocation path for the proposer and executor roles, and either the owner-only
+set widened to threshold cuts, curve edits, forced socialization and manager
+activation, or a per-operation bound on threshold decreases.
+
+**Router dust and the fee system.** The balance the team sees on the mainnet
+router is the admin residual bucket, not a fee: every `execute_strategy`
+accrues each token left in its vault, up to the larger of 1,000 base units or
+one millionth of what it credited, into `AdminFee` and `ReservedTotal`, and
+anything above that reverts. LP mint routes leave exactly this kind of
+remainder when the pool takes less of a constituent than it was offered, and
+split routes leave it from parts-per-million rounding. It is claimable with
+`claim_admin_fees`. No fee was ever charged because fees require a nonzero
+active referral id in the payload byte the sender controls; a referral-less
+route pays nothing even when a static fee is set. The ledger that wrote each
+bucket is the entry's last-modified ledger, readable with the storage key
+`AdminFee(token)`; the on-chain check could not run from this environment
+because its network policy denies the Stellar hosts. That LP mints settled on
+mainnet also answers R-A above: the live pool's pull matches the router's
+exact-amount grant.
+
 ## Scope and limits
 
 - The harness registers the controller natively and uses mocked
@@ -491,6 +615,9 @@ also name forced socialization, spoke removal and manager re-activation.
   owner, delegate and NFT checks are. The existing rogue-hop tests under `tests/test-harness/tests/strategy/` cover
   enforced authorization trees.
 - The XOXNO oracle contract and the position NFT are outside these passes.
+  The Specula review verified mechanisms, not the auditors' own reproduction
+  files, which were not available here; four on-chain facts (registry size,
+  SolvBTC bounds, the TWAP setting, the event-size limit) remain unchecked.
   The router was exercised against in-crate venue doubles and, behind the
   controller, as its production WASM; no live venue was reached.
 - The test environment restores expired entries, so multi-year jumps do not
