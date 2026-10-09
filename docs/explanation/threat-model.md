@@ -81,8 +81,12 @@ execute with no executor identity and in any order. An executed controller
 upgrade advances the emergency epoch, so an `Unpause` proposed before it
 reverts; one proposed after the upgrade was proposed but before it executed
 can still reopen the old code for at most one delay, an accepted residual.
-Operations scheduled without a guard are not checked. Supplying an executor
-identity requires its authorization and EXECUTOR role. Executor/canceller separation exempts the governance owner.
+Operations scheduled without a guard are not checked: an owner-only
+operation queued before the governance code that records guards was deployed
+stays executable across a later ownership handover. Before that upgrade,
+list the pending operations and cancel or re-propose the owner-only ones
+afterwards. Supplying an executor identity requires its authorization and
+EXECUTOR role. Executor/canceller separation exempts the governance owner.
 A revocation target cannot cancel its own removal, but an independent canceller
 can veto it. Owner-proposed Recovery operations cannot be cancelled and replace
 cancellers after their delay; they do not recover a lost owner key. A

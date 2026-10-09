@@ -57,6 +57,20 @@ epoch, so a pending `Unpause` stays valid.
 `editAssetInSpoke` refuses a config that sets a live flag to `false` and names
 this verb instead.
 
+## Remove a flagged listing
+
+`remove_asset_from_spoke` reverts with `SpokeAssetFlagRelaxation` while any
+flag is set, so a frozen listing cannot be delisted in one step. The
+relaxation reopens entry, and the removal still needs zero usage, so a deposit
+that lands between the two executions blocks the removal.
+
+1. Schedule `RelaxSpokeAssetFlags` for every live flag and
+   `removeAssetFromSpoke` for the same listing with `AUTO_EXECUTE=0`.
+   `RemoveAssetFromSpoke` has no proposal-time flag check, so both can wait
+   together.
+2. After the delay, execute the two operations in one transaction, relaxation
+   first. No deposit can land between them.
+
 ## Notes
 
 - `paused` stops repayment of that asset too, and interest continues. A borrower
