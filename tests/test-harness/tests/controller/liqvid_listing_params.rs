@@ -44,15 +44,15 @@ const MAX_COLLATERAL_USD: i128 = 1_000_000;
 const BONUS_AT_HF_ONE: i128 = 688;
 const MAX_BONUS: i128 = 1_000;
 
-struct Params {
-    t: LendingTest,
-    spoke: u32,
-    hub: u32,
-    liq: Address,
-    usdc: Address,
+pub(crate) struct Params {
+    pub(crate) t: LendingTest,
+    pub(crate) spoke: u32,
+    pub(crate) hub: u32,
+    pub(crate) liq: Address,
+    pub(crate) usdc: Address,
     pool: Address,
     adapter: Address,
-    nav_ref: i128,
+    pub(crate) nav_ref: i128,
 }
 
 /// Supply cap in whole shares for `MAX_COLLATERAL_USD` at the band ceiling.
@@ -93,7 +93,7 @@ fn setup(nav_cents: i128) -> Params {
 }
 
 /// `setup` with the share listed at liquidation threshold `threshold`.
-fn setup_with_threshold(nav_cents: i128, threshold: u32) -> Params {
+pub(crate) fn setup_with_threshold(nav_cents: i128, threshold: u32) -> Params {
     let nav_ref = usd_cents(nav_cents);
     let t = LendingTest::new()
         .with_market(MarketPreset {
@@ -189,7 +189,7 @@ impl Params {
         RwaGatedTokenClient::new(&self.t.env, &self.liq)
     }
 
-    fn allow(&self, who: &Address) {
+    pub(crate) fn allow(&self, who: &Address) {
         self.token()
             .add_to_allowlist(&vec![&self.t.env, who.clone()]);
     }
@@ -200,7 +200,7 @@ impl Params {
 
     /// The single Xoxno NAV feed, the band around `nav_ref` and the
     /// staleness budget of the listing.
-    fn nav_oracle(&self) -> AssetOracle {
+    pub(crate) fn nav_oracle(&self) -> AssetOracle {
         let key = PriceKey::Token(self.liq.clone());
         let mut oracle = self.t.price_agg_client().oracle(&key).unwrap();
         let xoxno = xoxno_single_config(
@@ -221,7 +221,7 @@ impl Params {
         oracle
     }
 
-    fn configure_oracle(&self, oracle: AssetOracle) -> Result<(), Error> {
+    pub(crate) fn configure_oracle(&self, oracle: AssetOracle) -> Result<(), Error> {
         let admin = self.t.admin();
         match self.t.gov_client().try_execute_immediate(
             &admin,
@@ -237,7 +237,7 @@ impl Params {
     }
 
     /// Posts a NAV per share signed now.
-    fn post_nav(&self, nav_wad: i128) {
+    pub(crate) fn post_nav(&self, nav_wad: i128) {
         MockRedStonePriceFeedClient::new(&self.t.env, &self.adapter)
             .set_price(&self.feed_id(), &nav_wad);
     }
@@ -253,21 +253,21 @@ impl Params {
         );
     }
 
-    fn liq_key(&self) -> HubAssetKey {
+    pub(crate) fn liq_key(&self) -> HubAssetKey {
         HubAssetKey {
             hub_id: self.hub,
             asset: self.liq.clone(),
         }
     }
 
-    fn usdc_key(&self) -> HubAssetKey {
+    pub(crate) fn usdc_key(&self) -> HubAssetKey {
         HubAssetKey {
             hub_id: HARNESS_HUB,
             asset: self.usdc.clone(),
         }
     }
 
-    fn user(&mut self, name: &str) -> Address {
+    pub(crate) fn user(&mut self, name: &str) -> Address {
         self.t.get_or_create_user(name)
     }
 
@@ -279,7 +279,7 @@ impl Params {
         token::Client::new(&self.t.env, &self.usdc).balance(who)
     }
 
-    fn try_supply(&mut self, name: &str, units: i128) -> Result<u64, Error> {
+    pub(crate) fn try_supply(&mut self, name: &str, units: i128) -> Result<u64, Error> {
         let who = self.user(name);
         self.allow(&who);
         self.token().mint(&who, &units);
@@ -295,7 +295,12 @@ impl Params {
         }
     }
 
-    fn try_borrow(&mut self, name: &str, account_id: u64, usdc_raw: i128) -> Result<(), Error> {
+    pub(crate) fn try_borrow(
+        &mut self,
+        name: &str,
+        account_id: u64,
+        usdc_raw: i128,
+    ) -> Result<(), Error> {
         let who = self.user(name);
         match self.t.ctrl_client().try_borrow(
             &who,
@@ -362,7 +367,7 @@ impl Params {
             .get_collateral_amount(&account_id, &self.liq_key())
     }
 
-    fn debt_raw(&self, account_id: u64) -> i128 {
+    pub(crate) fn debt_raw(&self, account_id: u64) -> i128 {
         self.t
             .ctrl_client()
             .get_borrow_amount(&account_id, &self.usdc_key())
