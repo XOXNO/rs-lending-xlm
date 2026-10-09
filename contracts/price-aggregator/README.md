@@ -51,6 +51,9 @@ A price must pass three gates:
 
 Governance calls `set_sanity_band` on its immediate path. To widen a band, use
 the timelocked `ConfigureAssetOracle` operation, which calls `set_oracle`.
+Governance binds that operation to the band it reads from `oracle` at
+proposal, so a narrowing in between makes the older reconfiguration revert
+(`OracleBandChangedAfterProposal`).
 
 `seed_oracle` and `remove_oracle` write the registry with no auth, validation
 or attestation. They exist only under `cfg(test)` or the `testing` feature,

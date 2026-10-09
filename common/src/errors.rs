@@ -94,6 +94,18 @@ pub enum GenericError {
     PositionNftAlreadyDeployed = 54,
 
     DivisionByZero = 55,
+
+    /// The `CANCELLER` role would exceed `MAX_CANCELLERS` holders.
+    CancellerLimitExceeded = 56,
+
+    /// An `Unpause` or `GrantGovRole` executes after an emergency action
+    /// (guardian pause, controller upgrade or immediate role revocation)
+    /// taken since its proposal.
+    EmergencyEpochMismatch = 57,
+
+    /// A `ConfigureAssetOracle` executes although the key's sanity band
+    /// changed since its proposal.
+    OracleBandChangedAfterProposal = 58,
 }
 
 /// Error codes for collateral, position, interest-rate-curve, and

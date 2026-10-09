@@ -29,6 +29,15 @@ bound payload only after its delay and within its grace window. Target
 contracts also validate at execution. Completed operations require a fresh
 proposal and delay before reuse.
 
+Every proposal also records a guard: the governance state the operation is
+bound to. An owner-only operation records the owner epoch, so a handover voids
+the former owner's queued operations. `Unpause` and role grants record the
+emergency epoch, which a guardian pause, an executed controller upgrade and an
+immediate revocation advance, so an emergency voids what was queued before it.
+An oracle reconfiguration records the band it was proposed under. Operations
+carry no predecessor, so an `Unpause` proposed after an upgrade is proposed,
+but before it executes, can still reopen the old code for at most one delay.
+
 Execution is permissionless when the executor identity is omitted. Cancellation
 and owner-dependent recovery have distinct rules. Their security depends on
 the effective review window and key custody; see
@@ -39,12 +48,16 @@ the effective review window and key custody; see
 ### ADR-0007: Emergency ratchet
 
 Immediate guardian actions can pause the controller and tighten listing flags.
-Reopening uses delayed administration. A listing edit can keep or tighten flags
-but never clears one. Clearing is a separate timelocked operation,
+Reopening uses delayed administration; every guardian pause advances the
+emergency epoch, so an `Unpause` proposed before a later pause reverts when
+executed. A listing edit can keep or tighten flags but never clears one, and a
+listing with a set flag cannot be removed. Clearing is a separate timelocked operation,
 `relax_spoke_asset_flags`, bound to the listing's flags epoch. Every guardian
 flag call and every flag change advances the epoch, so a relaxation proposed
 before a later guardian action reverts when executed. The ORACLE role can
-narrow sanity bands; widening requires timelocked oracle reconfiguration.
+narrow sanity bands; widening requires timelocked oracle reconfiguration
+proposed under the current band, since a `ConfigureAssetOracle` reverts once
+the band it was proposed under has changed.
 The [listing-freeze runbook](../reference/runbooks/freeze-a-listing.md) gives the
 operator steps.
 

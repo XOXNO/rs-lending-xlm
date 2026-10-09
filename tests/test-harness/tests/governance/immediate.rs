@@ -1,6 +1,9 @@
-use governance::op::{AdminOperation, RelaxSpokeAssetFlagsArgs, RoleArgs};
-use soroban_sdk::testutils::Address as _;
-use soroban_sdk::{Address, Symbol};
+use common::errors::GenericError;
+use governance::op::{
+    AdminOperation, ConfigureAssetOracleArgs, RelaxSpokeAssetFlagsArgs, RoleArgs,
+};
+use soroban_sdk::testutils::{Address as _, Ledger as _};
+use soroban_sdk::{contracttype, Address, BytesN, IntoVal, Symbol};
 use test_harness::{
     assert_contract_error, errors, hub_asset, usd, usdc_preset, LendingTest, ALICE, HARNESS_SPOKE,
 };
@@ -341,4 +344,174 @@ fn owner_revokes_role_immediately() {
         let result = gov.try_revoke_role_immediate(&admin, &Symbol::new(&t.env, role));
         assert_contract_error(flatten(result), errors::INVALID_ROLE);
     }
+}
+
+/// Executes the Ready `ConfigureAssetOracle` for `args` with no signature.
+fn execute_oracle_config_as_stranger(
+    t: &LendingTest,
+    args: &ConfigureAssetOracleArgs,
+    salt: &BytesN<32>,
+) -> Result<(), soroban_sdk::Error> {
+    let gov = t.gov_iface_client();
+    let resolved = gov.resolve_asset_oracle(&args.key, &args.oracle);
+    t.env.set_auths(&[]);
+    let result = flatten(gov.try_execute(
+        &None,
+        &t.price_aggregator,
+        &Symbol::new(&t.env, "set_oracle"),
+        &soroban_sdk::vec![
+            &t.env,
+            args.key.clone().into_val(&t.env),
+            resolved.into_val(&t.env)
+        ],
+        &BytesN::from_array(&t.env, &[0u8; 32]),
+        salt,
+    ));
+    t.env.mock_all_auths_allowing_non_root_auth();
+    result
+}
+
+#[test]
+fn oracle_reconfiguration_queued_before_a_band_narrowing_cannot_widen_it() {
+    let t = LendingTest::new().with_market(usdc_preset()).build();
+    let gov = t.gov_iface_client();
+    let admin = t.admin();
+    let usdc = t.resolve_asset("USDC");
+    let key = controller::types::PriceKey::Token(usdc.clone());
+    let wide = t.market_oracle_config(&usdc);
+    let args = ConfigureAssetOracleArgs {
+        key: key.clone(),
+        oracle: wide.clone(),
+    };
+    let stale_salt = BytesN::from_array(&t.env, &[0x41; 32]);
+    gov.propose(
+        &admin,
+        &AdminOperation::ConfigureAssetOracle(args.clone()),
+        &stale_salt,
+    );
+
+    t.env.ledger().with_mut(|l| l.sequence_number += 1);
+    let (narrow_min, narrow_max) = (usd(1) * 995 / 1000, usd(1) * 1005 / 1000);
+    gov.set_sanity_band(&admin, &key, &narrow_min, &narrow_max);
+    let delay = gov.get_min_delay();
+    t.env.ledger().with_mut(|l| l.sequence_number += delay);
+
+    assert_contract_error(
+        execute_oracle_config_as_stranger(&t, &args, &stale_salt),
+        GenericError::OracleBandChangedAfterProposal as u32,
+    );
+    let held = t.market_oracle_config(&usdc);
+    assert_eq!(
+        (held.min_sanity_price_wad, held.max_sanity_price_wad),
+        (narrow_min, narrow_max)
+    );
+
+    // A reconfiguration proposed after the narrowing is the timelocked
+    // widening path and still executes.
+    t.env.ledger().with_mut(|l| l.sequence_number += 1);
+    let fresh_salt = BytesN::from_array(&t.env, &[0x42; 32]);
+    gov.propose(
+        &admin,
+        &AdminOperation::ConfigureAssetOracle(args.clone()),
+        &fresh_salt,
+    );
+    t.env.ledger().with_mut(|l| l.sequence_number += delay);
+    execute_oracle_config_as_stranger(&t, &args, &fresh_salt)
+        .expect("a reconfiguration proposed after the narrowing executes");
+    let widened = t.market_oracle_config(&usdc);
+    assert_eq!(
+        (widened.min_sanity_price_wad, widened.max_sanity_price_wad),
+        (wide.min_sanity_price_wad, wide.max_sanity_price_wad)
+    );
+}
+
+/// Mirror of the governance storage key that holds an operation's guard (same
+/// XDR encoding).
+#[contracttype]
+enum GovernanceGuardKey {
+    OperationGuard(BytesN<32>),
+}
+
+#[test]
+fn oracle_reconfiguration_without_a_guard_record_keeps_its_unbound_behaviour() {
+    let t = LendingTest::new().with_market(usdc_preset()).build();
+    let gov = t.gov_iface_client();
+    let admin = t.admin();
+    let usdc = t.resolve_asset("USDC");
+    let key = controller::types::PriceKey::Token(usdc.clone());
+    let wide = t.market_oracle_config(&usdc);
+    let args = ConfigureAssetOracleArgs {
+        key: key.clone(),
+        oracle: wide.clone(),
+    };
+    let salt = BytesN::from_array(&t.env, &[0x43; 32]);
+    let id = gov.propose(
+        &admin,
+        &AdminOperation::ConfigureAssetOracle(args.clone()),
+        &salt,
+    );
+    t.env.as_contract(&t.governance, || {
+        t.env
+            .storage()
+            .persistent()
+            .remove(&GovernanceGuardKey::OperationGuard(id.clone()));
+    });
+
+    t.env.ledger().with_mut(|l| l.sequence_number += 1);
+    gov.set_sanity_band(
+        &admin,
+        &key,
+        &(usd(1) * 995 / 1000),
+        &(usd(1) * 1005 / 1000),
+    );
+    let delay = gov.get_min_delay();
+    t.env.ledger().with_mut(|l| l.sequence_number += delay);
+
+    execute_oracle_config_as_stranger(&t, &args, &salt)
+        .expect("an operation scheduled before the upgrade still applies");
+    let after = t.market_oracle_config(&usdc);
+    assert_eq!(after.max_sanity_price_wad, wide.max_sanity_price_wad);
+}
+
+#[test]
+fn second_configuration_of_a_new_key_cannot_undo_a_narrowing_made_after_the_first() {
+    let t = LendingTest::new().with_market(usdc_preset()).build();
+    let gov = t.gov_iface_client();
+    let admin = t.admin();
+    let usdc = t.resolve_asset("USDC");
+    let key = controller::types::PriceKey::Ref(Symbol::new(&t.env, "NEWKEY"));
+    assert!(t.price_agg_client().oracle(&key).is_none());
+    let args = ConfigureAssetOracleArgs {
+        key: key.clone(),
+        oracle: t.market_oracle_config(&usdc),
+    };
+    let first = BytesN::from_array(&t.env, &[0x51; 32]);
+    let second = BytesN::from_array(&t.env, &[0x52; 32]);
+    gov.propose(
+        &admin,
+        &AdminOperation::ConfigureAssetOracle(args.clone()),
+        &first,
+    );
+    gov.propose(
+        &admin,
+        &AdminOperation::ConfigureAssetOracle(args.clone()),
+        &second,
+    );
+    let delay = gov.get_min_delay();
+    t.env.ledger().with_mut(|l| l.sequence_number += delay);
+
+    execute_oracle_config_as_stranger(&t, &args, &first)
+        .expect("the first configuration of a new key executes");
+    let (narrow_min, narrow_max) = (usd(1) * 995 / 1000, usd(1) * 1005 / 1000);
+    gov.set_sanity_band(&admin, &key, &narrow_min, &narrow_max);
+
+    assert_contract_error(
+        execute_oracle_config_as_stranger(&t, &args, &second),
+        GenericError::OracleBandChangedAfterProposal as u32,
+    );
+    let held = t.price_agg_client().oracle(&key).expect("configured");
+    assert_eq!(
+        (held.min_sanity_price_wad, held.max_sanity_price_wad),
+        (narrow_min, narrow_max)
+    );
 }

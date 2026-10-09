@@ -2,7 +2,7 @@
 
 Use this reference to decode protocol events and interpret their amounts, shares and configuration snapshots. Match both the emitting contract and the ordered topic vector.
 
-The contracts define 29 custom event types: controller 21, pool 4, governance 2, price aggregator 1 and DeFindex adapter 1. The position NFT, swap aggregator and XOXNO oracle define no custom events, but their inherited OpenZeppelin events remain observable. Subscribe to both controller and pool events to track account and market changes.
+The contracts define 30 custom event types: controller 21, pool 4, governance 3, price aggregator 1 and DeFindex adapter 1. The position NFT, swap aggregator and XOXNO oracle define no custom events, but their inherited OpenZeppelin events remain observable. Subscribe to both controller and pool events to track account and market changes.
 
 ## Wire rules and units
 
@@ -59,6 +59,7 @@ Field lists use exact Rust types. Map key order is alphabetical, regardless of d
 | --- | --- | --- |
 | `DeployControllerEvent`<br>`["governance", "deploy_controller"]` | map: `controller: Address, wasm_hash: BytesN<32>` | governance deploy_controller. |
 | `DeployPriceAggregatorEvent`<br>`["governance", "deploy_price_aggregator"]` | map: `price_aggregator: Address, wasm_hash: BytesN<32>` | governance deploy_price_aggregator. |
+| `ExpiredOperationClearedEvent`<br>`["governance", "expired_operation_cleared"]` | map: `operation_id: BytesN<32>` | propose or propose_canceller_reset removed an expired operation with the same id, and its sidecars, before scheduling it again. |
 
 ### Price-aggregator events
 

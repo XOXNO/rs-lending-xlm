@@ -24,6 +24,34 @@ pub use governance_interface::{
     SpokeAssetArgs, SpokeLiquidationCurveArgs, TransferOwnershipArgs, UpgradePoolParamsArgs,
 };
 
+/// Controller function `UpgradeController` schedules; its execution counts as
+/// an emergency action because the controller pauses inside it.
+pub(crate) const CONTROLLER_UPGRADE_FN: &str = "upgrade";
+
+/// Returns whether `op` replaces code, prices, ownership or authority, so only
+/// the owner may propose it and only under that owner's tenure may it execute.
+pub(crate) fn requires_owner_proposer(op: &AdminOperation) -> bool {
+    matches!(
+        op,
+        AdminOperation::TransferGovOwnership(_)
+            | AdminOperation::TransferCtrlOwnership(_)
+            | AdminOperation::UpgradeGov(_)
+            | AdminOperation::UpgradeController(_)
+            | AdminOperation::UpgradePool(_)
+            | AdminOperation::UpgradePositionNft(_)
+            | AdminOperation::UpgradePriceAggregator(_)
+            | AdminOperation::MigrateController(_)
+            | AdminOperation::UpdateGovDelay(_)
+            | AdminOperation::SetPriceAggregator(_)
+            | AdminOperation::ConfigureAssetOracle(_)
+            | AdminOperation::EditOracleTolerance(_)
+            | AdminOperation::SetSwapAggregator(_)
+            | AdminOperation::ApproveBlendPool(_)
+            | AdminOperation::SetAccumulator(_)
+            | AdminOperation::GrantGovRole(_)
+    )
+}
+
 /// Validates risk bounds, liquidation fees, and supply/borrow caps for a
 /// spoke-asset add or edit operation. Panics if any of the checks fail.
 fn validate_spoke_asset(env: &Env, args: &SpokeAssetArgs) {
@@ -365,7 +393,11 @@ pub(crate) fn resolve_op(env: &Env, op: &AdminOperation) -> ResolvedOperation {
         ),
         AdminOperation::UpgradeController(hash) => {
             validate::require_nonzero_wasm_hash(env, hash);
-            sensitive_controller_operation(env, "upgrade", vec![env, hash.clone().into_val(env)])
+            sensitive_controller_operation(
+                env,
+                CONTROLLER_UPGRADE_FN,
+                vec![env, hash.clone().into_val(env)],
+            )
         }
         AdminOperation::MigrateController(version) => {
             controller_operation(env, "migrate", vec![env, version.into_val(env)])

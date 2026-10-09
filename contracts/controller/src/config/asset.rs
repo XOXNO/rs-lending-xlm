@@ -186,12 +186,17 @@ fn require_flag_ratchet(
     );
 }
 
-/// Removes and emits a listed asset only when both scaled usage amounts are zero.
+/// Removes and emits a listed asset only when both scaled usage amounts are
+/// zero and no paused, frozen or no-seize flag is set. A flagged listing is
+/// relaxed through the timelocked `relax_spoke_asset_flags` first, so a
+/// removal and re-listing cannot clear a flag (ADR-0007, INV-AUTH-04).
 pub(crate) fn remove_asset_from_spoke(env: &Env, hub_asset: HubAssetKey, spoke_id: u32) {
+    let config = storage::get_spoke_asset(env, spoke_id, &hub_asset)
+        .unwrap_or_else(|| panic_with_error!(env, SpokeError::AssetNotInSpoke));
     assert_with_error!(
         env,
-        storage::get_spoke_asset(env, spoke_id, &hub_asset).is_some(),
-        SpokeError::AssetNotInSpoke
+        flags(&config) == (false, false, false),
+        SpokeError::SpokeAssetFlagRelaxation
     );
     let usage = storage::get_spoke_usage(env, spoke_id, &hub_asset).unwrap_or_default();
     assert_with_error!(

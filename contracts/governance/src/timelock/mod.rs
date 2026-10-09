@@ -2,6 +2,7 @@
 //! operation construction, expiry checks, and the clients and helpers used by the
 //! `immediate`, `lifecycle`, and `recovery` submodules.
 
+mod guard;
 pub(crate) mod immediate;
 pub(crate) mod lifecycle;
 pub(crate) mod recovery;
@@ -23,7 +24,9 @@ use stellar_governance::timelock::{
 };
 
 use crate::access::EXECUTOR_ROLE;
+use crate::events::ExpiredOperationClearedEvent;
 use crate::op::{resolve_op, AdminOperation};
+use crate::storage::OperationGuard;
 use crate::{constants, storage};
 
 /// Classifies an operation by the minimum delay it must wait before execution.
@@ -81,21 +84,39 @@ pub(crate) fn authorize_executor(env: &Env, executor: Option<&Address>) {
     }
 }
 
-/// Panics with `GenericError::TimelockOperationExpired` if `operation_id`'s
-/// grace-period deadline has passed. A ready-ledger of 0 (unset) or 1 (done)
-/// skips the check.
-pub(crate) fn require_operation_not_expired(env: &Env, operation_id: &BytesN<32>) {
+/// Returns the last ledger at which a waiting or ready `operation_id` may
+/// execute, or `None` when it is unset or done.
+fn grace_deadline(env: &Env, operation_id: &BytesN<32>) -> Option<u32> {
     let ready_ledger = get_operation_ledger(env, operation_id);
-    if ready_ledger <= 1 {
-        return;
-    }
+    (ready_ledger > 1)
+        .then(|| ready_ledger.saturating_add(constants::TIMELOCK_OPERATION_GRACE_LEDGERS))
+}
 
-    let expires_at = ready_ledger.saturating_add(constants::TIMELOCK_OPERATION_GRACE_LEDGERS);
+/// Returns whether `operation_id` is scheduled and its grace-period deadline
+/// has passed.
+fn operation_expired(env: &Env, operation_id: &BytesN<32>) -> bool {
+    grace_deadline(env, operation_id).is_some_and(|deadline| env.ledger().sequence() > deadline)
+}
+
+/// Panics with `GenericError::TimelockOperationExpired` if `operation_id`'s
+/// grace-period deadline has passed.
+pub(crate) fn require_operation_not_expired(env: &Env, operation_id: &BytesN<32>) {
     assert_with_error!(
         env,
-        env.ledger().sequence() <= expires_at,
+        !operation_expired(env, operation_id),
         GenericError::TimelockOperationExpired
     );
+}
+
+/// Removes an expired operation with `operation`'s id and its sidecar state,
+/// emitting `ExpiredOperationClearedEvent`, so the id can be scheduled again.
+/// A live, done or unknown id is left untouched.
+fn clear_expired_operation(env: &Env, operation: &Operation) {
+    let operation_id = hash_operation(env, operation);
+    if operation_expired(env, &operation_id) {
+        finish_execute(env, &operation_id);
+        ExpiredOperationClearedEvent { operation_id }.publish(env);
+    }
 }
 
 /// Computes the operation id that would result from scheduling an operation
@@ -178,17 +199,24 @@ fn begin_immediate(env: &Env, caller: &Address, role: &str) {
 
 /// Renews the governance instance's storage TTL, authorizes `executor` if
 /// present, computes `operation`'s id, and checks that the operation has not
-/// expired. Returns the operation id.
-fn prepare_execute(env: &Env, executor: Option<&Address>, operation: &Operation) -> BytesN<32> {
+/// expired and that the state its guard bound it to still holds. Returns the
+/// operation id and its guard.
+fn prepare_execute(
+    env: &Env,
+    executor: Option<&Address>,
+    operation: &Operation,
+) -> (BytesN<32>, OperationGuard) {
     renew_instance(env);
     authorize_executor(env, executor);
     let operation_id = hash_operation(env, operation);
     require_operation_not_expired(env, &operation_id);
-    operation_id
+    let guard = guard::require_holds(env, &operation_id, &operation.target);
+    (operation_id, guard)
 }
 
 /// Removes the operation's scheduled-ledger entry and clears any sidecar state
 /// (such as recovery or role-revocation markers) associated with `operation_id`.
+/// Execution and expired-operation clearing share it.
 fn finish_execute(env: &Env, operation_id: &BytesN<32>) {
     env.storage()
         .persistent()

@@ -8,7 +8,7 @@ SDK `try_` calls distinguish contract errors from host, authorization, storage, 
 
 [Shared error definitions](../../common/src/errors.rs) group lending failures by domain. Gaps in the numeric ranges are reserved. The tables describe failure conditions; the checks a call reaches depend on its execution path.
 
-### Generic errors (1–55)
+### Generic errors (1–58)
 
 | Code / variant | Condition | Response |
 | --- | --- | --- |
@@ -33,11 +33,11 @@ SDK `try_` calls distinguish contract errors from host, authorization, storage, 
 | 36 `InvalidPositionLimits` | A supply or borrow position limit is zero or above `POSITION_LIMIT_MAX`. | Use limits inside the allowed range. |
 | 38 `SpotOnlyNotProductionSafe` | Both available source paths contain an unsmoothed market leg, or the only source does. | Configure a permitted smoothed or fundamental source composition. |
 | 39 `InvalidTimelockDelay` | Constructor delay is zero; a delay update is zero, below the current minimum, or above `TIMELOCK_MAX_DELAY_LEDGERS`. | Use a nonzero constructor delay and an allowed update. |
-| 40 `TimelockOperationExpired` | The scheduled operation's grace period has already elapsed. | Propose the operation again. |
+| 40 `TimelockOperationExpired` | The scheduled operation's grace period has already elapsed. | Propose the operation again; the same salt reuses the id, and the proposal clears the expired entry. |
 | 41 `InvalidRole` | The role symbol is not a known governance role, a non-owner grant would combine executor and canceller, the role is not held on revoke, or an immediate revoke names a role other than guardian or oracle. | Use a valid role assignment. |
 | 42 `BlendPoolNotApproved` | The target Blend pool is not on the controller's approved list. | Ask governance to approve the pool. |
 | 43 `HubNotActive` | The hub id does not exist or has been deactivated. | Use an active hub. |
-| 44 `NotAuthorized` | NFT owner/delegate authorization fails, including a third-party supply to a market the account does not hold; a delegate grant names an inactive manager; a revocation targets the owner or its proposer; or a non-owner proposes an owner-only operation. | Use eligible authority and an allowed governance target. |
+| 44 `NotAuthorized` | NFT owner/delegate authorization fails, including a third-party supply to a market the account does not hold; a delegate grant names an inactive manager; a revocation targets the owner or its proposer; a non-owner proposes an owner-only operation; or an owner-only operation or canceller reset proposed before a later ownership handover is executed. | Use eligible authority and an allowed governance target; the current owner re-proposes a stale owner-only operation. |
 | 45 `RegistryCapReached` | The account already has `MAX_DELEGATES` delegates. | Remove a delegate first. |
 | 46 `OperationNotCancellable` | The operation is a recovery operation, or the canceller is the account the operation would revoke. | Recovery operations cannot be cancelled; a revocation needs a different canceller. |
 | 47 `BorrowRoundsToZeroShares` | A positive borrow amount mints zero scaled debt shares. | Borrow a larger amount. |
@@ -49,6 +49,9 @@ SDK `try_` calls distinguish contract errors from host, authorization, storage, 
 | 53 `PositionNftNotSet` | The position-NFT contract address is unset in controller storage. | Wait for governance to deploy the position NFT. |
 | 54 `PositionNftAlreadyDeployed` | A position-NFT contract address is already recorded. | Use the recorded deployment. |
 | 55 `DivisionByZero` | A fixed-point multiply-divide received a zero denominator. Distinct from `MathOverflow`, which the same operations raise when the result does not fit `i128`. | Report it; a zero index or denominator is an internal inconsistency. |
+| 56 `CancellerLimitExceeded` | A canceller grant or canceller reset would leave more than `MAX_CANCELLERS` (32) `CANCELLER` holders, the owner included, or a proposed reset list has 32 or more entries. | Revoke a canceller first or shorten the reset list. |
+| 57 `EmergencyEpochMismatch` | An `Unpause` or `GrantGovRole` executes after an emergency action taken since its proposal: a guardian `pause`, an executed `UpgradeController` or a `revoke_role_immediate`. | Propose the operation again after the emergency. |
+| 58 `OracleBandChangedAfterProposal` | A `ConfigureAssetOracle` executes although the key's sanity band on the price aggregator differs from what it was at proposal: narrowed by an `ORACLE` `set_sanity_band`, or configured for the first time by another operation. | Review the current band, then propose the reconfiguration again. |
 
 ### Collateral and market errors (100–135)
 
@@ -130,7 +133,7 @@ SDK `try_` calls distinguish contract errors from host, authorization, storage, 
 | 312 `SpokeBorrowCapReached` | The borrow would push the spoke's tracked borrows above its configured cap. | Borrow less, or wait for cap headroom. |
 | 315 `SpokeAssetPaused` | Listing paused blocks ordinary entry/exit or liquidation debt repayment. Seizure checks no_seize instead. | Wait for authorized reopening or operate on eligible assets. |
 | 316 `SpokeAssetFrozen` | Listing frozen blocks entry. | Exit remains permitted, subject to other gates. |
-| 317 `SpokeAssetFlagRelaxation` | The immediate guardian call or a listing edit tries to clear `paused`, `frozen`, or `no_seize`. | Clear flags through the timelocked `relax_spoke_asset_flags`. |
+| 317 `SpokeAssetFlagRelaxation` | The immediate guardian call or a listing edit tries to clear `paused`, `frozen`, or `no_seize`, or `remove_asset_from_spoke` targets a listing with one of them set. | Clear flags through the timelocked `relax_spoke_asset_flags`, then remove. |
 | 318 `SpokeAssetSeizureHalted` | A pro-rata collateral seizure leg has no_seize set. | Wait for authorized flag clearance; liquidation has no collateral-selection argument. |
 | 319 `SpokeFlagsEpochMismatch` | A `RelaxSpokeAssetFlags` proposal or `relax_spoke_asset_flags` names a flags epoch other than the listing's current one: a flag write occurred after the relaxation was prepared. | Read `get_spoke_asset_flags_epoch` and the live flags again, then propose a new relaxation. |
 
@@ -231,7 +234,7 @@ Reflector runtime TWAP errors, including 212, 219 and 222, make the source leg u
 
 ## Relevant inherited errors
 
-OpenZeppelin stellar-contracts revision `fbfde388e1b72afa93d6b1c922067879b20e81db` supplies the NFT, authorization and timelock helpers. A deployed contract can raise both its own errors and these overlapping inherited codes. An error declaration does not make an unexported extension callable.
+OpenZeppelin stellar-contracts revision `59b98f8e127f0e877a3870e8eb82fa282a4aadf3` supplies the NFT, authorization and timelock helpers. A deployed contract can raise both its own errors and these overlapping inherited codes. An error declaration does not make an unexported extension callable.
 
 | Namespace | Codes and handling |
 | --- | --- |
@@ -241,7 +244,7 @@ OpenZeppelin stellar-contracts revision `fbfde388e1b72afa93d6b1c922067879b20e81d
 | Ownable | 2100 OwnerNotSet: missing owner; 2101 TransferInProgress: only `renounce_ownership` raises it, and no contract in this tree exports that call; 2102 OwnerAlreadySet: helper rejects repeated initialization. Role-transfer errors below cover pending-owner state; auth can raise host errors. |
 | RoleTransfer | 2200 NoPendingTransfer: initiate transfer first; 2201 InvalidLiveUntilLedger: use current-to-max valid ledger; 2202 InvalidPendingAccount: cancellation address must match; 2203 TransferExpired: initiate a fresh window. Zero deadline cancels, and acceptance checks the explicit deadline even if storage remains alive. |
 | AccessControl | 2000 Unauthorized, 2001 AdminNotSet, 2002 IndexOutOfBounds, 2003 AdminRoleNotFound, 2004 RoleCountIsNotZero, 2005 RoleNotFound, 2006 AdminAlreadySet, 2007 RoleNotHeld, 2008 RoleIsEmpty, 2009 TransferInProgress, 2010 MaxRolesExceeded. Use valid held roles/admin/membership indices; generic admin APIs are not exported by governance. |
-| Timelock | 4000 OperationAlreadyScheduled: new salt or existing operation; 4001 InsufficientDelay: respect minimum; 4002 InvalidOperationState: wait/check schedule; 4003 UnexecutedPredecessor: execute predecessor; 4004 Unauthorized: eligible role; 4005 MinDelayNotSet: initialize; 4006 OperationNotScheduled: schedule matching hash. |
+| Timelock | 4000 OperationAlreadyScheduled: new salt or existing operation (an expired operation no longer blocks its id); 4001 InsufficientDelay: respect minimum; 4002 InvalidOperationState: wait/check schedule; 4003 UnexecutedPredecessor: execute predecessor; 4004 Unauthorized: eligible role; 4005 MinDelayNotSet: initialize; 4006 OperationNotScheduled: schedule matching hash. |
 
 ## Source map
 
