@@ -1,5 +1,6 @@
-//! Pool bounds: the supply index floor, the index ceilings and the borrow-rate
-//! ceiling (RAY), and the liquidation cash buffer (BPS).
+//! Pool bounds: the supply index floor, the index ceilings, the market value
+//! ceiling and the borrow-rate ceiling (RAY), and the liquidation cash buffer
+//! (BPS).
 
 use crate::constants::RAY;
 
@@ -21,3 +22,11 @@ pub const MAX_BORROW_INDEX_RAY: i128 = 1_000_000_000_000_000_000_000_000_000_000
 /// Ceiling the supply index is clamped to after growth, in raw ray units.
 /// Equal to [`MAX_BORROW_INDEX_RAY`].
 pub const MAX_SUPPLY_INDEX_RAY: i128 = MAX_BORROW_INDEX_RAY;
+
+/// Ceiling on a market's total supply value and on its total debt value
+/// (`shares * index`), in raw ray units: one whole token below `i128::MAX`.
+///
+/// Accrual stops interest growth before either total passes it, and supply
+/// entry and flash or strategy fee booking reject a total above it, so both
+/// totals stay representable after rounding up.
+pub const MAX_MARKET_VALUE_RAY: i128 = i128::MAX - RAY;

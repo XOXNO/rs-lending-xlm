@@ -135,9 +135,9 @@ It therefore does not require new supply-cap headroom.
 
 Accrual uses a per-millisecond RAY rate derived from the annual rate. It splits
 elapsed time into chunks of at most one year (`MAX_COMPOUND_DELTA_MS`). Each
-chunk uses the preceding chunk's market state. This bounds individual time
-steps without eliminating value overflow, cumulative work, cadence dependence,
-or rounding error. The [formula reference](../reference/formulas.md) defines these limits.
+chunk uses the preceding chunk's market state and caps its interest at the
+market value ceiling. This bounds individual time steps without eliminating
+cumulative work, cadence dependence, or rounding error. The [formula reference](../reference/formulas.md) defines these limits.
 
 <a id="adr-0021"></a>
 

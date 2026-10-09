@@ -344,7 +344,10 @@ fn test_position_limit_exactly_at_cap() {
 
 #[test]
 fn test_keeper_index_freshness_matters() {
-    let mut t_a = LendingTest::new().standard_two_asset().build();
+    let mut t_a = LendingTest::new()
+        .standard_two_asset()
+        .without_initial_liquidity()
+        .build();
 
     t_a.supply(BOB, "ETH", 50.0);
     t_a.supply(ALICE, "USDC", 100_000.0);
@@ -355,7 +358,10 @@ fn test_keeper_index_freshness_matters() {
     let debt_a = t_a.borrow_balance(ALICE, "ETH");
     let revenue_a = t_a.snapshot_revenue("ETH");
 
-    let mut t_b = LendingTest::new().standard_two_asset().build();
+    let mut t_b = LendingTest::new()
+        .standard_two_asset()
+        .without_initial_liquidity()
+        .build();
 
     t_b.supply(BOB, "ETH", 50.0);
     t_b.supply(ALICE, "USDC", 100_000.0);

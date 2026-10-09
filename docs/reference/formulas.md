@@ -83,23 +83,30 @@ not increase.
 
 ### Backing and cash constraints
 
-The market's backing check uses native units:
+The market's backing check subtracts at RAY precision and floors once to native
+units:
 
 ```rust
-let shortfall = max(0, floor(supply_value) - (cash + ceil(debt_value)));
+let uncovered = floor_native(floor_ray(supplied * supply_index) - ceil_ray(borrowed * borrow_index));
+let shortfall = max(0, uncovered - cash);
 ```
 
-Addition and subtraction saturate. Supply entry rejects a positive shortfall.
-Recapitalization credits at most that shortfall, refunds excess and mints no
-shares.
+`uncovered` is 0 when debt value covers claims. Because cash is a whole number of
+native units, the shortfall is the floor of the gap between claims and cash plus
+debt at RAY precision. That gap sits at most two raw RAY units below the exact
+gap. Supply entry rejects a positive shortfall. Recapitalization credits at most
+that shortfall, refunds excess and mints no shares; a full fill leaves the
+RAY-precision gap below one native unit. Accrual adds the same interest to
+claims and debt, up to RAY-precision rounding, so it does not turn that gap
+back into a shortfall.
 
 Borrow draws must retain a 200 BPS liquidation buffer, rounded up from the
 floored supplied token value. Borrow, user withdrawal and revenue claims
 enforce the configured utilization ceiling; liquidation withdrawal skips it.
 That gate divides ceiled debt value by floored supply value and rounds the
 ratio up; debt against a zero floored supply value fails it.
-Withdrawal, net settlement and revenue claims reject zero total supply with
-outstanding debt. These checks apply at their respective boundaries; they do
+Debt mints, withdrawal, net settlement and revenue claims reject zero total
+supply with outstanding debt. These checks apply at their respective boundaries; they do
 not establish full backing after every mutation.
 
 ### Revenue payout
@@ -156,6 +163,19 @@ projections and mutations use the same step calculation.
 Borrower interest is the difference between half-up-valued debt at the new and
 old borrow indexes. The reserve factor allocates a half-up protocol fee; the
 remainder is supplier rewards.
+
+Interest raises total debt value and total supply value by the same amount, so
+each chunk caps it at the room left below the
+[market value ceiling](#numeric-limits):
+
+```rust
+let room = max(0, MAX_MARKET_VALUE_RAY - 3 - max(floor(supplied * supply_index), floor(borrowed * borrow_index)));
+let borrow_index = min(grown_borrow_index, old_borrow_index + floor(room * RAY / borrowed));
+```
+
+The three raw units absorb the chunk's rounding. With no room, the chunk keeps
+both indexes and books no revenue. The totals are floored and saturate, so a
+total that does not fit `i128` leaves no room instead of overflowing.
 
 The supply index floors the new total value divided by supplied shares, bounded
 by the old index and the supply-index ceiling. Rewards not reflected in that
@@ -445,14 +465,22 @@ fee; see [its settlement invariant](invariants.md#inv-strat-04).
 | Supply-index floor 10^24 | At most 1,000 times the shares minted at index one for the same deposit |
 | Borrow APR maximum 2 RAY | 200% annual rate; not a bound on balance growth alone |
 | Token-to-RAY input maximum `i128::MAX / 10^(27-d)` | About 170.14 billion whole tokens, before other limits |
+| Market value ceiling `MAX_MARKET_VALUE_RAY = i128::MAX - RAY` | Total supply value and total debt value each stay at or below about 170.14 billion whole tokens |
 | Deposit conversion at the supply-index floor | About 170.14 million whole tokens before scaled-share overflow |
 
-The token-to-RAY maximum is also the admitted cap maximum. Accrued position
-values and market totals must independently fit the RAY domain; valid caps and
-bounded indexes do not guarantee that future accrual fits. Value overflow can
-occur before the index ceiling and block repayment/withdrawal because those
-operations accrue first. At the borrow-index ceiling, further accrual produces
-no borrower interest. No dedicated ceiling alarm is emitted.
+The token-to-RAY maximum is also the admitted cap maximum. Caps are per spoke
+and bound usage at entry, not a market's total value or its interest, so the
+pool enforces the market value ceiling itself. Supply entry and flash and
+strategy fee booking reject a total above it with `MathOverflow`; the largest
+admitted cap therefore sits exactly one whole token above the largest deposit
+an empty market accepts. Accrual caps interest at the room left below
+the ceiling (see [compounding](#compounding-and-interest-allocation)), so
+market totals and the position values they bound stay representable, and
+repayment, withdrawal, liquidation, rate-model changes and index projections
+keep working. While the ceiling holds interest, borrowers accrue less than the
+rate implies and the pool emits `MarketValueCeilingEvent` from each accruing
+call. At the borrow-index ceiling, further accrual produces no borrower
+interest; no dedicated alarm is emitted for that ceiling.
 
 These are arithmetic limits, not recommended market sizes or deployment proofs.
 

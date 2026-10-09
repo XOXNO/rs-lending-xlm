@@ -66,7 +66,10 @@ fn test_ltv_less_than_threshold_always() {
 }
 #[test]
 fn test_supply_index_monotonically_increasing() {
-    let mut t = LendingTest::new().standard_two_asset().build();
+    let mut t = LendingTest::new()
+        .standard_two_asset()
+        .without_initial_liquidity()
+        .build();
 
     t.supply(ALICE, "USDC", 100_000.0);
     t.supply(BOB, "ETH", 100.0);

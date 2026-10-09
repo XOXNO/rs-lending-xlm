@@ -9,8 +9,7 @@ use common::constants::{
 use common::math::fp::Ray;
 use common::math::fp_core;
 use common::rates::{
-    calculate_borrow_rate, compound_interest, unscale_borrow_ceil, unscale_supply_floor,
-    update_borrow_index, update_supply_index,
+    calculate_borrow_rate, compound_interest, update_borrow_index, update_supply_index,
 };
 use common::types::PoolWithdrawEntry;
 
@@ -62,21 +61,18 @@ fn recapitalize_caps_cash_to_shortfall_and_refunds_excess(
     );
 
     let pre = read_state(&e, &asset);
-    let supply_claim = unscale_supply_floor(
-        &e,
-        Ray::from(pre.supplied),
-        Ray::from(pre.supply_index),
-        ASSET_DECIMALS,
-    );
-    let debt_backing = unscale_borrow_ceil(
-        &e,
-        Ray::from(pre.borrowed),
-        Ray::from(pre.borrow_index),
-        ASSET_DECIMALS,
-    );
-    let backing = pre.cash + debt_backing;
-    let shortfall = if supply_claim > backing {
-        supply_claim - backing
+    let claims = Ray::from(pre.supplied).mul_floor(&e, Ray::from(pre.supply_index));
+    let debt = Ray::from(pre.borrowed).mul_ceil(&e, Ray::from(pre.borrow_index));
+    // Whole asset units of claims not covered by debt value.
+    let uncovered = if claims > debt {
+        claims
+            .checked_sub(&e, debt)
+            .to_asset_floor(&e, ASSET_DECIMALS)
+    } else {
+        0
+    };
+    let shortfall = if uncovered > pre.cash {
+        uncovered - pre.cash
     } else {
         0
     };
@@ -96,7 +92,8 @@ fn recapitalize_caps_cash_to_shortfall_and_refunds_excess(
     cvlr_assert!(post.supply_index == pre.supply_index);
     cvlr_assert!(post.borrow_index == pre.borrow_index);
     cvlr_assert!(shortfall != 0 || outcome.mutation.actual_amount == 0);
-    cvlr_assert!(offered < shortfall || post.cash + debt_backing >= supply_claim);
+    // A full fill leaves the RAY-precision gap below one asset unit.
+    cvlr_assert!(offered < shortfall || post.cash >= uncovered);
 }
 
 #[rule]
