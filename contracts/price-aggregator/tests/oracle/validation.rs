@@ -10,6 +10,7 @@ fn properties(env: &Env, depth: u32) -> SourceProperties {
         has_unsmoothed_market_leg: false,
         trust: Vec::new(env),
         loosest_max_stale_seconds: 0,
+        loosest_market_max_stale_seconds: None,
         depth,
     }
 }
@@ -19,6 +20,7 @@ fn trusting(trust: &Vec<Address>) -> SourceProperties {
         has_unsmoothed_market_leg: false,
         trust: trust.clone(),
         loosest_max_stale_seconds: 0,
+        loosest_market_max_stale_seconds: None,
         depth: 0,
     }
 }

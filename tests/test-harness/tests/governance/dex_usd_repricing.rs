@@ -114,7 +114,7 @@ fn scaled_config(t: &LendingTest, adapter: &Address, quote: PriceKey) -> AssetOr
     };
     AssetOracle {
         asset_decimals: 7,
-        max_price_stale_seconds: 900,
+        max_price_stale_seconds: 1_200,
         sources: Vec::from_array(
             &t.env,
             [PriceSource::Scaled(ScaledSource {
@@ -184,11 +184,11 @@ fn reflector_scaled_config(
             read_mode: controller::types::OracleReadMode::Twap(3),
         }),
         decimals: 14,
-        max_stale_seconds: 900,
+        max_stale_seconds: 1_200,
     };
     AssetOracle {
         asset_decimals: 7,
-        max_price_stale_seconds: 900,
+        max_price_stale_seconds: 1_200,
         sources: Vec::from_array(
             &t.env,
             [PriceSource::Scaled(ScaledSource {

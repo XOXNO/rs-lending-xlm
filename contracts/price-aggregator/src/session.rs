@@ -17,15 +17,16 @@ use crate::registry;
 
 /// Per-invocation resolution state for the price aggregator.
 ///
-/// Caches raw provider feed payloads and per-key resolved prices, errors, and
-/// statuses for the duration of a single resolution pass, and tracks which
-/// keys are currently being resolved so that recursive resolution can detect
-/// cycles.
+/// Caches raw provider feed payloads and per-key resolved prices (with the
+/// timestamp of each price's oldest market-nature input), errors, and statuses
+/// for the duration of a single resolution pass, and tracks which keys are
+/// currently being resolved so that recursive resolution can detect cycles.
 pub(crate) struct Session {
     env: Env,
     feed_cache: Map<(Address, String), RedStonePriceData>,
     resolving_keys: Vec<PriceKey>,
     key_prices: Map<PriceKey, PriceFeedRaw>,
+    key_market_timestamps: Map<PriceKey, u64>,
     key_errors: Map<PriceKey, OracleError>,
     key_statuses: Map<PriceKey, PriceStatus>,
     now_secs: u64,
@@ -40,6 +41,7 @@ impl Session {
             feed_cache: Map::new(env),
             resolving_keys: Vec::new(env),
             key_prices: Map::new(env),
+            key_market_timestamps: Map::new(env),
             key_errors: Map::new(env),
             key_statuses: Map::new(env),
             now_secs: env.ledger().timestamp(),
@@ -104,9 +106,28 @@ impl Session {
         self.key_prices.get(key.clone())
     }
 
-    /// Stores the resolved price for the given key in this session.
-    pub(crate) fn store_price(&mut self, key: &PriceKey, feed: PriceFeedRaw) {
+    /// Returns the timestamp of the oldest market-nature input behind the
+    /// price stored for the given key, or `None` when that price has no
+    /// market-nature input or no price is stored.
+    pub(crate) fn cached_market_timestamp(&self, key: &PriceKey) -> Option<u64> {
+        self.key_market_timestamps.get(key.clone())
+    }
+
+    /// Stores the resolved price for the given key in this session, together
+    /// with the timestamp of its oldest market-nature input, if it has one.
+    pub(crate) fn store_price(
+        &mut self,
+        key: &PriceKey,
+        feed: PriceFeedRaw,
+        market_timestamp: Option<u64>,
+    ) {
         self.key_prices.set(key.clone(), feed);
+        match market_timestamp {
+            Some(timestamp) => self.key_market_timestamps.set(key.clone(), timestamp),
+            None => {
+                self.key_market_timestamps.remove(key.clone());
+            }
+        }
     }
 
     /// Returns the error previously stored for the given key in this

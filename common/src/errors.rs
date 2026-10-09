@@ -223,6 +223,10 @@ pub enum OracleError {
 
     IndependenceNotDeclared = 232,
 
+    /// `set_oracle` would register a new key beyond `MAX_ORACLE_KEYS`.
+    /// Existing keys may always be reconfigured.
+    OracleRegistryFull = 233,
+
     UnsupportedAquariusPool = 234,
 
     InsufficientAquariusLiquidity = 235,

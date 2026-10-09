@@ -211,6 +211,114 @@ fn test_set_oracle_attests_the_factor_leg_of_a_scaled_source() {
     });
 }
 
+/// `TwapReflector` serves a 300 s resolution, so a `Twap(3)` read can date
+/// itself `(3 + 1) * 300` seconds back: the window plus the current period.
+const TWAP_THREE_READ_AGE_SECS: u64 = 1_200;
+
+fn twap_oracle_with_budget(env: &Env, contract: &Address, max_stale: u64) -> AssetOracle {
+    let mut cfg = reflector_oracle(env, contract, 14);
+    let mut leg = reflector_leg(env, contract, 14);
+    leg.max_stale_seconds = max_stale;
+    cfg.sources = Vec::from_array(env, [PriceSource::Feed(leg)]);
+    cfg
+}
+
+#[test]
+fn test_set_oracle_accepts_a_twap_budget_covering_the_window_and_current_period() {
+    let env = Env::default();
+    env.ledger().set_timestamp(1_000_000);
+    with_contract(&env, || {
+        let reflector = env.register(TwapReflector, ());
+        let key = PriceKey::Token(Address::generate(&env));
+        set_oracle(
+            &env,
+            key.clone(),
+            twap_oracle_with_budget(&env, &reflector, TWAP_THREE_READ_AGE_SECS),
+        );
+        assert!(get_oracle(&env, &key).is_some());
+    });
+}
+
+/// A budget that covers only the `records - 1` spacings is stale on every
+/// read of a provider that answers with `records + 1` rounds.
+#[test]
+#[should_panic(expected = "Error(Contract, #222)")]
+fn test_set_oracle_rejects_a_twap_budget_shorter_than_the_oldest_read_sample() {
+    let env = Env::default();
+    env.ledger().set_timestamp(1_000_000);
+    with_contract(&env, || {
+        let reflector = env.register(TwapReflector, ());
+        set_oracle(
+            &env,
+            PriceKey::Token(Address::generate(&env)),
+            twap_oracle_with_budget(&env, &reflector, TWAP_THREE_READ_AGE_SECS - 1),
+        );
+    });
+}
+
+/// `Twap(12)` at `TwapReflector`'s 300 s resolution: a read reaches
+/// `(12 + 1) * 300 = 3_900` seconds back, past the 3,600 s leg-spread bound.
+const LONG_TWAP_RECORDS: u32 = 12;
+const LONG_TWAP_BUDGET_SECS: u64 = 3_900;
+
+/// A dual of a long Reflector TWAP leg and a RedStone leg of `partner` nature.
+fn long_twap_dual(env: &Env, reflector: &Address, partner: FeedNature) -> AssetOracle {
+    let (adapter, _client) = crate::test_support::register_redstone_feed(env);
+    let mut twap = reflector_leg(env, reflector, 14);
+    twap.provider = ProviderRef::Reflector(ReflectorFeedRef {
+        contract: reflector.clone(),
+        asset: OracleAssetRef::Symbol(Symbol::new(env, "BTC")),
+        read_mode: OracleReadMode::Twap(LONG_TWAP_RECORDS),
+    });
+    twap.max_stale_seconds = LONG_TWAP_BUDGET_SECS;
+    let partner = FeedSource {
+        provider: ProviderRef::RedStone(MultiFeedRef {
+            contract: adapter,
+            feed_id: String::from_str(env, "BTC"),
+            nature: partner,
+        }),
+        decimals: REDSTONE_DECIMALS,
+        max_stale_seconds: 300,
+    };
+    let mut cfg = reflector_oracle(env, reflector, 14);
+    cfg.max_price_stale_seconds = LONG_TWAP_BUDGET_SECS;
+    cfg.sources = Vec::from_array(env, [PriceSource::Feed(twap), PriceSource::Feed(partner)]);
+    cfg
+}
+
+/// Two market legs whose oldest samples can never sit within the spread
+/// bound of each other would be admitted and then never price.
+#[test]
+#[should_panic(expected = "Error(Contract, #218)")]
+fn test_set_oracle_rejects_a_market_pair_whose_budget_exceeds_the_leg_spread() {
+    let env = Env::default();
+    env.ledger().set_timestamp(1_000_000);
+    with_contract(&env, || {
+        let reflector = env.register(TwapReflector, ());
+        set_oracle(
+            &env,
+            PriceKey::Token(Address::generate(&env)),
+            long_twap_dual(&env, &reflector, FeedNature::Market),
+        );
+    });
+}
+
+#[test]
+fn test_set_oracle_accepts_a_long_twap_beside_a_fundamental_leg() {
+    let env = Env::default();
+    env.ledger().set_timestamp(1_000_000);
+    with_contract(&env, || {
+        let reflector = env.register(TwapReflector, ());
+        let key = PriceKey::Token(Address::generate(&env));
+        set_oracle(
+            &env,
+            key.clone(),
+            long_twap_dual(&env, &reflector, FeedNature::Fundamental),
+        );
+        assert!(get_oracle(&env, &key).is_some());
+    });
+}
+
 fn xoxno_oracle(env: &Env, contract: &Address, max_stale: u64) -> AssetOracle {
     let mut sources = Vec::new(env);
     sources.push_back(PriceSource::Feed(FeedSource {

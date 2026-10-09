@@ -3,7 +3,7 @@
 //! and composition depth — by recursing through a source's dependencies.
 
 use common::errors::OracleError;
-use common::types::{FeedSource, PriceKey, PriceSource, MAX_RESOLUTION_DEPTH};
+use common::types::{FeedNature, FeedSource, PriceKey, PriceSource, MAX_RESOLUTION_DEPTH};
 use soroban_sdk::{panic_with_error, Address, Env, Vec};
 
 use crate::registry;
@@ -12,13 +12,15 @@ use crate::validation;
 
 /// Structural properties of a source or a composition of sources: whether an
 /// unsmoothed market leg is present, the set of trusted provider contracts, the
-/// loosest configured staleness bound, and the maximum composition depth
-/// reached.
+/// loosest configured staleness bound, the loosest bound among the
+/// market-nature inputs that date the composition for the leg-spread rule
+/// (`None` when it has none), and the maximum composition depth reached.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct SourceProperties {
     pub has_unsmoothed_market_leg: bool,
     pub trust: Vec<Address>,
     pub loosest_max_stale_seconds: u64,
+    pub loosest_market_max_stale_seconds: Option<u64>,
     pub depth: u32,
 }
 
@@ -30,25 +32,29 @@ impl SourceProperties {
             has_unsmoothed_market_leg: false,
             trust: Vec::new(env),
             loosest_max_stale_seconds: 0,
+            loosest_market_max_stale_seconds: None,
             depth: 0,
         }
     }
 
     /// Builds the `SourceProperties` of a single feed source: whether its
     /// provider counts as an unsmoothed market leg, its provider contract as
-    /// the sole trusted contract, and its configured staleness bound.
+    /// the sole trusted contract, and its configured staleness bound, which is
+    /// also its market bound when the feed is market-nature.
     fn of_feed(env: &Env, feed: &FeedSource) -> Self {
         Self {
             has_unsmoothed_market_leg: feed.provider.is_unsmoothed_market_leg(),
             trust: Vec::from_array(env, [feed.provider.contract().clone()]),
             loosest_max_stale_seconds: feed.max_stale_seconds,
+            loosest_market_max_stale_seconds: (feed.provider.nature() == FeedNature::Market)
+                .then_some(feed.max_stale_seconds),
             depth: 0,
         }
     }
 
     /// Merges `self` with `other`: ORs the unsmoothed-market-leg flags, unions
-    /// the trusted-contract sets, and takes the maximum of the staleness bound
-    /// and depth.
+    /// the trusted-contract sets, and takes the maximum of the staleness
+    /// bounds and depth.
     fn join(&self, other: &Self) -> Self {
         let mut trust = self.trust.clone();
         for contract in other.trust.iter() {
@@ -63,6 +69,9 @@ impl SourceProperties {
             loosest_max_stale_seconds: self
                 .loosest_max_stale_seconds
                 .max(other.loosest_max_stale_seconds),
+            loosest_market_max_stale_seconds: self
+                .loosest_market_max_stale_seconds
+                .max(other.loosest_market_max_stale_seconds),
             depth: self.depth.max(other.depth),
         }
     }
@@ -114,8 +123,10 @@ pub(crate) fn local_properties(env: &Env, source: &PriceSource) -> LocalProperti
 
 /// Computes the full `SourceProperties` of `source`, joining in the properties
 /// of every dependency it references (recursing through their registered
-/// oracles at `depth + 1`). Panics with `OracleDepthExceeded` if `depth`
-/// exceeds the maximum resolution depth.
+/// oracles at `depth + 1`). An Aquarius LP reads as market-nature and is
+/// dated by its legs' prices, so its market bound is the loosest bound of its
+/// whole composition. Panics with `OracleDepthExceeded` if `depth` exceeds the
+/// maximum resolution depth.
 pub(crate) fn properties_of_source(
     session: &mut Session,
     source: &PriceSource,
@@ -132,6 +143,9 @@ pub(crate) fn properties_of_source(
         properties = properties.join(&dependency);
     }
 
+    if source.is_aquarius_lp() {
+        properties.loosest_market_max_stale_seconds = Some(properties.loosest_max_stale_seconds);
+    }
     properties.depth = properties.depth.max(depth);
     properties
 }

@@ -196,6 +196,16 @@ reports `p1` and `p2` in the same band have `p1 / p2 <= u = max / min`. The
 10% single-source cap gives `u <= 11/9`, which is about 1.222. The true NAV
 `P` is also in the band, so `P / p <= u`.
 
+A pair escapes the cap only when its legs trust different contract sets and
+every contract they share serves some top-level `Scaled` leg through a factor
+whose `max/min` range, times the pair's tolerance ratio, is at most `11/9`:
+the contract moves that leg by the factor range, and the other leg only prices
+within the tolerance of it. A contract that reaches every leg through a plain
+feed, or through a wider factor, moves both legs together and the pair keeps
+the cap. Nested keys are not inspected; each is band-capped by its own
+admission. The accepted residual: a shared contract that also serves a nested
+quote key can move the pair further, by up to that key's own band ratio.
+
 Lender safety depends only on the reported collateral prices. Bad debt occurs
 only when the reported collateral is less than the debt. Take one collateral
 leg with `n` units and a debt `D`. A borrow at the reported price `p1` gives
@@ -235,7 +245,9 @@ and provider-specific metadata. Provider separation is not proof of independent
 operators or upstream data. Feed-nature labels are configuration assertions.
 Non-LP admission probes can accept temporary market-condition failures.
 Changing an upstream key revalidates dependent source structure without a new
-live attestation for each dependent. Upstream changes do not erase the lending
+live attestation for each dependent. That revalidation scans the whole
+registry, so the registry admits at most `MAX_ORACLE_KEYS` (256) keys and
+reconfiguration of existing keys stays available at the cap. Upstream changes do not erase the lending
 aggregator's runtime age checks,
 but can invalidate assumptions made during admission.
 

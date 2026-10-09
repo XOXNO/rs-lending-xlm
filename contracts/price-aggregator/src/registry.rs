@@ -6,6 +6,13 @@ use common::constants::{TTL_BUMP_SHARED, TTL_THRESHOLD_SHARED};
 use common::types::{AssetOracle, PriceKey};
 use soroban_sdk::{contractevent, contracttype, Env, Vec};
 
+/// Most keys the registry accepts. `set_oracle` revalidates every registered
+/// dependent of a changed key by scanning the registry, which touches one
+/// ledger entry per key, and a transaction may touch at most 400 entries.
+/// Release builds have no path that removes a key, so the registry only
+/// grows; the cap keeps that scan inside the transaction footprint.
+pub(crate) const MAX_ORACLE_KEYS: u32 = 256;
+
 /// Storage keys: `Oracle` (persistent) holds one asset oracle's configuration,
 /// and `OracleKeys` (instance) indexes all registered oracle keys.
 #[contracttype]
