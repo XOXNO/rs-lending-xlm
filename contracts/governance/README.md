@@ -104,10 +104,12 @@ council fits one transaction's event limit.
 - `RemoveAssetFromSpoke` retains the listing's set flags. An
   `AddAssetToSpoke` for the same asset and spoke that clears one reverts
   `SpokeAssetFlagRelaxation`.
-- `Unpause` and `UpgradeController` cannot be pending together; proposing
-  one while the other is waiting or ready reverts
-  `ConflictingOperationPending`. Execution order is otherwise free, and an
-  `Unpause` run before a pending upgrade would reopen the old code.
+- Only one `UpgradeController` can be pending: its id fills the
+  `PendingControllerUpgrade` slot, and proposing another while it is waiting
+  or ready reverts `ConflictingOperationPending`. Execute, cancel or expiry
+  frees the slot. An `Unpause` cannot execute while the slot holds a live
+  upgrade, and the upgrade advances the pause epoch, so reopening needs an
+  `Unpause` proposed after the upgrade executes.
 - `Unpause` can only be proposed while the controller is paused. It writes
   an `ExecutionGuard::PauseEpoch` sidecar from `get_pause_epoch`, and
   execution reverts `PauseEpochMismatch` if a later pause advanced the

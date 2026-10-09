@@ -75,10 +75,13 @@ before this binding existed carry no epoch and stay executable.
 
 Typed proposals perform proposal-time checks; targets retain execution-time
 validation. Ready operations must also be within the grace window. Anyone may
-execute with no executor identity and in any order, so `Unpause` and
-`UpgradeController` cannot be pending together: an `Unpause` executed first
-would reopen the controller on the code being replaced. An operation scheduled
-before this rule existed is not tracked by it. Supplying an executor identity
+execute with no executor identity and in any order. An `Unpause` executed
+ahead of a pending `UpgradeController` would reopen the controller on the code
+being replaced, so an `Unpause` cannot execute while an upgrade is pending,
+and the upgrade advances the pause epoch, voiding every earlier `Unpause`.
+Only the owner can propose an upgrade, and only one can be pending; a
+non-owner proposer cannot block it. Operations scheduled before these rules
+existed are not tracked by them. Supplying an executor identity
 requires its authorization and EXECUTOR role. Executor/canceller separation exempts the governance owner.
 A revocation target cannot cancel its own removal, but an independent canceller
 can veto it. Owner-proposed Recovery operations cannot be cancelled and replace

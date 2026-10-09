@@ -2,14 +2,14 @@
 //! controller and price-aggregator addresses, the owner epoch, the
 //! ownership-nomination nonce, and per-operation sidecar state
 //! (role-revocation target, recovery-operation marker, proposal owner epoch,
-//! cancelled nomination, execution guard), and the ids of pending operations
-//! that exclude each other.
+//! cancelled nomination, execution guard), and the id of the pending
+//! controller upgrade.
 
 use common::constants::{TTL_BUMP_SHARED, TTL_THRESHOLD_SHARED};
 use common::errors::GenericError;
 use common::types::PriceKey;
 
-use soroban_sdk::{contracttype, panic_with_error, Address, BytesN, Env, Vec};
+use soroban_sdk::{contracttype, panic_with_error, Address, BytesN, Env};
 
 /// Storage keys for governance contract state. `RoleRevocationTarget`,
 /// `RecoveryOp`, `ProposalOwnerEpoch`, `CancelledNomination` and
@@ -26,17 +26,7 @@ enum GovernanceKey {
     NominationNonce,
     CancelledNomination(BytesN<32>),
     ExecutionGuard(BytesN<32>),
-    PendingExclusive(ExclusiveKind),
-}
-
-/// Operation kinds that must not be pending together: an `Unpause` executed
-/// ahead of a pending `UpgradeController` reopens the controller on the code
-/// the upgrade replaces.
-#[contracttype]
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum ExclusiveKind {
-    Unpause,
-    ControllerUpgrade,
+    PendingControllerUpgrade,
 }
 
 /// State an operation is bound to at proposal. Execution reverts once that
@@ -161,24 +151,27 @@ pub(crate) fn execution_guard(env: &Env, operation_id: &BytesN<32>) -> Option<Ex
         .get(&GovernanceKey::ExecutionGuard(operation_id.clone()))
 }
 
-/// Returns the operation ids recorded as pending for `kind`. Some may since
-/// have executed, been cancelled or expired.
-pub(crate) fn pending_exclusive(env: &Env, kind: ExclusiveKind) -> Vec<BytesN<32>> {
+/// Returns the id of the last proposed `UpgradeController`, if it has not
+/// executed or been cancelled. It may have expired.
+pub(crate) fn pending_controller_upgrade(env: &Env) -> Option<BytesN<32>> {
     env.storage()
-        .instance()
-        .get(&GovernanceKey::PendingExclusive(kind))
-        .unwrap_or_else(|| Vec::new(env))
+        .persistent()
+        .get(&GovernanceKey::PendingControllerUpgrade)
 }
 
-/// Overwrites the operation ids recorded as pending for `kind`.
-pub(crate) fn set_pending_exclusive(env: &Env, kind: ExclusiveKind, ids: &Vec<BytesN<32>>) {
+/// Records `operation_id` as the pending `UpgradeController` in persistent
+/// storage and extends the entry's TTL.
+pub(crate) fn set_pending_controller_upgrade(env: &Env, operation_id: &BytesN<32>) {
+    let key = GovernanceKey::PendingControllerUpgrade;
+    env.storage().persistent().set(&key, operation_id);
     env.storage()
-        .instance()
-        .set(&GovernanceKey::PendingExclusive(kind), ids);
+        .persistent()
+        .extend_ttl(&key, TTL_THRESHOLD_SHARED, TTL_BUMP_SHARED);
 }
 
 /// Removes every sidecar entry recorded for `operation_id` from persistent
-/// storage.
+/// storage, and the pending-controller-upgrade slot when it holds
+/// `operation_id`.
 pub(crate) fn clear_operation_sidecars(env: &Env, operation_id: &BytesN<32>) {
     env.storage()
         .persistent()
@@ -195,6 +188,11 @@ pub(crate) fn clear_operation_sidecars(env: &Env, operation_id: &BytesN<32>) {
     env.storage()
         .persistent()
         .remove(&GovernanceKey::ExecutionGuard(operation_id.clone()));
+    if pending_controller_upgrade(env).as_ref() == Some(operation_id) {
+        env.storage()
+            .persistent()
+            .remove(&GovernanceKey::PendingControllerUpgrade);
+    }
 }
 
 /// Returns the account recorded as the role-revocation target for

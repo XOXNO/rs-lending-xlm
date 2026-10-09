@@ -102,7 +102,8 @@ pub enum GenericError {
     /// after the controller was paused again since its proposal.
     PauseEpochMismatch = 57,
 
-    /// An `Unpause` and an `UpgradeController` cannot be pending together.
+    /// An `UpgradeController` is proposed while another is pending, or an
+    /// `Unpause` executes while one is.
     ConflictingOperationPending = 58,
 }
 

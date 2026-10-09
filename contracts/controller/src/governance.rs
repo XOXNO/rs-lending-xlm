@@ -32,11 +32,13 @@ pub(crate) fn init(env: &Env, admin: &Address) {
     pause(env);
 }
 
-/// Pauses if needed, then schedules replacement of the controller Wasm.
+/// Pauses if needed and advances the pause epoch either way, then schedules
+/// replacement of the controller Wasm.
 pub(crate) fn upgrade(env: &Env, new_wasm_hash: &BytesN<32>) {
     if !pausable::paused(env) {
-        pause(env);
+        pausable::pause(env);
     }
+    advance_pause_epoch(env);
     env.deployer()
         .update_current_contract(ContractExecutable::Wasm(new_wasm_hash.clone()));
 }
@@ -70,6 +72,11 @@ pub(crate) fn get_app_version(env: &Env) -> u32 {
 /// paused.
 pub(crate) fn pause(env: &Env) {
     pausable::pause(env);
+    advance_pause_epoch(env);
+}
+
+/// Increments the pause epoch; fails on overflow.
+fn advance_pause_epoch(env: &Env) {
     let next = env
         .storage()
         .instance()

@@ -51,7 +51,7 @@ SDK `try_` calls distinguish contract errors from host, authorization, storage, 
 | 55 `DivisionByZero` | A fixed-point multiply-divide received a zero denominator. Distinct from `MathOverflow`, which the same operations raise when the result does not fit `i128`. | Report it; a zero index or denominator is an internal inconsistency. |
 | 56 `CancellerLimitExceeded` | A canceller grant or canceller reset would leave more than `MAX_CANCELLERS` (32) `CANCELLER` holders, the owner included, or a proposed reset list has 32 or more entries. | Revoke a canceller first or shorten the reset list. |
 | 57 `PauseEpochMismatch` | `Unpause` is proposed while the controller is open, or executes after the controller was paused again since its proposal. | Propose `Unpause` during the pause it should end. |
-| 58 `ConflictingOperationPending` | `Unpause` is proposed while an `UpgradeController` is waiting or ready, or the reverse. | Execute, cancel or let the other operation expire first. |
+| 58 `ConflictingOperationPending` | An `UpgradeController` is proposed while another is waiting or ready, or an `Unpause` executes while one is. | Execute, cancel or let the pending upgrade expire first; an `Unpause` must then be proposed after the upgrade. |
 
 ### Collateral and market errors (100–135)
 

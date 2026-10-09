@@ -483,57 +483,149 @@ fn conflicting_operation_pending() -> Error {
     Error::from_contract_error(GenericError::ConflictingOperationPending as u32)
 }
 
-fn upgrade_controller(env: &Env, byte: u8) -> AdminOperation {
-    AdminOperation::UpgradeController(BytesN::from_array(env, &[byte; 32]))
+fn upgrade_controller(hash: BytesN<32>) -> AdminOperation {
+    AdminOperation::UpgradeController(hash)
+}
+
+fn some_hash(env: &Env, byte: u8) -> BytesN<32> {
+    BytesN::from_array(env, &[byte; 32])
+}
+
+fn grant_proposer(env: &Env, gov: &GovernanceClient<'_>, owner: &Address) -> Address {
+    let rogue = Address::generate(env);
+    let op = queue(gov, owner, grant(env, &rogue, PROPOSER_ROLE), 0xF0);
+    wait_sensitive(env);
+    execute_self(gov, &op).expect("the proposer grant executes");
+    rogue
 }
 
 #[test]
-fn unpause_cannot_be_proposed_while_a_controller_upgrade_is_pending() {
+fn rogue_proposer_unpauses_cannot_block_an_owner_upgrade_proposal() {
     let env = Env::default();
     env.mock_all_auths();
     let (owner, _controller, gov) = register_with_controller(&env, MIN_DELAY);
-    queue(&gov, &owner, upgrade_controller(&env, 7), 1);
-    wait_sensitive(&env);
+    let rogue = grant_proposer(&env, &gov, &owner);
+    for byte in 1..=3 {
+        queue(&gov, &rogue, AdminOperation::Unpause, byte);
+    }
 
-    let result = gov.try_propose(
-        &owner,
-        &AdminOperation::Unpause,
-        &BytesN::from_array(&env, &[2u8; 32]),
+    let upgrade = queue(&gov, &owner, upgrade_controller(some_hash(&env, 7)), 9);
+
+    assert_eq!(
+        gov.get_operation_state(&upgrade.id),
+        OperationState::Waiting
     );
-
-    assert_eq!(result.err(), Some(Ok(conflicting_operation_pending())));
 }
 
 #[test]
-fn controller_upgrade_cannot_be_proposed_while_an_unpause_is_pending() {
+fn second_controller_upgrade_cannot_be_proposed_while_one_is_pending() {
     let env = Env::default();
     env.mock_all_auths();
     let (owner, _controller, gov) = register_with_controller(&env, MIN_DELAY);
-    queue(&gov, &owner, AdminOperation::Unpause, 1);
+    let first = queue(&gov, &owner, upgrade_controller(some_hash(&env, 7)), 1);
 
     let result = gov.try_propose(
         &owner,
-        &upgrade_controller(&env, 7),
+        &upgrade_controller(some_hash(&env, 8)),
         &BytesN::from_array(&env, &[2u8; 32]),
     );
-
     assert_eq!(result.err(), Some(Ok(conflicting_operation_pending())));
+
+    gov.cancel(&owner, &first.id);
+    queue(&gov, &owner, upgrade_controller(some_hash(&env, 8)), 2);
 }
 
 #[test]
-fn unpause_can_be_proposed_once_the_upgrade_is_no_longer_pending() {
+fn unpause_cannot_execute_while_a_controller_upgrade_is_pending() {
     let env = Env::default();
     env.mock_all_auths();
     let (owner, controller, gov) = register_with_controller(&env, MIN_DELAY);
-    let cancelled = queue(&gov, &owner, upgrade_controller(&env, 7), 1);
+    queue(&gov, &owner, upgrade_controller(some_hash(&env, 7)), 1);
+    let unpause = queue(&gov, &owner, AdminOperation::Unpause, 2);
+    wait_sensitive(&env);
+
+    assert_eq!(
+        execute_unpause(&gov, &controller, &unpause),
+        Err(conflicting_operation_pending())
+    );
+    assert!(paused(&env, &controller));
+}
+
+#[test]
+fn unpause_executes_once_the_upgrade_is_cancelled_or_expired() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (owner, controller, gov) = register_with_controller(&env, MIN_DELAY);
+    let cancelled = queue(&gov, &owner, upgrade_controller(some_hash(&env, 7)), 1);
+    let first = queue(&gov, &owner, AdminOperation::Unpause, 2);
+    wait_sensitive(&env);
     gov.cancel(&owner, &cancelled.id);
-    let expired = queue(&gov, &owner, upgrade_controller(&env, 8), 2);
+    execute_unpause(&gov, &controller, &first).expect("no upgrade is pending");
+
+    gov.pause(&owner);
+    let expired = queue(&gov, &owner, upgrade_controller(some_hash(&env, 8)), 3);
+    let second = queue(&gov, &owner, AdminOperation::Unpause, 4);
     let expiry =
         gov.get_operation_ledger(&expired.id) + crate::constants::TIMELOCK_OPERATION_GRACE_LEDGERS;
     env.ledger().with_mut(|l| l.sequence_number = expiry + 1);
-
-    let unpause = queue(&gov, &owner, AdminOperation::Unpause, 3);
+    // The Unpause is past its own grace window too; re-propose it.
+    let third = queue(&gov, &owner, AdminOperation::Unpause, 5);
     wait_standard(&env);
-    execute_unpause(&gov, &controller, &unpause).expect("the unpause reopens");
+    assert_eq!(gov.get_operation_state(&second.id), OperationState::Ready);
+    execute_unpause(&gov, &controller, &third).expect("the expired upgrade does not block");
     assert!(!paused(&env, &controller));
+}
+
+#[test]
+fn unpause_must_be_proposed_after_the_upgrade_executes() {
+    let env = Env::default();
+    env.cost_estimate().budget().reset_unlimited();
+    env.cost_estimate().disable_resource_limits();
+    env.mock_all_auths();
+    let (owner, controller, gov) = register_with_controller(&env, MIN_DELAY);
+    let wasm = crate::test_support::upload_controller_wasm(&env);
+    let upgrade = queue(&gov, &owner, upgrade_controller(wasm.clone()), 1);
+    let early = queue(&gov, &owner, AdminOperation::Unpause, 2);
+    wait_sensitive(&env);
+    gov.execute(
+        &None,
+        &controller,
+        &Symbol::new(&env, "upgrade"),
+        &soroban_sdk::vec![&env, soroban_sdk::IntoVal::into_val(&wasm, &env)],
+        &BytesN::from_array(&env, &[0u8; 32]),
+        &upgrade.salt,
+    );
+
+    assert_eq!(
+        execute_unpause(&gov, &controller, &early),
+        Err(pause_epoch_mismatch())
+    );
+    let after = queue(&gov, &owner, AdminOperation::Unpause, 3);
+    wait_standard(&env);
+    execute_unpause(&gov, &controller, &after)
+        .expect("an unpause proposed after the upgrade reopens");
+    assert!(!paused(&env, &controller));
+}
+
+#[test]
+fn proposing_unpauses_does_not_grow_instance_storage() {
+    use soroban_sdk::testutils::storage::Instance as _;
+    use soroban_sdk::xdr::ToXdr as _;
+    let env = Env::default();
+    env.mock_all_auths();
+    let (owner, _controller, gov) = register_with_controller(&env, MIN_DELAY);
+    let rogue = grant_proposer(&env, &gov, &owner);
+    let instance_bytes = || {
+        env.as_contract(&gov.address, || {
+            env.storage().instance().all().to_xdr(&env).len()
+        })
+    };
+    queue(&gov, &rogue, AdminOperation::Unpause, 1);
+    let before = instance_bytes();
+
+    for byte in 2..=20 {
+        queue(&gov, &rogue, AdminOperation::Unpause, byte);
+    }
+
+    assert_eq!(instance_bytes(), before);
 }
