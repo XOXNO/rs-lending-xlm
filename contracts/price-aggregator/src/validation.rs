@@ -121,7 +121,7 @@ const CAP_RATIO_WAD: i128 =
 /// Returns whether `contract`, trusted by both legs of `sources`, serves some
 /// top-level `Scaled` leg through its factor such that the factor range
 /// `max_factor_wad / min_factor_wad`, times the pair's tolerance ratio
-/// `(BPS + upper) / (BPS + lower)`, stays within `CAP_RATIO_WAD`. Both
+/// `upper_ratio_bps / BPS`, stays within `CAP_RATIO_WAD`. Both
 /// ratios round up.
 ///
 /// One such leg is enough: the contract moves it by at most the factor range,
@@ -137,12 +137,8 @@ pub(crate) fn shared_contract_is_range_bounded(
     sources: &Vec<PriceSource>,
     tolerance: &OracleTolerance,
 ) -> bool {
-    let tolerance_ratio_wad = mul_div_ceil(
-        env,
-        WAD,
-        BPS + i128::from(tolerance.upper_ratio_bps),
-        BPS + i128::from(tolerance.lower_ratio_bps),
-    );
+    // The read accepts the legs while `high / low <= upper_ratio_bps / BPS`.
+    let tolerance_ratio_wad = mul_div_ceil(env, WAD, i128::from(tolerance.upper_ratio_bps), BPS);
     sources.iter().any(|source| match source {
         PriceSource::Scaled(scaled) if scaled.factor.provider.contract() == contract => {
             let range_wad = mul_div_ceil(env, scaled.max_factor_wad, WAD, scaled.min_factor_wad);
