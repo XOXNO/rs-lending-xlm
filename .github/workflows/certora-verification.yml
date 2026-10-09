@@ -11,6 +11,9 @@ on:
         default: ""
         type: string
 
+permissions:
+  contents: read
+
 env:
   CARGO_TERM_COLOR: always
   STELLAR_VERSION: "28.0.0"
@@ -27,6 +30,8 @@ jobs:
       sanity-matrix: ${{ steps.sanity-matrix.outputs.matrix }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@e2a55d2ffb04f378e9626c28d38b36d230d1e12f # master
@@ -119,6 +124,8 @@ jobs:
       matrix: ${{ fromJSON(needs.compile-check.outputs.sanity-matrix) }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Install Python
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
@@ -148,6 +155,7 @@ jobs:
         env:
           CERTORAKEY: ${{ secrets.CERTORAKEY }}
           RULE: ${{ matrix.rule }}
+          CONF: ${{ matrix.conf }}
         working-directory: ${{ matrix.conf_dir }}
         run: |
           set -o pipefail
@@ -157,10 +165,10 @@ jobs:
           # "none". Waiting also bounds how many jobs are unfinished at once,
           # which is what the cloud counts against the monthly allowance.
           if [ -n "$RULE" ]; then
-            certoraSorobanProver "${{ matrix.conf }}" --rule "$RULE" \
+            certoraSorobanProver "$CONF" --rule "$RULE" \
               --wait_for_results ALL 2>&1 | tee prover.log
           else
-            certoraSorobanProver "${{ matrix.conf }}" \
+            certoraSorobanProver "$CONF" \
               --wait_for_results ALL 2>&1 | tee prover.log
           fi
 
@@ -169,6 +177,8 @@ jobs:
         working-directory: ${{ matrix.conf_dir }}
         env:
           RULE: ${{ matrix.rule }}
+          CONF: ${{ matrix.conf }}
+          PROVE_OUTCOME: ${{ steps.prove.outcome }}
         run: |
           # One row per job. With --wait_for_results ALL the log carries a real
           # verdict. A row that still says "none" means the CLI did not wait:
@@ -197,17 +207,17 @@ jobs:
               else empty end' 2>/dev/null)" || verdict=""
             [ "$verdict" != null ] || verdict=""
             if [ -n "$verdict" ] && [ "$verdict" != SUCCESS ]; then
-              echo "::error::prover output.json reports $verdict for ${{ matrix.conf }} (${RULE:-all rules})"
+              echo "::error::prover output.json reports $verdict for $CONF (${RULE:-all rules})"
               failed=1
             fi
           fi
           {
             echo "| conf | rule | outcome | verdict | report |"
             echo "|---|---|---|---|---|"
-            echo "| ${{ matrix.conf }} | ${{ matrix.rule || 'all' }} | ${{ steps.prove.outcome }} | ${verdict:-none} | ${url:-none} |"
+            echo "| $CONF | ${RULE:-all} | $PROVE_OUTCOME | ${verdict:-none} | ${url:-none} |"
           } >> "$GITHUB_STEP_SUMMARY"
           if [ -z "$verdict" ]; then
-            echo "::error::no prover verdict found in prover.log or output.json for ${{ matrix.conf }} (${{ matrix.rule || 'all' }}); the job is unproved, not passing"
+            echo "::error::no prover verdict found in prover.log or output.json for $CONF (${RULE:-all}); the job is unproved, not passing"
             exit 1
           fi
           [ -z "${failed:-}" ] || exit 1
