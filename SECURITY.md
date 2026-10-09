@@ -83,3 +83,15 @@ Published audit material, when available, is linked with the relevant release.
 Repository documentation describes the current design and threat model; it is
 not a substitute for independent review of deployed contracts and active
 configuration.
+
+## Dependency maintenance
+
+Reviewed 2026-10-09: accept and track RUSTSEC-2024-0436 for `paste` 1.0.15
+in the root and fuzz lockfiles. It is an unmaintained build-time proc-macro
+pulled in by the Soroban SDK dependency tree, with no fixed release. Recheck
+this exception when upgrading the SDK or when an upstream replacement becomes
+available.
+
+Run workflow audits with `zizmor .github`. This scopes the scan to this
+repository's active workflows and Dependabot configuration; workflow files
+under `vendor/` are upstream source and GitHub does not execute them here.
