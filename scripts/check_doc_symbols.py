@@ -59,9 +59,6 @@ EXTERNAL_SYMBOLS = {
 # Per-file allowances. Each entry is a name the file cites deliberately even
 # though no such item exists in any source we can see; the comment says why.
 FILE_ALLOW = {
-    # A DTO from the external xoxno-api-v2 repository used by the lending math
-    # reference; its field semantics are linked to the SDK skill.
-    "skills/xoxno-lending/math.md": {"ReserveIrmCurveDto"},
     # Edge and node types of the codebase-memory MCP graph, named while
     # explaining what that graph does and does not model. They are labels in an
     # external index, not items in this source tree.
