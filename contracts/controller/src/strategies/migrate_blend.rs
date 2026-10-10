@@ -14,7 +14,7 @@ use crate::positions::{require_can_supply, supply};
 use crate::risk::validation::require_authorized_caller;
 use crate::storage;
 use crate::strategies::{
-    borrow_into_controller, prefetch_strategy_prices, repay_debt_from_controller,
+    borrow_into_controller, prefetch_strategy_prices, repay_debt_from_controller, strategy_context,
     strategy_finalize, StrategyRepay,
 };
 
@@ -59,7 +59,7 @@ pub(crate) fn process_migrate_blend(
 
     require_unique_debt_assets(env, &debt_caps);
 
-    let mut cache = Context::new(env);
+    let mut cache = strategy_context(env);
     let (account_id, mut account) = account::load_or_create_account(
         env,
         caller,

@@ -24,3 +24,9 @@ pub const TIMELOCK_OPERATION_GRACE_LEDGERS: u32 = 120_960;
 /// the configured minimum delay is raised to at least this value for that
 /// tier.
 pub const TIMELOCK_RECOVERY_MIN_DELAY_LEDGERS: u32 = 518_400;
+
+/// Maximum number of `CANCELLER` holders, the owner included. A canceller
+/// reset revokes every non-owner holder and grants the new list in one
+/// transaction; at this size its role events stay within the 16,384-byte
+/// per-transaction event limit.
+pub const MAX_CANCELLERS: u32 = 32;

@@ -24,8 +24,10 @@ prices(keys) / quotes(keys)
 A price must pass three gates:
 
 1. **Stale** (`PriceFeedStale`): a leg is older than its feed's
-   `max_stale_seconds` or the asset's `max_price_stale_seconds`, or two market
-   legs differ in age by more than `MAX_LEG_AGE_SPREAD_SECONDS`.
+   `max_stale_seconds` or the asset's `max_price_stale_seconds`, or the oldest
+   market-nature inputs of two legs differ in age by more than
+   `MAX_LEG_AGE_SPREAD_SECONDS`. A `Scaled` leg's market inputs are its
+   factor, when market-nature, and its quote's market inputs.
 2. **Disagree** (`UnsafePriceNotAllowed`): two legs are outside the tolerance
    band, or one of two legs has no reading.
 3. **Sanity**: the final price is not positive (`InvalidPrice`) or is outside
@@ -44,11 +46,14 @@ A price must pass three gates:
 | `get_owner() -> Option<Address>` | anyone | The owner |
 | `set_oracle(key, oracle)` | owner | Registers a configuration after validation and attestation. A replacement must keep the stored `asset_decimals` (`InvalidOracleDecimals`) |
 | `set_sanity_band(key, min_wad, max_wad)` | owner | Narrows the accepted range; a wider band reverts `SanityBandMustTighten`. Live-probes first |
-| `set_tolerance(key, tolerance)` | owner | Sets the dual-source tolerance. Live-probes first |
+| `set_tolerance(key, tolerance)` | owner | Sets the dual-source tolerance. Revalidates the key and its dependents, then live-probes |
 | `upgrade(new_wasm_hash)` | owner | Renews the instance TTL, then replaces the Wasm |
 
 Governance calls `set_sanity_band` on its immediate path. To widen a band, use
 the timelocked `ConfigureAssetOracle` operation, which calls `set_oracle`.
+Governance binds that operation to the band it reads from `oracle` at
+proposal, so a narrowing in between makes the older reconfiguration revert
+(`OracleBandChangedAfterProposal`).
 
 `seed_oracle` and `remove_oracle` write the registry with no auth, validation
 or attestation. They exist only under `cfg(test)` or the `testing` feature,

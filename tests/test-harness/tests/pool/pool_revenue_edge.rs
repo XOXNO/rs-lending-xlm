@@ -6,6 +6,7 @@ fn test_claim_revenue_else_branch_when_reserves_fully_drained() {
         .standard_two_asset()
         .with_dust_disabled_all_markets()
         .with_max_utilization_disabled_all_markets()
+        .without_initial_liquidity()
         .build();
 
     let accumulator = t
@@ -78,6 +79,7 @@ fn test_claim_revenue_blocked_when_post_state_insolvent() {
         .standard_two_asset()
         .with_dust_disabled_all_markets()
         .with_max_utilization_disabled_all_markets()
+        .without_initial_liquidity()
         .build();
 
     let accumulator = t
@@ -95,6 +97,9 @@ fn test_claim_revenue_blocked_when_post_state_insolvent() {
     let revenue_pre = t.snapshot_revenue("USDC");
     assert!(revenue_pre > 0, "fixture must accrue revenue");
 
+    // Share-less cash lets ALICE exit in full while BOB's debt stays open,
+    // leaving revenue as the only supply.
+    t.inject_shareless_cash_raw("USDC", 10_000 * 10_000_000);
     t.withdraw_all(ALICE, "USDC");
 
     let result = t.try_claim_revenue("USDC");

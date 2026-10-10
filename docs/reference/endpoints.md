@@ -64,7 +64,7 @@ Seizure checks only `no_seize`. Liquidators cannot choose a different collateral
 
 ### Liquidation results
 
-Credit liquidation transfers supply shares without moving collateral tokens. The receiver must differ from the target, share its spoke and use Normal mode. `Credit(0)` can create a receiver in a deprecated spoke. Position limits apply; collateral permissions and supply caps do not gate this credit.
+Credit liquidation transfers supply shares without moving collateral tokens. The receiver must differ from the target, share its spoke and use Normal mode. `Credit(0)` can create a receiver in a deprecated spoke. Position limits apply to a receiver with positions, and an empty receiver takes every seized leg; collateral permissions and supply caps do not gate this credit.
 
 Liquidation estimates report gross seizure before protocol fees. Transfer-mode seizure and fees use token units; Credit-mode seizure and fees use RAY shares. `refunds` use debt-token units. Execution can differ from an estimate because prices, indexes and measured token delivery can change.
 
@@ -138,7 +138,7 @@ Constructor `(admin: Address)` initializes the controller and starts it paused. 
 | `edit_asset_in_spoke(input: SpokeAssetArgs)` |
 | `set_spoke_asset_flags(spoke_id: u32, hub_asset: HubAssetKey, paused: bool, frozen: bool, no_seize: bool)` |
 | `relax_spoke_asset_flags(spoke_id: u32, hub_asset: HubAssetKey, expected_epoch: u64, paused: bool, frozen: bool, no_seize: bool)` |
-| `remove_asset_from_spoke(hub_asset: HubAssetKey, spoke_id: u32)` |
+| `remove_asset_from_spoke(hub_asset: HubAssetKey, spoke_id: u32)`; reverts `SpokeAssetFlagRelaxation` while a flag is set |
 | `deploy_pool(wasm_hash: BytesN<32>) -> Address` |
 | `deploy_position_nft(wasm_hash: BytesN<32>, uri: String, name: String, symbol: String) -> Address` |
 | `create_liquidity_pool(hub_id: u32, asset: Address, params: MarketParamsRaw) -> Address` |
@@ -212,20 +212,24 @@ Constructor `(admin: Address, min_delay: u32)` initializes the owner, access-con
 | `hash_operation(target: Address, function: Symbol, args: Vec<Val>, predecessor: BytesN<32>, salt: BytesN<32>) -> BytesN<32>` | Open view / resolver |
 | `resolve_oracle_tolerance(tolerance: u32) -> OracleTolerance` | Open view / resolver |
 | `resolve_asset_oracle(key: PriceKey, oracle: AssetOracle) -> AssetOracle` | Open view / resolver |
-| `propose(proposer: Address, op: AdminOperation, salt: BytesN<32>) -> BytesN<32>` | PROPOSER_ROLE; the proposer must also be the current owner for ownership transfers, code upgrades (`UpgradeGov`, `UpgradeController`, `UpgradePool`, `UpgradePositionNft`, `UpgradePriceAggregator`, `MigrateController`), the timelock minimum delay (`UpdateGovDelay`), price and swap sources (`SetPriceAggregator`, `ConfigureAssetOracle`, `EditOracleTolerance`, `SetSwapAggregator`), `ApproveBlendPool`, `SetAccumulator` and `GrantGovRole`; `RevokeGovRole` cannot target the proposer or the owner |
-| `pause(caller: Address)` | GUARDIAN_ROLE; immediate |
+| `propose(proposer: Address, op: AdminOperation, salt: BytesN<32>) -> BytesN<32>` | PROPOSER_ROLE; the proposer must also be the current owner for ownership transfers, code upgrades (`UpgradeGov`, `UpgradeController`, `UpgradePool`, `UpgradePositionNft`, `UpgradePriceAggregator`, `MigrateController`), the timelock minimum delay (`UpdateGovDelay`), price and swap sources (`SetPriceAggregator`, `ConfigureAssetOracle`, `EditOracleTolerance`, `SetSwapAggregator`), `ApproveBlendPool`, `SetAccumulator` and `GrantGovRole`; `RevokeGovRole` cannot target the proposer or the owner. Every operation records a guard at proposal; see below |
+| `pause(caller: Address)` | GUARDIAN_ROLE; immediate; advances the emergency epoch |
 | `set_spoke_asset_flags(caller: Address, spoke_id: u32, hub_asset: HubAssetKey, paused: bool, frozen: bool, no_seize: bool)` | GUARDIAN_ROLE; immediate tightening only |
-| `set_sanity_band(caller: Address, key: PriceKey, min_wad: i128, max_wad: i128)` | ORACLE_ROLE; immediate tightening only |
+| `set_sanity_band(caller: Address, key: PriceKey, min_wad: i128, max_wad: i128)` | ORACLE_ROLE; immediate tightening only; a pending `ConfigureAssetOracle` for the key then reverts `OracleBandChangedAfterProposal` |
 | `create_hub(caller: Address) -> u32` | GUARDIAN_ROLE; immediate |
 | `add_spoke(caller: Address) -> u32` | GUARDIAN_ROLE; immediate |
-| `revoke_role_immediate(account: Address, role: Symbol)` | Owner; only guardian/oracle roles |
+| `revoke_role_immediate(account: Address, role: Symbol)` | Owner; only guardian/oracle roles; advances the emergency epoch |
 | `execute_self(executor: Option<Address>, op: AdminOperation, salt: BytesN<32>)` | Ready scheduled self-operation; optional executor |
-| `propose_canceller_reset(new_cancellers: Vec<Address>, salt: BytesN<32>) -> BytesN<32>` | Owner; schedule uncancellable recovery |
-| `execute_canceller_reset(executor: Option<Address>, new_cancellers: Vec<Address>, salt: BytesN<32>)` | Ready recovery; optional executor |
-| `accept_ownership()` | Pending owner; synchronizes access-control admin and roles |
+| `propose_canceller_reset(new_cancellers: Vec<Address>, salt: BytesN<32>) -> BytesN<32>` | Owner; schedule uncancellable recovery; the list plus the owner's seat must fit `MAX_CANCELLERS` (32) |
+| `execute_canceller_reset(executor: Option<Address>, new_cancellers: Vec<Address>, salt: BytesN<32>)` | Ready recovery; optional executor; reverts `NotAuthorized` if ownership changed hands after the proposal |
+| `accept_ownership()` | Pending owner; synchronizes access-control admin and roles and advances the owner epoch, so owner-only operations proposed before it revert `NotAuthorized` at execution |
 | `has_role(account: Address, role: Symbol) -> bool` | Open view / resolver |
 
 Governance exports no generic `grant_role`, `revoke_role`, `renounce_ownership`, `get_owner`, `schedule`, or `update_delay` endpoint. Role, owner, delay and upgrade changes go through `AdminOperation` handlers. The exceptions are `revoke_role_immediate`, the canceller reset and `accept_ownership`.
+
+`propose` stores an operation guard beside the scheduled entry, and execution checks it. Owner-only operations and canceller resets record the owner epoch, which `accept_ownership` advances; a stale one reverts `NotAuthorized`. `Unpause` and `GrantGovRole` record the emergency epoch, which a guardian `pause`, an executed `UpgradeController` and `revoke_role_immediate` advance; a stale one reverts `EmergencyEpochMismatch`. `ConfigureAssetOracle` records the key's current sanity band from the aggregator's `oracle` view, or that the key has none yet; execution reverts `OracleBandChangedAfterProposal` unless that is unchanged. An operation scheduled without a guard is not checked.
+
+`AdminOperation::TransferGovOwnership` with `live_until_ledger = 0` cancels a nomination and records the nomination epoch, which every nomination advances. At execution the cancel clears the pending owner only when no nomination has been made since and `new_owner` is still pending; otherwise it completes without effect, so it cannot void a later nomination.
 
 `AdminOperation::RelaxSpokeAssetFlags(RelaxSpokeAssetFlagsArgs)` schedules controller `relax_spoke_asset_flags` on the Standard delay tier. `propose` rejects it with `SpokeFlagsEpochMismatch` when `expected_epoch` differs from the listing's live flags epoch; execution checks the epoch again.
 
@@ -383,4 +387,4 @@ Constructor takes `asset: Address` and `init_args: Vec<Val> = [controller: Addre
 - [Pool ABI](../../interfaces/pool/src/lib.rs), [implementation](../../contracts/pool/src/lib.rs); [governance ABI](../../interfaces/governance/src/lib.rs), [implementation](../../contracts/governance/src/api.rs), [immediate authority](../../contracts/governance/src/timelock/immediate.rs).
 - [NFT implementation](../../contracts/position-nft/src/contract.rs); [router ABI](../../interfaces/swap-aggregator/src/lib.rs), [implementation](../../contracts/swap-aggregator/src/lib.rs); [price ABI](../../interfaces/price-aggregator/src/lib.rs).
 - [XOXNO oracle](../../contracts/xoxno-oracle/src/lib.rs), [admin](../../contracts/xoxno-oracle/src/admin.rs), [reads](../../contracts/xoxno-oracle/src/reads.rs), [submit](../../contracts/xoxno-oracle/src/submit.rs); [adapter](../../contracts/defindex-strategy/src/lib.rs).
-- Generated NFT/default ownership semantics use OpenZeppelin stellar-contracts revision `fbfde388e1b72afa93d6b1c922067879b20e81db`, pinned in [Cargo.toml](../../Cargo.toml).
+- Generated NFT/default ownership semantics use OpenZeppelin stellar-contracts revision `59b98f8e127f0e877a3870e8eb82fa282a4aadf3`, pinned in [Cargo.toml](../../Cargo.toml).

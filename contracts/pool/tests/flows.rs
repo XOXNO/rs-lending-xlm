@@ -1327,6 +1327,7 @@ fn test_create_strategy_dust_fee_consumes_entire_payout() {
     enable_flashloan(&t); // flashloan_fee = 100 bps → min fee 1 on amount 1
     let caller = Address::generate(&t.env);
     let tok = token::Client::new(&t.env, &t.asset);
+    client.supply(&t.sup(0, 10_000_000_000i128));
 
     let cash_before = client.get_reserves(&hub(&t.asset));
     let caller_before = tok.balance(&caller);

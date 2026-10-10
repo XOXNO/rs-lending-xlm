@@ -12,7 +12,8 @@ use crate::risk::validation::require_authorized_caller;
 use crate::storage;
 use crate::strategies::{
     execute_withdraw_all, net_settle_collateral_against_debt, prefetch_strategy_prices,
-    repay_debt_from_controller, strategy_finalize, withdraw_and_swap_from_supply, StrategyRepay,
+    repay_debt_from_controller, strategy_context, strategy_finalize, withdraw_and_swap_from_supply,
+    StrategyRepay,
 };
 
 pub(crate) struct RepayWithCollateralParams<'a> {
@@ -49,7 +50,7 @@ pub(crate) fn process_repay_debt_with_collateral(
 
     let mut account = storage::get_account(env, account_id);
     account::require_owner_or_delegate(env, account_id, caller, &account.owner);
-    let mut cache = Context::new(env);
+    let mut cache = strategy_context(env);
 
     let extra_assets = vec![env, collateral.asset.clone(), debt.asset.clone()];
     prefetch_strategy_prices(&mut cache, &account, &extra_assets);

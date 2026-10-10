@@ -1,3 +1,5 @@
+use common::math::fp::Ray;
+use common::rates::calculate_scaled_supply;
 use common::types::HubAssetKey;
 use controller::types::{MarketParamsRaw, PoolKey, PoolStateRaw, PositionMode, SpokeAssetConfig};
 use governance::op::{AdminOperation, CreatePoolArgs, SpokeAssetArgs};
@@ -91,6 +93,13 @@ impl LendingTest {
                 .get(&key)
                 .expect("hub market state exists after create_market");
             state.cash += liquidity;
+            state.supplied += calculate_scaled_supply(
+                &self.env,
+                liquidity,
+                decimals,
+                Ray::from(state.supply_index),
+            )
+            .raw();
             self.env.storage().persistent().set(&key, &state);
         });
     }

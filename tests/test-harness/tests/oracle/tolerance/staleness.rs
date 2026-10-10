@@ -71,6 +71,8 @@ fn test_missing_twap_history_allows_permissive_supply_fallback() {
     t.assert_supply_near(ALICE, "USDC", 10_000.0, 1.0);
 }
 
+const STALE_ANCHOR_AGE_SECS: u64 = 2_000;
+
 #[test]
 fn test_primary_anchor_stale_anchor_blocks_strict_borrow() {
     let mut t = setup();
@@ -79,7 +81,10 @@ fn test_primary_anchor_stale_anchor_blocks_strict_borrow() {
         .env
         .register(test_harness::mock_reflector::MockReflector, ());
     let dex_client = test_harness::mock_reflector::MockReflectorClient::new(&t.env, &dex_oracle);
-    let stale_ts = t.env.ledger().timestamp().saturating_sub(1_000);
+    // Past the harness's 1,200 s Reflector budget, measured from a ledger
+    // that has advanced far enough for the age to be real.
+    t.advance_time(STALE_ANCHOR_AGE_SECS);
+    let stale_ts = t.env.ledger().timestamp() - STALE_ANCHOR_AGE_SECS;
     dex_client.set_price_at(&usdc_asset, &usd(1), &stale_ts);
     set_dual_oracle_dex(&t, "USDC", dex_oracle);
 

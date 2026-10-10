@@ -163,7 +163,11 @@ proptest! {
 
     #[test]
     fn prop_accounting_conservation(ops in prop::collection::vec(op_strategy(), 5..15)) {
-        let mut t = LendingTest::new().three_asset_usdc_eth_wbtc().build();
+        // No seed: every supply share belongs to a user or to revenue.
+        let mut t = LendingTest::new()
+            .three_asset_usdc_eth_wbtc()
+            .without_initial_liquidity()
+            .build();
         seed_fuzz_conservation_book(&mut t);
         let mut last_idx = capture_indexes(&t);
 
@@ -193,8 +197,8 @@ proptest! {
     }
 }
 
-// Seed-adjusted conservation, in RAY asset precision:
-//   surplus = (cash - seed) + borrowed * borrow_index - supplied * supply_index
+// Cash conservation, in RAY asset precision:
+//   surplus = cash + borrowed * borrow_index - supplied * supply_index
 // Every rounding favours the pool, so surplus stays at or above `-RAY_DUST` and
 // grows by at most 8 token units per op.
 
@@ -220,21 +224,20 @@ fn unit_ray(t: &LendingTest, asset: &str) -> i128 {
     10i128.pow(27 - t.resolve_market(asset).decimals)
 }
 
-/// `(cash - seed) + debt value - supplier claims`, in RAY asset precision.
-fn seed_adjusted_surplus_ray(t: &LendingTest, asset: &str, seed: i128) -> i128 {
+/// `cash + debt value - supplier claims`, in RAY asset precision.
+fn surplus_ray(t: &LendingTest, asset: &str) -> i128 {
     let s = raw_pool_state(t, asset);
     let debt = Ray::from(s.borrowed).mul(&t.env, Ray::from(s.borrow_index));
     let claims = Ray::from(s.supplied).mul(&t.env, Ray::from(s.supply_index));
-    (s.cash - seed) * unit_ray(t, asset) + debt.raw() - claims.raw()
+    s.cash * unit_ray(t, asset) + debt.raw() - claims.raw()
 }
 
 fn assert_cash_conservation_and_custody(
     step: usize,
     op: &dyn std::fmt::Debug,
     t: &LendingTest,
-    seeds: &[i128; 3],
 ) -> Result<(), TestCaseError> {
-    for (asset, seed) in ASSETS.iter().zip(seeds) {
+    for asset in ASSETS {
         let cash = raw_pool_state(t, asset).cash;
         let held = pool_token_balance(t, asset);
         // Custody: the pool holds exactly its accounting cash.
@@ -249,12 +252,12 @@ fn assert_cash_conservation_and_custody(
             cash
         );
 
-        let surplus = seed_adjusted_surplus_ray(t, asset, *seed);
+        let surplus = surplus_ray(t, asset);
         let unit = unit_ray(t, asset);
         let ceiling = MAX_ROUNDING_LEGS_PER_OP * (step as i128 + 1) * unit;
         prop_assert!(
             surplus >= -RAY_DUST,
-            "step {} {:?}: {} cash leak: seed-adjusted surplus {} raw RAY ({} units)",
+            "step {} {:?}: {} cash leak: surplus {} raw RAY ({} units)",
             step,
             op,
             asset,
@@ -281,21 +284,21 @@ proptest! {
     #![proptest_config(ProptestConfig { failure_persistence: None, ..config(32) })]
 
     #[test]
-    fn prop_seed_adjusted_cash_conservation_and_token_custody(
+    fn prop_cash_conservation_and_token_custody(
         ops in prop::collection::vec(op_strategy(), 5..15)
     ) {
         let mut t = LendingTest::new().three_asset_usdc_eth_wbtc().build();
 
-        // Straight after build a market holds only its seed: no shares, no debt.
+        // Straight after build a market holds only its seed, booked as supply
+        // at index one: no debt, no revenue, zero surplus.
         let presets = [usdc_preset(), eth_preset(), wbtc_preset()];
-        let mut seeds = [0i128; 3];
-        for (i, asset) in ASSETS.iter().enumerate() {
+        for (preset, asset) in presets.iter().zip(ASSETS) {
             let s = raw_pool_state(&t, asset);
-            prop_assert_eq!((s.supplied, s.borrowed, s.revenue), (0, 0, 0));
+            prop_assert_eq!((s.borrowed, s.revenue), (0, 0));
             let from_preset =
-                f64_to_i128(presets[i].initial_liquidity, t.resolve_market(asset).decimals);
+                f64_to_i128(preset.initial_liquidity, t.resolve_market(asset).decimals);
             prop_assert_eq!(s.cash, from_preset, "{} seed differs from its preset", asset);
-            seeds[i] = s.cash;
+            prop_assert_eq!(surplus_ray(&t, asset), 0, "{} seed is not booked as supply", asset);
         }
 
         seed_fuzz_conservation_book(&mut t);
@@ -303,13 +306,13 @@ proptest! {
         for (i, op) in ops.iter().enumerate() {
             execute_op(&mut t, op);
             // `i + 1`: the seeded book is six pool legs of its own.
-            assert_cash_conservation_and_custody(i + 1, op, &t, &seeds)?;
+            assert_cash_conservation_and_custody(i + 1, op, &t)?;
         }
 
-        for (asset, seed) in ASSETS.iter().zip(&seeds) {
-            let units = (seed_adjusted_surplus_ray(&t, asset, *seed) / unit_ray(&t, asset)) as i64;
+        for asset in ASSETS {
+            let units = (surplus_ray(&t, asset) / unit_ray(&t, asset)) as i64;
             if units > MAX_SURPLUS_UNITS.fetch_max(units, Ordering::Relaxed) {
-                eprintln!("new max seed-adjusted surplus: {units} raw units of {asset}");
+                eprintln!("new max surplus: {units} raw units of {asset}");
             }
         }
     }
@@ -319,21 +322,11 @@ proptest! {
 static LIQUIDATIONS_LANDED: AtomicI64 = AtomicI64::new(0);
 static BAD_DEBT_EVENTS: AtomicI64 = AtomicI64::new(0);
 
-fn market_seeds(t: &LendingTest) -> [i128; 3] {
-    let mut seeds = [0i128; 3];
-    for (i, asset) in ASSETS.iter().enumerate() {
-        let s = raw_pool_state(t, asset);
-        assert_eq!((s.supplied, s.borrowed, s.revenue), (0, 0, 0));
-        seeds[i] = s.cash;
-    }
-    seeds
-}
-
 proptest! {
     #![proptest_config(ProptestConfig { failure_persistence: None, ..config(32) })]
 
     #[test]
-    fn prop_seed_adjusted_cash_conservation_through_liquidation_and_bad_debt(
+    fn prop_cash_conservation_through_liquidation_and_bad_debt(
         collateral_usdc in 10u32..50_000u32,
         borrow_bps in 3_000u32..7_400u32,
         wait_secs in 0u32..(30 * 24 * 3600),
@@ -341,7 +334,6 @@ proptest! {
         liquidation_bps in prop::collection::vec(100u16..=10_000u16, 1..4),
     ) {
         let mut t = LendingTest::new().three_asset_usdc_eth_wbtc().build();
-        let seeds = market_seeds(&t);
         let mut step = 0usize;
 
         // Real ETH suppliers, so socialized bad debt has claims to land on.
@@ -349,11 +341,11 @@ proptest! {
         t.supply(ALICE, "USDC", collateral_usdc as f64);
         let debt_eth = collateral_usdc as f64 * borrow_bps as f64 / 10_000.0 / 2_000.0;
         prop_assume!(t.try_borrow(ALICE, "ETH", debt_eth).is_ok());
-        assert_cash_conservation_and_custody(step, &"open", &t, &seeds)?;
+        assert_cash_conservation_and_custody(step, &"open", &t)?;
 
         t.advance_and_sync(wait_secs as u64);
         step += 1;
-        assert_cash_conservation_and_custody(step, &"accrue", &t, &seeds)?;
+        assert_cash_conservation_and_custody(step, &"accrue", &t)?;
 
         t.set_price("USDC", controller::constants::WAD * crash_cents as i128 / 100);
         for bps in &liquidation_bps {
@@ -365,7 +357,7 @@ proptest! {
             let repay = (debt * *bps as f64 / 10_000.0).max(0.000_001);
             let landed = t.try_liquidate(LIQUIDATOR, ALICE, "ETH", repay).is_ok();
             step += 1;
-            assert_cash_conservation_and_custody(step, &("liquidate", bps, landed), &t, &seeds)?;
+            assert_cash_conservation_and_custody(step, &("liquidate", bps, landed), &t)?;
             if landed {
                 LIQUIDATIONS_LANDED.fetch_add(1, Ordering::Relaxed);
             }
@@ -377,7 +369,7 @@ proptest! {
         for asset in ["USDC", "ETH"] {
             let _ = t.try_claim_revenue(asset);
             step += 1;
-            assert_cash_conservation_and_custody(step, &("claim", asset), &t, &seeds)?;
+            assert_cash_conservation_and_custody(step, &("claim", asset), &t)?;
         }
         if std::env::var_os("CONSERVATION_STATS").is_some() {
             eprintln!(

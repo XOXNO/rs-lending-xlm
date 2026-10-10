@@ -47,8 +47,14 @@ its review window before funding. Raising the configured minimum and changing a
 compiled tier floor are different actions.
 
 GUARDIAN can immediately pause, tighten listing flags, and create empty hubs
-or spokes. ORACLE can immediately narrow sanity bands. The owner can revoke
-those two hot roles immediately and perform one-time deployment bootstrap.
+or spokes. ORACLE can immediately narrow sanity bands; a narrowing voids every
+pending `ConfigureAssetOracle` for that key. A rogue ORACLE can thereby delay
+the owner's reconfiguration, and the owner's remedy is `revoke_role_immediate`.
+The owner can revoke those two hot roles immediately and perform one-time
+deployment bootstrap. A guardian pause, an executed controller upgrade and an
+immediate revocation each advance the emergency epoch, voiding every `Unpause`
+and `GrantGovRole` proposed before it. A rogue GUARDIAN can thereby delay a
+reopening or a grant; the remedy is the same revocation.
 Reopening, global position-manager changes, and ordinary upgrades use delayed
 operations. Controller construction and upgrade pause the controller. Pool,
 position NFT, price aggregator and governance upgrades do not pause lending.
@@ -64,13 +70,32 @@ so no later delay update can lower it. An owner `UpgradeGov` can still replace
 the governance code and its delay rules
 ([INV-AUTH-05](../reference/invariants.md#inv-auth-05)).
 
+An owner-only operation records the owner epoch it was proposed under, and
+`accept_ownership` advances that epoch, so a former owner's queued
+operations fail with `NotAuthorized` after a handover. Operations scheduled
+before this binding existed carry no epoch and stay executable.
+
 Typed proposals perform proposal-time checks; targets retain execution-time
 validation. Ready operations must also be within the grace window. Anyone may
-execute with no executor identity; supplying one requires its authorization
-and EXECUTOR role. Executor/canceller separation exempts the governance owner.
+execute with no executor identity and in any order. An executed controller
+upgrade advances the emergency epoch, so an `Unpause` proposed before it
+reverts; one proposed after the upgrade was proposed but before it executed
+can still reopen the old code for at most one delay, an accepted residual.
+Operations scheduled without a guard are not checked: an owner-only
+operation queued before the governance code that records guards was deployed
+stays executable across a later ownership handover. Before that upgrade,
+list the pending operations and cancel or re-propose the owner-only ones
+afterwards. Supplying an executor identity requires its authorization and
+EXECUTOR role. Executor/canceller separation exempts the governance owner.
 A revocation target cannot cancel its own removal, but an independent canceller
 can veto it. Owner-proposed Recovery operations cannot be cancelled and replace
-cancellers after their delay; they do not recover a lost owner key.
+cancellers after their delay; they do not recover a lost owner key. A
+Recovery operation also records the owner epoch, so one proposed before an
+ownership handover reverts instead of replacing the new owner's cancellers.
+A reset scheduled before this binding existed is held to the owner in place
+when the binding was deployed. The
+canceller role is capped at 32 holders, so a reset of a full council stays
+within one transaction's event limit.
 
 ## Account authority
 
@@ -196,6 +221,16 @@ reports `p1` and `p2` in the same band have `p1 / p2 <= u = max / min`. The
 10% single-source cap gives `u <= 11/9`, which is about 1.222. The true NAV
 `P` is also in the band, so `P / p <= u`.
 
+A pair escapes the cap only when its legs trust different contract sets and
+every contract they share serves some top-level `Scaled` leg through a factor
+whose `max/min` range, times the pair's tolerance ratio, is at most `11/9`:
+the contract moves that leg by the factor range, and the other leg only prices
+within the tolerance of it. A contract that reaches every leg through a plain
+feed, or through a wider factor, moves both legs together and the pair keeps
+the cap. Nested keys are not inspected; each is band-capped by its own
+admission. The accepted residual: a shared contract that also serves a nested
+quote key can move the pair further, by up to that key's own band ratio.
+
 Lender safety depends only on the reported collateral prices. Bad debt occurs
 only when the reported collateral is less than the debt. Take one collateral
 leg with `n` units and a debt `D`. A borrow at the reported price `p1` gives
@@ -235,7 +270,9 @@ and provider-specific metadata. Provider separation is not proof of independent
 operators or upstream data. Feed-nature labels are configuration assertions.
 Non-LP admission probes can accept temporary market-condition failures.
 Changing an upstream key revalidates dependent source structure without a new
-live attestation for each dependent. Upstream changes do not erase the lending
+live attestation for each dependent. That revalidation scans the whole
+registry, so the registry admits at most `MAX_ORACLE_KEYS` (256) keys and
+reconfiguration of existing keys stays available at the cap. Upstream changes do not erase the lending
 aggregator's runtime age checks,
 but can invalidate assumptions made during admission.
 
@@ -316,9 +353,10 @@ liquidation.
 
 ## Numeric and resource limits
 
-Finite RAY value capacity can be exhausted before the index ceiling. Synchronizing
-an overlarge book can then fail before an otherwise risk-reducing operation.
-Caps must account for plausible index growth as well as token balances.
+Finite RAY value capacity can be exhausted before the index ceiling. Accrual
+then stops charging interest at the market value ceiling instead of failing, so
+risk-reducing operations keep working, but borrowers stop paying the configured
+rate. Caps must account for plausible index growth as well as token balances.
 Accrual cadence changes utilization and subsequent rates; bounded chunks do not
 make cadence neutral or prove exact conservation after integer rounding.
 See [numeric limits](../reference/formulas.md#numeric-limits).
@@ -349,7 +387,7 @@ these rows do not assign severity or establish exploitability.
 | Tamper.3 | Non-standard tokens/donations; measured receipts and separate books do not neutralize arbitrary token semantics. |
 | Tamper.4 | Malicious router/venue; measured input/output bounds apply, while payload minimum output remains router-enforced. |
 | Tamper.5 | Callback reentry/intermediate state; guards and host rules protect reachable paths, not hypothetical EVM behavior. |
-| Tamper.6 | Accrual manipulation/extremes; bounded indexes and chunks coexist with cadence and value-overflow risks. |
+| Tamper.6 | Accrual manipulation/extremes; bounded indexes, chunks and the market value ceiling coexist with cadence risk and interest held at the ceiling. |
 | Tamper.7 | Malicious upgrade; core upgrades are delayed, including price aggregator; standalone owners retain their own upgrade policy. |
 | Tamper.8 | Hostile Blend integration; allowlisting and measured settlement do not freeze an approved pool's code. |
 | Tamper.9 | False feed-nature label bypasses intended smoothing selection; nature is operator-asserted. |
@@ -372,7 +410,7 @@ these rows do not assign severity or establish exploitability.
 | DoS.9 | Dust and zero-share movements; rejection/floors reduce griefing but do not guarantee liquidation profitability. |
 | DoS.10 | Router/oracle owner loss disables administration; existing oracle signers may continue, but future repair powers are lost. The source ABIs export no `renounce_ownership`; verify that the deployed artifacts match. |
 | Elevation.1 | Governance-owner compromise; actual configured delay and approved replacement code determine exposure. |
-| Elevation.2 | Guardian attempts reopening; immediate flag ratchets reject it. Listing edits cannot clear flags either; only a delayed relaxation bound to the listing's flags epoch can, so one proposed before a later guardian action reverts. |
+| Elevation.2 | Guardian attempts reopening; immediate flag ratchets reject it. Listing edits and re-listings of a removed asset cannot clear flags either; only a delayed relaxation bound to the listing's flags epoch can, so one proposed before a later guardian action reverts. |
 | Elevation.3 | Role overlap/cancellation abuse; separation exempts owner and recovery has its own rules. |
 | Elevation.4 | Delegate exceeds mandate; owner-only grant management and delayed global manager deactivation limit eligibility, not economic intent. |
 | Elevation.5 | Third-party creation of foreign risk; supply top-ups require existing positions, while account creation belongs to its caller. |

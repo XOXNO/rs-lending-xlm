@@ -8,7 +8,9 @@
 
 use soroban_sdk::Env;
 
+use crate::constants::{MAX_MARKET_VALUE_RAY, RAY};
 use crate::math::fp::Ray;
+use crate::math::fp_core::mul_div_floor_saturating;
 use crate::types::{MarketIndex, MarketParams, PoolState, PoolSyncData};
 
 use crate::rates::compound::{compound_interest, MAX_COMPOUND_DELTA_MS};
@@ -34,7 +36,16 @@ pub struct AccrualStep {
     /// added to total supply before the next step, because the next step's
     /// utilization reads it.
     pub revenue_shares: Ray,
+    /// `true` when [`MAX_MARKET_VALUE_RAY`] held this step's borrower interest
+    /// below what the rate implies.
+    pub value_capped: bool,
 }
+
+/// Raw ray units of value kept below [`MAX_MARKET_VALUE_RAY`] for one step's
+/// rounding: the half-up totals, the floored supply index and the floored
+/// revenue shares together add under three raw units beyond the capped
+/// interest.
+const ACCRUAL_ROUNDING_SLACK_RAW: i128 = 3;
 
 /// Runs one compounding step of length `delta_ms` over a market snapshot.
 ///
@@ -48,6 +59,11 @@ pub struct AccrualStep {
 /// supply index cannot absorb comes back from
 /// [`supply_index_reward_shortfall`] and is booked as revenue rather than
 /// silently dropped.
+///
+/// Interest raises total debt value and total supply value by the same
+/// amount, so the step caps it at the room both totals have below
+/// [`MAX_MARKET_VALUE_RAY`]. With no room left, the step leaves both indexes
+/// unchanged and books no revenue.
 pub fn accrue_step(
     env: &Env,
     params: &MarketParams,
@@ -57,13 +73,25 @@ pub fn accrue_step(
     supply_index: Ray,
     delta_ms: u64,
 ) -> AccrualStep {
+    let headroom = market_value_headroom(env, borrowed, supplied, borrow_index, supply_index);
+    if headroom == 0 {
+        return AccrualStep {
+            borrow_index,
+            supply_index,
+            revenue_shares: Ray::ZERO,
+            value_capped: borrowed != Ray::ZERO,
+        };
+    }
+
     let borrowed_original = scaled_to_original(env, borrowed, borrow_index);
     let supplied_original = scaled_to_original(env, supplied, supply_index);
     let util = utilization(env, borrowed_original, supplied_original);
     let borrow_rate = calculate_borrow_rate(env, util, params);
     let interest_factor = compound_interest(env, borrow_rate, delta_ms);
 
-    let new_borrow_index = update_borrow_index(env, borrow_index, interest_factor);
+    let grown_borrow_index = update_borrow_index(env, borrow_index, interest_factor);
+    let (new_borrow_index, value_capped) =
+        cap_borrow_index_growth(env, borrowed, borrow_index, grown_borrow_index, headroom);
 
     let (supplier_rewards, protocol_fee) =
         calculate_supplier_rewards(env, params, borrowed, new_borrow_index, borrow_index);
@@ -90,6 +118,50 @@ pub fn accrue_step(
         borrow_index: new_borrow_index,
         supply_index: new_supply_index,
         revenue_shares,
+        value_capped,
+    }
+}
+
+/// Raw ray value by which one step's interest may still raise the market
+/// totals: [`MAX_MARKET_VALUE_RAY`] less [`ACCRUAL_ROUNDING_SLACK_RAW`] less the
+/// larger of total supply value and total debt value, floored at zero.
+///
+/// The totals are floored and saturate, so a total that does not fit `i128`
+/// leaves no room instead of panicking.
+fn market_value_headroom(
+    env: &Env,
+    borrowed: Ray,
+    supplied: Ray,
+    borrow_index: Ray,
+    supply_index: Ray,
+) -> i128 {
+    let supplied_value = mul_div_floor_saturating(env, supplied.raw(), supply_index.raw(), RAY);
+    let borrowed_value = mul_div_floor_saturating(env, borrowed.raw(), borrow_index.raw(), RAY);
+    (MAX_MARKET_VALUE_RAY - ACCRUAL_ROUNDING_SLACK_RAW)
+        .saturating_sub(supplied_value.max(borrowed_value))
+        .max(0)
+}
+
+/// Lowers `grown_index` so `borrowed` debt value grows by at most `headroom`
+/// raw ray from `old_index`. Returns the index and whether the cap engaged.
+///
+/// The capped index never falls below `old_index`.
+fn cap_borrow_index_growth(
+    env: &Env,
+    borrowed: Ray,
+    old_index: Ray,
+    grown_index: Ray,
+    headroom: i128,
+) -> (Ray, bool) {
+    if borrowed == Ray::ZERO {
+        return (grown_index, false);
+    }
+    let max_growth = mul_div_floor_saturating(env, headroom, RAY, borrowed.raw());
+    let ceiling = old_index.raw().saturating_add(max_growth);
+    if grown_index.raw() <= ceiling {
+        (grown_index, false)
+    } else {
+        (Ray::from(ceiling), true)
     }
 }
 

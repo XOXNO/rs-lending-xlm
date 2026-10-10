@@ -25,8 +25,12 @@ const MAX_NORMALIZED_RESERVE_WAD: u128 = 10u128.pow(34);
 /// `xa_wad` and `xb_wad` at amplification `amp`, via Newton-Raphson
 /// iteration. Returns `OracleError::InvalidPrice` if either reserve is not
 /// positive, `amp` is outside `[MIN_AMP, MAX_AMP]`, either reserve exceeds
-/// `MAX_NORMALIZED_RESERVE_WAD`, or the iteration does not converge within
-/// `MAX_D_ITERATIONS` steps.
+/// `MAX_NORMALIZED_RESERVE_WAD`, an intermediate product overflows `U256`, or
+/// the iteration does not converge within `MAX_D_ITERATIONS` steps.
+///
+/// The reserve bound does not bound the products: a near-empty leg against a
+/// large one drives `d_p` past 256 bits, so every product that grows with `D`
+/// is checked.
 fn solve_stable_d(env: &Env, xa_wad: i128, xb_wad: i128, amp: u128) -> Result<U256, OracleError> {
     if xa_wad <= 0
         || xb_wad <= 0
@@ -47,13 +51,25 @@ fn solve_stable_d(env: &Env, xa_wad: i128, xb_wad: i128, amp: u128) -> Result<U2
 
     let mut d = sum.clone();
     for _ in 0..MAX_D_ITERATIONS {
-        let mut d_p = d.clone();
-        d_p = d_p.mul(&d).div(&xa.mul(&n));
-        d_p = d_p.mul(&d).div(&xb.mul(&n));
+        let d_p = d
+            .checked_mul(&d)
+            .map(|product| product.div(&xa.mul(&n)))
+            .and_then(|partial| partial.checked_mul(&d))
+            .map(|product| product.div(&xb.mul(&n)))
+            .ok_or(OracleError::InvalidPrice)?;
 
         let d_prev = d.clone();
-        let numerator = ann.mul(&sum).add(&n.mul(&d_p)).mul(&d);
-        let denominator = ann.sub(&one).mul(&d).add(&n.add(&one).mul(&d_p));
+        let numerator = n
+            .checked_mul(&d_p)
+            .and_then(|scaled| ann.mul(&sum).checked_add(&scaled))
+            .and_then(|total| total.checked_mul(&d))
+            .ok_or(OracleError::InvalidPrice)?;
+        let denominator = ann
+            .sub(&one)
+            .checked_mul(&d)
+            .zip(n.add(&one).checked_mul(&d_p))
+            .and_then(|(left, right)| left.checked_add(&right))
+            .ok_or(OracleError::InvalidPrice)?;
         d = numerator.div(&denominator);
 
         let converged = if d >= d_prev {
@@ -75,8 +91,8 @@ fn solve_stable_d(env: &Env, xa_wad: i128, xb_wad: i128, amp: u128) -> Result<U2
 /// [`solve_stable_d`], multiplies `D` by the lower of the two legs'
 /// WAD-scaled prices, and divides by the share supply converted to WAD.
 /// Returns `OracleError::InvalidPrice` if any reserve, price, or share
-/// amount is not positive, if `D` fails to solve, or if the result does not
-/// fit in `i128`.
+/// amount is not positive, if `D` fails to solve, or if the product or the
+/// result does not fit in `U256` or `i128` respectively.
 pub fn fair_stable_lp_price_wad(
     env: &Env,
     a: &LpLeg,
@@ -104,7 +120,8 @@ pub fn fair_stable_lp_price_wad(
     }
 
     let fair = d
-        .mul(&U256::from_u128(env, min_price as u128))
+        .checked_mul(&U256::from_u128(env, min_price as u128))
+        .ok_or(OracleError::InvalidPrice)?
         .div(&U256::from_u128(env, share_supply_wad as u128));
     try_u256_to_i128(&fair).ok_or(OracleError::InvalidPrice)
 }
@@ -247,6 +264,20 @@ mod tests {
         )
         .unwrap_err();
         assert_eq!(err, OracleError::InvalidPrice);
+    }
+
+    /// One stroop against 6.5e11 tokens: both legs are inside
+    /// `MAX_NORMALIZED_RESERVE_WAD`, but the Newton products pass 256 bits.
+    #[test]
+    fn one_sided_pool_overflow_errors_not_traps() {
+        let env = Env::default();
+        let near_empty = leg(1, 7, WAD);
+        let flooded = leg(6_532_012_634_211_138_837, 7, WAD);
+        for (a, b) in [(&near_empty, &flooded), (&flooded, &near_empty)] {
+            let err = fair_stable_lp_price_wad(&env, a, b, &supply(40_000_000_000_000), 1500)
+                .unwrap_err();
+            assert_eq!(err, OracleError::InvalidPrice);
+        }
     }
 
     #[test]

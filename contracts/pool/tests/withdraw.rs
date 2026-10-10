@@ -5,7 +5,7 @@ use crate::cache::Cache;
 use crate::storage;
 use crate::test_support::{hub, init_ledger};
 use crate::{LiquidityPool, LiquidityPoolClient};
-use common::constants::RAY;
+use common::constants::{MAX_MARKET_VALUE_RAY, RAY};
 use common::errors::CollateralError;
 use common::math::fp::Ray;
 use common::types::{
@@ -119,7 +119,8 @@ fn test_withhold_liquidation_fee_rejects_fee_greater_than_gross() {
 #[test]
 fn test_liquidation_withdraw_uses_post_burn_fee_headroom_and_final_debt_guard() {
     const UNIT: i128 = 10_000_000;
-    let largest_deposit = i128::MAX / (RAY / UNIT);
+    // About one token of share headroom is left, below the 10-token fee: the fee fits only after the burn.
+    let largest_deposit = MAX_MARKET_VALUE_RAY / (RAY / UNIT);
     for (deposit, borrowed, full_close) in [
         (largest_deposit, 0, false),
         (largest_deposit, 0, true),

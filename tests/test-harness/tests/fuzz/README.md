@@ -1,6 +1,6 @@
 # Property tests (proptest)
 
-Randomized contract scenarios over the full controller + pool stack via `LendingTest`. Each property names an invariant; failures shrink to minimal cases stored in `*.proptest-regressions` (the two seed-adjusted cash properties persist none).
+Randomized contract scenarios over the full controller + pool stack via `LendingTest`. Each property names an invariant; failures shrink to minimal cases stored in `*.proptest-regressions` (the two cash-conservation properties persist none).
 
 Complements `tests/fuzz/` (libFuzzer byte-mutation campaigns). Proptest explores a fresh seed on each run; failures are reproducible from the reported and persisted seed, shrink to a minimal case, and replay automatically from committed regressions.
 
@@ -42,8 +42,8 @@ harness suite runs at libtest's default of one thread per core.
 | Property | Asserts | Catches |
 |----------|---------|---------|
 | `prop_accounting_conservation` | After each op of a random `ops.rs` sequence: solvency inequality, supply/borrow/revenue conservation (±4 units), non-negative reserves, monotonic indexes, cleared flash guard, zero router allowance, controller leftover ≤ 4 units | Accounting drift, revenue skim, index regression, strategy residue, guard leak |
-| `prop_seed_adjusted_cash_conservation_and_token_custody` | After each op of a random `ops.rs` sequence: the pool token balance equals its accounting cash, and the seed-adjusted surplus stays between −1e9 raw RAY and 8 raw token units per op | Cash leak, over-collection, custody drift |
-| `prop_seed_adjusted_cash_conservation_through_liquidation_and_bad_debt` | Open, accrue, crash the USDC price, attempt one to three liquidations, claim revenue: the same custody and surplus bounds hold after each step | Cash leak through liquidation or bad-debt socialization |
+| `prop_cash_conservation_and_token_custody` | After each op of a random `ops.rs` sequence: the pool token balance equals its accounting cash, and the surplus (cash plus debt value minus supplier claims) stays between −1e9 raw RAY and 8 raw token units per op | Cash leak, over-collection, custody drift |
+| `prop_cash_conservation_through_liquidation_and_bad_debt` | Open, accrue, crash the USDC price, attempt one to three liquidations, claim revenue: the same custody and surplus bounds hold after each step | Cash leak through liquidation or bad-debt socialization |
 | `prop_migrate_blend_reconciles_same_asset` | Random USDC coll/supply/debt + cap buffer, new or existing hub account: Blend slots empty, hub supply and debt grow by the Blend positions (debt, not the cap) within 4 units, HF ≥ 1, controller leftover ≤ 4, flash guard cleared | Refund/cap confusion, leftover dust, unregistered new account |
 | `prop_migrate_blend_cap_too_low_reverts` | Cap below Blend liability reverts (mock health `#1`) with no hub leftover and Blend position intact | Partial-repay-then-sweep hole |
 | `migrate_blend_rejects_empty_duplicate_unapproved_zero_cap` | Empty lists, a duplicate cap, a zero cap and an unapproved Blend pool each revert with their own error | Missing migration input checks |

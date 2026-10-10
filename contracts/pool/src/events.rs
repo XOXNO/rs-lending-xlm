@@ -1,7 +1,7 @@
 //! Pool events. Mutation paths emit state snapshots so indexers track cash,
 //! indexes and share totals without re-simulating accrual.
 
-use common::types::{MarketParamsRaw, MarketStateSnapshot};
+use common::types::{HubAssetKey, MarketParamsRaw, MarketStateSnapshot};
 
 use soroban_sdk::{contractevent, contracttype, vec, Address, Env, Vec};
 
@@ -78,6 +78,16 @@ pub struct StrategyFeeEvent {
     pub amount_sent: i128,
 }
 
+/// Accrual held the market's interest at `MAX_MARKET_VALUE_RAY`: its total
+/// supply or debt value reached the ceiling, so borrowers accrued less
+/// interest than the rate implies. Emitted at most once per market per call.
+#[contractevent(topics = ["market", "value_ceiling"])]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct MarketValueCeilingEvent {
+    pub hub_id: u32,
+    pub asset: Address,
+}
+
 /// No-op on an empty batch.
 pub(crate) fn emit_market_state_batch(env: &Env, snapshots: Vec<MarketStateSnapshot>) {
     if snapshots.is_empty() {
@@ -128,6 +138,15 @@ pub(crate) fn emit_strategy_fee(
         amount,
         fee,
         amount_sent,
+    }
+    .publish(env);
+}
+
+/// After an accrual that the market value ceiling held.
+pub(crate) fn emit_market_value_ceiling(env: &Env, hub_asset: &HubAssetKey) {
+    MarketValueCeilingEvent {
+        hub_id: hub_asset.hub_id,
+        asset: hub_asset.asset.clone(),
     }
     .publish(env);
 }

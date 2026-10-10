@@ -34,6 +34,7 @@ pub(crate) fn apply(
 
     position = position.checked_add(env, minted);
     cache.mint_supply(minted);
+    guards::require_market_value_within_ceiling(env, &cache);
 
     cache.credit_cash(amount);
 

@@ -12,31 +12,39 @@ use common::rates::{accrue_step, protocol_fee_shares, MAX_COMPOUND_DELTA_MS};
 use soroban_sdk::Env;
 
 use crate::cache::Cache;
+use crate::events;
 
 /// Accrues borrow/supply indexes from `last_timestamp` to the cache's current time.
 ///
 /// No-op when no time has elapsed. Splits long gaps into max-sized compound
-/// windows, then sets `last_timestamp` to `current_timestamp`.
+/// windows, then sets `last_timestamp` to `current_timestamp`. Emits
+/// `MarketValueCeilingEvent` once if the market value ceiling held any
+/// window's interest.
 pub(crate) fn global_sync(env: &Env, cache: &mut Cache) {
     if !cache.needs_accrual() {
         return;
     }
 
+    let mut value_capped = false;
     let mut remaining = cache.elapsed_ms();
     while let Some(nonzero) = NonZeroU64::new(remaining) {
         let chunk = nonzero.get().min(MAX_COMPOUND_DELTA_MS);
-        accrue_chunk(env, cache, chunk);
+        value_capped |= accrue_chunk(env, cache, chunk);
         remaining = remaining.saturating_sub(chunk);
     }
 
     cache.mark_accrued();
+    if value_capped {
+        events::emit_market_value_ceiling(env, cache.hub_asset());
+    }
 }
 
 /// Applies one compound step of `delta_ms` to indexes and protocol revenue.
+/// Returns whether the market value ceiling held the step's interest.
 ///
 /// The arithmetic lives in [`accrue_step`], shared with the read-only
 /// `simulate_update_indexes` so the view and the mutator cannot drift.
-fn accrue_chunk(env: &Env, cache: &mut Cache, delta_ms: u64) {
+fn accrue_chunk(env: &Env, cache: &mut Cache, delta_ms: u64) -> bool {
     let step = accrue_step(
         env,
         cache.params(),
@@ -50,6 +58,7 @@ fn accrue_chunk(env: &Env, cache: &mut Cache, delta_ms: u64) {
     cache.set_borrow_index(step.borrow_index);
     cache.set_supply_index(step.supply_index);
     cache.accrue_revenue(step.revenue_shares);
+    step.value_capped
 }
 
 /// Converts a RAY fee into floor-rounded scaled supply shares and mints them as revenue.

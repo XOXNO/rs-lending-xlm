@@ -2,10 +2,10 @@
 //!
 //! Callers run them after interest accrual and before committing state.
 
-use common::constants::{BPS, LIQUIDATION_BUFFER_BPS};
-use common::errors::CollateralError;
+use common::constants::{BPS, LIQUIDATION_BUFFER_BPS, MAX_MARKET_VALUE_RAY, RAY};
+use common::errors::{CollateralError, GenericError};
 use common::math::fp::Ray;
-use common::math::fp_core::mul_div_ceil;
+use common::math::fp_core::{mul_div_ceil, mul_div_floor_saturating};
 
 use soroban_sdk::{assert_with_error, panic_with_error, Env};
 
@@ -46,9 +46,7 @@ pub(crate) fn require_liquidation_buffer(env: &Env, cache: &Cache, draw: i128) {
     );
 }
 
-/// Panics with `PoolInsolvent` if the market has a positive backing shortfall.
-///
-/// Backing = cash + ceiled debt value; claims = floored supply value.
+/// Panics with `PoolInsolvent` if the market has a positive [`backing_shortfall`].
 pub(crate) fn require_backed_market(env: &Env, cache: &Cache) {
     assert_with_error!(
         env,
@@ -57,12 +55,41 @@ pub(crate) fn require_backed_market(env: &Env, cache: &Cache) {
     );
 }
 
-/// Asset units by which supplier claims exceed cash + debt (0 if solvent).
+/// Whole asset units by which supplier claims exceed cash + debt (0 if solvent).
+///
+/// Claims round down and debt rounds up at RAY precision; the difference
+/// floors to asset units once, then cash is subtracted. The result is the
+/// floor of the RAY-precision gap, so accrual, which adds the same interest to
+/// claims and debt up to RAY-precision rounding, does not turn a gap below one
+/// unit into a shortfall.
 pub(crate) fn backing_shortfall(cache: &Cache) -> i128 {
-    let supplied_claim = cache.unscale_supply_floor(cache.supplied());
-    let outstanding_debt = cache.unscale_borrow_ceil(cache.borrowed());
-    let backing = cache.cash().saturating_add(outstanding_debt);
-    supplied_claim.saturating_sub(backing).max(0)
+    let env = cache.env();
+    let claims = cache.supplied().mul_floor(env, cache.supply_index());
+    let debt = cache.unscale_borrow_ceil_ray(cache.borrowed());
+    if claims <= debt {
+        return 0;
+    }
+    let uncovered = claims
+        .checked_sub(env, debt)
+        .to_asset_floor(env, cache.params().asset_decimals);
+    uncovered.saturating_sub(cache.cash()).max(0)
+}
+
+/// Panics with `MathOverflow` if total supply value or total debt value exceeds
+/// [`MAX_MARKET_VALUE_RAY`].
+///
+/// Supply entry and flash and strategy fee booking raise total supply value
+/// outside accrual; accrual keeps both totals below the ceiling on its own.
+pub(crate) fn require_market_value_within_ceiling(env: &Env, cache: &Cache) {
+    let supplied =
+        mul_div_floor_saturating(env, cache.supplied().raw(), cache.supply_index().raw(), RAY);
+    let borrowed =
+        mul_div_floor_saturating(env, cache.borrowed().raw(), cache.borrow_index().raw(), RAY);
+    assert_with_error!(
+        env,
+        supplied <= MAX_MARKET_VALUE_RAY && borrowed <= MAX_MARKET_VALUE_RAY,
+        GenericError::MathOverflow
+    );
 }
 
 /// Panics with `PoolInsolvent` if supplied is zero while borrowed debt is non-zero.

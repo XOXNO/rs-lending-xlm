@@ -5,15 +5,14 @@ use common::types::{HubAssetKey, PositionMode, StrategySwap};
 use common::validation::require_positive_amount;
 use soroban_sdk::{assert_with_error, panic_with_error, vec, Address, Env};
 
-use crate::context::Context;
 use crate::events::PositionAction;
 use crate::payments::transfer_amount_measured;
 use crate::positions::require_can_supply;
 use crate::positions::supply;
 use crate::risk::validation::require_authorized_caller;
 use crate::strategies::{
-    borrow_into_controller, prefetch_strategy_prices, strategy_finalize, swap_tokens,
-    swap_tokens_or_passthrough,
+    borrow_into_controller, prefetch_strategy_prices, strategy_context, strategy_finalize,
+    swap_tokens, swap_tokens_or_passthrough,
 };
 
 pub(crate) struct MultiplyParams<'a> {
@@ -47,7 +46,7 @@ pub(crate) fn process_multiply(env: &Env, caller: &Address, params: MultiplyPara
 
     validate_multiply_request(env, collateral, debt, mode, debt_to_flash_loan);
 
-    let mut cache = Context::new(env);
+    let mut cache = strategy_context(env);
     let (account_id, mut account) = account::load_or_create_account(
         env,
         caller,

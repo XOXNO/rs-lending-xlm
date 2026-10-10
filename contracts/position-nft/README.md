@@ -8,7 +8,7 @@ move.
 
 | | |
 | --- | --- |
-| Base standard | OpenZeppelin `stellar-tokens` 0.7.1 (git rev `fbfde388`), non-fungible |
+| Base standard | OpenZeppelin `stellar-tokens` 0.7.1 (git rev `59b98f8e`), non-fungible |
 | Extension | `Enumerable` (`type ContractType = Enumerable;`) with sequential ids |
 | Not used | `Consecutive`, `Burnable` |
 | Client | [`interfaces/position-nft`](../../interfaces/position-nft) |

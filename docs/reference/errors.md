@@ -8,7 +8,7 @@ SDK `try_` calls distinguish contract errors from host, authorization, storage, 
 
 [Shared error definitions](../../common/src/errors.rs) group lending failures by domain. Gaps in the numeric ranges are reserved. The tables describe failure conditions; the checks a call reaches depend on its execution path.
 
-### Generic errors (1–55)
+### Generic errors (1–58)
 
 | Code / variant | Condition | Response |
 | --- | --- | --- |
@@ -33,11 +33,11 @@ SDK `try_` calls distinguish contract errors from host, authorization, storage, 
 | 36 `InvalidPositionLimits` | A supply or borrow position limit is zero or above `POSITION_LIMIT_MAX`. | Use limits inside the allowed range. |
 | 38 `SpotOnlyNotProductionSafe` | Both available source paths contain an unsmoothed market leg, or the only source does. | Configure a permitted smoothed or fundamental source composition. |
 | 39 `InvalidTimelockDelay` | Constructor delay is zero; a delay update is zero, below the current minimum, or above `TIMELOCK_MAX_DELAY_LEDGERS`. | Use a nonzero constructor delay and an allowed update. |
-| 40 `TimelockOperationExpired` | The scheduled operation's grace period has already elapsed. | Propose the operation again. |
+| 40 `TimelockOperationExpired` | The scheduled operation's grace period has already elapsed. | Propose the operation again; the same salt reuses the id, and the proposal clears the expired entry. |
 | 41 `InvalidRole` | The role symbol is not a known governance role, a non-owner grant would combine executor and canceller, the role is not held on revoke, or an immediate revoke names a role other than guardian or oracle. | Use a valid role assignment. |
 | 42 `BlendPoolNotApproved` | The target Blend pool is not on the controller's approved list. | Ask governance to approve the pool. |
 | 43 `HubNotActive` | The hub id does not exist or has been deactivated. | Use an active hub. |
-| 44 `NotAuthorized` | NFT owner/delegate authorization fails, including a third-party supply to a market the account does not hold; a delegate grant names an inactive manager; a revocation targets the owner or its proposer; or a non-owner proposes an owner-only operation. | Use eligible authority and an allowed governance target. |
+| 44 `NotAuthorized` | NFT owner/delegate authorization fails, including a third-party supply to a market the account does not hold; a delegate grant names an inactive manager; a revocation targets the owner or its proposer; a non-owner proposes an owner-only operation; or an owner-only operation or canceller reset proposed before a later ownership handover is executed. | Use eligible authority and an allowed governance target; the current owner re-proposes a stale owner-only operation. |
 | 45 `RegistryCapReached` | The account already has `MAX_DELEGATES` delegates. | Remove a delegate first. |
 | 46 `OperationNotCancellable` | The operation is a recovery operation, or the canceller is the account the operation would revoke. | Recovery operations cannot be cancelled; a revocation needs a different canceller. |
 | 47 `BorrowRoundsToZeroShares` | A positive borrow amount mints zero scaled debt shares. | Borrow a larger amount. |
@@ -49,6 +49,9 @@ SDK `try_` calls distinguish contract errors from host, authorization, storage, 
 | 53 `PositionNftNotSet` | The position-NFT contract address is unset in controller storage. | Wait for governance to deploy the position NFT. |
 | 54 `PositionNftAlreadyDeployed` | A position-NFT contract address is already recorded. | Use the recorded deployment. |
 | 55 `DivisionByZero` | A fixed-point multiply-divide received a zero denominator. Distinct from `MathOverflow`, which the same operations raise when the result does not fit `i128`. | Report it; a zero index or denominator is an internal inconsistency. |
+| 56 `CancellerLimitExceeded` | A canceller grant or canceller reset would leave more than `MAX_CANCELLERS` (32) `CANCELLER` holders, the owner included, or a proposed reset list has 32 or more entries. | Revoke a canceller first or shorten the reset list. |
+| 57 `EmergencyEpochMismatch` | An `Unpause` or `GrantGovRole` executes after an emergency action taken since its proposal: a guardian `pause`, an executed `UpgradeController` or a `revoke_role_immediate`. | Propose the operation again after the emergency. |
+| 58 `OracleBandChangedAfterProposal` | A `ConfigureAssetOracle` executes although the key's sanity band on the price aggregator differs from what it was at proposal: narrowed by an `ORACLE` `set_sanity_band`, or configured for the first time by another operation. | Review the current band, then propose the reconfiguration again. |
 
 ### Collateral and market errors (100–135)
 
@@ -90,28 +93,29 @@ SDK `try_` calls distinguish contract errors from host, authorization, storage, 
 | 201 `InvalidAggregator` | The proposed swap or price aggregator address is not a deployed Wasm contract. | Pass a deployed contract address. |
 | 204 `InvalidOracleTokenType` | A Reflector feed references its asset by string; Reflector accepts only an address or a symbol. | Reference the asset by address or symbol. |
 | 205 `UnsafePriceNotAllowed` | Source deviation or only one usable leg of a configured pair makes the result unsafe. | Wait for consistent fresh sources or correct the configuration. |
-| 206 `PriceFeedStale` | Resolved source/aggregate age exceeds the configured bound, or two Market legs exceed the allowed age spread. Future observations are rejected separately and may become NoLastPrice/UnsafePriceNotAllowed. | Refresh the source; do not infer a future timestamp is stale. |
+| 206 `PriceFeedStale` | Resolved source/aggregate age exceeds the configured bound, or the oldest market-nature inputs of two legs are further apart than the allowed age spread. A `Scaled` leg's market inputs are its factor, when market-nature, and its quote's market inputs. Future observations are rejected separately and may become NoLastPrice/UnsafePriceNotAllowed. | Refresh the source; do not infer a future timestamp is stale. |
 | 208 `BadLastTolerance` | A governance tolerance width is outside `MIN_TOLERANCE`..=`MAX_TOLERANCE` (150–2,500 BPS); or an oracle tolerance has an upper ratio outside 10,150–12,500 BPS, a lower ratio outside 7,500–10,000 BPS, or a lower ratio other than BPS² / upper ratio rounded half up. | Use an in-range width, or the ratios `resolve_oracle_tolerance` derives from it. |
 | 210 `NoLastPrice` | No source yields a usable observation, or LP binding/decimals/reserves/share/amp reads fail. | Inspect provider availability and LP configuration; not limited to LP assets. |
 | 211 `NoAccumulator` | No revenue accumulator address is configured on the controller. | Wait for governance to set the accumulator. |
 | 212 `ReflectorHistoryEmpty` | Reflector TWAP helper finds absent/empty history; runtime read converts this to an unusable source. | Wait for provider history. |
 | 216 `OracleNotConfigured` | No oracle is registered for the price key, or the aggregator response omits a requested asset. | Register an oracle for the asset. |
 | 217 `InvalidPrice` | The resolved price is zero or negative, or LP fair-value math produces a non-representable result. | Report it; the feed returned an unusable value. |
-| 218 `InvalidStalenessConfig` | Staleness configuration is outside its bounds or incompatible with source freshness requirements. | Fix the source and aggregate freshness windows. |
+| 218 `InvalidStalenessConfig` | Staleness configuration is outside its bounds or incompatible with source freshness requirements; or both legs of a pair have a market-nature input and one of those inputs has a budget above `MAX_LEG_AGE_SPREAD_SECONDS`. | Fix the source and aggregate freshness windows. In a pair whose legs both read the market, keep every market budget, and so every Reflector TWAP window, within the leg-spread bound. |
 | 219 `TwapInsufficientObservations` | Zero configured records, a record count below the smoothing minimum, excess history, spacing below provider resolution, or a history that does not span the window those records imply. | Configure a record count the provider history can span. A history with a skipped provider round is accepted while it still spans the window. Reflector `Twap` reads compute an equal-weight mean. |
 | 220 `InvalidOracleBase` | A bare Reflector feed does not quote in USD; a `Scaled` factor's Reflector base is not token X for quote key `Token(X)` (a `Ref` quote or a USD base always fails); or an LP source has an invalid binding, key pairing or pool-value floor. | Match quote/base and LP constraints. |
 | 221 `InvalidOracleDecimals` | The declared decimals do not match what the provider reports, they fall outside the allowed range, or a replacement oracle changes the `asset_decimals` stored for the key. | Declare the provider's real decimals. For a replacement, keep the key's stored `asset_decimals`, even after the token issuer changes its decimals. Governance `ConfigureAssetOracle` already resolves them from the stored oracle; read them with `oracle(key)`. |
-| 222 `InvalidOracleResolution` | The Reflector resolution is below the minimum, above `max_stale_seconds`, or the TWAP span it implies exceeds `max_stale_seconds`. | Match records and `max_stale_seconds` to the feed resolution. |
+| 222 `InvalidOracleResolution` | The Reflector resolution is below the minimum or above `max_stale_seconds`, or a `Twap(records)` read can date itself further back than `max_stale_seconds`: `(records + 1) × resolution`, the window plus the current period. | Set `max_stale_seconds` to at least `(records + 1) × resolution`, plus any margin for a late provider round. |
 | 223 `SanityBoundViolated` | The resolved price falls outside the oracle's stored min/max sanity band. | Wait for the price to return to the band, or ask governance to rebase it. |
 | 224 `InvalidSanityBounds` | The sanity band is not positive and increasing, exceeds `MAX_REASONABLE_PRICE_WAD`, or is narrower than `MIN_SANITY_BAND_BPS`; or a scaled factor has a nonpositive minimum, a maximum below its minimum, or a maximum above `MAX_REASONABLE_PRICE_WAD`. | Use valid bounds. Scaled-factor bounds may be equal and have no minimum width. |
 | 225 `OracleCycleDetected` | The price key is already being resolved higher up the composition chain. | Remove the circular oracle reference. |
-| 226 `SanityBandTooWideForSingleSource` | The band of a single-source oracle, or of a pair whose sources have the same trust set, is wider than `MAX_SINGLE_SOURCE_SANITY_BAND_BPS`; or an LP band is wider than `MAX_LP_SANITY_BAND_BPS`. | Narrow the band. A non-LP pair is exempt only when its sources have different trust sets. |
+| 226 `SanityBandTooWideForSingleSource` | The band of a single-source oracle, or of a pair whose sources have the same trust set, is wider than `MAX_SINGLE_SOURCE_SANITY_BAND_BPS`; or an LP band is wider than `MAX_LP_SANITY_BAND_BPS`. | Narrow the band. A non-LP pair is exempt only when its sources have different trust sets and every contract they share serves some top-level `Scaled` leg through a factor whose `max/min` range, times the pair's tolerance ratio, is at most 11/9; a contract reaching every leg through a plain `Feed` or a wider factor keeps the cap. |
 | 227 `SanityBandMustTighten` | The immediate `set_sanity_band` call would widen the stored band; only tightening is allowed on that path. | Widen the band through the timelocked `ConfigureAssetOracle` operation. |
 | 228 `TwapRecordsOutOfRange` | The requested TWAP record count is above `MAX_TWAP_RECORDS`. | Request fewer TWAP records. |
 | 229 `OracleDepthExceeded` | The oracle composition nests deeper than `MAX_RESOLUTION_DEPTH`. | Flatten the oracle composition. |
 | 230 `FactorOutOfBounds` | Scaled factor is outside stored bounds. | Inspect feed/config; widening bounds requires authorized reconfiguration. |
 | 231 `SourceCountOutOfRange` | Source count outside 1..2, LP mixed with other sources, or tolerance edit attempted on LP oracle. | Use one LP source or one/two allowed feed sources; no LP tolerance edit. |
 | 232 `IndependenceNotDeclared` | Two sources share a provider contract while the policy requires disjoint sources, or the declared shared set is empty or differs from the actual one. | Declare the shared contracts, or use independent sources. |
+| 233 `OracleRegistryFull` | `set_oracle` would register a new key while the registry already holds `MAX_ORACLE_KEYS` (256). Reconfiguring an existing key is always allowed. | Reuse an existing key, or move to a fresh aggregator through `SetPriceAggregator`. |
 | 234 `UnsupportedAquariusPool` | LP attestation finds wrong pool kind, absent stable amp, nonpositive reserves or share supply. | Configure a supported, funded pool. |
 | 235 `InsufficientAquariusLiquidity` | The Aquarius pool's total value is below the source's `min_pool_value_wad` floor. | Wait for deeper pool liquidity. |
 
@@ -129,7 +133,7 @@ SDK `try_` calls distinguish contract errors from host, authorization, storage, 
 | 312 `SpokeBorrowCapReached` | The borrow would push the spoke's tracked borrows above its configured cap. | Borrow less, or wait for cap headroom. |
 | 315 `SpokeAssetPaused` | Listing paused blocks ordinary entry/exit or liquidation debt repayment. Seizure checks no_seize instead. | Wait for authorized reopening or operate on eligible assets. |
 | 316 `SpokeAssetFrozen` | Listing frozen blocks entry. | Exit remains permitted, subject to other gates. |
-| 317 `SpokeAssetFlagRelaxation` | The immediate guardian call or a listing edit tries to clear `paused`, `frozen`, or `no_seize`. | Clear flags through the timelocked `relax_spoke_asset_flags`. |
+| 317 `SpokeAssetFlagRelaxation` | The immediate guardian call or a listing edit tries to clear `paused`, `frozen`, or `no_seize`, or `remove_asset_from_spoke` targets a listing with one of them set. | Clear flags through the timelocked `relax_spoke_asset_flags`, then remove. |
 | 318 `SpokeAssetSeizureHalted` | A pro-rata collateral seizure leg has no_seize set. | Wait for authorized flag clearance; liquidation has no collateral-selection argument. |
 | 319 `SpokeFlagsEpochMismatch` | A `RelaxSpokeAssetFlags` proposal or `relax_spoke_asset_flags` names a flags epoch other than the listing's current one: a flag write occurred after the relaxation was prepared. | Read `get_spoke_asset_flags_epoch` and the live flags again, then propose a new relaxation. |
 
@@ -230,7 +234,7 @@ Reflector runtime TWAP errors, including 212, 219 and 222, make the source leg u
 
 ## Relevant inherited errors
 
-OpenZeppelin stellar-contracts revision `fbfde388e1b72afa93d6b1c922067879b20e81db` supplies the NFT, authorization and timelock helpers. A deployed contract can raise both its own errors and these overlapping inherited codes. An error declaration does not make an unexported extension callable.
+OpenZeppelin stellar-contracts revision `59b98f8e127f0e877a3870e8eb82fa282a4aadf3` supplies the NFT, authorization and timelock helpers. A deployed contract can raise both its own errors and these overlapping inherited codes. An error declaration does not make an unexported extension callable.
 
 | Namespace | Codes and handling |
 | --- | --- |
@@ -240,7 +244,7 @@ OpenZeppelin stellar-contracts revision `fbfde388e1b72afa93d6b1c922067879b20e81d
 | Ownable | 2100 OwnerNotSet: missing owner; 2101 TransferInProgress: only `renounce_ownership` raises it, and no contract in this tree exports that call; 2102 OwnerAlreadySet: helper rejects repeated initialization. Role-transfer errors below cover pending-owner state; auth can raise host errors. |
 | RoleTransfer | 2200 NoPendingTransfer: initiate transfer first; 2201 InvalidLiveUntilLedger: use current-to-max valid ledger; 2202 InvalidPendingAccount: cancellation address must match; 2203 TransferExpired: initiate a fresh window. Zero deadline cancels, and acceptance checks the explicit deadline even if storage remains alive. |
 | AccessControl | 2000 Unauthorized, 2001 AdminNotSet, 2002 IndexOutOfBounds, 2003 AdminRoleNotFound, 2004 RoleCountIsNotZero, 2005 RoleNotFound, 2006 AdminAlreadySet, 2007 RoleNotHeld, 2008 RoleIsEmpty, 2009 TransferInProgress, 2010 MaxRolesExceeded. Use valid held roles/admin/membership indices; generic admin APIs are not exported by governance. |
-| Timelock | 4000 OperationAlreadyScheduled: new salt or existing operation; 4001 InsufficientDelay: respect minimum; 4002 InvalidOperationState: wait/check schedule; 4003 UnexecutedPredecessor: execute predecessor; 4004 Unauthorized: eligible role; 4005 MinDelayNotSet: initialize; 4006 OperationNotScheduled: schedule matching hash. |
+| Timelock | 4000 OperationAlreadyScheduled: new salt or existing operation (an expired operation no longer blocks its id); 4001 InsufficientDelay: respect minimum; 4002 InvalidOperationState: wait/check schedule; 4003 UnexecutedPredecessor: execute predecessor; 4004 Unauthorized: eligible role; 4005 MinDelayNotSet: initialize; 4006 OperationNotScheduled: schedule matching hash. |
 
 ## Source map
 

@@ -53,6 +53,116 @@ fn matching_config() -> AssetConfig {
     }
 }
 
+fn healthy_two_asset_portfolio(env: &Env) -> (Account, Context, [HubAssetKey; 2]) {
+    let assets = [
+        HubAssetKey {
+            hub_id: 1,
+            asset: Address::generate(env),
+        },
+        HubAssetKey {
+            hub_id: 1,
+            asset: Address::generate(env),
+        },
+    ];
+    let mut account = debt_free_account(env);
+    let mut cache = Context::new_view(env);
+    let mut prices = Map::new(env);
+    for asset in &assets {
+        let mut position = stamped_position();
+        position.scaled_amount = Ray::from_asset(env, 100_0000000, 7);
+        account
+            .supply_positions
+            .set(asset.clone(), (&position).into());
+        prices.set(
+            asset.asset.clone(),
+            PriceFeedRaw {
+                price_wad: WAD,
+                asset_decimals: 7,
+                timestamp: 0,
+            },
+        );
+        cache.put_market_index(
+            asset,
+            &MarketIndexRaw {
+                borrow_index: RAY,
+                supply_index: RAY,
+            },
+        );
+    }
+    account.borrow_positions.set(
+        assets[0].clone(),
+        DebtPositionRaw {
+            scaled_amount: Ray::from_asset(env, 100_0000000, 7).raw(),
+        },
+    );
+    cache.set_prices(prices);
+    (account, cache, assets)
+}
+
+#[test]
+fn complete_healthy_portfolio_refresh_is_independent_of_asset_visit_order() {
+    let env = Env::default();
+    let contract = env.register(crate::Controller, (Address::generate(&env),));
+    env.as_contract(&contract, || {
+        let (account, mut cache, assets) = healthy_two_asset_portfolio(&env);
+        let mut first = None;
+        // Both balances already exist. This checks the refresh policy, not pool merging.
+        for order in [[0, 1], [1, 0]] {
+            let mut refreshed = account.clone();
+            for index in order {
+                let asset = &assets[index];
+                let mut position =
+                    AccountPosition::from(&refreshed.supply_positions.get(asset.clone()).unwrap());
+                assert!(refresh_supply_risk_params(
+                    &env,
+                    &mut cache,
+                    &refreshed,
+                    asset,
+                    &mut position,
+                    &config(7_000, 600, 0),
+                    RiskRefreshScope::FullTuple,
+                ));
+                assert_eq!(position.liquidation_threshold.raw(), 7_000);
+                assert_eq!(position.liquidation_bonus.raw(), 600);
+                assert_eq!(position.liquidation_fees.raw(), 0);
+                update_or_remove_supply_position(&mut refreshed, asset, &position);
+            }
+            if let Some(expected) = &first {
+                assert_eq!(expected, &refreshed.supply_positions);
+            } else {
+                first = Some(refreshed.supply_positions);
+            }
+        }
+    });
+}
+
+#[test]
+fn higher_stored_threshold_does_not_increase_current_ltv_borrow_limit() {
+    let env = Env::default();
+    let contract = env.register(crate::Controller, (Address::generate(&env),));
+    env.as_contract(&contract, || {
+        let (mut account, mut cache, assets) = healthy_two_asset_portfolio(&env);
+        for threshold in [8_000, 7_000] {
+            for asset in &assets {
+                let mut position =
+                    AccountPosition::from(&account.supply_positions.get(asset.clone()).unwrap());
+                position.loan_to_value = Bps::from(5_000);
+                position.liquidation_threshold = Bps::from(threshold);
+                update_or_remove_supply_position(&mut account, asset, &position);
+            }
+            let totals = calculate_account_risk_totals(
+                &env,
+                &mut cache,
+                &account.supply_positions,
+                &account.borrow_positions,
+            );
+            assert_eq!(totals.ltv_collateral.raw(), 100 * WAD);
+            assert_eq!(totals.total_debt.raw(), 100 * WAD);
+            assert_eq!(totals.weighted_collateral.raw(), threshold * WAD / 50);
+        }
+    });
+}
+
 #[test]
 fn threshold_update_min_hf_is_one_point_zero_five_wad() {
     assert_eq!(THRESHOLD_UPDATE_MIN_HF_RAW, 1_050_000_000_000_000_000);

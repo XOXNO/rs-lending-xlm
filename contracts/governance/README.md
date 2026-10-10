@@ -16,17 +16,35 @@ are in its rustdoc.
 ## Timelock model
 
 - `propose` stores an `AdminOperation` in `OperationLedger` with the ledger at
-  which it becomes ready. `RevokeGovRole` also writes a `RoleRevocationTarget`
-  sidecar and a canceller reset writes a `RecoveryOp` sidecar. Execute and
-  cancel remove the entry and its sidecars.
+  which it becomes ready, and an `OperationGuard` sidecar holding the state the
+  op is bound to (see below). `RevokeGovRole` also writes a
+  `RoleRevocationTarget` sidecar and a canceller reset writes a `RecoveryOp`
+  sidecar. Execute and cancel remove the entry and its sidecars.
 - The operation id is `hash_operation(target, function, args, predecessor,
   salt)`. `predecessor` is always 32 zero bytes; a new `salt` gives a
   re-proposed op a new id.
 - An op executes once ready and before it expires. `execute` runs ops that
   target another contract; `execute_self` runs ops that target governance.
+- `TransferGovOwnership` with `live_until_ledger` 0 cancels a nomination. Its
+  guard holds the nomination epoch, which every nomination advances. At
+  execution it clears the pending owner only if no nomination has been made
+  since and `new_owner` is still pending; otherwise it completes as a no-op
+  and is consumed.
+- An expired op stays `Ready` until its id is proposed again: `propose` and
+  `propose_canceller_reset` remove an expired entry with the same id and its
+  sidecars, emit `ExpiredOperationClearedEvent`, then schedule afresh.
 - The owner must be the proposer for: ownership, upgrade, migration, delay
   (`UpdateGovDelay`), oracle, swap-aggregator, Blend approval, accumulator and
-  role-grant ops.
+  role-grant ops. Such an op's guard holds the owner epoch;
+  `accept_ownership` advances it, and executing an op recorded under an
+  earlier epoch reverts `NotAuthorized`.
+- `Unpause` and `GrantGovRole` guards hold the emergency epoch, which
+  `pause`, an executed `UpgradeController` and `revoke_role_immediate`
+  advance; a stale op reverts `EmergencyEpochMismatch`. A
+  `ConfigureAssetOracle` guard holds the key's current sanity band read from
+  the aggregator's `oracle` view, or that the key has none yet; execution
+  reverts `OracleBandChangedAfterProposal` unless that is unchanged. An op scheduled
+  without a guard is not checked.
 
 ## Entrypoints
 
@@ -43,17 +61,21 @@ are in its rustdoc.
 
 With `executor = None` anyone may execute a ready op; with `Some(address)`
 that address must authorize and hold `EXECUTOR`. A canceller reset uses the
-Recovery delay and cannot be cancelled.
+Recovery delay and cannot be cancelled. Its guard holds the owner epoch like
+an owner-only op; a reset carrying only the bare `RecoveryOp` marker is
+treated as recorded at epoch 0, so any later handover voids it. `CANCELLER` holds at most
+`MAX_CANCELLERS` (32) accounts, the owner included, so a reset of a full
+council fits one transaction's event limit.
 
 ### Immediate (no delay)
 
 | Entrypoint | Caller | Does |
 | --- | --- | --- |
-| `pause(caller)` | `GUARDIAN` | Pauses the controller |
+| `pause(caller)` | `GUARDIAN` | Pauses the controller and advances the emergency epoch |
 | `set_spoke_asset_flags(caller, spoke_id, hub_asset, paused, frozen, no_seize)` | `GUARDIAN` | Tightens a listing's halt flags (see below) |
 | `create_hub(caller) -> u32`, `add_spoke(caller) -> u32` | `GUARDIAN` | Creates a controller hub or spoke |
-| `set_sanity_band(caller, key, min_wad, max_wad)` | `ORACLE` | Narrows an aggregator price band; a wider band reverts `SanityBandMustTighten` |
-| `revoke_role_immediate(account, role)` | owner | Strips `GUARDIAN` or `ORACLE` from `account` |
+| `set_sanity_band(caller, key, min_wad, max_wad)` | `ORACLE` | Narrows an aggregator price band; a wider band reverts `SanityBandMustTighten`. A pending `ConfigureAssetOracle` for the key then reverts `OracleBandChangedAfterProposal` |
+| `revoke_role_immediate(account, role)` | owner | Strips `GUARDIAN` or `ORACLE` from `account` and advances the emergency epoch |
 
 ### Setup and ownership
 
@@ -81,12 +103,18 @@ Recovery delay and cannot be cancelled.
 
 | Control | Immediate (`GUARDIAN`) | Clear (timelocked) |
 | --- | --- | --- |
-| Global controller pause | `pause` | `AdminOperation::Unpause` |
+| Global controller pause | `pause` | `AdminOperation::Unpause`, proposed after the last emergency action |
 | Listing flags `paused`, `frozen`, `no_seize` | `set_spoke_asset_flags`, tighten only | `AdminOperation::RelaxSpokeAssetFlags` at the listing's flags epoch |
 
 - A call that would clear a flag through `set_spoke_asset_flags` or
   `EditAssetInSpoke` reverts `SpokeAssetFlagRelaxation`. `EditAssetInSpoke`
   rewrites the full listing, but its flags can only keep or tighten.
+- `RemoveAssetFromSpoke` reverts `SpokeAssetFlagRelaxation` while a flag is
+  set, so a removal and re-listing cannot clear one; relax first.
+- `Unpause` reverts `EmergencyEpochMismatch` if a guardian `pause`, an
+  executed `UpgradeController` or a `revoke_role_immediate` followed its
+  proposal, so reopening needs an `Unpause` proposed after the last emergency
+  action.
 - `RelaxSpokeAssetFlags` carries the `expected_epoch` from
   `get_spoke_asset_flags_epoch`. Every flag change advances the epoch, so a
   relaxation proposed before a later guardian action reverts

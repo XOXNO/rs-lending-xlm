@@ -6,8 +6,9 @@ one spoke must stop, and a global pause is too wide.
 [ADR-0007](../../explanation/decisions.md#adr-0007) and
 [ADR-0008](../../explanation/decisions.md#adr-0008) define what each flag stops.
 
-The guardian can only raise a flag, and a listing edit cannot clear one either.
-Clearing needs the timelocked `RelaxSpokeAssetFlags` operation.
+The guardian can only raise a flag; a listing edit cannot clear one, and a
+flagged listing cannot be removed. Clearing needs the timelocked
+`RelaxSpokeAssetFlags` operation.
 
 ## Raise the flags
 
@@ -24,10 +25,12 @@ the on-chain id.
 Do this immediately after the flags are set.
 
 A listing edit proposed before the freeze cannot clear it: the controller
-rejects an edit that turns a set flag off. A relaxation proposed before the
-freeze cannot clear it either, because every flag write advances the listing's
-flags epoch and the old relaxation names the old epoch. Other pending
-operations, such as `Unpause`, still execute as proposed.
+rejects an edit that turns a set flag off. A removal proposed before the
+freeze reverts while a flag is set. A relaxation proposed before the freeze
+cannot clear it either, because every flag write advances the listing's flags
+epoch and the old relaxation names the old epoch. Other pending operations
+still execute as proposed: a listing freeze does not advance the emergency
+epoch, so a pending `Unpause` stays valid.
 
 1. The verb prints every operation recorded in `configs/ops/<network>/` with its
    live state. `make <network> listOps` prints the same list. An operation
@@ -53,6 +56,20 @@ operations, such as `Unpause`, still execute as proposed.
 
 `editAssetInSpoke` refuses a config that sets a live flag to `false` and names
 this verb instead.
+
+## Remove a flagged listing
+
+`remove_asset_from_spoke` reverts with `SpokeAssetFlagRelaxation` while any
+flag is set, so a frozen listing cannot be delisted in one step. The
+relaxation reopens entry, and the removal still needs zero usage, so a deposit
+that lands between the two executions blocks the removal.
+
+1. Schedule `RelaxSpokeAssetFlags` for every live flag and
+   `removeAssetFromSpoke` for the same listing with `AUTO_EXECUTE=0`.
+   `RemoveAssetFromSpoke` has no proposal-time flag check, so both can wait
+   together.
+2. After the delay, execute the two operations in one transaction, relaxation
+   first. No deposit can land between them.
 
 ## Notes
 

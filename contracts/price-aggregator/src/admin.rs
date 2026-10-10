@@ -72,14 +72,21 @@ fn attest_feed(env: &Env, feed: &FeedSource, quote: Option<&PriceKey>) {
 /// the oracle, revalidates dependents, and emits the registry event.
 ///
 /// A replacement must keep the stored `asset_decimals`. Panics with
-/// `OracleError::InvalidOracleDecimals` otherwise.
+/// `OracleError::InvalidOracleDecimals` otherwise. A new key is admitted only
+/// while the registry holds fewer than `MAX_ORACLE_KEYS`; panics with
+/// `OracleError::OracleRegistryFull` otherwise.
 pub(crate) fn set_oracle(env: &Env, key: PriceKey, oracle: AssetOracle) {
-    if let Some(stored) = registry::get_oracle(env, &key) {
-        assert_with_error!(
+    match registry::get_oracle(env, &key) {
+        Some(stored) => assert_with_error!(
             env,
             stored.asset_decimals == oracle.asset_decimals,
             OracleError::InvalidOracleDecimals
-        );
+        ),
+        None => assert_with_error!(
+            env,
+            registry::oracle_keys(env).len() < registry::MAX_ORACLE_KEYS,
+            OracleError::OracleRegistryFull
+        ),
     }
     validate_asset_oracle(env, &key, &oracle);
     attest_sources(env, &key, &oracle);
@@ -140,9 +147,9 @@ fn depends_on(env: &Env, root: &PriceKey, target: &PriceKey, visiting: &mut Vec<
 
 /// Runs the full validation suite for `oracle` under `key`, covering sanity
 /// bounds, source shape and count, asset decimals, composition depth,
-/// staleness, smoothing, tolerance, and source independence, with the
-/// smoothing and tolerance checks waived for Aquarius LP oracles. Panics if
-/// any check fails.
+/// staleness, smoothing, tolerance, the leg-spread budget, and source
+/// independence, with the smoothing and tolerance checks waived for Aquarius
+/// LP oracles. Panics if any check fails.
 pub(crate) fn validate_asset_oracle(env: &Env, key: &PriceKey, oracle: &AssetOracle) {
     let mut session = Session::new(env);
     session.push_key(key);
@@ -162,8 +169,22 @@ pub(crate) fn validate_asset_oracle(env: &Env, key: &PriceKey, oracle: &AssetOra
             oracle.max_sanity_price_wad,
         );
     } else {
+        // A pair cross-checks its band only when no contract trusted by both
+        // legs can move the blended price past the single-source cap.
         let exempt_from_band_cap = derived.second.as_ref().is_some_and(|second| {
             !validation::same_address_set(&derived.first.trust, &second.trust)
+                && derived
+                    .first
+                    .shared_contracts_with(env, second)
+                    .iter()
+                    .all(|contract| {
+                        validation::shared_contract_is_range_bounded(
+                            env,
+                            &contract,
+                            &oracle.sources,
+                            &oracle.tolerance,
+                        )
+                    })
         });
         validate_single_source_sanity_band(
             env,
@@ -196,6 +217,7 @@ pub(crate) fn validate_asset_oracle(env: &Env, key: &PriceKey, oracle: &AssetOra
         validate_oracle_tolerance(env, &oracle.tolerance);
     }
     if let Some(second) = derived.second.as_ref() {
+        validation::leg_spread_budget(env, &derived.first, second);
         validation::independence(env, &derived.first, second, &oracle.independence);
     }
 }
@@ -226,9 +248,14 @@ pub(crate) fn set_sanity_band(env: &Env, key: PriceKey, min_wad: i128, max_wad: 
 }
 
 /// Updates the tolerance of the oracle registered under `key`. Rejects Aquarius LP
-/// oracles, validates the new tolerance, re-probes the oracle, and commits the
-/// result to the registry. Panics if the oracle is not configured, has an
-/// Aquarius LP source, or the tolerance fails validation.
+/// oracles, validates the new tolerance and the oracle under it, re-probes the
+/// oracle, commits the result to the registry, and revalidates its dependents.
+/// Panics if the oracle is not configured, has an Aquarius LP source, or the
+/// tolerance fails validation for the key or any dependent.
+///
+/// The tolerance bounds how far a contract shared by the key's legs can move
+/// the blended price, which decides the key's own band-cap exemption and,
+/// through the key's quote role, those of its dependents.
 pub(crate) fn set_tolerance(env: &Env, key: PriceKey, tolerance: OracleTolerance) {
     let mut oracle = registry::get_oracle(env, &key)
         .unwrap_or_else(|| panic_with_error!(env, OracleError::OracleNotConfigured));
@@ -239,9 +266,11 @@ pub(crate) fn set_tolerance(env: &Env, key: PriceKey, tolerance: OracleTolerance
     );
     validate_oracle_tolerance(env, &tolerance);
     oracle.tolerance = tolerance;
+    validate_asset_oracle(env, &key, &oracle);
     let mut session = Session::new(env);
     engine::probe(&mut session, &key, &oracle);
     registry::commit(env, &key, &oracle);
+    revalidate_dependents(env, &key);
 }
 
 #[cfg(test)]

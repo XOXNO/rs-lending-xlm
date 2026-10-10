@@ -54,12 +54,16 @@ not imply that every operation preserves health or collateral value.
 ### INV-AUTH-04 — Emergency power only tightens
 
 Immediate guardian power can pause and add listing restrictions. Unpausing or
-clearing restrictions requires a timelock under the repository wiring.
+clearing restrictions requires a timelock under the repository wiring. Every
+guardian pause advances the governance emergency epoch, so an `Unpause`
+proposed before a later pause reverts.
 
-A listing edit and the guardian flag method can only keep or tighten flags.
-Only the timelocked `relax_spoke_asset_flags` clears one, and only while the
-listing's flags epoch equals its `expected_epoch`. The oracle role's immediate
-`set_sanity_band` can only keep or narrow a band.
+A listing edit and the guardian flag method can only keep or tighten flags,
+and a listing with a set flag cannot be removed. Only the timelocked
+`relax_spoke_asset_flags` clears one, and only while the listing's flags epoch
+equals its `expected_epoch`. The oracle role's immediate `set_sanity_band`
+can only keep or narrow a band, and a `ConfigureAssetOracle` proposed under
+the wider band reverts.
 
 <a id="inv-auth-05"></a>
 <a id="inv-auth-05--governance-delay-cannot-be-shortened"></a>
@@ -127,12 +131,15 @@ incoming collateral tokens.
 
 ### INV-ACCT-04 — Backing shortfall blocks new supply
 
-New token-funded supply rejects a positive backing shortfall. The check compares
-floored supplied claims against tracked cash plus ceiled debt value in native
-token units, using saturating arithmetic.
+New token-funded supply rejects a positive backing shortfall. The check
+subtracts ceiled debt value from floored supplied claims at RAY precision,
+floors the difference once to native token units, then subtracts tracked cash.
+The shortfall is the floor of that RAY-precision gap.
 
 Recapitalization fills at most that shortfall, refunds excess and mints no
-shares. It cannot restore a written-down index. The non-zero supply-index floor
+shares; a full fill leaves the RAY-precision gap below one native unit. Accrual adds the
+same interest to claims and debt, up to RAY-precision rounding, so it does not
+reopen that gap. It cannot restore a written-down index. The non-zero supply-index floor
 can leave residual claims requiring recapitalization; see the
 [backing calculation](formulas.md#backing-and-cash-constraints).
 
@@ -190,10 +197,12 @@ the ceiling; it is not a market-wide bound maintained by every operation.
 <a id="inv-acct-09"></a>
 <a id="inv-acct-09--exits-cannot-leave-debt-without-supply"></a>
 
-### INV-ACCT-09 — Selected exits cannot leave debt without supply
+### INV-ACCT-09 — Debt mints and selected exits cannot leave debt without supply
 
-Withdrawal, same-asset net settlement and revenue claims reject a resulting
-zero total supplied-share balance with non-zero debt shares. This prevents an
+Borrowing, strategy debt mints, withdrawal, same-asset net settlement and
+revenue claims reject a resulting zero total supplied-share balance with
+non-zero debt shares. A debt mint into a market whose suppliers have all exited
+therefore fails, even when rounding left cash behind. This prevents an
 empty-supply state, without establishing full backing or a liquidation cash
 reserve.
 
@@ -216,8 +225,9 @@ any other source, or that sends a stale position to the pool, breaks this
 invariant without a revert.
 
 The `prop_accounting_conservation` property test checks both equalities in
-token units, within 4 units, after every operation. The seed-adjusted cash tests
-subtract the seeded pool liquidity, so their cash bound is tight. No
+token units, within 4 units, after every operation on markets without seeded
+liquidity. The cash-conservation tests bound cash plus debt value minus supplier
+claims, with the harness seed booked as supply, so their cash bound is tight. No
 on-chain view enumerates accounts, so on a live network only the spoke-level
 identity (pool supplied minus the sum of spoke usage equals revenue) can be
 read.
@@ -232,8 +242,14 @@ Both indexes start at one RAY. Successful accrual with validated rate parameters
 cannot lower the borrow index and caps it at the protocol constant 10^36 raw
 RAY. At the ceiling, further accrual produces no borrower interest.
 
-Debt-value overflow can still revert accrual before that ceiling is reached.
-Bounded indexes do not guarantee representable position or market values.
+Accrual also keeps total debt value and total supply value at or below the
+market value ceiling, `i128::MAX` less one whole token in raw RAY. Interest that
+would carry a total past it is not charged: the borrow index grows only as far
+as the room left, and a market with no room keeps both indexes. The pool emits
+`MarketValueCeilingEvent` when the ceiling holds interest. Market value
+therefore cannot overflow accrual or the index projection that values accounts.
+Supply entry and flash and strategy fee booking reject a total above the
+ceiling. See [numeric limits](formulas.md#numeric-limits).
 
 <a id="inv-idx-02"></a>
 
@@ -266,8 +282,8 @@ identified market. See the [write-down calculation](formulas.md#bad-debt).
 
 No elapsed time means no accrual or accrual-timestamp advance. Longer intervals
 use forward chunks of at most 31,556,926,000 milliseconds. Mutating accrual and
-read-only index projection use the same calculation, including revenue shares
-in subsequent supply totals.
+read-only index projection use the same calculation, including the market value
+ceiling and revenue shares in subsequent supply totals.
 
 Each chunk selects its rate from starting utilization. Call cadence can change
 rates and rounded results; it does not guarantee cadence independence,
@@ -407,7 +423,9 @@ self-liquidate.
 A Credit receiver must be a different account in the same spoke, in Normal
 mode, and controlled by the liquidator as owner or active delegate. `Credit(0)`
 can create a receiver in a deprecated spoke. Ownership and position limits
-still apply.
+still apply, except that an empty receiver takes every seized leg: those
+legs are already bounded by the limit that admitted them, so a lowered limit
+cannot block a `Credit(0)` receiver.
 
 <a id="inv-liq-02"></a>
 

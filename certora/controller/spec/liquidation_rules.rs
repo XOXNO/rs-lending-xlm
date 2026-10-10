@@ -527,6 +527,11 @@ fn split_liq_seizure(e: &Env, repay: i128, bonus_bps: i128) -> i128 {
 
 /// The book left behind after repaying `repay` at `bonus_bps`.
 ///
+/// The debt falls by the credited `repay`. A leg repaid at its ceiling-rounded
+/// balance is credited the floor-valued debt it clears, not the rounded-up
+/// units it pulls, so per-leg unit rounding cannot buy seizure this model
+/// leaves out.
+///
 /// Seizure is pro-rata by USD value, so it removes the same fraction of every
 /// collateral leg: the weighted collateral falls by `seize * weighted /
 /// collateral`, and the asset mix — hence the derived max bonus and the

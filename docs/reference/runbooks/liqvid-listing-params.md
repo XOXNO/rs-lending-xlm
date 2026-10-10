@@ -373,27 +373,34 @@ in these paths:
 
 | Path | Code |
 |---|---|
-| A supply of the asset into the account | `merge_supply_leg` calls `refresh_supply_risk_params` |
-| A withdrawal of the asset that is not a liquidation and leaves a balance | `merge_withdraw_leg` |
+| A supply of the asset into the account | `process_deposit` |
+| A withdrawal of the asset that is not a liquidation and leaves a balance | `apply_withdraw_batch` |
+| A strategy that deposits the asset or leaves a balance after withdrawing or net-settling it | `strategy_finalize` |
 | `update_account_threshold(caller, has_risks = true, account_ids)` | `sync_account_thresholds` |
 
 A liquidation never refreshes them. `update_account_threshold` with
 `has_risks = false` refreshes the LTV only.
 
-All three paths use the same gate (`apply_gated_liquidation_params`). A
+All four paths use the same gate (`apply_gated_liquidation_params`). A
 change favours the liquidator when it lowers LT, raises the bonus or lowers
 the fee. For an account with debt, such a change applies only when the
 account HF, calculated with the new LT, is at least 1.05
 (`THRESHOLD_UPDATE_MIN_HF_RAW`). If the HF is lower, the position keeps its
 old LT, bonus and fee, and the call does not fail. A debt-free account always
-takes the new values. In the supply path, the gate calculates the HF before
-the new supply adds to the collateral. The gate reads the prices of all
-assets of the account. When the gate runs, a stale price or a price outside
+takes the new values. The supply gate includes the deposited collateral.
+Supply and normal withdrawal batches merge all balances and market indexes
+before refreshing touched positions in asset-key order. Each gate sees any
+tuples already refreshed in that order. A strategy refreshes its touched
+positions the same way once every leg, repayment and net settlement is merged,
+before its final solvency check, and emits each changed tuple as a `ParamUpd`
+delta. The gate reads the prices
+of all assets of the account. When the gate runs, a stale price or a price outside
 the band makes the call fail, also a supply.
 
-`update_account_threshold` with `has_risks = true` also checks the account HF
-after the refresh. If that HF is below 1.05, the call reverts with
-`HealthFactorTooLow` (102), and one such account reverts the whole batch.
+`update_account_threshold` with `has_risks = true` also checks the HF of an
+account with debt after the refresh. If that HF is below 1.05, the call reverts
+with `HealthFactorTooLow` (102), and one such account reverts the whole batch.
+A debt-free account reads no price, so a stale feed does not revert it.
 Anyone can call it with the auth of `caller`. The controller refuses it while
 it is paused or while a flash loan is open.
 

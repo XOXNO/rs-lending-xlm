@@ -3,7 +3,9 @@ use common::math::fp::Ray;
 use common::math::fp_core::mul_div_ceil;
 use common::rates::unscale_supply_floor;
 use controller::constants::RAY;
-use controller::types::{AccountPositionType, ControllerKey, PositionLimits};
+use controller::types::{
+    AccountPositionType, ControllerKey, PoolKey, PoolStateRaw, PositionLimits,
+};
 use soroban_sdk::token;
 
 use crate::context::LendingTest;
@@ -320,5 +322,23 @@ impl LendingTest {
             sync.params.asset_decimals,
         );
         mul_div_ceil(&self.env, supplied, LIQUIDATION_BUFFER_BPS, BPS)
+    }
+}
+
+impl LendingTest {
+    /// Mints `amount` raw tokens to `asset_name`'s pool and credits them to its
+    /// cash book without minting supply shares.
+    ///
+    /// No public call produces cash without shares. Tests use it to reach a
+    /// guard that only such a state exposes.
+    pub fn inject_shareless_cash_raw(&self, asset_name: &str, amount: i128) {
+        let market = self.resolve_market(asset_name);
+        market.token_admin.mint(&market.pool, &amount);
+        let key = PoolKey::State(hub_asset(market.asset.clone()));
+        self.env.as_contract(&market.pool, || {
+            let mut state: PoolStateRaw = self.env.storage().persistent().get(&key).unwrap();
+            state.cash += amount;
+            self.env.storage().persistent().set(&key, &state);
+        });
     }
 }

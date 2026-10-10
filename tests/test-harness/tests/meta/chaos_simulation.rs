@@ -215,9 +215,9 @@ fn test_chaos_bank_run_full_exit() {
          floor: paid={eve_paid}, credited={eve_credited}"
     );
 
-    // `pool_reserves` reads the pool cash, which the builder seeds with
-    // `initial_liquidity`. After every supplier exits, the cash still covers
-    // that seed; the rest is unclaimed protocol revenue.
+    // `pool_reserves` reads the pool cash. The builder seeds `initial_liquidity`
+    // as supply that never exits, so after every user exits the cash still
+    // covers that seed; the rest is unclaimed protocol revenue.
     let usdc_reserves = t.pool_reserves("USDC");
     let eth_reserves = t.pool_reserves("ETH");
     assert!(
@@ -247,7 +247,10 @@ fn test_chaos_bank_run_full_exit() {
 
 #[test]
 fn test_chaos_sustained_high_utilization() {
-    let mut t = LendingTest::new().standard_two_asset().build();
+    let mut t = LendingTest::new()
+        .standard_two_asset()
+        .without_initial_liquidity()
+        .build();
 
     t.supply(ALICE, "USDC", 100_000.0);
     t.supply(BOB, "ETH", 100.0);

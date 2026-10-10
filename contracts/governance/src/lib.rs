@@ -22,6 +22,10 @@ mod tests;
 #[path = "../tests/support.rs"]
 mod test_support;
 
+#[cfg(test)]
+#[path = "../tests/stale_ops.rs"]
+mod stale_ops_tests;
+
 use soroban_sdk::{contract, contractmeta};
 
 pub use crate::constants::{

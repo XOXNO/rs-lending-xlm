@@ -29,6 +29,15 @@ bound payload only after its delay and within its grace window. Target
 contracts also validate at execution. Completed operations require a fresh
 proposal and delay before reuse.
 
+Every proposal also records a guard: the governance state the operation is
+bound to. An owner-only operation records the owner epoch, so a handover voids
+the former owner's queued operations. `Unpause` and role grants record the
+emergency epoch, which a guardian pause, an executed controller upgrade and an
+immediate revocation advance, so an emergency voids what was queued before it.
+An oracle reconfiguration records the band it was proposed under. Operations
+carry no predecessor, so an `Unpause` proposed after an upgrade is proposed,
+but before it executes, can still reopen the old code for at most one delay.
+
 Execution is permissionless when the executor identity is omitted. Cancellation
 and owner-dependent recovery have distinct rules. Their security depends on
 the effective review window and key custody; see
@@ -39,12 +48,16 @@ the effective review window and key custody; see
 ### ADR-0007: Emergency ratchet
 
 Immediate guardian actions can pause the controller and tighten listing flags.
-Reopening uses delayed administration. A listing edit can keep or tighten flags
-but never clears one. Clearing is a separate timelocked operation,
+Reopening uses delayed administration; every guardian pause advances the
+emergency epoch, so an `Unpause` proposed before a later pause reverts when
+executed. A listing edit can keep or tighten flags but never clears one, and a
+listing with a set flag cannot be removed. Clearing is a separate timelocked operation,
 `relax_spoke_asset_flags`, bound to the listing's flags epoch. Every guardian
 flag call and every flag change advances the epoch, so a relaxation proposed
 before a later guardian action reverts when executed. The ORACLE role can
-narrow sanity bands; widening requires timelocked oracle reconfiguration.
+narrow sanity bands; widening requires timelocked oracle reconfiguration
+proposed under the current band, since a `ConfigureAssetOracle` reverts once
+the band it was proposed under has changed.
 The [listing-freeze runbook](../reference/runbooks/freeze-a-listing.md) gives the
 operator steps.
 
@@ -55,7 +68,12 @@ operator steps.
 The `frozen`, `paused`, and `no_seize` flags control different actions. Entry
 checks paused/frozen, ordinary exits check paused, and collateral seizure
 checks no_seize. A paused debt leg does not block repayment of another selected
-leg; pausing collateral alone does not block its seizure.
+leg; pausing collateral alone does not block its seizure. One limitation is
+accepted: a collateral leg below 3 decimals seizes whole units, so when the
+unpaused debt legs together back less than one unit at `1 + bonus`, every
+offer reverts until the pause lifts, the price moves, or accrual ends that
+state. No mainnet listing is below 3 decimals; prefer `frozen` over `paused`
+for debt legs in a spoke that lists such collateral.
 
 A seizure restriction does not stop new supply. Non-dust no_seize collateral
 can therefore block an account's pro-rata liquidation. Operators should inspect
@@ -135,9 +153,9 @@ It therefore does not require new supply-cap headroom.
 
 Accrual uses a per-millisecond RAY rate derived from the annual rate. It splits
 elapsed time into chunks of at most one year (`MAX_COMPOUND_DELTA_MS`). Each
-chunk uses the preceding chunk's market state. This bounds individual time
-steps without eliminating value overflow, cumulative work, cadence dependence,
-or rounding error. The [formula reference](../reference/formulas.md) defines these limits.
+chunk uses the preceding chunk's market state and caps its interest at the
+market value ceiling. This bounds individual time steps without eliminating
+cumulative work, cadence dependence, or rounding error. The [formula reference](../reference/formulas.md) defines these limits.
 
 <a id="adr-0021"></a>
 
@@ -236,8 +254,10 @@ liquidator owns or is a delegate for, avoiding a collateral cash payout.
 Seized shares split into receiver credit and protocol revenue by
 reclassification; the fee does not mint unbacked shares.
 
-Receiver position limits still apply, and a newly credited asset needs a
-listing. Existing positions retain their risk tuple; new positions use the
+Receiver position limits still apply to a receiver with positions; an empty
+receiver takes every seized leg, so a lowered limit cannot block `Credit(0)`.
+A newly credited asset needs a listing. Existing positions retain their risk
+tuple; new positions use the
 listing's values. The receiver's supply increase is bounded by the target's
 seizure and its debt does not move. The [event reference](../reference/events.md) distinguishes
 gross LiqSeize from net LiqCredit.

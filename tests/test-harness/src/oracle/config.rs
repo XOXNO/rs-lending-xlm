@@ -13,7 +13,9 @@ const REFLECTOR_DECIMALS: u32 = 14;
 
 const MULTI_FEED_DECIMALS: u32 = 8;
 
-const DEFAULT_MAX_PRICE_STALE_SECONDS: u64 = 900;
+/// The mock Reflector's 300 s resolution makes a `Twap(3)` read reach back
+/// `(3 + 1) * 300` seconds, the smallest budget `set_oracle` admits for it.
+const DEFAULT_MAX_PRICE_STALE_SECONDS: u64 = 1_200;
 
 fn reflector_source(oracle: &Address, asset: &Address, read_mode: OracleReadMode) -> PriceSource {
     PriceSource::Feed(FeedSource {
