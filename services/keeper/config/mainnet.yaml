@@ -53,9 +53,9 @@ contracts:
   price_aggregator: CBGUF2G2Q7HCVCWYISDXBHPVBGMYNXA7PG2VET66YBZX6IKOOV27NSMV
   # Read-only dependencies that no protocol write renews. The RedStone adapter
   # backs 14 markets; the swap router carries every strategy leg.
-  extra_instances:
-    - CA526Y2NQWGWVVQ7RFFPGAZMU66PSYJ3UC2MTVAV4ZU7OM5BOPHDXUSG # RedStone adapter
-    - CCVENFSVCBYDHVOACFZXMNNYVOZ3LKXPZYU5LUI4N7KTXOKRVYD7F3TR # XOXNO swap router
+  redstone_adapter: CA526Y2NQWGWVVQ7RFFPGAZMU66PSYJ3UC2MTVAV4ZU7OM5BOPHDXUSG
+  swap_router: CCVENFSVCBYDHVOACFZXMNNYVOZ3LKXPZYU5LUI4N7KTXOKRVYD7F3TR
+  extra_instances: []
   # Blend pools approved with approve_blend_pool (configs/mainnet/blend.json and
   # the executed configs/ops/mainnet records). No position manager is set.
   blend_pools:

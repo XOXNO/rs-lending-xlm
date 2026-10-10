@@ -635,6 +635,8 @@ mod tests {
             governance: None,
             xoxno_oracle_adapter: None,
             price_aggregator: None,
+            redstone_adapter: None,
+            swap_router: None,
         };
 
         // Before any snapshot the gauge holds its registered value, 0.
