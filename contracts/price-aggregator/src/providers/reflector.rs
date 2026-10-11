@@ -20,10 +20,11 @@ use crate::session::Session;
 
 /// Validates that `feed` is configured consistently with `decimals` and
 /// `max_stale`: the quote base is denominated as `quote` requires, reported
-/// decimals match `decimals`, and the resolution is at least
-/// `MIN_ORACLE_RESOLUTION_SECONDS` and at most `max_stale`. For TWAP mode,
-/// also checks that the span covered by the requested record count does not
-/// exceed `max_stale`. Panics with `InvalidOracleBase`,
+/// decimals match `decimals`, the resolution is at least
+/// `MIN_ORACLE_RESOLUTION_SECONDS`, and `max_stale` covers the age a read
+/// reaches while Reflector still serves its last round
+/// ([`admission_read_age`]: two rounds for a spot read, `records + 2` for a
+/// `Twap(records)` window). Panics with `InvalidOracleBase`,
 /// `InvalidOracleDecimals` or `InvalidOracleResolution`.
 ///
 /// `quote` is `None` for a bare feed and `Some` for the factor leg of a
@@ -43,23 +44,36 @@ pub(crate) fn attest(
         OracleError::InvalidOracleDecimals
     );
     let resolution = client.resolution();
+    // A spot read is the last round itself: the same rule with no window
+    // behind it. The age bound also implies `resolution <= max_stale`.
+    let records = match feed.read_mode {
+        OracleReadMode::Spot => 0,
+        OracleReadMode::Twap(records) => records,
+    };
     assert_with_error!(
         env,
-        resolution >= MIN_ORACLE_RESOLUTION_SECONDS && u64::from(resolution) <= max_stale,
+        resolution >= MIN_ORACLE_RESOLUTION_SECONDS
+            && admission_read_age(records, resolution) <= max_stale,
         OracleError::InvalidOracleResolution
     );
-    if let OracleReadMode::Twap(records) = feed.read_mode {
-        assert_with_error!(
-            env,
-            twap_required_span(records, resolution) <= max_stale,
-            OracleError::InvalidOracleResolution
-        );
-    }
 }
 
-/// Seconds a `Twap(records)` window spans at `resolution`.
+/// Seconds a `Twap(records)` window spans at `resolution`: the read-side
+/// coverage minimum.
 fn twap_required_span(records: u32, resolution: u32) -> u64 {
     u64::from(records.saturating_sub(1)).saturating_mul(u64::from(resolution))
+}
+
+/// Oldest age a read of `records` rounds of history reaches while Reflector
+/// still serves its last round. A complete `Twap(records)` history holds
+/// `records + 1` rounds, the oldest one `records` resolutions before the
+/// last, and Reflector keeps serving the last round for two further
+/// resolutions, a publication delay included. A spot read is `records = 0`.
+/// A `max_stale` below this goes stale while the provider is still live.
+fn admission_read_age(records: u32, resolution: u32) -> u64 {
+    u64::from(records)
+        .saturating_add(2)
+        .saturating_mul(u64::from(resolution))
 }
 
 /// Panics with `InvalidOracleBase` unless a Reflector contract's quote base
@@ -188,7 +202,8 @@ fn read_twap(
         oldest_ts = price_data.timestamp;
     }
 
-    // Same span `attest` checks at admission; the loop proves the ordering.
+    // Coverage minimum only; `attest` holds the budget to the longer
+    // `admission_read_age`. The loop proves the ordering.
     if newest_ts.saturating_sub(oldest_ts) < twap_required_span(records, resolution) {
         return Err(OracleError::TwapInsufficientObservations);
     }
@@ -201,3 +216,7 @@ fn read_twap(
         timestamp: oldest_ts,
     })
 }
+
+#[cfg(test)]
+#[path = "../../tests/oracle/reflector_provider.rs"]
+mod tests;

@@ -100,6 +100,7 @@ fn first_depositor_after_index_growth_cannot_mint_free_value() {
     let mut t = LendingTest::new()
         .with_market(usdc6())
         .with_market(low3())
+        .with_initial_liquidity("USDC6", 0.0)
         .with_min_borrow_collateral_disabled()
         .with_max_utilization_disabled_all_markets()
         .build();

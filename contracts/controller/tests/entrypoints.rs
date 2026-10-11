@@ -365,6 +365,10 @@ fn update_account_threshold_without_pool_panics() {
         let mut supply = Map::new(&env);
         supply.set(key.clone(), one_ray_position());
         storage::set_supply_positions(&env, 1, &supply);
+        // Debt makes the full-tuple refresh price the account.
+        let mut debt = Map::new(&env);
+        debt.set(key.clone(), DebtPositionRaw { scaled_amount: RAY });
+        storage::set_debt_positions(&env, 1, &debt);
         storage::set_spoke(
             &env,
             1,

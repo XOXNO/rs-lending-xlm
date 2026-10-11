@@ -29,6 +29,7 @@ fn audit_liquidate_contracts_dust_fee_full_close_dos() {
     let mut t = LendingTest::new()
         .standard_two_asset()
         .with_market(xlm_preset())
+        .with_initial_liquidity("XLM", 0.0)
         .with_dust_disabled_all_markets()
         .with_max_utilization_disabled_all_markets()
         .build();

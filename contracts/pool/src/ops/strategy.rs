@@ -13,7 +13,7 @@ use soroban_sdk::{assert_with_error, panic_with_error, Address, Env};
 
 use crate::cache::Cache;
 use crate::ops::borrow;
-use crate::{events, interest, ops};
+use crate::{events, guards, interest, ops};
 
 /// Intermediate result of strategy accounting before token transfer and events.
 pub(crate) struct StrategyOutcome {
@@ -62,6 +62,9 @@ pub(crate) fn accounting(env: &Env, action: PoolAction, charge_fee: bool) -> Str
         hub_asset,
     } = action;
     require_nonneg_amount(env, amount);
+    // Same typed rejection as `ops::load_leg`: a negative scaled position
+    // would invert the debt mint.
+    require_nonneg_amount(env, position.scaled_amount);
 
     let mut cache = ops::renewed_market(env, &hub_asset);
     let fee = compute_fee(env, &cache, amount, charge_fee);
@@ -71,6 +74,7 @@ pub(crate) fn accounting(env: &Env, action: PoolAction, charge_fee: bool) -> Str
 
     let protocol_fee = Ray::from_asset(env, fee, cache.params().asset_decimals);
     interest::add_protocol_revenue(&mut cache, protocol_fee);
+    guards::require_market_value_within_ceiling(env, &cache);
 
     let amount_to_send = amount
         .checked_sub(fee)

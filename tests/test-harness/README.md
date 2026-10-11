@@ -51,6 +51,18 @@ t.borrow(ALICE, "ETH", 1.0);
 
 `LendingTest::new()` returns a `LendingTestBuilder`. Chain `with_market(preset)`, fixture helpers (`standard_two_asset`, `three_asset_usdc_eth_wbtc`, …), then `.build()`.
 
+### Market seeding
+
+`build()` seeds each market's `initial_liquidity` as cash plus the supply
+shares it is worth, and no account owns those shares. A test that reconciles
+pool totals against account positions (INV-ACCT-10) subtracts
+`LendingTest::seed_supply_scaled(asset)` from `supplied - revenue`. A test that
+needs the accounts to hold every share turns the seed off with
+`without_initial_liquidity()` or `with_initial_liquidity(name, 0.0)` and
+supplies through an account. `inject_shareless_cash_raw` adds cash without
+shares, a state no public call produces; use it only to reach a guard that
+needs that state.
+
 ### Features
 
 | Feature | Default | Purpose |

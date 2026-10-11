@@ -14,33 +14,49 @@ fn mk(name: &'static str, dec: u32, price: i128, liq: f64) -> MarketPreset {
     }
 }
 
+// Mainnet per-transaction limits, from soroban-sdk 28's mainnet profile
+// (`soroban-sdk-28.0.0/src/testutils/cost_estimate.rs:146-151`, a snapshot of
+// the network settings of 2026-07-10). The earlier 50-write and 100-entry
+// figures predate SDK 28 and were stale.
+const MAINNET_LEDGER_ENTRIES: u32 = 400;
+const MAINNET_DISK_READ_ENTRIES: u32 = 200;
+const MAINNET_WRITE_ENTRIES: u32 = 200;
+const MAINNET_DISK_READ_BYTES: u32 = 200_000;
+const MAINNET_WRITE_BYTES: u32 = 132_096;
+const MAINNET_EVENT_BYTES: u32 = 16_384;
+
 /// Prints the footprint and asserts that it fits the mainnet per-transaction limits.
 fn assert_res(env: &soroban_sdk::Env, label: &str) {
     let r = env.cost_estimate().resources();
     let total = r.disk_read_entries + r.memory_read_entries + r.write_entries;
-    std::println!("  {:<45} entries={:>3}/100  writes={:>2}/50  read_bytes={:>6}/200000  write_bytes={:>5}/132096  events={:>5}/16384",
-        label, total, r.write_entries, r.disk_read_bytes, r.write_bytes, r.contract_events_size_bytes);
+    std::println!("  {:<45} entries={:>3}/{MAINNET_LEDGER_ENTRIES}  disk_reads={:>3}/{MAINNET_DISK_READ_ENTRIES}  writes={:>2}/{MAINNET_WRITE_ENTRIES}  read_bytes={:>6}/{MAINNET_DISK_READ_BYTES}  write_bytes={:>5}/{MAINNET_WRITE_BYTES}  events={:>5}/{MAINNET_EVENT_BYTES}",
+        label, total, r.disk_read_entries, r.write_entries, r.disk_read_bytes, r.write_bytes, r.contract_events_size_bytes);
     assert!(
-        total <= 100,
-        "{label}: {total} footprint entries exceed the mainnet 100-entry limit"
+        total <= MAINNET_LEDGER_ENTRIES,
+        "{label}: {total} footprint entries exceed the mainnet {MAINNET_LEDGER_ENTRIES}-entry limit"
     );
     assert!(
-        r.write_entries <= 50,
-        "{label}: {} write entries exceed the mainnet 50-write limit",
+        r.disk_read_entries <= MAINNET_DISK_READ_ENTRIES,
+        "{label}: {} disk-read entries exceed the mainnet {MAINNET_DISK_READ_ENTRIES}-entry limit",
+        r.disk_read_entries
+    );
+    assert!(
+        r.write_entries <= MAINNET_WRITE_ENTRIES,
+        "{label}: {} write entries exceed the mainnet {MAINNET_WRITE_ENTRIES}-write limit",
         r.write_entries
     );
     assert!(
-        r.disk_read_bytes <= 200_000,
+        r.disk_read_bytes <= MAINNET_DISK_READ_BYTES,
         "{label}: {} read bytes exceed the mainnet 200KB limit",
         r.disk_read_bytes
     );
     assert!(
-        r.write_bytes <= 132_096,
+        r.write_bytes <= MAINNET_WRITE_BYTES,
         "{label}: {} write bytes exceed the mainnet 132KB limit",
         r.write_bytes
     );
     assert!(
-        r.contract_events_size_bytes <= 16_384,
+        r.contract_events_size_bytes <= MAINNET_EVENT_BYTES,
         "{label}: {} event bytes exceed the mainnet 16KB limit",
         r.contract_events_size_bytes
     );
@@ -48,7 +64,7 @@ fn assert_res(env: &soroban_sdk::Env, label: &str) {
 
 #[test]
 fn footprints_fit_mainnet_limits() {
-    std::println!("\n=== FOOTPRINT ANALYSIS (mainnet limits: entries=100, writes=50, read=200KB, write=132KB) ===\n");
+    std::println!("\n=== FOOTPRINT ANALYSIS (mainnet limits: entries={MAINNET_LEDGER_ENTRIES}, writes={MAINNET_WRITE_ENTRIES}, read=200KB, write=132KB) ===\n");
 
     {
         let mut t = LendingTest::new()

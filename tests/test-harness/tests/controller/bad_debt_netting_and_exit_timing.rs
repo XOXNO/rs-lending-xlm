@@ -17,7 +17,11 @@ use test_harness::{
 };
 
 fn setup() -> LendingTest {
-    LendingTest::new().standard_two_asset_dust_disabled()
+    LendingTest::new()
+        .standard_two_asset()
+        .without_initial_liquidity()
+        .with_dust_disabled_all_markets()
+        .build()
 }
 
 /// The supplier who stays has the same exit, at the same moment, as the
@@ -427,7 +431,7 @@ fn committed_state(t: &LendingTest, asset: &str) -> (i128, i128, u64) {
 /// borrow rate before and at the peak, so the test can prove the kink was
 /// exercised.
 fn kink_run(cross: bool, hold: bool) -> (i128, i128, u64, f64, f64) {
-    let mut t = LendingTest::new().standard_two_asset_dust_disabled();
+    let mut t = setup();
     t.supply(ALICE, "USDC", 100_000.0);
     t.supply(BOB, "ETH", 100.0);
     t.borrow(BOB, "USDC", 30_000.0); // utilization 30%, below mid kink (50%)

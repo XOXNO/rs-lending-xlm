@@ -262,9 +262,10 @@ fn renew_account_follows_current_owner() {
     let alice = t.get_or_create_user(ALICE);
     let bob = t.get_or_create_user(BOB);
 
+    // The previous owner is a non-owner of a live account: NotAuthorized (F7).
     let result = t.ctrl_client().try_renew_account(&alice, &account_id);
     let mapped: Result<(), soroban_sdk::Error> = map_try_ok_unit(result);
-    assert_contract_error(mapped, errors::ACCOUNT_NOT_IN_MARKET);
+    assert_contract_error(mapped, errors::NOT_AUTHORIZED);
 
     t.ctrl_client().renew_account(&bob, &account_id); // succeeds
 }

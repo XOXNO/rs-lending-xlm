@@ -281,9 +281,12 @@ impl LiquidityPoolInterface for LiquidityPool {
 
     /// Revenue in asset units at the **stored** index; does not accrue first.
     ///
-    /// `claim_revenue` syncs before paying `min(cash, revenue)`, so the amount
-    /// actually paid can be higher (pending accrual mints more shares) or
-    /// lower (the cash cap binds under heavy utilization).
+    /// `claim_revenue` syncs before paying `min(claimable cash, revenue)`, so
+    /// the amount actually paid can be higher (pending accrual mints more
+    /// shares) or lower (the cash cap binds under heavy utilization, while
+    /// debt is outstanding only the cash above the liquidation buffer is
+    /// claimable, and a payout that would raise utilization past
+    /// `min(max_utilization, 95%)` pays nothing).
     fn get_revenue(env: Env, hub_asset: HubAssetKey) -> i128 {
         views::protocol_revenue(&env, &hub_asset)
     }

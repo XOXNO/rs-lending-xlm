@@ -8,7 +8,7 @@ use crate::account::update_or_remove_supply_position;
 use crate::constants::THRESHOLD_UPDATE_MIN_HF_RAW;
 use crate::context::Context;
 use crate::risk::totals::portfolio_hub_keys;
-use crate::risk::{calculate_account_risk_totals, validation};
+use crate::risk::{calculate_account_risk_totals, validation, valued_supply_positions};
 use crate::{events, storage};
 
 /// Which stored supply risk parameters to refresh.
@@ -115,7 +115,13 @@ fn favors_liquidator(position: &AccountPosition, effective_config: &AssetConfig)
         || effective_config.liquidation_fees.raw() < position.liquidation_fees.raw()
 }
 
-/// Checks health factor >= 1.05 with this position's threshold replaced by `new_lt`.
+/// Checks health factor >= 1.05 with this position's threshold replaced by
+/// `new_lt`. Values the book of the account the context names
+/// (`Context::set_valued_account`) without the legs excluded from its
+/// valuation, the same book liquidation and the keeper's final gate value
+/// (INV-HALT-04): a liquidator-favoring tuple applies only when that book
+/// carries it, and an excluded leg's unusable feed is never read here. A
+/// context that names no account values the full book.
 fn clears_min_hf(
     env: &Env,
     cache: &mut Context,
@@ -128,6 +134,9 @@ fn clears_min_hf(
     hypothetical.liquidation_threshold = new_lt;
     let mut supply_positions = account.supply_positions.clone();
     supply_positions.set(hub_asset.clone(), (&hypothetical).into());
+    if let Some(account_id) = cache.valued_account() {
+        supply_positions = valued_supply_positions(env, account_id, &supply_positions);
+    }
     let hf =
         calculate_account_risk_totals(env, cache, &supply_positions, &account.borrow_positions)
             .health_factor;
@@ -161,7 +170,8 @@ pub(crate) fn update_account_threshold(
 
 /// Refreshes listed supply parameters to `scope`. Skips missing metadata,
 /// empty supply, or unresolved NFT ownership. Only `FullTuple` loads debt
-/// and enforces final health factor >= 1.05; writes only supply positions.
+/// and enforces final health factor >= 1.05 on an account with debt, so a
+/// debt-free account reads no price; writes only supply positions.
 fn sync_account_thresholds(
     env: &Env,
     account_id: u64,
@@ -190,6 +200,7 @@ fn sync_account_thresholds(
     };
 
     storage::renew_user_account(env, account_id);
+    cache.set_valued_account(account_id);
 
     let mut account = storage::account_from_parts(owner, meta, supply_positions, borrow_positions);
     let assets = account.supply_positions.keys();
@@ -234,14 +245,13 @@ fn sync_account_thresholds(
         storage::set_supply_positions(env, account_id, &account.supply_positions);
     }
 
-    if full_tuple {
-        let hf = calculate_account_risk_totals(
-            env,
-            cache,
-            &account.supply_positions,
-            &account.borrow_positions,
-        )
-        .health_factor;
+    // An indebted account is gated on its valued legs: a leg excluded from
+    // valuation for this account counts as zero (INV-HALT-04).
+    if full_tuple && !account.debt_free() {
+        let supply_positions = valued_supply_positions(env, account_id, &account.supply_positions);
+        let hf =
+            calculate_account_risk_totals(env, cache, &supply_positions, &account.borrow_positions)
+                .health_factor;
         assert_with_error!(
             env,
             hf >= Wad::from(THRESHOLD_UPDATE_MIN_HF_RAW),

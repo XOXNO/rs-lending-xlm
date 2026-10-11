@@ -12,9 +12,10 @@ mod verification_storage;
 
 pub(crate) use account::{
     account_from_parts, account_owner, add_delegate, get_account, get_account_borrow_only,
-    get_account_meta, get_debt_positions, get_delegates, get_supply_positions, iter_debt_positions,
-    iter_typed_positions, remove_account_entry, remove_delegate, renew_user_account,
-    set_account_meta, set_debt_positions, set_supply_positions, try_account_owner, try_get_account,
+    get_account_meta, get_account_valuation_exclusions, get_debt_positions, get_delegates,
+    get_supply_positions, iter_debt_positions, iter_typed_positions, remove_account_entry,
+    remove_delegate, renew_user_account, set_account_meta, set_account_valuation_exclusions,
+    set_debt_positions, set_supply_positions, try_account_owner, try_get_account,
     try_get_account_meta, try_get_debt_position, try_get_supply_position,
 };
 pub(crate) use account::{is_flash_loan_ongoing, with_flash_guard};

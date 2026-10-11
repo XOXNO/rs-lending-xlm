@@ -125,7 +125,7 @@ share a hub-asset market share its interest rate.
 Example: 10,000,000 USDC supplied value, 6,500,000 USDC borrowed value → `utilization_ray = 650_000_000_000_000_000_000_000_000` (0.65).
 
 `max_utilization` is a pool guard in RAY. It is not a curve input.
-After borrowing, user withdrawal, or revenue claim, the pool checks:
+After borrowing, user withdrawal, or a revenue claim that pays, the pool checks:
 
 ```text
 ceil(ceil(debt_value_ray) × RAY / floor(supply_value_ray)) ≤ max_utilization
@@ -136,6 +136,13 @@ The guard permits zero debt or zero supplied shares. It also permits
 zero fails. Other failures raise `UtilizationAboveMax`.
 Liquidation withdrawals skip this guard. Source:
 `contracts/pool/src/guards.rs::require_utilization_below_max`.
+
+A revenue claim never raises `UtilizationAboveMax`. While the market carries
+debt it pays at most the cash above the 2% liquidation buffer, and only if the
+whole payout keeps utilization at or below `min(max_utilization, 95%)`
+(`MAX_CLAIM_UTILIZATION_RAY`); otherwise it pays 0, and a claim that pays 0
+skips the guards. Read `actual_amount` from the result rather than predicting it
+from `get_revenue`. Source: `contracts/pool/src/cache/cash.rs::claim_utilization_room`.
 
 ## Borrow-rate curve
 
@@ -223,10 +230,16 @@ indexes. Metadata and raw-position views do not accrue balances.
 Per step of `delta_ms ≤ MILLISECONDS_PER_YEAR` (`MAX_COMPOUND_DELTA_MS`; longer gaps are chunked, each chunk recomputing utilization with the revenue shares minted by the previous chunk):
 
 ```text
+debt_value   = floor(borrowed × borrow_index / RAY)                     // saturating
+supply_value = floor(supplied × supply_index / RAY)                     // saturating
+headroom   = max(0, MAX_MARKET_VALUE_RAY − 3 − max(debt_value, supply_value))   // MAX_MARKET_VALUE_RAY = i128::MAX − RAY
+if headroom == 0: keep both indexes, mint no revenue shares, emit MarketValueCeilingEvent (when borrowed > 0); stop
 per_ms     = half_up(annual_borrow_rate_ray / 31_556_926_000)          // calculate_borrow_rate
 x          = per_ms × delta_ms                                           // RAY exponent, must fit i128
 factor     = 1 + x + x²/2! + … + x⁸/8!   (each power half-up, each term half-up ÷ k!)   // eighth-order approximation
-borrow_index' = min(half_up(borrow_index × factor / RAY), 10^36)         // update_borrow_index, monotone
+grown      = min(half_up(borrow_index × factor / RAY), 10^36)           // update_borrow_index, monotone
+value_cap  = borrow_index + floor(headroom × RAY / borrowed)            // saturating; no cap when borrowed == 0
+borrow_index' = min(grown, value_cap)                                    // MarketValueCeilingEvent when value_cap binds
 interest   = half_up(borrowed × borrow_index' / RAY) − half_up(borrowed × borrow_index / RAY)
 fee        = half_up(interest × reserve_factor / BPS);  rewards = interest − fee
 supply_index' = clamp(floor((half_up(supplied × supply_index / RAY) + rewards) × RAY / supplied), supply_index, 10^36)
@@ -237,6 +250,7 @@ revenue_shares = min(floor((fee + shortfall) × RAY / supply_index'), i128::MAX 
 Monotonicity:
 
 - Borrow index only grows (capped at `MAX_BORROW_INDEX_RAY`; at the cap no further interest accrues).
+- The market value ceiling caps each step's interest at the room both totals have below `MAX_MARKET_VALUE_RAY`; a market at the ceiling accrues no interest until exits lower its totals. An off-chain projection that omits the value cap diverges from `get_bulk_indexes` once a market reaches the ceiling.
 - Supply index never decreases from accrual, but **bad-debt socialization lowers it** (see below), floored at `SUPPLY_INDEX_FLOOR_RAW = 10^24`. A supply index below an earlier reading means a bad-debt write-down on that market, not an accrual bug.
 - Revenue shares are part of `supplied`; the supply index applies to them like any supplier.
 
@@ -277,7 +291,8 @@ withdrawal also refresh eligible liquidation parameters.
 
 `update_account_threshold` refreshes LTV. With `has_risks = true`, it also
 refreshes threshold, bonus, and fees. A change that favors liquidators requires
-hypothetical health factor of at least `1.05 WAD`. With `has_risks = true`, the final health factor must also meet that limit.
+hypothetical health factor of at least `1.05 WAD`, valued without any supply leg
+excluded from the account's valuation. With `has_risks = true`, the final health factor must also meet that limit.
 Otherwise, the call fails with `HealthFactorTooLow`.
 
 ```text
@@ -351,7 +366,7 @@ Example (account above): `1_548.89e18 ≥ 275.22e18`, `HF 5.89 ≥ 1`, `1_548.89
 p       = C == 0 ? 0 : half_up(W × WAD / C)                      // proportion_seized
 t       = clamp(ceil(p × BPS / WAD), 1, BPS)
 max_bps = p ≤ 0 ? 0 : floor(BPS × (BPS − t) / t)                 // max_bonus_for_threshold
-base_bps = min(Σ half_up(half_up(value_i × WAD / C) × bonus_i / WAD), max_bps)   // USD-weighted stamped bonuses; 0 when C == 0
+base_bps = min(half_up(Σ (value_i × bonus_i) / C), max_bps)          // USD-weighted stamped bonuses, rounded once (exact sum, widened past i128 when needed); 0 when C == 0
 ```
 
 ### Bonus curve (`SpokeConfig`: `liquidation_target_hf_wad`, `hf_for_max_bonus_wad`, `liquidation_bonus_factor_bps`)
@@ -487,7 +502,7 @@ alone.
 
 ## Bad-debt socialization
 
-Eligibility (`is_socializable_bad_debt`): `total_debt > total_collateral` and `total_collateral ≤ 5 WAD` for permissionless `clean_bad_debt` and the check after `liquidate`; owner-only `force_socialize_bad_debt` drops the collateral cap. `contracts/pool/src/interest.rs::apply_bad_debt_to_supply_index` then lowers only the affected market's supply index ([formulas.md#bad-debt](../../docs/reference/formulas.md#bad-debt)). Example: 2,000,000 USDC of shares at index 1.083 (`total_supply_ray = 2_166_000e27`), bad debt 30,000 USDC:
+Eligibility (`bad_debt::admits_permissionless_cleanup`): `total_debt > total_collateral` and either `total_collateral ≤ 5 WAD` (`is_socializable_bad_debt`) or a quote `floor(total_collateral / (1 + base))` below every debt leg's smallest accepted payment (one native unit), for permissionless `clean_bad_debt` and the check after `liquidate`; owner-only `force_socialize_bad_debt` drops both collateral conditions. `contracts/pool/src/interest.rs::apply_bad_debt_to_supply_index` then lowers only the affected market's supply index ([formulas.md#bad-debt](../../docs/reference/formulas.md#bad-debt)). Example: 2,000,000 USDC of shares at index 1.083 (`total_supply_ray = 2_166_000e27`), bad debt 30,000 USDC:
 
 ```text
 reduction = 986_149_584_487_534_626_038_781_163   // 0.98615

@@ -20,7 +20,9 @@ use crate::positions::supply::process_deposit;
 use crate::positions::{require_can_supply, validate_position_entry_gates};
 use crate::risk::validation::require_authorized_caller;
 use crate::storage;
-use crate::strategies::{borrow_into_controller, prefetch_strategy_prices, strategy_finalize};
+use crate::strategies::{
+    borrow_into_controller, prefetch_strategy_prices, strategy_context, strategy_finalize,
+};
 
 pub(crate) struct FlashPositionParams<'a> {
     pub account_id: u64,
@@ -75,7 +77,7 @@ pub(crate) fn process_flash_position(
         FlashLoanError::InvalidFlashloanReceiver
     );
 
-    let mut cache = Context::new(env);
+    let mut cache = strategy_context(env);
     let pool_addr = cache.cached_pool_address();
     assert_with_error!(
         env,
@@ -100,7 +102,7 @@ pub(crate) fn process_flash_position(
         &mut cache,
     );
 
-    validate_collaterals(env, &mut cache, &account, collaterals);
+    validate_collaterals(env, &mut cache, &account, debt, collaterals);
     validate_refund_assets(
         env,
         &mut cache,
@@ -114,7 +116,7 @@ pub(crate) fn process_flash_position(
     for (hub_asset, _) in collaterals.iter() {
         extra_assets.push_back(hub_asset.asset.clone());
     }
-    prefetch_strategy_prices(&mut cache, &account, &extra_assets);
+    prefetch_strategy_prices(&mut cache, account_id, &account, &extra_assets);
 
     // Guard both forwarding and the callback: token hooks can reenter first.
     let (amount_received, collateral_before, refund_before) =
@@ -141,7 +143,6 @@ pub(crate) fn process_flash_position(
             );
             (amount_received, collateral_before, refund_before)
         });
-
     let deposits = collect_collateral_deposits(env, &controller, collaterals, &collateral_before);
     process_deposit(env, &controller, &mut account, &deposits, &mut cache);
 
@@ -170,11 +171,14 @@ pub(crate) fn process_flash_position(
 
 /// Validates collateral limits, supply eligibility and non-negative minimums
 /// with at least one positive. Uniqueness is by token, since different hubs
-/// share the same controller token balance.
+/// share the same controller token balance. Long and Short pair two different
+/// tokens, as `multiply` requires; only the Multiply-mode loop may declare
+/// the debt token as collateral (INV-STRAT-04).
 fn validate_collaterals(
     env: &Env,
     cache: &mut Context,
     account: &Account,
+    debt: &HubAssetKey,
     collaterals: &Vec<(HubAssetKey, i128)>,
 ) {
     require_non_empty_payments(env, collaterals);
@@ -188,6 +192,7 @@ fn validate_collaterals(
 
     let mut seen_assets: Map<Address, bool> = Map::new(env);
     let mut has_positive_min = false;
+    let distinct_tokens = matches!(account.mode, PositionMode::Long | PositionMode::Short);
 
     for (hub_asset, min_amount) in collaterals.iter() {
         require_nonneg_amount(env, min_amount);
@@ -195,6 +200,11 @@ fn validate_collaterals(
             env,
             !seen_assets.contains_key(hub_asset.asset.clone()),
             GenericError::InvalidPayments
+        );
+        assert_with_error!(
+            env,
+            !distinct_tokens || hub_asset.asset != debt.asset,
+            GenericError::AssetsAreTheSame
         );
         if min_amount > 0 {
             has_positive_min = true;

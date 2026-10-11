@@ -24,7 +24,8 @@ deploy_dfx_strategy() {
     [ -n "${STRATEGY:-}" ] && return 0
     local out_f="$LOG_DIR/deploy_strategy.out" err_f="$LOG_DIR/deploy_strategy.err"
     # init_args is [controller, hub_id, spoke_id]; the constructor validates
-    # the (hub, asset) market exists, so the DFX market must be listed first.
+    # that the (hub, asset) market exists and that PRIMARY_SPOKE_ID exists and
+    # lists it, so create_market (which lists DFX on that spoke) runs first.
     run_deploy "$out_f" "$err_f" -- stellar contract deploy --wasm "$WASM_DIR/defindex_strategy.wasm" \
         --source "$ADMIN" "${NET_ARGS[@]}" \
         -- --asset "$SAC_DFX" \

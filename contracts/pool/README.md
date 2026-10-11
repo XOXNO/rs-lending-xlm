@@ -71,7 +71,7 @@ error, not a contract code. Error numbers are from `common/src/errors.rs`.
 | `update_params(hub_asset, model)` | — | Accrues on the **old** curve, then writes the new model | `InterestRateModel::verify` |
 | `update_indexes(hub_assets)` | — | Accrues each market; writes only if time elapsed | — |
 | `supply(entries)` | in | Mints supply shares, credits cash | 14, `PoolInsolvent` (123), `SupplyRoundsToZeroShares` (51) |
-| `borrow(receiver, entries)` | out | Mints debt shares, debits cash, transfers | 14 (zero too), `InsufficientLiquidity` (112), `BorrowRoundsToZeroShares` (47), `UtilizationAboveMax` (127) |
+| `borrow(receiver, entries)` | out | Mints debt shares, debits cash, transfers | 14 (zero too), `InsufficientLiquidity` (112), `BorrowRoundsToZeroShares` (47), `PoolInsolvent` (123), `UtilizationAboveMax` (127) |
 | `withdraw(receiver, is_liquidation, entries)` | out | Burns supply shares, keeps the liquidation fee, transfers the net | 14, `WithdrawRoundsToZeroShares` (49), `WithdrawLessThanFee` (115), 112, 127 (non-liquidation), 123, `InternalError` (34) |
 | `repay(payer, actions)` | in/out | Burns debt shares, credits the net, refunds overpayment | 14, `RepayRoundsToZeroShares` (52) |
 | `net_settle(entry)` | — | Offsets one user's supply against their own debt; one entry, not a batch | 14, `NetSettleRoundsToZeroShares` (50), 123, 34 |
@@ -79,13 +79,15 @@ error, not a contract code. Error numbers are from `common/src/errors.rs`.
 | `flash_loan(hub_asset, initiator, receiver, amount, data)` | out/in | Pays out, calls `execute_flash_loan`, pulls back principal + fee; returns the fee | 14, `FlashloanNotEnabled` (401), 112, `InvalidFlashloanReceiver` (412), `InvalidFlashloanRepay` (402) |
 | `create_strategy(receiver, action, charge_fee)` | out | Mints debt, books the fee as revenue, sends `amount - fee` | 14, `StrategyFeeExceeds` (409), every `borrow` error |
 | `recapitalize(hub_asset, payer, amount)` | in/out | Credits cash up to the backing shortfall, refunds the excess | 14 |
-| `claim_revenue(hub_asset)` | out | Burns revenue shares, pays the owner | 127, 123, `OwnerNotSet` (32), 34 |
+| `claim_revenue(hub_asset)` | out | Burns revenue shares, pays the owner; pays 0 instead of reverting when nothing is claimable within the claim bound | 127, 123 (defence in depth on a positive payout), `OwnerNotSet` (32), 34 |
 | `upgrade(new_wasm_hash)` | — | Replaces the Wasm | — |
 
 Every market entrypoint also fails with `PoolNotInitialized` (30) for an
 unknown market and `MathOverflow` (33) on checked-arithmetic overflow.
 `AmountMustBePositive` (14) rejects a negative amount in `supply`, `withdraw`,
-`create_strategy` and `recapitalize`; `borrow` also rejects zero. `InternalError` (34) means a broken invariant:
+`create_strategy` and `recapitalize`, and a negative scaled position on every
+leg (`supply`, `borrow`, `withdraw`, `repay`, `create_strategy`, `net_settle`,
+`seize_positions`); `borrow` also rejects a zero amount. `InternalError` (34) means a broken invariant:
 `revenue > supplied` after a supply burn or deposit seizure, or a revenue claim
 that burns zero shares.
 
@@ -167,7 +169,7 @@ A seized deposit is already in `supplied`; interest creates new claims.
 Backing shortfall (`guards::backing_shortfall`):
 
 ```text
-supplied_claim(floor) − (cash + outstanding_debt(ceil)), clamped ≥ 0
+floor_native(supplied_claim(floor, RAY) − outstanding_debt(ceil, RAY)) − cash, clamped ≥ 0
 ```
 
 ## Rounding
@@ -206,6 +208,11 @@ utilization → borrow rate (curve) → compound → borrow index
 
 `MAX_BORROW_INDEX_RAY` and `MAX_SUPPLY_INDEX_RAY` are `1e36`.
 
+`MAX_MARKET_VALUE_RAY` (`i128::MAX - RAY`) bounds total supply value and total
+debt value. Each chunk caps interest at the room left below it, so the borrow
+index stops short of what the rate implies, and a market with no room keeps
+both indexes. `global_sync` then emits `MarketValueCeilingEvent`.
+
 `compound_interest` (`common/src/rates/compound.rs`) is a fixed 9-term Taylor
 series, `1 + x + … + x⁸/8!`, with no early exit. At `x = 2` (a `2 × RAY`
 max rate untouched for a full year) it gives `7.387302` against
@@ -214,7 +221,7 @@ overestimate.
 
 ## Guards
 
-`guards.rs` holds four guards; `require_reserves` is on `Cache` in
+`guards.rs` holds five guards; `require_reserves` is on `Cache` in
 `cache/cash.rs`. `create_strategy` mints through `borrow::mint_debt`, so it
 runs every `borrow` guard.
 
@@ -223,8 +230,9 @@ runs every `borrow` guard.
 | `require_backed_market` | `supply` | everything else | 123 |
 | `require_reserves` | `borrow`, `create_strategy`, `withdraw`, `flash_loan`, `claim_revenue` | — | 112 |
 | `require_liquidation_buffer` | `borrow`, `create_strategy` | `withdraw`, `flash_loan` | 112 |
-| `require_utilization_below_max` | `borrow`, `create_strategy`, non-liquidation `withdraw`, `claim_revenue` | `net_settle`, `seize_positions`, liquidation | 127 |
-| `require_supply_for_debt` | `withdraw`, `net_settle`, `claim_revenue` | — | 123 |
+| `require_utilization_below_max` | `borrow`, `create_strategy`, non-liquidation `withdraw`, a paying `claim_revenue` | `net_settle`, `seize_positions`, liquidation, a zero `claim_revenue` | 127 |
+| `require_supply_for_debt` | `borrow`, `create_strategy`, `withdraw`, `net_settle`, a paying `claim_revenue` | a zero `claim_revenue` | 123 |
+| `require_market_value_within_ceiling` | `supply`, `flash_loan` fee booking, `create_strategy` | everything else | 33 |
 
 **Liquidation buffer.** `require_liquidation_buffer` keeps a flat
 `LIQUIDATION_BUFFER_BPS` (200 bps) of the floored supplied amount for
@@ -275,12 +283,17 @@ boundary.
 **`repay`** and **`recapitalize`** refund from pool cash without a debit. This
 is correct only because the controller transferred the full amount first.
 
-**`claim_revenue`** pays `min(cash, floor(revenue_value))`, so a fully lent-out
-market pays less than `get_revenue` shows, or zero. The unclaimed rest stays as
-revenue shares and keeps earning. The guards run even when nothing is
-claimable; if they pass, the call returns `actual_amount = 0`, moves no tokens
-and emits a snapshot. Always read `actual_amount` from the returned
-`PoolAmountMutation`.
+**`claim_revenue`** pays `min(claimable_cash, floor(revenue_value))`, where
+the claimable cash is all of it without debt and, while debt is outstanding,
+only the cash above the 2% liquidation buffer. A payout that would raise
+utilization past `min(max_utilization, 95%)` (`MAX_CLAIM_UTILIZATION_RAY`) is
+refused whole and pays nothing, whatever the market's own ceiling. A heavily
+lent-out market pays less than `get_revenue` shows, or zero. The unclaimed rest
+stays as revenue shares and keeps earning. The utilization and
+supply-for-debt guards run only when the claim moves cash; a claim with
+nothing to pay only accrues, returns `actual_amount = 0`, moves no tokens and
+emits a snapshot, so it never fails the controller's claim batch. Always read
+`actual_amount` from the returned `PoolAmountMutation`.
 
 ## Layout
 
@@ -323,6 +336,17 @@ make test             # whole workspace, harness included
 make miri-common      # fp_core Miri tests, for common/src/math changes
 make clippy
 ```
+
+**Known test-fidelity gap (Specula CR-24).** The unit-test fixture in
+`tests/flows.rs` (`TestSetup::new` and `add_funded_market`) seeds each market
+with 10^14 raw units of cash and no supply shares, a state no public call
+produces. That cash covers the liquidation buffer and hides any backing
+shortfall in tests that do not overwrite the market state. Seeding it through
+`supply` instead changes the utilization, rate and exact-number assertions of
+13 existing tests, so the fixture keeps the share-less seed. Tests that need a
+share-backed book overwrite the state with `edit_state` or supply first, as the
+claim-policy, value-ceiling and backing tests do. The harness seeds through
+supply shares (`tests/test-harness/README.md`, "Market seeding").
 
 ## References
 

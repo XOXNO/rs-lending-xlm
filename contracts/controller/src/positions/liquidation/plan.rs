@@ -11,8 +11,11 @@ use crate::positions::{enforce_spoke_asset_flags, FreezePolicy};
 
 /// Builds a normalized repayment and pro-rata seizure plan for debt with HF < 1 WAD.
 /// Repayment rejects `paused` but permits `frozen`; seizure rejects only `no_seize`.
+/// Supply legs excluded from the account's valuation count as zero collateral
+/// and are not seized.
 pub(crate) fn build_liquidation_plan(
     env: &Env,
+    account_id: u64,
     account: &Account,
     raw_payments: &Vec<HubPayment>,
     cache: &mut Context,
@@ -20,6 +23,8 @@ pub(crate) fn build_liquidation_plan(
     if account.borrow_positions.is_empty() {
         panic_with_error!(env, CollateralError::HealthFactorTooHigh);
     }
+    let valued = risk::valued_account(env, account_id, account);
+    let account = &valued;
 
     for (hub_asset, _) in raw_payments.iter() {
         enforce_spoke_asset_flags(

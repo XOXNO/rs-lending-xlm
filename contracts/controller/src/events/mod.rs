@@ -155,6 +155,19 @@ pub struct AccountDelegateEvent {
     pub granted: bool,
 }
 
+/// Excludes one supply leg from, or restores it to, an account's valuation.
+/// `excluded_at` is the ledger sequence the exclusion was set at; a restore
+/// names the exclusion it clears.
+#[contractevent(topics = ["account", "valuation_exclusion"])]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AccountValuationEvent {
+    pub account_id: u64,
+    pub asset: Address,
+    pub hub_id: u32,
+    pub excluded: bool,
+    pub excluded_at: u32,
+}
+
 /// Bad-debt cleanup that seizes remaining positions and removes the account.
 /// Values describe the account before cleanup, in USD (WAD).
 #[contractevent(topics = ["debt", "bad_debt"])]

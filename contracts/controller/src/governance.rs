@@ -77,18 +77,30 @@ pub(crate) fn unpause(env: &Env) {
 }
 
 /// Starts a two-step ownership transfer to `new_owner`, acceptable until
-/// ledger `live_until_ledger`.
+/// ledger `live_until_ledger`. A zero `live_until_ledger` cancels a pending
+/// transfer to `new_owner` and is idempotent: when nothing is pending, or the
+/// pending nominee is another address, it changes nothing and returns, so the
+/// governance operation that carries it is consumed instead of staying
+/// `Ready` to void a later nomination of the same address.
 pub(crate) fn transfer_ownership(env: &Env, new_owner: &Address, live_until_ledger: u32) {
     // The entrypoint authenticates the owner; low-level role transfer does not.
     let current_owner = ownable::get_owner(env)
         .unwrap_or_else(|| panic_with_error!(env, GenericError::OwnerNotSet));
+    let pending_key = ownable::OwnableStorageKey::PendingOwner;
 
-    role_transfer::transfer_role(
-        env,
-        new_owner,
-        &ownable::OwnableStorageKey::PendingOwner,
-        live_until_ledger,
-    );
+    if live_until_ledger == 0 {
+        let names_new_owner = env
+            .storage()
+            .temporary()
+            .get::<_, role_transfer::PendingTransfer>(&pending_key)
+            .is_some_and(|pending| pending.address == *new_owner);
+        if !names_new_owner {
+            return;
+        }
+        env.storage().temporary().remove(&pending_key);
+    } else {
+        role_transfer::transfer_role(env, new_owner, &pending_key, live_until_ledger);
+    }
     ownable::emit_ownership_transfer(env, &current_owner, new_owner, live_until_ledger);
 }
 

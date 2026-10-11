@@ -17,7 +17,6 @@ use common::errors::{CollateralError, GenericError, SpokeError};
 use common::types::{Account, HubPayment, PositionMode, SeizeMode};
 use soroban_sdk::{assert_with_error, Address, Env, Vec};
 
-use self::curve::is_socializable_bad_debt;
 use crate::account;
 use crate::account::SpokeAdmission;
 use crate::context::Context;
@@ -55,7 +54,8 @@ pub(crate) fn process_liquidation(
     );
 
     // Share payment normalization and positivity checks with the estimate view.
-    let liquidation_plan = plan::build_liquidation_plan(env, &account, debt_payments, &mut cache);
+    let liquidation_plan =
+        plan::build_liquidation_plan(env, account_id, &account, debt_payments, &mut cache);
     let offered = liquidation_plan
         .repayment
         .full_close
@@ -102,10 +102,11 @@ pub(crate) fn process_liquidation(
     }
     .publish(env);
 
+    let valued_supply = risk::valued_supply_positions(env, account_id, &account.supply_positions);
     let post_totals = risk::calculate_account_risk_totals(
         env,
         &mut cache,
-        &account.supply_positions,
+        &valued_supply,
         &account.borrow_positions,
     );
 
@@ -169,6 +170,21 @@ fn resolve_seize_receiver(
         ));
     }
 
+    let receiver = load_credit_receiver(env, account_id, account, requested);
+    account::require_owner_or_delegate(env, requested, liquidator, &receiver.owner);
+
+    Some((requested, receiver))
+}
+
+/// Loads a nonzero credit receiver and applies the gates that do not depend on
+/// the caller: not the liquidated account, same spoke, `Normal` mode.
+/// Execution adds the owner-or-delegate check; the estimate view has no caller.
+pub(crate) fn load_credit_receiver(
+    env: &Env,
+    account_id: u64,
+    account: &Account,
+    requested: u64,
+) -> Account {
     // Crediting the same account would undo the seizure.
     assert_with_error!(
         env,
@@ -177,7 +193,6 @@ fn resolve_seize_receiver(
     );
 
     let receiver = storage::get_account(env, requested);
-    account::require_owner_or_delegate(env, requested, liquidator, &receiver.owner);
     assert_with_error!(
         env,
         receiver.spoke_id == account.spoke_id,
@@ -188,8 +203,7 @@ fn resolve_seize_receiver(
         receiver.mode == PositionMode::Normal,
         GenericError::AccountModeMismatch
     );
-
-    Some((requested, receiver))
+    receiver
 }
 
 /// Authorizes permissionless dust-gated cleanup outside flash loans.
@@ -202,7 +216,9 @@ pub(crate) fn process_clean_bad_debt(env: &Env, caller: &Address, account_id: u6
 /// Admission condition for bad-debt socialization.
 #[derive(Clone, Copy, PartialEq)]
 enum BadDebtGate {
-    /// Permissionless: insolvent *and* collateral at or below the dust threshold.
+    /// Permissionless: insolvent *and* either collateral at or below the dust
+    /// threshold or a collateral-backed quote that repays no debt unit
+    /// (`bad_debt::admits_permissionless_cleanup`).
     DustCapped,
     /// Owner-only: insolvent alone, with no cap on the collateral left behind.
     InsolventOnly,
@@ -228,7 +244,7 @@ fn socialize_bad_debt(env: &Env, account_id: u64, gate: BadDebtGate) {
 
     let admits = match gate {
         BadDebtGate::DustCapped => {
-            is_socializable_bad_debt(totals.total_debt, totals.total_collateral)
+            bad_debt::admits_permissionless_cleanup(env, &mut cache, &account, &totals)
         }
         BadDebtGate::InsolventOnly => totals.total_debt > totals.total_collateral,
     };
@@ -237,7 +253,8 @@ fn socialize_bad_debt(env: &Env, account_id: u64, gate: BadDebtGate) {
     bad_debt::execute_bad_debt_cleanup(env, &mut cache, account_id, &account, &totals);
 }
 
-/// Socializes insolvent debt when remaining collateral is at or below the dust cap.
+/// Socializes insolvent debt when remaining collateral is at or below the dust
+/// cap, or when no liquidation can repay one unit of any debt leg.
 pub(crate) fn clean_bad_debt_standalone(env: &Env, account_id: u64) {
     socialize_bad_debt(env, account_id, BadDebtGate::DustCapped);
 }

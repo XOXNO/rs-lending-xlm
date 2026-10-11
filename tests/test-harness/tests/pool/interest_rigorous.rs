@@ -13,7 +13,10 @@ fn get_indexes(t: &LendingTest, asset: &str) -> (i128, i128) {
 
 #[test]
 fn test_borrow_index_matches_compound_formula() {
-    let mut t = LendingTest::new().standard_two_asset().build();
+    let mut t = LendingTest::new()
+        .standard_two_asset()
+        .without_initial_liquidity()
+        .build();
 
     t.supply(ALICE, "USDC", 100_000.0);
     t.supply(BOB, "ETH", 100.0);
@@ -74,7 +77,10 @@ fn test_supply_index_reflects_interest_minus_reserve_factor() {
 
 #[test]
 fn test_interest_accounting_identity() {
-    let mut t = LendingTest::new().standard_two_asset().build();
+    let mut t = LendingTest::new()
+        .standard_two_asset()
+        .without_initial_liquidity()
+        .build();
 
     t.supply(ALICE, "ETH", 100.0);
     t.supply(BOB, "USDC", 500_000.0);
@@ -130,6 +136,7 @@ fn test_reserve_factor_exact_split() {
     let mut t = LendingTest::new()
         .with_market(eth_preset())
         .with_market(usdc_preset())
+        .without_initial_liquidity()
         .build();
 
     t.supply(ALICE, "ETH", 100.0);
@@ -234,6 +241,7 @@ fn test_rate_curve_three_regions() {
     let mut t = LendingTest::new()
         .with_market(eth_preset())
         .with_market(usdc_preset())
+        .without_initial_liquidity()
         .build();
 
     t.supply(ALICE, "ETH", 1000.0);
@@ -467,7 +475,10 @@ fn test_pool_solvency_invariant() {
 
 #[test]
 fn test_index_values_accessible_and_rational() {
-    let mut t = LendingTest::new().three_asset_usdc_eth_wbtc().build();
+    let mut t = LendingTest::new()
+        .three_asset_usdc_eth_wbtc()
+        .without_initial_liquidity()
+        .build();
 
     t.supply(ALICE, "USDC", 100_000.0);
     t.supply(ALICE, "ETH", 100.0);

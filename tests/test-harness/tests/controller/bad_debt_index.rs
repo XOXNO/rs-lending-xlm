@@ -6,7 +6,11 @@ use test_harness::{
 };
 
 fn setup() -> LendingTest {
-    LendingTest::new().standard_two_asset_dust_disabled()
+    LendingTest::new()
+        .standard_two_asset()
+        .without_initial_liquidity()
+        .with_dust_disabled_all_markets()
+        .build()
 }
 
 #[test]

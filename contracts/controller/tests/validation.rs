@@ -158,7 +158,7 @@ fn require_post_pool_risk_gates_with_debt_needs_prices() {
     let account = account_with(&env, None, Some(&borrow));
     env.as_contract(&contract, || {
         let mut cache = crate::context::Context::new_view(&env);
-        require_post_pool_risk_gates(&env, &mut cache, &account);
+        require_post_pool_risk_gates(&env, &mut cache, 1, &account);
     });
 }
 

@@ -18,7 +18,7 @@ client drops the `Env` argument.
 
 | Entrypoint | Caller | Does |
 | --- | --- | --- |
-| `__constructor(asset, init_args)` | deployer, once | `init_args` = `(controller, hub_id, spoke_id)`; reads `pool` from the controller |
+| `__constructor(asset, init_args)` | deployer, once | `init_args` = `(controller, hub_id, spoke_id)`; probes the hub market, the spoke and the spoke's listing of the asset, then reads `pool` from the controller |
 | `deposit(amount, from) -> i128` | `from` | Pulls tokens and calls controller `supply` into the vault's account |
 | `withdraw(amount, from, to) -> i128` | `from` | Calls controller `withdraw`, pays `to`; a full exit clears the mapping |
 | `harvest(from, data)` | `from` | Emits the price per share (12 decimals, rounded down) with amount 0 |

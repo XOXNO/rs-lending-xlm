@@ -3,7 +3,9 @@ use crate::spec_hooks;
 use common::constants::{MIN_BORROWABLE_ASSET_DECIMALS, MIN_WHOLE_UNIT_COLLATERAL};
 use common::errors::*;
 use common::math::fp::Wad;
-use common::types::{Account, AccountPositionType, AggregatedPayments, HubAssetKey};
+use common::types::{
+    Account, AccountPositionRaw, AccountPositionType, AggregatedPayments, HubAssetKey,
+};
 use soroban_sdk::{assert_with_error, panic_with_error, Address, Env, Map, Vec};
 
 use crate::storage::iter_typed_positions;
@@ -26,15 +28,23 @@ pub(crate) fn require_not_flash_loaning(env: &Env) {
 
 /// Requires debt coverage by LTV-weighted collateral, health factor >= 1, and
 /// the configured collateral floor. Debt-free accounts skip all three checks.
-pub(crate) fn require_post_pool_risk_gates(env: &Env, cache: &mut Context, account: &Account) {
+/// Supply legs excluded from the account's valuation count as zero collateral.
+pub(crate) fn require_post_pool_risk_gates(
+    env: &Env,
+    cache: &mut Context,
+    account_id: u64,
+    account: &Account,
+) {
     if account.debt_free() {
         return;
     }
 
+    let supply_positions =
+        risk::valued_supply_positions(env, account_id, &account.supply_positions);
     let totals = risk::calculate_account_risk_totals(
         env,
         cache,
-        &account.supply_positions,
+        &supply_positions,
         &account.borrow_positions,
     );
 
@@ -57,10 +67,10 @@ pub(crate) fn require_post_pool_risk_gates(env: &Env, cache: &mut Context, accou
         panic_with_error!(env, CollateralError::MinBorrowCollateralNotMet);
     }
 
-    require_whole_unit_collateral_floor(env, cache, account);
+    require_whole_unit_collateral_floor(env, cache, &supply_positions);
 }
 
-/// Checks position limits only when adding a new hub-asset slot.
+/// Checks the governed position limit only when adding a new hub-asset slot.
 /// Deduplicates new assets and excludes positions already held by the account.
 pub(crate) fn validate_bulk_position_limits(
     env: &Env,
@@ -69,14 +79,26 @@ pub(crate) fn validate_bulk_position_limits(
     aggregated: &AggregatedPayments,
 ) {
     let limits = storage::get_position_limits(env);
+    let max_allowed = match position_type {
+        AccountPositionType::Deposit => limits.max_supply_positions,
+        AccountPositionType::Borrow => limits.max_borrow_positions,
+    };
+    validate_position_count_within(env, account, position_type, aggregated, max_allowed);
+}
 
-    let (current_count, max_allowed) = match position_type {
-        AccountPositionType::Deposit => {
-            (account.supply_positions.len(), limits.max_supply_positions)
-        }
-        AccountPositionType::Borrow => {
-            (account.borrow_positions.len(), limits.max_borrow_positions)
-        }
+/// Checks the position count against `max_allowed` only when adding a new
+/// hub-asset slot. Deduplicates new assets and excludes positions already held
+/// by the account. Liquidation credit passes its own receiver bound.
+pub(crate) fn validate_position_count_within(
+    env: &Env,
+    account: &Account,
+    position_type: AccountPositionType,
+    aggregated: &AggregatedPayments,
+    max_allowed: u32,
+) {
+    let current_count = match position_type {
+        AccountPositionType::Deposit => account.supply_positions.len(),
+        AccountPositionType::Borrow => account.borrow_positions.len(),
     };
 
     let mut seen: Map<HubAssetKey, bool> = Map::new(env);
@@ -147,11 +169,15 @@ pub(crate) fn require_whole_unit_isolation(
     }
 }
 
-/// Requires `MIN_WHOLE_UNIT_COLLATERAL` whole units in every supply leg below
-/// `MIN_BORROWABLE_ASSET_DECIMALS`. Reads prices and indexes the solvency
-/// check already loaded.
-fn require_whole_unit_collateral_floor(env: &Env, cache: &mut Context, account: &Account) {
-    for (hub_asset, position) in iter_typed_positions(&account.supply_positions) {
+/// Requires `MIN_WHOLE_UNIT_COLLATERAL` whole units, counted in base units of
+/// the token, in every valued supply leg below `MIN_BORROWABLE_ASSET_DECIMALS`.
+/// Reads prices and indexes the solvency check already loaded.
+fn require_whole_unit_collateral_floor(
+    env: &Env,
+    cache: &mut Context,
+    supply_positions: &Map<HubAssetKey, AccountPositionRaw>,
+) {
+    for (hub_asset, position) in iter_typed_positions(supply_positions) {
         let decimals = cache.cached_price(&hub_asset.asset).asset_decimals;
         if decimals >= MIN_BORROWABLE_ASSET_DECIMALS {
             continue;

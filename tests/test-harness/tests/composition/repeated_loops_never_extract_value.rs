@@ -10,7 +10,11 @@ use test_harness::{LendingTest, BOB};
 const U: i128 = 10_000_000;
 
 fn setup() -> (LendingTest, soroban_sdk::Address) {
-    let mut t = LendingTest::new().standard_two_asset_dust_disabled();
+    let mut t = LendingTest::new()
+        .standard_two_asset()
+        .without_initial_liquidity()
+        .with_dust_disabled_all_markets()
+        .build();
     t.supply(BOB, "ETH", 100.0);
     t.supply(BOB, "USDC", 50_000.0);
     let runner = t.deploy_script_runner();

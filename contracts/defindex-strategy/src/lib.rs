@@ -201,9 +201,18 @@ impl<'a> Ctx<'a> {
 impl Strategy {
     /// Decodes `init_args` as `(controller: Address, hub_id: u32, spoke_id: u32)`,
     /// panics with `NotInitialized` if any argument is missing or of the
-    /// wrong type, verifies the hub market index exists for `asset`, and
-    /// stores the resulting `Config` (resolving the pool address from the
+    /// wrong type, verifies that the hub market index exists for `asset`, that
+    /// the spoke exists on the controller and that it lists `(hub_id, asset)`,
+    /// and stores the resulting `Config` (resolving the pool address from the
     /// controller) in instance storage.
+    ///
+    /// The probes run in that order and propagate the controller's error: the
+    /// pool's `PoolNotInitialized` for a hub market that does not exist, then
+    /// `SpokeNotFound` for a spoke id with no configuration, then
+    /// `AssetNotInSpoke` for a live spoke that does not list the asset (an
+    /// off-by-one id naming another spoke). The probes prove the listing, not
+    /// its state: a deprecated spoke, or a paused or frozen listing, is
+    /// accepted here, and the controller refuses deposits while it holds.
     pub fn __constructor(env: Env, asset: Address, init_args: Vec<Val>) {
         renew_instance(&env);
         let controller_val = init_args
@@ -229,6 +238,8 @@ impl Strategy {
         };
 
         controller_client.get_market_index(&hub_asset);
+        controller_client.get_spoke(&spoke_id);
+        controller_client.get_spoke_asset(&spoke_id, &hub_asset);
         env.storage().instance().set(
             &DataKey::Config,
             &Config {

@@ -36,7 +36,10 @@ Authorization groups relevant to a contract caller:
 - owner/delegate: the caller must own the position NFT or have a current grant
   as an active governance-approved position manager
 - owner-only: `renew_account`, `add_delegate`, and `remove_delegate` require
-  the current NFT owner; a keeper cannot substitute its own address
+  the current NFT owner; a keeper cannot substitute its own address. Any
+  other caller of a live account, a delegate or a previous owner included,
+  fails with `NotAuthorized` (44); an unknown account id fails with
+  `AccountNotInMarket` (13)
 - controller-only/admin: do not call pool mutators, NFT mint/burn, or
   governance entrypoints from an integration contract
 
@@ -54,7 +57,7 @@ initial payment to the controller. See
 | `repay` | Anyone may repay. Excess is refunded to the caller. The wrapper's `repay` returns the amount repaid, which excludes that refund; a contract that repays with a user's tokens sends `amount - repaid` back to that user. `repay` never removes the account, even when it repays the last debt; reconcile only after an operation that can remove the account. |
 | `liquidate` | Simulate `get_liquidation_estimate`, subtract its per-asset `refunds`, then submit and authorize exactly those planned amounts. Omit a market whose planned amount is zero. When the quote covers the whole debt, the controller pulls each submitted amount in full and the pool refunds the excess. `Credit(0)` creates a receiving `Normal` account in the victim's spoke. |
 | `flash_loan` | Receiver approves `amount + fee` to the pool. A direct repayment transfer is rejected. |
-| `flash_position` | Debt remains on the account. The callback pushes declared collateral to the controller; undeclared controller balances are not credited. |
+| `flash_position` | Debt remains on the account. The callback pushes declared collateral to the controller; undeclared controller balances are not credited. `Long` and `Short` reject the debt token among the declared collaterals (`AssetsAreTheSame`); `Multiply` may declare it. |
 | `multiply` | `Multiply` requires distinct markets. The swap bytes must be empty when both markets use the same token address, and non-empty otherwise. `Long` and `Short` reject identical token addresses. |
 | `swap_debt` / `swap_collateral` | Distinct markets are required. The route must be empty when both markets use the same token address, and non-empty otherwise. |
 | `repay_debt_with_collateral` | The same market nets with an empty route. Different markets withdraw and swap: the route must be empty when both markets use the same token address, and non-empty otherwise. `close_position` withdraws all remaining collateral to the caller and fails with `CannotCloseWithRemainingDebt` if any debt remains. |
@@ -68,6 +71,11 @@ initial payment to the controller. See
   `get_account_attributes`.
 - `get_health_factor(id)` returns WAD and uses `i128::MAX` when there is no
   debt, no account, or a saturated positive ratio.
+- `get_account_valuation_exclusions(id)` returns the account's supply legs
+  that the guardian excluded from its valuation during a feed outage, each
+  with the ledger sequence of the exclusion. Every valuation view of that
+  account (health factor, collateral totals, liquidation estimate) counts
+  those legs as zero; the position views still report their balances.
 - `get_collateral_amount` and `get_borrow_amount` return accrued token base
   units. `get_account_positions` returns raw RAY-scaled shares.
 - `get_market_index` returns accrued RAY indexes without reading an oracle.

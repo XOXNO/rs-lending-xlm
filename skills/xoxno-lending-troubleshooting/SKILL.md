@@ -62,8 +62,9 @@ Do not maintain a "non-user/collision" set containing controller #101 or #114:
 - controller `HealthFactorTooHigh` #101 legitimately occurs when a liquidation
   target has no debt or is no longer liquidatable;
 - controller `CannotCleanBadDebt` #114 legitimately occurs on the
-  permissionless `clean_bad_debt` path when debt does not exceed collateral
-  or collateral is above the dust cap.
+  permissionless `clean_bad_debt` path when debt does not exceed collateral,
+  or collateral is above the dust cap while a liquidation can still repay a
+  debt unit.
 
 Either number can also collide with another contract. The emitting contract,
 not assumptions about reachability, decides the namespace.

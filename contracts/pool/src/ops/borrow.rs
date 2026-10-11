@@ -59,7 +59,7 @@ pub(crate) fn accounting(env: &Env, entry: &PoolBorrowEntry) -> BorrowOutcome {
 ///
 /// Requires positive amount, sufficient cash reserves, and that the draw
 /// leaves the liquidation buffer intact. Panics if the scaled mint rounds to
-/// zero shares.
+/// zero shares, or with `PoolInsolvent` if the market has no supply shares.
 pub(crate) fn mint_debt(env: &Env, cache: &mut Cache, position: &mut Ray, amount: i128) {
     require_positive_amount(env, amount);
     cache.require_reserves(amount);
@@ -75,5 +75,6 @@ pub(crate) fn mint_debt(env: &Env, cache: &mut Cache, position: &mut Ray, amount
 
     *position = position.checked_add(env, minted);
     cache.mint_debt(minted);
+    guards::require_supply_for_debt(env, cache);
     guards::require_utilization_below_max(env, cache);
 }

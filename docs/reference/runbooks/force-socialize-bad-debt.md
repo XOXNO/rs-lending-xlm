@@ -2,8 +2,11 @@
 
 This runbook covers governance-authorized removal of an insolvent account.
 Use it when collateral exceeds the fixed $5 dust limit of permissionless
-`clean_bad_debt`. Cleanup can also proceed when `no_seize` blocks ordinary
-liquidation.
+`clean_bad_debt` and the account is still liquidatable in principle, for
+example when `no_seize` blocks ordinary liquidation. A residue no offer can
+liquidate (a collateral-backed quote below one unit of every debt leg; see the
+[payment-order note](../formulas.md#bonus-and-target-repayment)) needs no
+governance: permissionless `clean_bad_debt` admits it.
 
 The account must hold debt, with ceil risk debt strictly greater than half-up
 unweighted collateral (`D > C`). An unhealthy health factor alone does not
@@ -19,7 +22,8 @@ or insurance payment. The account is deleted and its position NFT burns.
 1. Confirm the network, target controller, governance contract, account id,
    NFT owner, positions and spoke. `force_socialize_bad_debt` is owner-only.
    Governance, the controller owner, schedules `ForceSocializeBadDebt` on the
-   Sensitive delay tier; follow the
+   Sensitive delay tier, and only the governance owner can propose it
+   ([INV-AUTH-09](../invariants.md#inv-auth-09)); follow the
    [governance interface](../endpoints.md#governance) for proposal and execution.
 2. Confirm insolvency with the same risk totals the entrypoint uses: ceil-valued
    debt (`AccountRiskTotals.total_debt`) strictly greater than half-up unweighted
@@ -28,8 +32,9 @@ or insurance payment. The account is deleted and its position NFT burns.
    total. Do **not** use `get_total_borrow_usd` for the debt side: it returns
    half-up display debt, which can disagree with ceil risk debt near the boundary
    ([INV-RISK-02](../invariants.md#inv-risk-02)). To check `D > C` exactly,
-   simulate `force_socialize_bad_debt`. If collateral is at or below $5 and
-   `D > C` holds, use permissionless `clean_bad_debt` instead; it needs no
+   simulate `force_socialize_bad_debt`. Simulate permissionless
+   `clean_bad_debt` first: if `D > C` holds and collateral is at or below $5,
+   or no liquidation can repay a debt unit, it succeeds and needs no
    governance.
 3. Check every position's price status. Missing or invalid required prices
    prevent cleanup; listing flags and global pause do not waive pricing.

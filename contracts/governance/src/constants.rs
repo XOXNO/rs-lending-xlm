@@ -24,3 +24,16 @@ pub const TIMELOCK_OPERATION_GRACE_LEDGERS: u32 = 120_960;
 /// the configured minimum delay is raised to at least this value for that
 /// tier.
 pub const TIMELOCK_RECOVERY_MIN_DELAY_LEDGERS: u32 = 518_400;
+
+/// Maximum number of `CANCELLER` holders, the owner included. A canceller
+/// reset revokes every non-owner holder and grants the new list in one
+/// transaction, so its cost grows with the council: replacing N non-owner
+/// members with N new ones writes 3N + 6 ledger entries (measured) and emits
+/// about 470 role-event bytes per member for classic accounts. The mainnet
+/// limits in soroban-sdk 28's profile
+/// (`soroban-sdk-28.0.0/src/testutils/cost_estimate.rs:146-151`: 200 write
+/// entries, 400 ledger entries, 16,384 event bytes and 400M instructions per
+/// transaction) admit 24 seats with room to spare: N = 23 writes 75 entries,
+/// and the events keep more than 2,048 bytes of headroom for a classic-account
+/// council (`timelock::tests::full_council_reset_resources_stay_within_mainnet_limits`).
+pub const MAX_CANCELLERS: u32 = 24;

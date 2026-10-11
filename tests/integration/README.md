@@ -98,7 +98,7 @@ then `flash-b`.
 | `liq-b` | multi-hub isolation, bulk liquidation, exact bad debt/recap | isolated SACs and oracle fixtures |
 | `liq-c` | deprecated-spoke credit, two-vault and contract-vault DeFindex; oracle history/quorum | isolated SACs and oracle fixtures |
 | `stress` | five collateral plus five debt positions, dual sources, Transfer/Credit maximum liquidation, five-asset exits, composed providers, delayed submission | independent provider fixtures; deterministic shared-account interleaving |
-| `flash-a` | callback success, protected balances, Long/multiple collateral, delegates and rollback snapshots, malicious receiver | live Reflector; existing receiver fixtures |
+| `flash-a` | callback success, protected balances, Long open with a refunded debt token, delegates and rollback snapshots, malicious receiver | live Reflector; existing receiver fixtures |
 | `flash-b` | callback success, create-path and dual-path rejections, strategy-mode and flash-loan gates | live Reflector; existing receiver fixtures |
 | `blend` | actual pool allowlist/reserve addresses, six XLM paths plus distinct-token/multiple-liability migration, committed-rate shares/refunds/identity/unrelated balances | real Blend TestnetV2 pool |
 | `prod-full` | governance operator setup/replay, full enabled mainnet policy readbacks, 5 same-hash upgrades with a live contract-owned position on a book with a repaid borrow, the full policy readback, then governance band, flags and pause on the upgraded contracts | disposable policy/wallet roots; explicit provider/LP/token fixtures for every enabled mainnet market |

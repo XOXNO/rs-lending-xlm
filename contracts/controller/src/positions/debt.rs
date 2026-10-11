@@ -56,7 +56,7 @@ pub(crate) fn process_borrow(
     );
     settle_borrow(env, &mut account, &recipient, &aggregated, &mut cache);
 
-    let restamped = enforce_post_pool_solvency(env, &mut cache, &mut account);
+    let restamped = enforce_post_pool_solvency(env, &mut cache, account_id, &mut account);
     let sides = if restamped {
         PositionSides::Both
     } else {

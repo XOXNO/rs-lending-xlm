@@ -27,7 +27,7 @@
 //! The whole blob is copied into a stack buffer with a single host call and
 //! parsed in Wasm; no host object is allocated per instruction.
 
-use soroban_sdk::{panic_with_error, Bytes, Env};
+use soroban_sdk::{panic_with_error, Address, Bytes, Env, Vec};
 
 use crate::constants::PPM_DENOMINATOR;
 use crate::errors::Error;
@@ -160,7 +160,7 @@ pub(crate) struct Op {
 
 /// A validated program held in a stack buffer.
 ///
-/// Every index is range-checked against the registry lengths supplied to
+/// Every index is range-checked against the registries supplied to
 /// [`Program::decode`].
 pub(crate) struct Program {
     buf: [u8; MAX_PROGRAM_BYTES],
@@ -173,14 +173,16 @@ pub(crate) struct Program {
 }
 
 impl Program {
-    /// Copies, parses, and structurally validates `ops` against the registry sizes, returning
-    /// the decoded program.
+    /// Copies, parses, and structurally validates `ops` against the address registry `assets`
+    /// and the amount registry length, returning the decoded program.
     ///
     /// Panics with [`Error::InvalidRouteXdr`] on a malformed header, version, length, opcode, or
     /// index, and with a more specific error for other structural violations (empty/oversized
-    /// batch, same-token swap, broken `Prev` chain, out-of-range split weight). Touches no
-    /// external contract.
-    pub(crate) fn decode(env: &Env, ops: &Bytes, assets_len: u32, amounts_len: u32) -> Self {
+    /// batch, same-token strategy or swap, broken `Prev` chain, out-of-range split weight).
+    /// Token identity is address identity: two indices naming the same address are the same
+    /// token, because registries need not be unique (ADR-0018). Touches no external contract.
+    pub(crate) fn decode(env: &Env, ops: &Bytes, assets: &Vec<Address>, amounts_len: u32) -> Self {
+        let assets_len = assets.len();
         if assets_len == 0 || assets_len > MAX_ASSETS || amounts_len > MAX_AMOUNTS {
             panic_with_error!(env, Error::InvalidRouteXdr);
         }
@@ -213,7 +215,7 @@ impl Program {
         if token_in >= assets_len || token_out >= assets_len || min_out >= amounts_len {
             panic_with_error!(env, Error::InvalidRouteXdr);
         }
-        if token_in == token_out {
+        if same_token(assets, token_in, token_out) {
             panic_with_error!(env, Error::SameToken);
         }
 
@@ -230,13 +232,14 @@ impl Program {
             min_out,
             referral_id,
         };
-        program.validate(env, assets_len, amounts_len, weight_count);
+        program.validate(env, assets, amounts_len, weight_count);
         program
     }
 
     /// Validates every instruction's opcode, mode, and indices before execution begins,
     /// including the `Prev` chain, same-token swaps, and split-weight bounds.
-    fn validate(&self, env: &Env, assets_len: u32, amounts_len: u32, weight_count: u32) {
+    fn validate(&self, env: &Env, assets: &Vec<Address>, amounts_len: u32, weight_count: u32) {
+        let assets_len = assets.len();
         for i in 0..self.op_count {
             let record = self.raw(i);
             let Some(opcode) = Opcode::from_u8(record[field::OPCODE]) else {
@@ -286,7 +289,7 @@ impl Program {
                     if idx_c >= assets_len {
                         panic_with_error!(env, Error::InvalidRouteXdr);
                     }
-                    if idx_b == idx_c {
+                    if same_token(assets, idx_b, idx_c) {
                         panic_with_error!(env, Error::SameToken);
                     }
                 }
@@ -346,6 +349,15 @@ impl Program {
         let at = (self.weights_at + WEIGHT_LEN * i) as usize;
         u32::from_be_bytes([0, self.buf[at], self.buf[at + 1], self.buf[at + 2]])
     }
+}
+
+/// Returns `true` when registry indices `a` and `b` name the same token address.
+///
+/// Equal indices are the same token without a host read; distinct indices are compared by
+/// address, since a registry may list one address more than once. Both indices must already be
+/// range-checked against `assets`.
+fn same_token(assets: &Vec<Address>, a: u32, b: u32) -> bool {
+    a == b || assets.get_unchecked(a) == assets.get_unchecked(b)
 }
 
 /// Serializes a program header, instructions, and weights into the packed wire

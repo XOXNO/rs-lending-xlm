@@ -70,6 +70,12 @@ impl LendingTest {
             .unwrap_or_else(|| panic!("market for asset '{:?}' not found", asset))
     }
 
+    /// Supply shares the builder seeded into `asset_name`'s pool. See
+    /// [`MarketState::seed_supply_scaled`].
+    pub fn seed_supply_scaled(&self, asset_name: &str) -> i128 {
+        self.resolve_market(asset_name).seed_supply_scaled
+    }
+
     pub fn resolve_asset(&self, asset_name: &str) -> soroban_sdk::Address {
         self.resolve_market(asset_name).asset.clone()
     }

@@ -1327,6 +1327,7 @@ fn test_create_strategy_dust_fee_consumes_entire_payout() {
     enable_flashloan(&t); // flashloan_fee = 100 bps → min fee 1 on amount 1
     let caller = Address::generate(&t.env);
     let tok = token::Client::new(&t.env, &t.asset);
+    client.supply(&t.sup(0, 10_000_000_000i128));
 
     let cash_before = client.get_reserves(&hub(&t.asset));
     let caller_before = tok.balance(&caller);
@@ -1736,26 +1737,51 @@ fn test_claim_revenue_handles_partial_claim_when_reserves_are_lower_than_revenue
     );
 }
 
+/// Fix (pool claim policy, F8 and the CR-2 sibling), flipped pin: a claim whose
+/// burn would push utilization past `max_utilization` used to revert with
+/// `UtilizationAboveMax` and fail the controller's whole claim batch. It is
+/// still refused whole, but by paying nothing: a payout above the claim
+/// utilization room (`min(max_utilization, 95%)`) pays zero and moves nothing,
+/// and one within it pays and leaves utilization under the ceiling.
 #[test]
-fn test_claim_revenue_rejects_utilization_above_max_after_revenue_burn() {
+fn test_claim_revenue_pays_nothing_when_the_burn_would_breach_max_utilization() {
     let t = TestSetup::new();
     let client = t.client();
+    let key = hub(&t.asset);
+    let set_max_util = |max_utilization: i128| {
+        t.env.as_contract(&t.pool, || {
+            let key = PoolKey::Params(hub(&t.asset));
+            let mut params: MarketParamsRaw = t.env.storage().persistent().get(&key).unwrap();
+            params.max_utilization = max_utilization;
+            t.env.storage().persistent().set(&key, &params);
+        });
+    };
 
-    t.env.as_contract(&t.pool, || {
-        let key = PoolKey::Params(hub(&t.asset));
-        let mut params: MarketParamsRaw = t.env.storage().persistent().get(&key).unwrap();
-        params.max_utilization = RAY * 95 / 100;
-        t.env.storage().persistent().set(&key, &params);
-    });
+    // A 95% ceiling at 90% utilization: paying the 8 tokens of cash above the
+    // buffer would leave 90 / 92 = 97.8%.
+    set_max_util(RAY * 95 / 100);
     t.edit_state(|state| {
         state.supplied = 100 * RAY;
         state.borrowed = 90 * RAY;
         state.revenue = 10 * RAY;
         state.cash = 10_0000000i128;
     });
+    let before = t.state_snapshot();
+    assert_eq!(client.claim_revenue(&key).actual_amount, 0);
+    assert_pool_state_eq(&t.state_snapshot(), &before);
+    assert_eq!(t.state_snapshot().cash, before.cash);
 
-    let result = flatten_contract_result(client.try_claim_revenue(&hub(&t.asset)));
-    assert_contract_error(result, CollateralError::UtilizationAboveMax as u32);
+    // A 92% ceiling binds below the 95% claim bound: the room is
+    // floor(100 - ceil(90 / 0.92)) tokens = 2.1739130 less two units. A
+    // 4-token claim exceeds it and pays nothing; a 2-token claim fits.
+    set_max_util(RAY * 92 / 100);
+    t.edit_state(|state| state.revenue = 4 * RAY);
+    assert_eq!(client.claim_revenue(&key).actual_amount, 0);
+    t.edit_state(|state| state.revenue = 2 * RAY);
+    assert_eq!(client.claim_revenue(&key).actual_amount, 2_0000000);
+    let s = t.state_snapshot();
+    assert_eq!((s.cash, s.revenue, s.supplied), (8_0000000, 0, 98 * RAY));
+    assert!(client.get_utilisation(&key) <= RAY * 92 / 100);
 }
 
 #[test]
@@ -3608,4 +3634,780 @@ fn test_unfunded_repay_overpayment_refund_also_pays_out_of_custody() {
         .actual_amount;
     assert_eq!(credited, 0, "no debt was retired, so nothing is credited");
     assert_unfunded_refund_drained_custody(&t, &payer, custody_before, &before);
+}
+
+// ---------------------------------------------------------------------------
+// Revenue claim policy (F8 and the CR-2 siblings) and negative scaled
+// positions (F5).
+// ---------------------------------------------------------------------------
+
+/// F5: a negative scaled position is rejected with the same typed error on
+/// every leg, entries and exits alike. A position of -5 with a one-unit amount
+/// used to book `1e27 - 5` shares on supply, borrow and create_strategy, and
+/// exits failed with `MathOverflow` or `RepayRoundsToZeroShares`.
+#[test]
+fn test_negative_scaled_position_is_rejected_on_every_leg() {
+    let t = TestSetup::new();
+    let client = t.client();
+    client.supply(&t.sup(0, 100_0000000i128));
+    let who = Address::generate(&t.env);
+    let code = GenericError::AmountMustBePositive as u32;
+
+    assert_contract_error(
+        flatten_contract_result(client.try_supply(&t.sup(-5, 1))),
+        code,
+    );
+    assert_contract_error(
+        flatten_contract_result(client.try_borrow(&who, &t.bor(-5, 1))),
+        code,
+    );
+    assert_contract_error(
+        flatten_contract_result(client.try_create_strategy(&who, &t.action(-5, 1), &false)),
+        code,
+    );
+    assert_contract_error(
+        flatten_contract_result(client.try_withdraw(&who, &false, &t.wdr(-1, 1, 0))),
+        code,
+    );
+    assert_contract_error(
+        flatten_contract_result(client.try_repay(&who, &t.ract(-1, 1))),
+        code,
+    );
+    assert_contract_error(
+        flatten_contract_result(client.try_repay(&who, &t.ract(-RAY, 1))),
+        code,
+    );
+}
+
+/// F5: the rejection holds inside a batch (a valid first leg does not commit
+/// when a later leg carries a negative position), on the zero-amount legs that
+/// mint or burn nothing (which used to echo the negative position back), on
+/// the full-close withdraw sentinel, and on a fee-charging strategy open.
+#[test]
+fn test_negative_position_cannot_slip_through_a_batch_or_a_zero_leg() {
+    const UNIT: i128 = 10_000_000;
+    let t = TestSetup::new();
+    let client = t.client();
+    let key = hub(&t.asset);
+    let who = Address::generate(&t.env);
+    let code = GenericError::AmountMustBePositive as u32;
+    t.env.as_contract(&t.pool, || {
+        let pkey = PoolKey::Params(key.clone());
+        let mut params: MarketParamsRaw = t.env.storage().persistent().get(&pkey).unwrap();
+        params.flashloan_fee = 100;
+        t.env.storage().persistent().set(&pkey, &params);
+    });
+    client.supply(&t.sup(0, 1_000 * UNIT));
+    let before = client.get_sync_data(&key).state;
+
+    let valid = t.sup_entry(&t.asset, 0, UNIT);
+    let negative = t.sup_entry(&t.asset, i128::MIN, UNIT);
+    assert_contract_error(
+        flatten_contract_result(client.try_supply(&vec![&t.env, valid, negative])),
+        code,
+    );
+    assert_contract_error(
+        flatten_contract_result(client.try_supply(&t.sup(-1, 0))),
+        code,
+    );
+    let mut borrows = t.bor(0, UNIT);
+    borrows.push_back(PoolBorrowEntry {
+        action: t.action(-1, UNIT),
+    });
+    assert_contract_error(
+        flatten_contract_result(client.try_borrow(&who, &borrows)),
+        code,
+    );
+    assert_contract_error(
+        flatten_contract_result(client.try_create_strategy(&who, &t.action(-1, UNIT), &true)),
+        code,
+    );
+    assert_contract_error(
+        flatten_contract_result(client.try_withdraw(&who, &true, &t.wdr(-1, i128::MAX, 0))),
+        code,
+    );
+    assert_contract_error(
+        flatten_contract_result(client.try_withdraw(&who, &false, &t.wdr(i128::MIN, 0, 0))),
+        code,
+    );
+    assert_contract_error(
+        flatten_contract_result(client.try_repay(&who, &t.ract(i128::MIN, 0))),
+        code,
+    );
+    let after = client.get_sync_data(&key).state;
+    let books = |s: &PoolStateRaw| {
+        (
+            s.supplied,
+            s.borrowed,
+            s.revenue,
+            s.cash,
+            s.supply_index,
+            s.borrow_index,
+        )
+    };
+    assert_eq!(
+        books(&after),
+        books(&before),
+        "every refused call leaves the books unchanged"
+    );
+}
+
+/// F8: while debt is outstanding a revenue claim draws only the cash above the
+/// liquidation buffer, and pays nothing if that payout would raise utilization
+/// past the 95% claim bound (`MAX_CLAIM_UTILIZATION_RAY`), here with the
+/// market's own ceiling disabled; it never reverts on either. Once the debt is
+/// gone neither bound applies.
+#[test]
+fn test_claim_revenue_leaves_the_liquidation_buffer_while_debt_is_outstanding() {
+    let t = TestSetup::new();
+    let client = t.client();
+    let key = hub(&t.asset);
+    // 90% utilization: 100 tokens supplied (10 of them revenue), 90 borrowed,
+    // 10 tokens of cash. The buffer admits 8 tokens (2% of 100 held back),
+    // but paying 8 would leave 90 / 92 = 97.8%: the claim utilization room is
+    // floor(100 - ceil(90 / 0.95)) tokens = 5.2631578 less two units, so the
+    // claim is refused whole and pays nothing.
+    t.edit_state(|s| {
+        s.supplied = 100 * RAY;
+        s.borrowed = 90 * RAY;
+        s.revenue = 10 * RAY;
+        s.cash = 10_0000000;
+    });
+    let before = t.state_snapshot();
+    assert_eq!(client.claim_revenue(&key).actual_amount, 0);
+    assert_pool_state_eq(&t.state_snapshot(), &before);
+
+    // 5 tokens of revenue fit the room: the claim pays all of it and burns
+    // every revenue share, leaving 90 / 95 = 94.7%.
+    t.edit_state(|s| s.revenue = 5 * RAY);
+    assert_eq!(client.claim_revenue(&key).actual_amount, 5_0000000);
+    let s = t.state_snapshot();
+    assert_eq!((s.cash, s.revenue, s.supplied), (5_0000000, 0, 95 * RAY));
+    assert!(client.get_utilisation(&key) <= RAY * 95 / 100);
+
+    // 30% utilization, every share revenue: the buffer (2 tokens held back)
+    // admits 68 tokens, within the 68.42-token room, so the claim pays them
+    // and burns the pro-rata ceiling of revenue shares.
+    t.edit_state(|s| {
+        s.supplied = 100 * RAY;
+        s.borrowed = 30 * RAY;
+        s.revenue = 100 * RAY;
+        s.cash = 70_0000000;
+    });
+    assert_eq!(client.claim_revenue(&key).actual_amount, 68_0000000);
+    let s = t.state_snapshot();
+    assert_eq!(
+        (s.cash, s.revenue, s.supplied),
+        (2_0000000, 32 * RAY, 32 * RAY)
+    );
+
+    // Debt gone: neither bound applies and the reserve pays out.
+    t.edit_state(|s| s.borrowed = 0);
+    assert_eq!(client.claim_revenue(&key).actual_amount, 2_0000000);
+    assert_eq!(t.state_snapshot().cash, 0);
+}
+
+/// CR-2 sibling: a claim with nothing to pay on a market whose shares all left
+/// while dust was borrowed returns zero instead of failing the controller's
+/// batch with `PoolInsolvent`, and a claim never pays out the last supply
+/// share under debt.
+#[test]
+fn test_claim_revenue_with_nothing_to_pay_skips_the_supply_for_debt_check() {
+    let t = TestSetup::new();
+    let client = t.client();
+    let key = hub(&t.asset);
+    t.edit_state(|s| {
+        s.supplied = 0;
+        s.revenue = 0;
+        s.borrowed = 2 * (RAY / 10_000_000);
+        s.cash = 0;
+    });
+    assert_eq!(client.claim_revenue(&key).actual_amount, 0);
+
+    // Every remaining share is revenue and debt is open. Paying them out used
+    // to be refused with `PoolInsolvent` because it would orphan the debt,
+    // failing the batch. The whole floored revenue claim now always exceeds
+    // the claim utilization room, which stops at least two units short of the
+    // floored supply value, so the claim pays nothing and the shares stay
+    // under the debt: with a whole unit of debt, and with one raw unit of debt
+    // and a sub-unit supply remainder. The supply-for-debt check, still run on
+    // every positive payout, is defence in depth for claims.
+    t.edit_state(|s| {
+        s.supplied = 5 * RAY;
+        s.revenue = 5 * RAY;
+        s.borrowed = RAY;
+        s.cash = 100_0000000;
+    });
+    assert_eq!(client.claim_revenue(&key).actual_amount, 0);
+    assert_eq!(t.state_snapshot().supplied, 5 * RAY);
+
+    t.edit_state(|s| {
+        s.supplied = 5 * RAY + RAY / 10_000_000 - 1;
+        s.revenue = 5 * RAY + RAY / 10_000_000 - 1;
+        s.borrowed = 1;
+        s.cash = 100_0000000;
+    });
+    assert_eq!(client.claim_revenue(&key).actual_amount, 0);
+    let s = t.state_snapshot();
+    assert_eq!(
+        s.supplied,
+        5 * RAY + RAY / 10_000_000 - 1,
+        "the shares stay"
+    );
+}
+
+/// CR-2 sibling: a claim with nothing to pay on a market already past its
+/// utilization ceiling only accrues and returns zero; it used to revert with
+/// `UtilizationAboveMax` and take the controller's whole claim batch with it.
+#[test]
+fn test_claim_revenue_with_nothing_to_pay_skips_the_utilization_check() {
+    let t = TestSetup::new();
+    let client = t.client();
+    let key = hub(&t.asset);
+    t.env.as_contract(&t.pool, || {
+        let key = PoolKey::Params(hub(&t.asset));
+        let mut params: MarketParamsRaw = t.env.storage().persistent().get(&key).unwrap();
+        params.max_utilization = RAY * 90 / 100;
+        t.env.storage().persistent().set(&key, &params);
+    });
+    // 97% utilization, above the 90% ceiling, and revenue to claim, but the
+    // claim bounds leave nothing payable.
+    t.edit_state(|s| {
+        s.supplied = 100 * RAY;
+        s.borrowed = 97 * RAY;
+        s.revenue = 10 * RAY;
+        s.cash = 3_0000000;
+    });
+    let before = t.state_snapshot();
+    assert_eq!(client.claim_revenue(&key).actual_amount, 0);
+    let after = t.state_snapshot();
+    assert_eq!(
+        (after.cash, after.revenue, after.supplied, after.borrowed),
+        (
+            before.cash,
+            before.revenue,
+            before.supplied,
+            before.borrowed
+        )
+    );
+}
+
+/// F8: under a 95% market ceiling, equal to the claim utilization bound, a
+/// claim never trips the ceiling guard and never burns the last supply share
+/// under debt, whatever the indexes, the utilization or the revenue share (400
+/// pseudo-random books): a payout within the claim utilization room lands at
+/// or under the ceiling. Without the two-unit burn margin the pro-rata ceiling
+/// burn can land a raw unit past the 95% line and the guard refuses the claim,
+/// and with it the controller's whole claim batch.
+#[test]
+fn test_bounded_claim_never_trips_a_95_percent_ceiling() {
+    const SCALE: i128 = RAY / 10_000_000;
+    let t = TestSetup::new();
+    let client = t.client();
+    let key = hub(&t.asset);
+    let env = &t.env;
+    t.env.as_contract(&t.pool, || {
+        let key = PoolKey::Params(hub(&t.asset));
+        let mut params: MarketParamsRaw = t.env.storage().persistent().get(&key).unwrap();
+        params.max_utilization = RAY * 95 / 100;
+        t.env.storage().persistent().set(&key, &params);
+    });
+    let max_util = Ray::from(RAY * 95 / 100);
+    let mut seed: u64 = 0x5eed_f8f8;
+    let mut next = |bound: i128| -> i128 {
+        let mut draw = || {
+            seed = seed
+                .wrapping_mul(6_364_136_223_846_793_005)
+                .wrapping_add(1_442_695_040_888_963_407);
+            seed
+        };
+        let wide = (u128::from(draw()) << 64) | u128::from(draw());
+        (wide % bound as u128) as i128
+    };
+    let mut paid_any = 0;
+    for _ in 0..400 {
+        let supply_index = RAY + next(3 * RAY);
+        let borrow_index = RAY + next(5 * RAY);
+        let supplied = 10 * RAY + next(990 * RAY);
+        let revenue = supplied / 10 * 9;
+        let util_bps = 5_000 + next(4_500);
+        let supply_value = Ray::from(supplied).mul_floor(env, Ray::from(supply_index));
+        let borrowed = supply_value.raw() / 10_000 * util_bps / borrow_index * RAY;
+        let debt_value = Ray::from(borrowed).mul_ceil(env, Ray::from(borrow_index));
+        // Cash that puts the buffer-limited payout right at the edge of the
+        // room the 95% line leaves (no margin), then one to three units under.
+        let reserve = (supply_value.raw() / SCALE * 200 + 9_999) / 10_000;
+        let edge = (supply_value.raw() - debt_value.div_ceil(env, max_util).raw()) / SCALE;
+        for under in 0..4 {
+            t.edit_state(|s| {
+                s.supplied = supplied;
+                s.revenue = revenue;
+                s.borrowed = borrowed;
+                s.supply_index = supply_index;
+                s.borrow_index = borrow_index;
+                s.cash = reserve + edge - under;
+            });
+            let paid = client
+                .try_claim_revenue(&key)
+                .unwrap_or_else(|e| {
+                    panic!("si={supply_index} bi={borrow_index} s={supplied} under={under}: {e:?}")
+                })
+                .unwrap()
+                .actual_amount;
+            paid_any += paid;
+            let after = t.state_snapshot();
+            assert!(after.supplied > 0, "the last shares stay under debt");
+            let after_supply = Ray::from(after.supplied).mul_floor(env, Ray::from(supply_index));
+            assert!(
+                debt_value.div_ceil(env, after_supply) <= max_util,
+                "si={supply_index} bi={borrow_index} s={supplied} under={under} paid={paid}"
+            );
+        }
+    }
+    assert!(paid_any > 0, "the sweep exercises positive payouts");
+}
+
+/// F8: the claim utilization room saturates. A debt valued near the market
+/// value ceiling over a 50% market ceiling puts `debt_value / bound` past
+/// `i128`; the room reads as empty and the claim pays nothing instead of
+/// trapping with `MathOverflow` (which would fail the controller's whole claim
+/// batch).
+#[test]
+fn test_claim_revenue_room_saturates_instead_of_trapping_on_a_low_ceiling() {
+    use common::constants::MAX_MARKET_VALUE_RAY;
+
+    let t = TestSetup::new();
+    let client = t.client();
+    let key = hub(&t.asset);
+    t.env.as_contract(&t.pool, || {
+        let key = PoolKey::Params(hub(&t.asset));
+        let mut params: MarketParamsRaw = t.env.storage().persistent().get(&key).unwrap();
+        params.max_utilization = RAY / 2;
+        t.env.storage().persistent().set(&key, &params);
+    });
+    // Supply at the value ceiling, debt at 90% of it: 0.9 * MAX / 0.5 is past
+    // `i128::MAX`.
+    t.edit_state(|s| {
+        s.supplied = MAX_MARKET_VALUE_RAY;
+        s.borrowed = MAX_MARKET_VALUE_RAY / 10 * 9;
+        s.revenue = 10 * RAY;
+        s.cash = MAX_MARKET_VALUE_RAY / (RAY / 10_000_000) / 10;
+    });
+    let before = t.state_snapshot();
+    assert_eq!(client.claim_revenue(&key).actual_amount, 0);
+    let after = t.state_snapshot();
+    assert_eq!(
+        (after.cash, after.revenue, after.supplied),
+        (before.cash, before.revenue, before.supplied)
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Market value ceiling (CR-21) end to end: the fee guards in `flash::book_fee`
+// and after the strategy fee in `strategy::accounting`, and the liveness of a
+// capped market. Deleting either fee guard makes the matching test fail.
+// ---------------------------------------------------------------------------
+
+mod market_value_ceiling {
+    use super::*;
+    use common::constants::MAX_MARKET_VALUE_RAY;
+    use common::math::fp_core::{mul_div_ceil, mul_div_floor_saturating};
+
+    const UNIT7: i128 = 10_000_000;
+    const YEAR_SECS: u64 = 31_556_926;
+
+    fn set_params(t: &TestSetup, key: &HubAssetKey, edit: impl FnOnce(&mut MarketParamsRaw)) {
+        t.env.as_contract(&t.pool, || {
+            let pkey = PoolKey::Params(key.clone());
+            let mut params: MarketParamsRaw = t.env.storage().persistent().get(&pkey).unwrap();
+            edit(&mut params);
+            t.env.storage().persistent().set(&pkey, &params);
+        });
+    }
+
+    fn state_of(t: &TestSetup, key: &HubAssetKey) -> PoolStateRaw {
+        t.client().get_sync_data(key).state
+    }
+
+    /// `(floor(supplied * si), floor(borrowed * bi))` in raw RAY, saturating.
+    fn totals(t: &TestSetup, key: &HubAssetKey) -> (i128, i128) {
+        let s = state_of(t, key);
+        (
+            mul_div_floor_saturating(&t.env, s.supplied, s.supply_index, RAY),
+            mul_div_floor_saturating(&t.env, s.borrowed, s.borrow_index, RAY),
+        )
+    }
+
+    fn act(key: &HubAssetKey, scaled_amount: i128, amount: i128) -> PoolAction {
+        PoolAction {
+            position: ScaledPositionRaw { scaled_amount },
+            amount,
+            hub_asset: key.clone(),
+        }
+    }
+
+    fn ceiling_events(t: &TestSetup) -> usize {
+        count_topic(&t.env.events().all(), "market", "value_ceiling")
+    }
+
+    /// Verify check pool-1. Repeated whole-cash flash loans at the 500 bps
+    /// maximum fee on a market supplied at 90% of the ceiling:
+    /// `flash::book_fee` refuses the loan whose fee would cross the ceiling
+    /// (#33, nothing moves), the peak supplied value stays at or under it, and
+    /// every later total-materialising op stays live. Without the guard every
+    /// loan is admitted and the supplied value saturates at `i128::MAX`.
+    #[test]
+    fn flash_fee_bookings_cannot_push_supply_past_the_value_ceiling() {
+        let t = TestSetup::new();
+        let client = t.client();
+        let key = hub(&t.asset);
+        set_params(&t, &key, |p| {
+            p.is_flashloanable = true;
+            p.flashloan_fee = 500;
+        });
+        let extra_cash = MAX_MARKET_VALUE_RAY / 10 * 9 / (RAY / UNIT7);
+        let token_admin = token::StellarAssetClient::new(&t.env, &t.asset);
+        token_admin.mint(&t.pool, &extra_cash);
+        t.edit_state(|s| {
+            s.supply_index = RAY * 11 / 10;
+            s.supplied = MAX_MARKET_VALUE_RAY / 11 * 9;
+            s.cash += extra_cash;
+        });
+        // A real one-unit supply position to exit later.
+        token_admin.mint(&t.pool, &UNIT7);
+        let position = client
+            .supply(&t.sup(0, UNIT7))
+            .get_unchecked(0)
+            .position
+            .scaled_amount;
+        assert!(totals(&t, &key).0 <= MAX_MARKET_VALUE_RAY);
+
+        let tok = token::Client::new(&t.env, &t.asset);
+        let receiver = t.env.register(PoolFlashLoanReceiver, ());
+        let mut refusal = None;
+        let mut peak = totals(&t, &key).0;
+        for loan in 0..20 {
+            let amount = state_of(&t, &key).cash;
+            token_admin.mint(&receiver, &(amount / 20 + 1));
+            let state_before = state_of(&t, &key);
+            let pool_balance_before = tok.balance(&t.pool);
+            let receiver_balance_before = tok.balance(&receiver);
+            match flatten_contract_result(client.try_flash_loan(
+                &key,
+                &t.admin,
+                &receiver,
+                &amount,
+                &Bytes::new(&t.env),
+            )) {
+                Ok(_) => peak = peak.max(totals(&t, &key).0),
+                Err(err) => {
+                    let state_after = state_of(&t, &key);
+                    assert_eq!(
+                        (state_after.supplied, state_after.revenue, state_after.cash),
+                        (
+                            state_before.supplied,
+                            state_before.revenue,
+                            state_before.cash
+                        ),
+                        "the refused loan books nothing"
+                    );
+                    assert_eq!(tok.balance(&t.pool), pool_balance_before);
+                    assert_eq!(tok.balance(&receiver), receiver_balance_before);
+                    refusal = Some((loan, err));
+                    break;
+                }
+            }
+        }
+        assert!(
+            peak <= MAX_MARKET_VALUE_RAY,
+            "a flash fee pushed the supplied value past the ceiling: {peak}"
+        );
+        let (loan, err) = refusal.expect("the loan whose fee crosses the ceiling must be refused");
+        assert!(loan == 1 || loan == 2, "refused at loan {loan}");
+        assert_eq!(
+            err,
+            Error::from_contract_error(GenericError::MathOverflow as u32)
+        );
+
+        t.advance_time(86_400);
+        let keys = vec![&t.env, key.clone()];
+        assert!(flatten_contract_result(client.try_update_indexes(&keys)).is_ok());
+        assert!(flatten_contract_result(client.try_get_utilisation(&key)).is_ok());
+        assert!(flatten_contract_result(client.try_get_bulk_indexes(&keys)).is_ok());
+        assert!(flatten_contract_result(client.try_get_supplied_amount(&key)).is_ok());
+        let who = Address::generate(&t.env);
+        let exit =
+            flatten_contract_result(client.try_withdraw(&who, &false, &t.wdr(position, 1, 0)));
+        assert!(exit.is_ok(), "one-unit withdraw: {exit:?}");
+        let claim = flatten_contract_result(client.try_claim_revenue(&key));
+        assert!(claim.is_ok(), "claim_revenue: {claim:?}");
+        assert!(totals(&t, &key).0 <= MAX_MARKET_VALUE_RAY);
+    }
+
+    /// Verify check pool-2. A strategy fee that would push supply value past
+    /// the ceiling is refused whole (#33, books unchanged); a smaller fee that
+    /// fits is admitted and lands at or under the ceiling. Without the guard
+    /// after the strategy fee the large open is admitted and the supplied
+    /// value saturates at `i128::MAX`.
+    #[test]
+    fn strategy_fee_cannot_push_supply_past_the_value_ceiling() {
+        let t = TestSetup::new();
+        let client = t.client();
+        let key = hub(&t.asset);
+        set_params(&t, &key, |p| p.flashloan_fee = 500);
+        let fill = MAX_MARKET_VALUE_RAY / (RAY / UNIT7);
+        token::StellarAssetClient::new(&t.env, &t.asset).mint(&t.pool, &fill);
+        t.edit_state(|s| {
+            s.supplied = MAX_MARKET_VALUE_RAY - 10 * RAY;
+            s.cash = fill;
+        });
+        let caller = Address::generate(&t.env);
+        let before = state_of(&t, &key);
+
+        // (a) 1,000 tokens at 5%: a 50-token fee against 10 tokens of room.
+        let refused = flatten_contract_result(client.try_create_strategy(
+            &caller,
+            &t.action(0, 1_000 * UNIT7),
+            &true,
+        ));
+        let after = state_of(&t, &key);
+        assert_contract_error(refused, GenericError::MathOverflow as u32);
+        assert_eq!(
+            (after.supplied, after.borrowed, after.revenue, after.cash),
+            (
+                before.supplied,
+                before.borrowed,
+                before.revenue,
+                before.cash
+            ),
+            "the refused strategy books nothing"
+        );
+
+        // (b) 100 tokens at 5%: a 5-token fee fits.
+        let opened = client.create_strategy(&caller, &t.action(0, 100 * UNIT7), &true);
+        assert_eq!(opened.actual_amount, 100 * UNIT7);
+        let (supply_value, _) = totals(&t, &key);
+        assert!(supply_value <= MAX_MARKET_VALUE_RAY);
+    }
+
+    /// Verify check pool-3a. Supply exactly at the ceiling, borrow down to the
+    /// liquidation buffer, then a year of accrual at a 200% max rate. Debt
+    /// value never passes the ceiling, the ceiling event fires, and every view
+    /// and every risk-reducing op on the capped market stays live.
+    fn capped_market_stays_live(decimals: u32) {
+        let t = TestSetup::new();
+        let client = t.client();
+        let mut params = market_params(&t.asset);
+        params.asset_decimals = decimals;
+        params.max_borrow_rate = 2 * RAY;
+        params.slope3 = 2 * RAY;
+        params.max_utilization = RAY;
+        params.is_flashloanable = true;
+        params.flashloan_fee = 500;
+        client.create_market(&1u32, &params);
+        let key = HubAssetKey {
+            hub_id: 1,
+            asset: t.asset.clone(),
+        };
+        let unit = 10i128.pow(decimals);
+        let scale = RAY / unit;
+        let fill = MAX_MARKET_VALUE_RAY / scale;
+        let token_admin = token::StellarAssetClient::new(&t.env, &t.asset);
+        token_admin.mint(&t.pool, &fill);
+        let supplier = client
+            .supply(&vec![
+                &t.env,
+                PoolSupplyEntry {
+                    action: act(&key, 0, fill),
+                },
+            ])
+            .get_unchecked(0)
+            .position
+            .scaled_amount;
+        assert_eq!(totals(&t, &key).0, fill * scale);
+
+        let reserved = mul_div_ceil(&t.env, fill, 200, 10_000);
+        let draw = fill - reserved;
+        let borrower = Address::generate(&t.env);
+        let debt = client
+            .borrow(
+                &borrower,
+                &vec![
+                    &t.env,
+                    PoolBorrowEntry {
+                        action: act(&key, 0, draw),
+                    },
+                ],
+            )
+            .get_unchecked(0)
+            .position
+            .scaled_amount;
+        let one_more = flatten_contract_result(client.try_borrow(
+            &borrower,
+            &vec![
+                &t.env,
+                PoolBorrowEntry {
+                    action: act(&key, debt, 1),
+                },
+            ],
+        ));
+        assert_contract_error(one_more, CollateralError::InsufficientLiquidity as u32);
+        let (_, debt_at_mint) = totals(&t, &key);
+        assert!(debt_at_mint <= MAX_MARKET_VALUE_RAY);
+
+        t.advance_time(YEAR_SECS);
+        let keys = vec![&t.env, key.clone()];
+        client.update_indexes(&keys);
+        let events = ceiling_events(&t);
+        let (supply_value, debt_value) = totals(&t, &key);
+        assert!(
+            events >= 1,
+            "MarketValueCeilingEvent fires on the capped sync"
+        );
+        assert!(supply_value <= MAX_MARKET_VALUE_RAY && debt_value <= MAX_MARKET_VALUE_RAY);
+
+        assert!(flatten_contract_result(client.try_get_bulk_indexes(&keys)).is_ok());
+        assert!(flatten_contract_result(client.try_get_sync_data(&key)).is_ok());
+        assert!(flatten_contract_result(client.try_get_utilisation(&key)).is_ok());
+        assert!(flatten_contract_result(client.try_get_supplied_amount(&key)).is_ok());
+        assert!(flatten_contract_result(client.try_get_borrowed_amount(&key)).is_ok());
+
+        let repaid =
+            flatten_contract_result(client.try_repay(&borrower, &vec![&t.env, act(&key, debt, 1)]));
+        assert!(repaid.is_ok(), "repay 1 unit: {repaid:?}");
+
+        let liquidator = Address::generate(&t.env);
+        let seized = flatten_contract_result(client.try_withdraw(
+            &liquidator,
+            &true,
+            &vec![
+                &t.env,
+                PoolWithdrawEntry {
+                    action: act(&key, supplier, 1_000 * unit),
+                    protocol_fee: 10 * unit,
+                },
+            ],
+        ));
+        assert!(seized.is_ok(), "liquidation withdraw: {seized:?}");
+
+        // 98% utilization sits above the 95% claim bound: the claim pays
+        // nothing and does not revert.
+        let claim = flatten_contract_result(client.try_claim_revenue(&key));
+        assert!(claim.is_ok(), "claim_revenue: {claim:?}");
+
+        let receiver = t.env.register(PoolFlashLoanReceiver, ());
+        token_admin.mint(&receiver, &(50 * unit + 1));
+        let flash = flatten_contract_result(client.try_flash_loan(
+            &key,
+            &t.admin,
+            &receiver,
+            &(1_000 * unit),
+            &Bytes::new(&t.env),
+        ));
+        if let Err(err) = flash {
+            assert_eq!(
+                err,
+                Error::from_contract_error(GenericError::MathOverflow as u32),
+                "a flash loan on the capped market is either admitted or refused by the ceiling"
+            );
+        }
+        let (supply_value, debt_value) = totals(&t, &key);
+        assert!(supply_value <= MAX_MARKET_VALUE_RAY && debt_value <= MAX_MARKET_VALUE_RAY);
+    }
+
+    #[test]
+    fn capped_market_stays_live_at_7_decimals() {
+        capped_market_stays_live(7);
+    }
+
+    #[test]
+    fn capped_market_stays_live_at_18_decimals() {
+        capped_market_stays_live(18);
+    }
+
+    /// Verify check pool-4b. A stored total past `i128` (out of the market
+    /// value domain) syncs and projects without trapping, leaves the indexes
+    /// unchanged, and emits the ceiling event.
+    #[test]
+    fn a_stored_total_past_i128_syncs_and_projects_without_trapping() {
+        let t = TestSetup::new();
+        let client = t.client();
+        client.create_market(&1u32, &market_params(&t.asset));
+        let key = HubAssetKey {
+            hub_id: 1,
+            asset: t.asset.clone(),
+        };
+        let now_ms = t.env.ledger().timestamp() * 1_000;
+        t.env.as_contract(&t.pool, || {
+            t.env.storage().persistent().set(
+                &PoolKey::State(key.clone()),
+                &PoolStateRaw {
+                    supplied: i128::MAX / 2,
+                    borrowed: i128::MAX / 4,
+                    revenue: 0,
+                    borrow_index: 3 * RAY,
+                    supply_index: 3 * RAY,
+                    last_timestamp: now_ms,
+                    cash: 0,
+                },
+            );
+        });
+        t.advance_time(86_400);
+        let keys = vec![&t.env, key.clone()];
+        let synced = flatten_contract_result(client.try_update_indexes(&keys));
+        let events = ceiling_events(&t);
+        assert!(synced.is_ok(), "update_indexes: {synced:?}");
+        assert!(events >= 1, "the ceiling event fires");
+        let projected = flatten_contract_result(client.try_get_bulk_indexes(&keys));
+        assert!(projected.is_ok(), "get_bulk_indexes: {projected:?}");
+        let index = projected.unwrap().get_unchecked(0);
+        assert_eq!((index.borrow_index, index.supply_index), (3 * RAY, 3 * RAY));
+        let s = state_of(&t, &key);
+        assert_eq!((s.borrow_index, s.supply_index), (3 * RAY, 3 * RAY));
+    }
+
+    /// Verify check pool-5. Shared residual, pinned: supply parked at the
+    /// ceiling switches borrower interest off, and `MarketValueCeilingEvent`
+    /// makes it visible. The ceiling (`i128::MAX - RAY`) is not a multiple of
+    /// one raw 7-decimal unit (1e20 raw RAY), so a supply parked at
+    /// floor(MAX / 1e20) units leaves under one raw unit of headroom: a year's
+    /// interest on 1M tokens accrues less than one raw unit. Interest resumes
+    /// once the supplier withdraws.
+    #[test]
+    fn supply_parked_at_the_ceiling_switches_off_borrower_interest() {
+        let t = TestSetup::new();
+        let client = t.client();
+        let key = hub(&t.asset);
+        let fill = MAX_MARKET_VALUE_RAY / (RAY / UNIT7);
+        token::StellarAssetClient::new(&t.env, &t.asset).mint(&t.pool, &fill);
+        client.supply(&t.sup(0, fill));
+        assert_eq!(totals(&t, &key).0, fill * (RAY / UNIT7));
+
+        let borrower = Address::generate(&t.env);
+        client.borrow(&borrower, &t.bor(0, 1_000_000 * UNIT7));
+        t.advance_time(YEAR_SECS);
+        client.update_indexes(&vec![&t.env, key.clone()]);
+        let events = ceiling_events(&t);
+        let parked = state_of(&t, &key);
+        let debt_growth_ray =
+            mul_div_floor_saturating(&t.env, parked.borrowed, parked.borrow_index, RAY)
+                - mul_div_floor_saturating(&t.env, parked.borrowed, RAY, RAY);
+        assert!(
+            debt_growth_ray < RAY / UNIT7,
+            "a year at >= 1% on 1M tokens of debt accrued less than one raw token unit"
+        );
+        assert!(
+            events >= 1,
+            "the ceiling event makes the parked market visible"
+        );
+
+        client.withdraw(
+            &borrower,
+            &false,
+            &t.wdr(fill * (RAY / UNIT7), 1_000 * UNIT7, 0),
+        );
+        t.advance_time(2 * YEAR_SECS);
+        client.update_indexes(&vec![&t.env, key.clone()]);
+        assert!(state_of(&t, &key).borrow_index > RAY);
+    }
 }

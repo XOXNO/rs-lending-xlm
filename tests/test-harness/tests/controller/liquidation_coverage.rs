@@ -188,6 +188,9 @@ fn test_liquidation_rejects_negative_raw_payment() {
     assert_contract_error(result, errors::AMOUNT_MUST_BE_POSITIVE);
 }
 
+/// The account owes nothing in the named asset, so the leg fails as
+/// `DebtPositionNotFound` before it is priced; before the fix the missing
+/// price surfaced first as `OracleNotConfigured` (216).
 #[test]
 fn test_liquidation_rejects_unsupported_payment_asset() {
     let mut t = liquidatable_usdc_eth();
@@ -196,7 +199,7 @@ fn test_liquidation_rejects_unsupported_payment_asset() {
     let payments = soroban_sdk::vec![&t.env, (hub_asset(unsupported), 1i128)];
     let result = try_liquidate_payments(&mut t, LIQUIDATOR, ALICE, payments);
 
-    assert_contract_error(result, errors::ORACLE_NOT_CONFIGURED);
+    assert_contract_error(result, errors::DEBT_POSITION_NOT_FOUND);
 }
 
 #[test]

@@ -94,6 +94,38 @@ pub enum GenericError {
     PositionNftAlreadyDeployed = 54,
 
     DivisionByZero = 55,
+
+    /// The `CANCELLER` role would exceed `MAX_CANCELLERS` holders.
+    CancellerLimitExceeded = 56,
+
+    /// An `Unpause` executes after an emergency action (guardian pause or
+    /// executed controller upgrade) taken since its proposal.
+    EmergencyEpochMismatch = 57,
+
+    /// A `ConfigureAssetOracle` executes although the key's sanity band
+    /// changed, or the `ORACLE` role wrote it, since its proposal; or a
+    /// `SetPriceAggregator` executes although the `ORACLE` role wrote any
+    /// key's band since its proposal.
+    OracleBandChangedAfterProposal = 58,
+
+    /// An `AddAssetToSpoke` executes although a guardian flag write on the
+    /// same token, in any spoke or hub, happened since its proposal.
+    AssetFlagsChangedAfterProposal = 59,
+
+    /// A `GrantGovRole` executes although the same role was revoked from the
+    /// same account since its proposal.
+    RoleRevokedAfterProposal = 60,
+
+    /// An `Unpause` executes while an `UpgradeController` is pending.
+    ControllerUpgradePending = 61,
+
+    /// An upgrade executes although another upgrade of the same contract
+    /// executed since its proposal.
+    UpgradeSupersededAfterProposal = 62,
+
+    /// A non-owner `EditAssetInSpoke` executes although the listing's
+    /// liquidation terms changed since its proposal.
+    ListingTermsChangedAfterProposal = 63,
 }
 
 /// Error codes for collateral, position, interest-rate-curve, and
@@ -223,6 +255,10 @@ pub enum OracleError {
 
     IndependenceNotDeclared = 232,
 
+    /// `set_oracle` would register a new key beyond `MAX_ORACLE_KEYS`.
+    /// Existing keys may always be reconfigured.
+    OracleRegistryFull = 233,
+
     UnsupportedAquariusPool = 234,
 
     InsufficientAquariusLiquidity = 235,
@@ -264,6 +300,24 @@ pub enum SpokeError {
 
     /// `relax_spoke_asset_flags` names a flags epoch other than the listing's stored one.
     SpokeFlagsEpochMismatch = 319,
+
+    /// `exclude_account_asset_valuation` names a leg whose strict price read
+    /// still succeeds. The exclusion is admitted only while that read fails.
+    SpokeAssetFeedUsable = 320,
+
+    /// `exclude_account_asset_valuation` names a leg that is already excluded,
+    /// or `restore_account_asset_valuation` names an exclusion that is not the
+    /// live one: none is stored, or it was set at another ledger.
+    SpokeAssetExclusionUnchanged = 321,
+
+    /// `restore_account_asset_valuation` names a leg whose strict price read
+    /// still fails. The exclusion stays until the feed is usable again.
+    SpokeAssetFeedUnusable = 322,
+
+    /// `exclude_account_asset_valuation` names a leg whose strict price read
+    /// fails for a reason outside the feed-outage allow-list, such as a
+    /// sanity-band violation an immediate oracle-role write can cause.
+    SpokeAssetFeedFailureIneligible = 323,
 }
 
 /// Error codes for flash-loan execution and repayment failures.

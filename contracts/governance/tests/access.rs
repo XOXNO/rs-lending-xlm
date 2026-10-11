@@ -127,7 +127,7 @@ fn canceller_reset_grants_each_member_once() {
         let mut new = soroban_sdk::Vec::new(&env);
         new.push_back(a.clone());
         new.push_back(a.clone());
-        apply_canceller_reset(&env, &new);
+        apply_canceller_reset(&env, &new, |_| 0);
         assert!(access_control::has_role(&env, &a, &role).is_some());
         assert!(access_control::has_role(&env, &owner, &role).is_some());
         assert_eq!(access_control::get_role_member_count(&env, &role), 2);

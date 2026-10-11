@@ -54,8 +54,8 @@ contract before mapping the number.
 | Mode | Result | Estimate units | Main constraint |
 |---|---|---|---|
 | `Transfer` | Underlying collateral to the liquidator | Asset base units | Every generated Transfer seizure leg needs sufficient pool cash and the recipient may need a classic-asset trustline |
-| `Credit(0)` | New normal-mode receiving account | RAY supply shares | Position limit; no pool-cash requirement |
-| `Credit(id)` | Supply shares credited to `id` | RAY supply shares | Receiver is authorized, same spoke, normal mode, and not the liquidated account |
+| `Credit(0)` | New normal-mode receiving account | RAY supply shares | Fits after a position-limit cut: an empty receiver skips the governed limit, up to `POSITION_LIMIT_MAX`; no pool-cash requirement |
+| `Credit(id)` | Supply shares credited to `id` | RAY supply shares | Receiver is authorized, same spoke, normal mode, not the liquidated account, and within the position limit; the estimate applies every gate except authorization |
 
 Seizure is pro rata, but the planner drops legs that round to zero.
 `no_seize` blocks only a generated nonzero seizure leg. A dropped leg does
@@ -63,15 +63,31 @@ not block liquidation. Debt repayment rejects a paused listing but permits
 a frozen listing. Seizure permits paused or frozen listings, but rejects
 `no_seize` on a generated leg.
 
+A supply leg the guardian excluded from the account's valuation during a feed
+outage counts as zero collateral for that account: the health factor, the
+estimate and the plan skip it, it is never seized, and its `no_seize` does not
+block. `get_account_valuation_exclusions(account_id)` lists such legs with the
+ledger the exclusion was set at. An account that a stale or floor-breached
+feed had frozen becomes liquidatable on its other legs once its leg is
+excluded; other holders of that asset stay frozen until the feed recovers. A
+debt leg is never excluded, so a debt leg whose feed is down still blocks.
+
 A missing spoke listing permits repayment and Transfer seizure. Credit needs
 a listing when it creates a new receiver supply position. An existing receiver
 position uses its stored risk parameters.
 
-The estimate does not prove receiver authorization, position capacity,
-low-decimal isolation, or pool cash availability. For `Credit(id)`, require current NFT ownership or an active registered
-manager delegated by that owner. Require the same spoke, `Normal` mode,
-and a receiver distinct from the target. Simulate the complete
-write for every mode.
+A `Credit` estimate applies the receiver gates execution applies: a receiver
+distinct from the target, the same spoke, `Normal` mode, an existing account,
+position capacity, low-decimal isolation and a listing for each new leg. It
+fails with the same error `liquidate` would. It cannot prove receiver
+authorization, which needs the caller, or pool cash availability. For
+`Credit(id)`, require current NFT ownership or an active registered manager
+delegated by that owner. Simulate the complete write for every mode.
+
+Both modes require each repaid and seized leg's oracle decimals to equal the
+pool's listed decimals. A mismatch fails the estimate and `liquidate` with
+`InvalidOracleDecimals` (`controller #221`) before any token moves; it blocks
+only plans that repay or seize that asset.
 
 Use Credit when Transfer cannot draw pool cash. Convert Credit estimate shares
 to token units with the matching market supply index and asset decimals before
@@ -115,6 +131,19 @@ A plan without a payment leg fails with `InvalidPayments`.
 Authorize the final accepted transfers. A stale authorization can fail if a
 competing liquidation changes the plan.
 
+An offer that reaches the quote before trimming seizes every collateral unit
+only when the trim keeps the leg it floors. An offer below the quote is never
+trimmed and seizes proportionally, so to take every unit offer at least the
+quote and let the trim refund the excess. **Put a fine-grained debt leg last.**
+The trim works from the last leg backward. When a coarse leg (one base unit
+worth dollars) is last and the trim drops it whole, the call seizes only
+proportionally and can leave an insolvent residue between $5 and one coarse
+unit. No later offer can repay a unit of it (`InvalidPayments`,
+`controller #16`), so the liquidation's own residual cleanup socializes it in
+the same call, and permissionless `clean_bad_debt` admits one a price move left
+behind. With a fine-grained leg last, the same offer seizes every unit in one
+call, which pays the liquidator the bonus on the whole collateral.
+
 **Collateral below 3 decimals seizes base units.** Such a leg is the account's
 only supply position. One unit means `10^-decimals` tokens, not one whole token.
 At 2 decimals, one base unit is 0.01 token. On a solvent account whose leg holds at least one base
@@ -131,7 +160,10 @@ unit, the controller can change a partial quote:
 
 The raised quote is a ceiling. A smaller offer is not raised. An offer that
 backs less than one unit seizes nothing and reverts with `InvalidPayments`
-(`controller #16`). A raised quote is not promoted to full debt, so it can
+(`controller #16`). A whole-unit seizure that reaches the leg's half-up balance
+is the pool's full close, so it takes the whole holding in both modes: a
+one-unit sale of a 1.1-unit holding seizes all 1.1 units of shares in Credit
+mode and one unit in Transfer mode. A raised quote is not promoted to full debt, so it can
 leave debt below $5. If neither rule changes the quote, check whether it backs one base unit.
 If it does not, every offer fails until accrual or a price change ends the condition.
 
@@ -255,11 +287,13 @@ post-transaction views. Use the canonical ordering and payload definitions in
 ## Bad debt
 
 `clean_bad_debt` is permissionless. It succeeds only when debt exceeds
-collateral and collateral is at most `BAD_DEBT_USD_THRESHOLD`, a fixed 5 USD
-in WAD. `CannotCleanBadDebt` (`controller #114`) is a legitimate result when
+collateral and either collateral is at most `BAD_DEBT_USD_THRESHOLD`, a fixed
+5 USD in WAD, or the collateral-backed quote `floor(C / (1 + base))` repays no
+unit of any debt leg, so no liquidation can make progress. `CannotCleanBadDebt` (`controller #114`) is a legitimate result when
 those conditions do not hold; it is not inherently a collision or a non-user
 error. Post-liquidation cleanup applies the same gate but skips instead of
-reverting. The owner-only `force_socialize_bad_debt` has no collateral cap.
+reverting, and does not run at all while the account still holds a leg
+excluded from its valuation. The owner-only `force_socialize_bad_debt` has no collateral cap.
 Always identify the panicking contract before interpreting #114.
 
 The controller's flash loan cannot fund its own liquidation call.

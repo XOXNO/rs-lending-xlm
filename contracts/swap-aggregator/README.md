@@ -25,7 +25,9 @@ execute_strategy(sender, total_in, swap_xdr) -> amount_out
 
 - `amounts`: the amount registry (`total_min_out`, fixed inputs, burn floors,
   mint min-shares);
-- `assets`: the address registry (tokens, pools, LP share tokens);
+- `assets`: the address registry (tokens, pools, LP share tokens). An address
+  may appear more than once; the same-token checks compare addresses, not
+  indices;
 - `ops`: the packed instruction stream. A 10-byte header (version, `token_in`,
   `token_out`, `min_out`, `referral_id`, instruction and weight counts), one
   5-byte record per instruction, then u24 split weights. Instructions index
@@ -56,6 +58,8 @@ Steps:
   `FeeTooHigh`.
 - Leftover balance goes to the admin bucket on every swap, with or without a
   referral.
+- The fee base, the rounding of the two components and the residual allowance
+  are in [Router fees and residuals](../../docs/reference/formulas.md#router-fees-and-residuals).
 
 `sweep_balance` sends only the balance above fee backing. It reads the
 per-token `ReservedTotal` counter, which equals the sum of that token's fee

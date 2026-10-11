@@ -144,7 +144,8 @@ fn test_renew_account_requires_owner() {
     let result = t.ctrl_client().try_renew_account(&bob, &account_id);
     let mapped: Result<(), soroban_sdk::Error> = map_try_ok_unit(result);
 
-    assert_contract_error(mapped, errors::ACCOUNT_NOT_IN_MARKET);
+    // A non-owner of a live account is NotAuthorized (F7).
+    assert_contract_error(mapped, errors::NOT_AUTHORIZED);
 }
 
 #[test]

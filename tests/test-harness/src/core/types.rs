@@ -24,6 +24,10 @@ pub struct MarketState {
     pub token_admin: token::StellarAssetClient<'static>,
     pub decimals: u32,
     pub price_wad: i128,
+    /// Supply shares the builder minted for the market's `initial_liquidity`.
+    /// No account owns them, so the INV-ACCT-10 reconciliation reads
+    /// `supplied - revenue - seed_supply_scaled` against the account shares.
+    pub seed_supply_scaled: i128,
 }
 
 pub(crate) struct PendingMarket {

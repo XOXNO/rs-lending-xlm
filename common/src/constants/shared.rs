@@ -23,7 +23,9 @@ pub const MIN_ASSET_DECIMALS: u32 = 0;
 pub const MIN_BORROWABLE_ASSET_DECIMALS: u32 = 3;
 
 /// Minimum whole units in a collateral leg below `MIN_BORROWABLE_ASSET_DECIMALS`
-/// after any action that leaves the account with debt.
+/// after any action that leaves the account with debt. A unit is the token's
+/// smallest indivisible amount (one base unit; one share for a 0-decimal
+/// listing), not one whole token.
 pub const MIN_WHOLE_UNIT_COLLATERAL: i128 = 2;
 
 /// Maximum allowed market / listed-token decimals (matches WAD-scale prices).

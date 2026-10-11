@@ -186,13 +186,14 @@ fn require_flag_ratchet(
     );
 }
 
-/// Removes and emits a listed asset only when both scaled usage amounts are zero.
+/// Removes and emits a listed asset only when both scaled usage amounts are
+/// zero. A flagged listing may be removed: an absent listing admits no entry,
+/// so it is at least as restrictive as a flagged one. A re-listing proposed
+/// before a guardian flag write cannot clear the flags afterwards, because
+/// governance voids it on the token's flag epoch (ADR-0007, INV-AUTH-04).
 pub(crate) fn remove_asset_from_spoke(env: &Env, hub_asset: HubAssetKey, spoke_id: u32) {
-    assert_with_error!(
-        env,
-        storage::get_spoke_asset(env, spoke_id, &hub_asset).is_some(),
-        SpokeError::AssetNotInSpoke
-    );
+    storage::get_spoke_asset(env, spoke_id, &hub_asset)
+        .unwrap_or_else(|| panic_with_error!(env, SpokeError::AssetNotInSpoke));
     let usage = storage::get_spoke_usage(env, spoke_id, &hub_asset).unwrap_or_default();
     assert_with_error!(
         env,

@@ -1,5 +1,6 @@
 use super::*;
 use crate::admin::{set_oracle, set_sanity_band, set_tolerance};
+use crate::providers::reflector;
 use crate::session::Session;
 use common::errors::OracleError;
 use common::oracle::providers::redstone::REDSTONE_DECIMALS;
@@ -208,6 +209,145 @@ fn test_set_oracle_attests_the_factor_leg_of_a_scaled_source() {
         cfg.sources = sources;
 
         set_oracle(&env, PriceKey::Token(Address::generate(&env)), cfg);
+    });
+}
+
+/// `TwapReflector` serves a 300 s resolution, so a `Twap(3)` read can date
+/// itself `(3 + 2) * 300` seconds back while Reflector still serves its last
+/// round: the window, the current period and one late round. PR #196 admitted
+/// `(3 + 1) * 300`; the oracle fix raised the margin to `+ 2` (CR-10).
+const TWAP_THREE_READ_AGE_SECS: u64 = 1_500;
+
+fn twap_oracle_with_budget(env: &Env, contract: &Address, max_stale: u64) -> AssetOracle {
+    let mut cfg = reflector_oracle(env, contract, 14);
+    let mut leg = reflector_leg(env, contract, 14);
+    leg.max_stale_seconds = max_stale;
+    cfg.sources = Vec::from_array(env, [PriceSource::Feed(leg)]);
+    cfg
+}
+
+#[test]
+fn test_set_oracle_accepts_a_twap_budget_covering_the_window_and_the_serving_window() {
+    let env = Env::default();
+    env.ledger().set_timestamp(1_000_000);
+    with_contract(&env, || {
+        let reflector = env.register(TwapReflector, ());
+        let key = PriceKey::Token(Address::generate(&env));
+        set_oracle(
+            &env,
+            key.clone(),
+            twap_oracle_with_budget(&env, &reflector, TWAP_THREE_READ_AGE_SECS),
+        );
+        assert!(get_oracle(&env, &key).is_some());
+    });
+}
+
+/// A budget one second short of `(records + 2) * resolution` goes stale
+/// while the provider still serves its last round.
+#[test]
+#[should_panic(expected = "Error(Contract, #222)")]
+fn test_set_oracle_rejects_a_twap_budget_shorter_than_the_serving_window() {
+    let env = Env::default();
+    env.ledger().set_timestamp(1_000_000);
+    with_contract(&env, || {
+        let reflector = env.register(TwapReflector, ());
+        set_oracle(
+            &env,
+            PriceKey::Token(Address::generate(&env)),
+            twap_oracle_with_budget(&env, &reflector, TWAP_THREE_READ_AGE_SECS - 1),
+        );
+    });
+}
+
+/// Attests a spot read of `TwapReflector` (300 s resolution) under
+/// `max_stale`.
+fn attest_spot(env: &Env, max_stale: u64) {
+    let feed = ReflectorFeedRef {
+        contract: env.register(TwapReflector, ()),
+        asset: OracleAssetRef::Symbol(Symbol::new(env, "BTC")),
+        read_mode: OracleReadMode::Spot,
+    };
+    reflector::attest(env, &feed, 14, max_stale, None);
+}
+
+/// A spot leg is the last round itself, which Reflector serves for two
+/// rounds: a budget of two resolutions is admitted.
+#[test]
+fn test_attest_admits_a_spot_budget_of_two_rounds() {
+    let env = Env::default();
+    with_contract(&env, || attest_spot(&env, 600));
+}
+
+/// The same leg at one resolution, the old rule's minimum, goes stale while
+/// Reflector still serves its round.
+#[test]
+#[should_panic(expected = "Error(Contract, #222)")]
+fn test_attest_rejects_a_spot_budget_short_of_two_rounds() {
+    let env = Env::default();
+    with_contract(&env, || attest_spot(&env, 599));
+}
+
+/// `Twap(12)` at `TwapReflector`'s 300 s resolution: admission needs
+/// `(12 + 2) * 300 = 4_200` seconds of budget, past the 3,600 s leg-spread
+/// bound.
+const LONG_TWAP_RECORDS: u32 = 12;
+const LONG_TWAP_BUDGET_SECS: u64 = 4_200;
+
+/// A dual of a long Reflector TWAP leg and a RedStone leg of `partner` nature.
+fn long_twap_dual(env: &Env, reflector: &Address, partner: FeedNature) -> AssetOracle {
+    let (adapter, _client) = crate::test_support::register_redstone_feed(env);
+    let mut twap = reflector_leg(env, reflector, 14);
+    twap.provider = ProviderRef::Reflector(ReflectorFeedRef {
+        contract: reflector.clone(),
+        asset: OracleAssetRef::Symbol(Symbol::new(env, "BTC")),
+        read_mode: OracleReadMode::Twap(LONG_TWAP_RECORDS),
+    });
+    twap.max_stale_seconds = LONG_TWAP_BUDGET_SECS;
+    let partner = FeedSource {
+        provider: ProviderRef::RedStone(MultiFeedRef {
+            contract: adapter,
+            feed_id: String::from_str(env, "BTC"),
+            nature: partner,
+        }),
+        decimals: REDSTONE_DECIMALS,
+        max_stale_seconds: 300,
+    };
+    let mut cfg = reflector_oracle(env, reflector, 14);
+    cfg.max_price_stale_seconds = LONG_TWAP_BUDGET_SECS;
+    cfg.sources = Vec::from_array(env, [PriceSource::Feed(twap), PriceSource::Feed(partner)]);
+    cfg
+}
+
+/// Two market legs whose oldest samples can never sit within the spread
+/// bound of each other would be admitted and then never price.
+#[test]
+#[should_panic(expected = "Error(Contract, #218)")]
+fn test_set_oracle_rejects_a_market_pair_whose_budget_exceeds_the_leg_spread() {
+    let env = Env::default();
+    env.ledger().set_timestamp(1_000_000);
+    with_contract(&env, || {
+        let reflector = env.register(TwapReflector, ());
+        set_oracle(
+            &env,
+            PriceKey::Token(Address::generate(&env)),
+            long_twap_dual(&env, &reflector, FeedNature::Market),
+        );
+    });
+}
+
+#[test]
+fn test_set_oracle_accepts_a_long_twap_beside_a_fundamental_leg() {
+    let env = Env::default();
+    env.ledger().set_timestamp(1_000_000);
+    with_contract(&env, || {
+        let reflector = env.register(TwapReflector, ());
+        let key = PriceKey::Token(Address::generate(&env));
+        set_oracle(
+            &env,
+            key.clone(),
+            long_twap_dual(&env, &reflector, FeedNature::Fundamental),
+        );
+        assert!(get_oracle(&env, &key).is_some());
     });
 }
 

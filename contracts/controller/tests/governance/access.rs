@@ -1,4 +1,5 @@
 use super::*;
+use crate::ControllerClient;
 use soroban_sdk::testutils::Address as _;
 use stellar_access::access_control::AccessControlStorageKey;
 use stellar_access::ownable::OwnableStorageKey;
@@ -79,4 +80,42 @@ fn init_emits_owner_and_default_limits() {
         saw_floor,
         "constructor must publish the default borrow floor"
     );
+}
+
+/// CR-1 controller leg (gov_b G8): a zero-deadline transfer is an idempotent
+/// cancel. With nothing pending, or with another nominee pending, it changes
+/// nothing and does not panic, so the governance operation carrying it is
+/// consumed instead of staying Ready to void a later nomination; naming the
+/// pending nominee removes the pending entry.
+#[test]
+fn zero_deadline_cancel_is_idempotent_and_leaves_another_nominee_alone() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let admin = Address::generate(&env);
+    let contract_id = env.register(Controller, (admin.clone(),));
+    let client = ControllerClient::new(&env, &contract_id);
+    let x = Address::generate(&env);
+    let y = Address::generate(&env);
+    let pending = |env: &Env| {
+        env.as_contract(&contract_id, || {
+            env.storage()
+                .temporary()
+                .get::<_, role_transfer::PendingTransfer>(&OwnableStorageKey::PendingOwner)
+                .map(|p| p.address)
+        })
+    };
+
+    client.transfer_ownership(&x, &0);
+    assert_eq!(pending(&env), None);
+
+    let live_until = env.ledger().sequence() + 1_000;
+    client.transfer_ownership(&x, &live_until);
+    client.transfer_ownership(&y, &0);
+    assert_eq!(pending(&env), Some(x.clone()), "another nominee stays");
+
+    client.transfer_ownership(&x, &0);
+    assert_eq!(pending(&env), None, "the named nominee is cancelled");
+    env.as_contract(&contract_id, || {
+        assert_eq!(ownable::get_owner(&env), Some(admin.clone()));
+    });
 }

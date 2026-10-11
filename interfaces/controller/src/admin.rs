@@ -58,6 +58,15 @@ pub trait ControllerAdmin {
         no_seize: bool,
     );
 
+    fn exclude_account_asset_valuation(env: Env, account_id: u64, hub_asset: HubAssetKey);
+
+    fn restore_account_asset_valuation(
+        env: Env,
+        account_id: u64,
+        hub_asset: HubAssetKey,
+        excluded_at: u32,
+    );
+
     fn remove_asset_from_spoke(env: Env, hub_asset: HubAssetKey, spoke_id: u32);
 
     fn deploy_pool(env: Env, wasm_hash: BytesN<32>) -> Address;

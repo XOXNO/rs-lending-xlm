@@ -1,5 +1,5 @@
 use super::*;
-use crate::constants::{MILLISECONDS_PER_YEAR, RAY, SUPPLY_INDEX_FLOOR_RAW};
+use crate::constants::{MAX_MARKET_VALUE_RAY, MILLISECONDS_PER_YEAR, RAY, SUPPLY_INDEX_FLOOR_RAW};
 use crate::rates::test_support::*;
 use crate::types::PoolStateRaw;
 use soroban_sdk::Env;
@@ -364,6 +364,88 @@ mod accrue_step_boundaries {
         assert_eq!(step.borrow_index, cap);
         assert_eq!(step.supply_index, Ray::ONE);
         assert_eq!(step.revenue_shares, Ray::ZERO);
+    }
+
+    /// Floored `shares * index`, the value the market value ceiling bounds.
+    fn total_value(shares: Ray, index: Ray) -> i128 {
+        shares.mul_floor(&Env::default(), index).raw()
+    }
+
+    /// 150 billion whole tokens supplied at index one, 98% borrowed at the
+    /// 100% maximum rate: a year of uncapped interest overflows `i128`.
+    #[test]
+    fn interest_stops_at_the_market_value_ceiling() {
+        let env = Env::default();
+        let params = make_test_params(&env);
+        let supplied = Ray::from(150_000_000_000 * RAY);
+        let borrowed = Ray::from(147_000_000_000 * RAY);
+
+        let step = accrue_step(
+            &env,
+            &params,
+            borrowed,
+            supplied,
+            Ray::ONE,
+            Ray::ONE,
+            MILLISECONDS_PER_YEAR,
+        );
+
+        assert!(step.value_capped);
+        assert!(step.borrow_index.raw() > RAY && step.supply_index.raw() > RAY);
+        let supplied_after = supplied.checked_add(&env, step.revenue_shares);
+        assert!(total_value(borrowed, step.borrow_index) <= MAX_MARKET_VALUE_RAY);
+        assert!(total_value(supplied_after, step.supply_index) <= MAX_MARKET_VALUE_RAY);
+    }
+
+    /// A total already above the ceiling, here above `i128::MAX`, leaves both
+    /// indexes unchanged instead of overflowing.
+    #[test]
+    fn a_total_past_the_ceiling_freezes_the_step_without_panicking() {
+        let env = Env::default();
+        let params = make_test_params(&env);
+        let supplied = Ray::from(i128::MAX / 2);
+        let borrowed = Ray::from(i128::MAX / 4);
+        let index = Ray::from(3 * RAY);
+
+        let step = accrue_step(
+            &env,
+            &params,
+            borrowed,
+            supplied,
+            index,
+            index,
+            MILLISECONDS_PER_YEAR,
+        );
+
+        assert!(step.value_capped);
+        assert_eq!(step.borrow_index, index);
+        assert_eq!(step.supply_index, index);
+        assert_eq!(step.revenue_shares, Ray::ZERO);
+    }
+
+    /// The read-only projection runs the same capped step, so decades of
+    /// accrual on a market at the ceiling stay representable.
+    #[test]
+    fn the_projection_stays_below_the_market_value_ceiling_for_decades() {
+        let env = Env::default();
+        let sync = sample_sync(
+            &env,
+            PoolStateRaw {
+                supplied: 150_000_000_000 * RAY,
+                borrowed: 147_000_000_000 * RAY,
+                revenue: 0,
+                borrow_index: RAY,
+                supply_index: RAY,
+                last_timestamp: 0,
+                cash: 0,
+            },
+        );
+
+        let index = simulate_update_indexes(&env, 30 * MILLISECONDS_PER_YEAR, &sync);
+
+        let borrowed = Ray::from(sync.state.borrowed);
+        assert!(total_value(borrowed, index.borrow_index) <= MAX_MARKET_VALUE_RAY);
+        assert!(index.supply_index.raw() >= RAY);
     }
 
     #[test]

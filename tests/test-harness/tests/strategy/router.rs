@@ -658,6 +658,7 @@ fn test_borrow_at_cap_then_step_over_rejected() {
         .with_market_params("USDC", |p| {
             p.max_utilization = controller::constants::RAY * 85 / 100;
         })
+        .without_initial_liquidity()
         .build();
 
     t.supply(ALICE, "USDC", 1_000.0);
@@ -676,6 +677,7 @@ fn test_multiply_at_utilization_cap_then_step_over_rejected() {
         .with_market_params("ETH", |p| {
             p.max_utilization = RAY * 85 / 100;
         })
+        .without_initial_liquidity()
         .build();
 
     t.supply(BOB, "ETH", 1_000.0);

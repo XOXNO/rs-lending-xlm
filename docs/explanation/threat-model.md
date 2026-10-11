@@ -24,7 +24,7 @@ router fee entitlements and oracle signer configuration.
 | Price aggregator | Governance-owned deployment; owner configuration and upgrade | Sources, bands, feed metadata, actual owner and artifact |
 | Swap aggregator | Independent constructor administrator; owner-controlled fees, sweep and upgrade | Owner policy; no lending-governance router-upgrade route exists |
 | XOXNO oracle | Independent constructor administrator; signer/configuration and upgrade powers | Honest quorum participation, owner policy, and monitoring |
-| DeFindex adapter | Fixed asset/hub/spoke/controller configuration; per-vault authenticated accounts | Correct immutable constructor inputs; no admin rescue interface |
+| DeFindex adapter | Fixed asset/hub/spoke/controller configuration; hub market, spoke and the spoke's listing of the asset probed at construction; per-vault authenticated accounts | Correct immutable constructor inputs (the probes prove the listing exists, not that it is the intended one); no admin rescue interface |
 
 An address or owner gate proves neither multisig custody nor a timelock. An
 external smart-contract owner may impose its own policy. Lending governance
@@ -47,30 +47,92 @@ its review window before funding. Raising the configured minimum and changing a
 compiled tier floor are different actions.
 
 GUARDIAN can immediately pause, tighten listing flags, and create empty hubs
-or spokes. ORACLE can immediately narrow sanity bands. The owner can revoke
-those two hot roles immediately and perform one-time deployment bootstrap.
+or spokes. It can also exclude one supply leg of a named account from that
+account's valuation, but only while the asset's strict price read already fails
+with a feed outage, never for a sanity-band failure, and only a delayed
+operation restores it. ORACLE can immediately narrow sanity bands; every band write, an
+equal one included, voids every pending `ConfigureAssetOracle` for that key
+and every pending `SetPriceAggregator`, so a switch queued before a narrowing
+cannot leave it behind on the old aggregator.
+A rogue ORACLE can thereby delay the owner's reconfiguration, and the owner's
+remedy is `revoke_role_immediate`. The owner can revoke those two hot roles,
+and PROPOSER and EXECUTOR, immediately, and perform one-time deployment
+bootstrap; CANCELLER keeps its timelocked removal. A guardian pause and an
+executed controller upgrade each advance the emergency epoch, voiding every
+`Unpause` proposed before it. Every guardian flag write, an unchanged one
+included, voids every pending `AddAssetToSpoke` of that token in any spoke or
+hub. A rogue GUARDIAN can thereby delay a reopening or a listing; the remedy
+is the same revocation. A revocation, immediate or timelocked, voids every
+pending `GrantGovRole` of that role to that account; revoking PROPOSER also
+voids every operation the revoked key proposed, and nothing else.
 Reopening, global position-manager changes, and ordinary upgrades use delayed
 operations. Controller construction and upgrade pause the controller. Pool,
 position NFT, price aggregator and governance upgrades do not pause lending.
 
-A PROPOSER that is not the owner can schedule listing, cap, curve and limit
-changes. Ownership transfers, code upgrades and migration, the timelock
-minimum delay, price and swap sources, Blend approvals, the revenue accumulator
-and role grants need the owner as proposer. A stolen non-owner PROPOSER key can
-therefore schedule disruptive changes, such as listing flags, risk parameters,
-role revocations or an unpause, but cannot replace code or prices. It cannot
+A PROPOSER that is not the owner can schedule listing, cap, interest-rate
+curve and limit changes. Ownership transfers, code upgrades and migration,
+the timelock minimum delay, price and swap sources, Blend approvals, the
+revenue accumulator, role grants and liquidation terms need the owner as
+proposer: the spoke liquidation curve, forced socialization, position-manager
+activation, and a listing edit that lowers the live liquidation threshold,
+raises the bonus or lowers the fees. A non-owner listing edit executes only
+on the liquidation terms it was proposed against
+([INV-AUTH-09](../reference/invariants.md#inv-auth-09)). A stolen non-owner
+PROPOSER key can therefore schedule disruptive changes, such as listing flags,
+caps, the interest-rate model, spoke removal, role revocations or an unpause,
+but cannot replace code or prices or make a healthy account liquidatable. The
+owner's immediate revocation of the key voids its whole queue. It cannot
 change the minimum delay either. `UpdateGovDelay` can only raise the minimum,
 so no later delay update can lower it. An owner `UpgradeGov` can still replace
 the governance code and its delay rules
 ([INV-AUTH-05](../reference/invariants.md#inv-auth-05)).
 
+Every operation records its proposer's epoch, and the owner loses PROPOSER
+only at `accept_ownership` to a different address, which advances it, so a
+former owner's queued operations fail with `NotAuthorized` after a handover.
+Operations another PROPOSER queued survive it; a self-transfer keeps the
+epoch. An operation the departing owner gets
+executed between the transfer and the acceptance keeps its effect, so the
+incoming owner audits role holders after accepting.
+
 Typed proposals perform proposal-time checks; targets retain execution-time
 validation. Ready operations must also be within the grace window. Anyone may
-execute with no executor identity; supplying one requires its authorization
-and EXECUTOR role. Executor/canceller separation exempts the governance owner.
+execute with no executor identity and in any order, with two exceptions
+([INV-AUTH-08](../reference/invariants.md#inv-auth-08)). An `Unpause`
+reverts while any `UpgradeController` is pending, and an executed controller
+upgrade advances the emergency epoch, so a reopening never runs on the old
+code ahead of a queued fix and is proposed again after the fix executes. The
+cost is liveness: a pending upgrade, a voided or expired one included, blocks
+every reopening until it executes or a canceller cancels it. Every upgrade
+is bound to the upgrade epoch of its contract, so a superseded build cannot
+land after a newer one.
+An operation scheduled before the governance code that records guards was
+deployed has no guard record. It is held to the counters its kind binds
+today at 0, the value every counter had at that upgrade: the first later
+handover voids it, and an `Unpause`, upgrade, `AddAssetToSpoke`,
+`GrantGovRole` or `ConfigureAssetOracle` also dies on the first pause,
+upgrade, flag write, revocation or band write it depends on. Nothing binds it
+to its proposer, to listing terms or to the pending-upgrade count, and the
+owner-only liquidation-terms arms are checked at proposal only. The
+governance upgrade that installs these rules is therefore followed by a sweep
+with an independent canceller: cancel every pending `UpgradeController`,
+every liquidation-terms operation a non-owner proposed and every operation
+of a key slated for revocation, then re-propose what should still land
+([INV-AUTH-07](../reference/invariants.md#inv-auth-07)). Supplying an executor identity requires its authorization and
+EXECUTOR role. Executor/canceller separation exempts the governance owner.
 A revocation target cannot cancel its own removal, but an independent canceller
 can veto it. Owner-proposed Recovery operations cannot be cancelled and replace
-cancellers after their delay; they do not recover a lost owner key.
+cancellers after their delay; they do not recover a lost owner key. A
+Recovery operation also records the owner epoch, so one proposed before an
+ownership handover reverts instead of replacing the new owner's cancellers,
+and any canceller may then cancel it to free its id. A reset scheduled
+before this binding existed is held to the owner in place when the binding
+was deployed. The
+canceller role is capped at 24 holders, the owner included. Replacing a full
+council writes 3N + 6 = 75 ledger entries and, for classic accounts, about
+11 KB of role events, inside soroban-sdk 28's mainnet profile of 200 writes,
+400 entries and 16,384 event bytes per transaction
+([ADR-0023](decisions.md#adr-0023)).
 
 ## Account authority
 
@@ -124,7 +186,13 @@ pending listing and oracle operation for that token with each other and with
 the existing pools of that token. On any mismatch, the operator cancels the
 operation. After a mismatch executes, only an aggregator Wasm upgrade can
 correct the stored unit: `set_oracle` rejects a decimals change, and
-`remove_oracle` exists only in testing builds.
+`remove_oracle` exists only in testing builds. Until then the controller
+refuses every liquidation, and its estimate, that repays or seizes the
+mismatched asset (`InvalidOracleDecimals`): valuation never reads the
+decimals, but the liquidation token path does, so the check sits where a wrong
+power of ten would move funds, at the cost of blocking that asset's
+liquidations until the unit is corrected. A mismatch on a leg the plan does
+not touch blocks nothing.
 
 One token listed in several hubs shares physical pool custody even though
 market books are separate. Direct donations do not rewrite those books.
@@ -196,6 +264,26 @@ reports `p1` and `p2` in the same band have `p1 / p2 <= u = max / min`. The
 10% single-source cap gives `u <= 11/9`, which is about 1.222. The true NAV
 `P` is also in the band, so `P / p <= u`.
 
+A pair escapes the cap only when its legs trust different contract sets and
+every contract they share serves some top-level `Scaled` leg through a factor
+whose `max/min` range, times that leg's quote reach, times the pair's
+tolerance ratio, is at most `11/9`: the contract moves that leg by the factor
+range times what it does to the quote key, and the other leg only prices
+within the tolerance of it. The quote reach looks one level down. It is 1
+when the quote does not trust the contract. It is the quote's own tolerance
+ratio when the contract reaches exactly one leg of a two-leg quote, because
+the quote then prices only within that tolerance of its other leg. Otherwise
+it is unbounded and the pair keeps the cap. Tolerance ratios count one extra
+basis point, the slack of the read's half-up comparison. A contract that
+reaches every leg through a plain feed, or through a wider factor, moves both
+legs together and the pair keeps the cap. Mainnet SolvBTC and xSolvBTC sit at
+about 1.213 of the 1.222 cap (`1.05 x 1.1001 x 1.0501`), so their BTC quote's
+tolerance can widen to 1,083 bps and their factor ceilings cannot rise above
+1.05 while their bands stay wide; a wider edit fails `#226` through their
+revalidation. A quote edit revalidates its dependents, so neither a
+`ConfigureAssetOracle` nor an `EditOracleTolerance` on the quote can widen a
+dependent past the cap.
+
 Lender safety depends only on the reported collateral prices. Bad debt occurs
 only when the reported collateral is less than the debt. Take one collateral
 leg with `n` units and a debt `D`. A borrow at the reported price `p1` gives
@@ -235,7 +323,18 @@ and provider-specific metadata. Provider separation is not proof of independent
 operators or upstream data. Feed-nature labels are configuration assertions.
 Non-LP admission probes can accept temporary market-condition failures.
 Changing an upstream key revalidates dependent source structure without a new
-live attestation for each dependent. Upstream changes do not erase the lending
+live attestation for each dependent. That revalidation scans the whole
+registry and walks each dependent's composition, so the registry admits at
+most `MAX_ORACLE_KEYS` (112) keys and reconfiguration of existing keys stays
+available at the cap. The cap is sized by CPU on the measured costliest
+shapes: a full registry of pairs whose two `Scaled` legs each quote a chain
+at the resolution depth limit costs about 357M of the 400M instructions the
+SDK 28 mainnet profile allows, and SolvBTC-shaped pairs quoting a dual key
+two levels above the edited key about 246M. Any other branching above the
+edited key, such as an LP over two deep keys, a quote key with two `Scaled`
+legs, or branching at more than one level, walks more keys per dependent, is
+outside that measured bound, and is kept within limits only by keeping such
+compositions out of the registry. Upstream changes do not erase the lending
 aggregator's runtime age checks,
 but can invalidate assumptions made during admission.
 
@@ -307,18 +406,35 @@ material unpaid backing, so displayed supplier claims are not a universal
 pro-rata cash-payout guarantee. New supply checks backing; recapitalization
 repairs the book's measured shortfall without minting shares.
 
+Revenue accrues on every unit of interest, including interest an uncleaned
+insolvent account will never pay. A revenue claim is a permissionless draw on
+cash, so while a market carries debt it pays only the cash above the 2%
+liquidation buffer, and nothing when the payout would raise utilization past
+`min(max_utilization, 95%)`, whatever the market's own ceiling
+([ADR-0024](decisions.md#adr-0024)). That keeps a market with its ceiling
+disabled from paying the cash its cleanup needs. Claims small enough to fit
+under the bound still pay revenue accrued on uncollectible interest, which the
+cleanup then writes off against suppliers; prompt cleanup is the remedy. A
+claim that cannot pay returns 0 instead of reverting, so no market can fail a
+keeper's multi-market claim batch, whether by sitting past its ceiling or by a
+dust borrow against revenue-only supply.
+
 The compile-time dust cleanup threshold and governance-settable collateral
 floor can diverge. Above the permissionless cleanup threshold, an insolvent
-account may require the governed [force-socialize runbook](../reference/runbooks/force-socialize-bad-debt.md).
+account that a liquidation can still repay may require the governed
+[force-socialize runbook](../reference/runbooks/force-socialize-bad-debt.md);
+one whose collateral-backed quote repays no unit of any debt leg, which no
+liquidation can reach, is cleaned permissionlessly.
 An account whose ceil risk debt does not exceed half-up unweighted collateral
 is ineligible, even if its health factor is below one and listing flags block
 liquidation.
 
 ## Numeric and resource limits
 
-Finite RAY value capacity can be exhausted before the index ceiling. Synchronizing
-an overlarge book can then fail before an otherwise risk-reducing operation.
-Caps must account for plausible index growth as well as token balances.
+Finite RAY value capacity can be exhausted before the index ceiling. Accrual
+then stops charging interest at the market value ceiling instead of failing, so
+risk-reducing operations keep working, but borrowers stop paying the configured
+rate. Caps must account for plausible index growth as well as token balances.
 Accrual cadence changes utilization and subsequent rates; bounded chunks do not
 make cadence neutral or prove exact conservation after integer rounding.
 See [numeric limits](../reference/formulas.md#numeric-limits).
@@ -349,7 +465,7 @@ these rows do not assign severity or establish exploitability.
 | Tamper.3 | Non-standard tokens/donations; measured receipts and separate books do not neutralize arbitrary token semantics. |
 | Tamper.4 | Malicious router/venue; measured input/output bounds apply, while payload minimum output remains router-enforced. |
 | Tamper.5 | Callback reentry/intermediate state; guards and host rules protect reachable paths, not hypothetical EVM behavior. |
-| Tamper.6 | Accrual manipulation/extremes; bounded indexes and chunks coexist with cadence and value-overflow risks. |
+| Tamper.6 | Accrual manipulation/extremes; bounded indexes, chunks and the market value ceiling coexist with cadence risk and interest held at the ceiling. |
 | Tamper.7 | Malicious upgrade; core upgrades are delayed, including price aggregator; standalone owners retain their own upgrade policy. |
 | Tamper.8 | Hostile Blend integration; allowlisting and measured settlement do not freeze an approved pool's code. |
 | Tamper.9 | False feed-nature label bypasses intended smoothing selection; nature is operator-asserted. |
@@ -361,7 +477,7 @@ these rows do not assign severity or establish exploitability.
 | Info.2 | Liquidation competition and MEV; the bonus curve bounds terms, not ordering or liquidator profit. |
 | Info.3 | Visible pending governance changes allow anticipatory positioning; observability is intentional. |
 | Info.4 | Invalid quotes may contain prices; use validity flags or strict reads. |
-| DoS.1 | Price outage blocks valuation-dependent actions, including liquidation; fail-closed availability cost. Supply needs no price, so an indebted borrower can add a dust leg of any listed collateral and choose which feed outage shields the account. For an Aquarius LP leg, liquidity providers can cause that outage by withdrawing pool value below `min_pool_value_wad`. The same leg blocks bad-debt cleanup and force-socialization. |
+| DoS.1 | Price outage blocks valuation-dependent actions, including liquidation; fail-closed availability cost. Supply needs no price, so an indebted borrower can add a dust leg of any listed collateral and choose which feed outage shields the account. For an Aquarius LP leg, liquidity providers can cause that outage by withdrawing pool value below `min_pool_value_wad`. The same leg blocks bad-debt cleanup and force-socialization. Response: while the outage lasts, the guardian's `exclude_account_asset_valuation` values the shielding account's leg at zero. That account is then liquidatable on its other legs, and the excluded leg is neither seized nor written off ([INV-HALT-04](../reference/invariants.md#inv-halt-04)). Other holders of the asset stay frozen during the outage and are valued in full after it. The response covers supply legs only: a debt leg of the outage asset still blocks. First-line mitigations are configuration: keep LP collateral out of spokes that share accounts with borrowable majors, and size `min_pool_value_wad` far below plausible pool values. |
 | DoS.2 | Selected paused debt or no_seize collateral blocks liquidation; distinct flag policies matter. |
 | DoS.3 | False-alarm pause needs delayed reopening; emergency response is asymmetric. |
 | DoS.4 | Lost governance keys; proposer safeguards and owner-dependent canceller recovery do not restore a lost owner. |
@@ -371,8 +487,9 @@ these rows do not assign severity or establish exploitability.
 | DoS.8 | Cash/utilization/cap limits reject otherwise desired actions; zero caps admit no new exposure. |
 | DoS.9 | Dust and zero-share movements; rejection/floors reduce griefing but do not guarantee liquidation profitability. |
 | DoS.10 | Router/oracle owner loss disables administration; existing oracle signers may continue, but future repair powers are lost. The source ABIs export no `renounce_ownership`; verify that the deployed artifacts match. |
+| DoS.11 | A pending `UpgradeController`, voided or expired ones included, blocks every `Unpause` until it executes or a canceller cancels it; a compromised owner can queue upgrades to hold the controller paused, and cancellers clear them. |
 | Elevation.1 | Governance-owner compromise; actual configured delay and approved replacement code determine exposure. |
-| Elevation.2 | Guardian attempts reopening; immediate flag ratchets reject it. Listing edits cannot clear flags either; only a delayed relaxation bound to the listing's flags epoch can, so one proposed before a later guardian action reverts. |
+| Elevation.2 | Guardian attempts reopening; immediate flag ratchets reject it. Listing edits cannot clear flags either, and a re-listing proposed before a guardian flag write on the token is void; only a delayed relaxation bound to the listing's flags epoch can clear one, so one proposed before a later guardian action reverts. A compromised guardian could use the valuation exclusion to make named holders of an asset liquidatable on their other legs. The controller admits it one account at a time and only during a feed outage of that asset, when those accounts are frozen anyway; a sanity-band failure does not qualify, so the oracle role cannot manufacture the outage. Restoring it takes the delayed path, bound to the exclusion's stamp and to a usable price. The owner can revoke the guardian immediately. |
 | Elevation.3 | Role overlap/cancellation abuse; separation exempts owner and recovery has its own rules. |
 | Elevation.4 | Delegate exceeds mandate; owner-only grant management and delayed global manager deactivation limit eligibility, not economic intent. |
 | Elevation.5 | Third-party creation of foreign risk; supply top-ups require existing positions, while account creation belongs to its caller. |
@@ -380,7 +497,8 @@ these rows do not assign severity or establish exploitability.
 | Elevation.7 | Oracle owner changes code/signers; independent source comparison and bands constrain accepted prices, not all manipulation. |
 | Elevation.8 | Test powers in release WASM; feature and artifact checks cover only their actual build/export scope. |
 | Elevation.9 | Vault abuses adapter authority; adapter exposes supply/withdrawal, not borrowing or other vault accounts. |
-| Elevation.10 | ORACLE role narrows band to exclude market price; immediate fail-closed denial of service remains possible. |
+| Elevation.10 | ORACLE role narrows band to exclude market price; immediate fail-closed denial of service remains possible. The valuation exclusion refuses a sanity-band failure, so a narrowed band cannot be turned into a liquidation of healthy accounts by the guardian. |
+| Elevation.11 | Stolen non-owner PROPOSER key; liquidation terms are owner-only and a kept listing edit is a compare-and-swap on the live terms, and the owner's immediate revocation voids the key's queue. Routine powers remain: listings, caps, the interest-rate model, spoke removal, role revocations, `Unpause`. A key can also revoke a peer proposer, voiding the peer's queue, unless another canceller vetoes it. |
 
 ## Review triggers and evidence limits
 

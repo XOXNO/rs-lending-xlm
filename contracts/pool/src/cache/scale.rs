@@ -6,8 +6,8 @@
 use common::math::fp::Ray;
 use common::rates::{
     calculate_scaled_borrow, calculate_scaled_supply, resolve_net_settle, resolve_repay,
-    resolve_withdrawal, scaled_to_original, unscale_borrow, unscale_borrow_ceil, unscale_supply,
-    unscale_supply_floor, utilization,
+    resolve_withdrawal, scaled_to_original, unscale_borrow, unscale_supply, unscale_supply_floor,
+    utilization,
 };
 
 use super::Cache;
@@ -69,16 +69,6 @@ impl Cache {
     /// Unscales debt shares to asset units with half-up rounding.
     pub(crate) fn unscale_borrow(&self, scaled: Ray) -> i128 {
         unscale_borrow(
-            &self.env,
-            scaled,
-            self.borrow_index,
-            self.params.asset_decimals,
-        )
-    }
-
-    /// Unscales debt shares rounding **up** (conservative liability).
-    pub(crate) fn unscale_borrow_ceil(&self, scaled: Ray) -> i128 {
-        unscale_borrow_ceil(
             &self.env,
             scaled,
             self.borrow_index,

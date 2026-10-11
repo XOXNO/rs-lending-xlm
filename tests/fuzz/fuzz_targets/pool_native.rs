@@ -3,8 +3,8 @@ use arbitrary::Arbitrary;
 use common::constants::{BPS, RAY};
 use common::errors::GenericError;
 use common::types::{
-    HubAssetKey, InterestRateModel, MarketParamsRaw, PoolAction, PoolBorrowEntry, PoolKey,
-    PoolSeizeEntry, PoolStateRaw, PoolSupplyEntry, PoolWithdrawEntry, ScaledPositionRaw,
+    HubAssetKey, InterestRateModel, MarketParamsRaw, PoolAction, PoolBorrowEntry, PoolSeizeEntry,
+    PoolStateRaw, PoolSupplyEntry, PoolWithdrawEntry, ScaledPositionRaw,
 };
 use libfuzzer_sys::fuzz_target;
 use pool::{LiquidityPool, LiquidityPoolClient};
@@ -81,13 +81,20 @@ fn mint_to_pool(env: &Env, asset: &Address, pool_addr: &Address, amount: i128) {
     token::StellarAssetClient::new(env, asset).mint(pool_addr, &amount);
 }
 
-fn seed_cash(env: &Env, pool_addr: &Address, hub_asset: &HubAssetKey, cash: i128) {
-    env.as_contract(pool_addr, || {
-        let key = PoolKey::State(hub_asset.clone());
-        let mut state: PoolStateRaw = env.storage().persistent().get(&key).unwrap();
-        state.cash = cash;
-        env.storage().persistent().set(&key, &state);
-    });
+/// Seeds `cash` of liquidity through `supply`, as a supplier the op loop never
+/// drives, so the seed is backed by supply shares and the solvency invariant
+/// binds on it (Specula CR-24). Share-less seeded cash would cover any backing
+/// shortfall the ops open.
+fn seed_liquidity(
+    env: &Env,
+    pool: &LiquidityPoolClient<'_>,
+    pool_addr: &Address,
+    asset: &Address,
+    hub_asset: &HubAssetKey,
+    cash: i128,
+) {
+    mint_to_pool(env, asset, pool_addr, cash);
+    pool.supply(&vec![env, supply_entry(hub_asset, 0, cash)]);
 }
 
 fn pool_state(pool: &LiquidityPoolClient<'_>, hub_asset: &HubAssetKey) -> PoolStateRaw {
@@ -272,13 +279,11 @@ fuzz_target!(|i: In| {
     let payer = Address::generate(&env);
 
     let initial_cash = 100_000_000_000_000i128;
-    mint_to_pool(&env, &asset, &pool_addr, initial_cash);
-    seed_cash(&env, &pool_addr, &market, initial_cash);
+    seed_liquidity(&env, &pool, &pool_addr, &asset, &market, initial_cash);
 
-    // Mint the sibling's cash so the summed bound starts at equality.
+    // Seed the sibling the same way so the summed bound starts at equality.
     let sibling = hub_asset_in(&asset, SIBLING_HUB_ID);
-    mint_to_pool(&env, &asset, &pool_addr, initial_cash);
-    seed_cash(&env, &pool_addr, &sibling, initial_cash);
+    seed_liquidity(&env, &pool, &pool_addr, &asset, &sibling, initial_cash);
 
     let bootstrap_supply = amount_from_raw(i.base_pct as u32, 10_000_000_000, 50_000_000_000);
     mint_to_pool(&env, &asset, &pool_addr, bootstrap_supply);

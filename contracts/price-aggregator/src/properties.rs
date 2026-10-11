@@ -2,8 +2,9 @@
 //! provider contracts, unsmoothed-market-leg presence, loosest staleness bound,
 //! and composition depth — by recursing through a source's dependencies.
 
+use common::constants::WAD;
 use common::errors::OracleError;
-use common::types::{FeedSource, PriceKey, PriceSource, MAX_RESOLUTION_DEPTH};
+use common::types::{FeedNature, FeedSource, PriceKey, PriceSource, MAX_RESOLUTION_DEPTH};
 use soroban_sdk::{panic_with_error, Address, Env, Vec};
 
 use crate::registry;
@@ -12,13 +13,15 @@ use crate::validation;
 
 /// Structural properties of a source or a composition of sources: whether an
 /// unsmoothed market leg is present, the set of trusted provider contracts, the
-/// loosest configured staleness bound, and the maximum composition depth
-/// reached.
+/// loosest configured staleness bound, the loosest bound among the
+/// market-nature inputs that date the composition for the leg-spread rule
+/// (`None` when it has none), and the maximum composition depth reached.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct SourceProperties {
     pub has_unsmoothed_market_leg: bool,
     pub trust: Vec<Address>,
     pub loosest_max_stale_seconds: u64,
+    pub loosest_market_max_stale_seconds: Option<u64>,
     pub depth: u32,
 }
 
@@ -30,25 +33,29 @@ impl SourceProperties {
             has_unsmoothed_market_leg: false,
             trust: Vec::new(env),
             loosest_max_stale_seconds: 0,
+            loosest_market_max_stale_seconds: None,
             depth: 0,
         }
     }
 
     /// Builds the `SourceProperties` of a single feed source: whether its
     /// provider counts as an unsmoothed market leg, its provider contract as
-    /// the sole trusted contract, and its configured staleness bound.
+    /// the sole trusted contract, and its configured staleness bound, which is
+    /// also its market bound when the feed is market-nature.
     fn of_feed(env: &Env, feed: &FeedSource) -> Self {
         Self {
             has_unsmoothed_market_leg: feed.provider.is_unsmoothed_market_leg(),
             trust: Vec::from_array(env, [feed.provider.contract().clone()]),
             loosest_max_stale_seconds: feed.max_stale_seconds,
+            loosest_market_max_stale_seconds: (feed.provider.nature() == FeedNature::Market)
+                .then_some(feed.max_stale_seconds),
             depth: 0,
         }
     }
 
     /// Merges `self` with `other`: ORs the unsmoothed-market-leg flags, unions
-    /// the trusted-contract sets, and takes the maximum of the staleness bound
-    /// and depth.
+    /// the trusted-contract sets, and takes the maximum of the staleness
+    /// bounds and depth.
     fn join(&self, other: &Self) -> Self {
         let mut trust = self.trust.clone();
         for contract in other.trust.iter() {
@@ -63,6 +70,9 @@ impl SourceProperties {
             loosest_max_stale_seconds: self
                 .loosest_max_stale_seconds
                 .max(other.loosest_max_stale_seconds),
+            loosest_market_max_stale_seconds: self
+                .loosest_market_max_stale_seconds
+                .max(other.loosest_market_max_stale_seconds),
             depth: self.depth.max(other.depth),
         }
     }
@@ -114,38 +124,64 @@ pub(crate) fn local_properties(env: &Env, source: &PriceSource) -> LocalProperti
 
 /// Computes the full `SourceProperties` of `source`, joining in the properties
 /// of every dependency it references (recursing through their registered
-/// oracles at `depth + 1`). Panics with `OracleDepthExceeded` if `depth`
-/// exceeds the maximum resolution depth.
+/// oracles at `depth + 1`). An Aquarius LP reads as market-nature and is
+/// dated by its legs' prices, so its market bound is the loosest bound of its
+/// whole composition. Panics with `OracleDepthExceeded` if `depth` exceeds the
+/// maximum resolution depth.
 pub(crate) fn properties_of_source(
     session: &mut Session,
     source: &PriceSource,
     depth: u32,
 ) -> SourceProperties {
+    leg_properties(session, source, depth).0
+}
+
+/// [`properties_of_source`], plus the quote reach of a top-level `Scaled`
+/// leg: how far its factor's contract alone can move the quote key's price
+/// (see [`validation::quote_reach_wad`]). `Some(WAD)` for every other source.
+fn leg_properties(
+    session: &mut Session,
+    source: &PriceSource,
+    depth: u32,
+) -> (SourceProperties, Option<i128>) {
     let env = session.env().clone();
     require_depth(&env, depth);
 
     let described = local_properties(&env, source);
     let mut properties = described.local;
+    let reach_of = match source {
+        PriceSource::Scaled(scaled) if depth == 0 => Some(scaled.factor.provider.contract()),
+        _ => None,
+    };
 
+    let mut quote_reach = Some(WAD);
     for key in described.dependencies.iter() {
-        let dependency = properties_of_key(session, &key, depth + 1);
+        let (dependency, reach) = properties_of_key(session, &key, depth + 1, reach_of);
         properties = properties.join(&dependency);
+        quote_reach = reach;
     }
 
+    if source.is_aquarius_lp() {
+        properties.loosest_market_max_stale_seconds = Some(properties.loosest_max_stale_seconds);
+    }
     properties.depth = properties.depth.max(depth);
-    properties
+    (properties, quote_reach)
 }
 
 /// Computes the joined `SourceProperties` across every source configured on the
 /// oracle registered for `key`, tracking `key` on the session's resolution
-/// stack while iterating. Panics with `OracleDepthExceeded` if `depth` exceeds
-/// the maximum resolution depth, `OracleCycleDetected` if `key` is already on
-/// the stack, or `OracleNotConfigured` if `key` has no registered oracle.
+/// stack while iterating, and, for `reach_of`, how far that contract alone
+/// can move `key`'s price, from the number of `key`'s legs whose trust set
+/// holds it ([`validation::quote_reach_wad`]; `Some(WAD)` when `reach_of` is
+/// `None`). Panics with `OracleDepthExceeded` if `depth` exceeds the maximum
+/// resolution depth, `OracleCycleDetected` if `key` is already on the stack,
+/// or `OracleNotConfigured` if `key` has no registered oracle.
 pub(crate) fn properties_of_key(
     session: &mut Session,
     key: &PriceKey,
     depth: u32,
-) -> SourceProperties {
+    reach_of: Option<&Address>,
+) -> (SourceProperties, Option<i128>) {
     let env = session.env().clone();
     require_depth(&env, depth);
 
@@ -156,20 +192,32 @@ pub(crate) fn properties_of_key(
     };
 
     let mut joined = SourceProperties::empty(&env);
+    let mut legs_reached = 0;
     for source in oracle.sources.iter() {
         let source_properties = properties_of_source(session, &source, depth);
+        if reach_of.is_some_and(|contract| source_properties.trust.contains(contract)) {
+            legs_reached += 1;
+        }
         joined = joined.join(&source_properties);
     }
 
     session.pop_key();
-    joined
+    (
+        joined,
+        validation::quote_reach_wad(&env, &oracle, legs_reached),
+    )
 }
 
 /// The properties of an oracle configuration's first source and, when present,
-/// its second source.
+/// its second source, with each leg's quote reach in source order: how far a
+/// top-level `Scaled` leg's factor contract alone can move its quote key, as a
+/// WAD ratio rounded up, or `None` when nothing short of the single-source
+/// band cap bounds it. `Some(WAD)` for a leg that is not `Scaled` or whose
+/// quote does not trust its factor contract.
 pub(crate) struct ConfigProperties {
     pub first: SourceProperties,
     pub second: Option<SourceProperties>,
+    pub quote_reach_wad: [Option<i128>; 2],
 }
 
 impl ConfigProperties {
@@ -192,13 +240,18 @@ pub(crate) fn properties_of_config(
     let env = session.env().clone();
     validation::source_count(&env, sources.len());
 
-    let first = properties_of_source(session, &sources.get_unchecked(0), 0);
-    let second = if sources.len() == 2 {
-        Some(properties_of_source(session, &sources.get_unchecked(1), 0))
+    let (first, first_reach) = leg_properties(session, &sources.get_unchecked(0), 0);
+    let (second, second_reach) = if sources.len() == 2 {
+        let (second, reach) = leg_properties(session, &sources.get_unchecked(1), 0);
+        (Some(second), reach)
     } else {
-        None
+        (None, Some(WAD))
     };
-    ConfigProperties { first, second }
+    ConfigProperties {
+        first,
+        second,
+        quote_reach_wad: [first_reach, second_reach],
+    }
 }
 
 /// Panics with `OracleDepthExceeded` if `depth` exceeds the maximum resolution

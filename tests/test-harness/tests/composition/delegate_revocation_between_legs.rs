@@ -84,11 +84,12 @@ fn a_stranger_cannot_grant_or_revoke_a_delegate_on_another_owners_account() {
     let bob = t.get_or_create_user(BOB);
     t.ctrl_client().set_position_manager(&runner, &true);
 
-    // The account exists, so #13 here is the owner check, not the meta lookup.
+    // The account exists, so this is the owner check (#44 since F7), not the
+    // meta lookup (#13).
     assert_eq!(
         t.ctrl_client().try_add_delegate(&bob, &account, &runner),
         Err(Ok(soroban_sdk::Error::from_contract_error(
-            errors::ACCOUNT_NOT_IN_MARKET
+            errors::NOT_AUTHORIZED
         )))
     );
 
@@ -96,7 +97,7 @@ fn a_stranger_cannot_grant_or_revoke_a_delegate_on_another_owners_account() {
     assert_eq!(
         t.ctrl_client().try_remove_delegate(&bob, &account, &runner),
         Err(Ok(soroban_sdk::Error::from_contract_error(
-            errors::ACCOUNT_NOT_IN_MARKET
+            errors::NOT_AUTHORIZED
         )))
     );
     t.run_script(

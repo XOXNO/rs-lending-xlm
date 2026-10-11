@@ -29,7 +29,9 @@ use test_harness::{
 /// Transfer floors the seizure to asset units, then ceils the share burn (`resolve_withdrawal`).
 /// Credit floors once in RAY share space. With `v` the seizure value, `K` one asset unit of
 /// value, `c = 1 / index` and `r = v mod K`, transfer burns `ceil((v-r)*c)` and credit
-/// `floor(v*c)`, so `credit - transfer < K*c` and `transfer - credit < 2` raw shares.
+/// `floor(v*c)`, so `credit - transfer < K*c` and `transfer - credit < 2` raw shares. A
+/// partial amount that reaches the leg's half-up balance is a full close in both modes
+/// (MC-2), so the two agree exactly there.
 ///
 /// The bound follows the live index, so it must not be a constant. Bad-debt socialization
 /// (`apply_bad_debt_to_supply_index`) can lower the index to `SUPPLY_INDEX_FLOOR_RAW`
@@ -1259,7 +1261,11 @@ fn the_share_gap_stays_under_one_asset_unit_with_the_supply_index_below_ray() {
 
     for wiped_usdc in [3_000.0f64, 9_000.0, 15_000.0, 18_700.0] {
         for repay_bps in [2_903u32, 6_113, 9_337] {
-            let mut t = LendingTest::new().standard_two_asset().build();
+            // Only ALICE and CAROL supply USDC, so Dave's write-down lands on them.
+            let mut t = LendingTest::new()
+                .standard_two_asset()
+                .with_initial_liquidity("USDC", 0.0)
+                .build();
             for user in [ALICE, CAROL] {
                 t.supply(user, "USDC", 9_876.54);
             }
