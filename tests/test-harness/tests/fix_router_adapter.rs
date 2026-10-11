@@ -19,6 +19,7 @@ use soroban_sdk::{
     Vec,
 };
 use test_harness::errors::NO_SWAP_OUTPUT;
+use test_harness::wasm::release_wasm;
 use test_harness::{
     eth_preset, hub_asset, usdc_preset, HubAssetKey, LendingTest, ALICE, BOB, HARNESS_SPOKE,
 };
@@ -94,11 +95,7 @@ impl FixedRatePool {
 }
 
 fn router_wasm() -> std::vec::Vec<u8> {
-    let rel = "target/wasm32v1-none/release/swap_aggregator.wasm";
-    ["", "../", "../../"]
-        .iter()
-        .find_map(|prefix| std::fs::read(format!("{prefix}{rel}")).ok())
-        .unwrap_or_else(|| panic!("swap_aggregator.wasm not found; run `make build` first"))
+    release_wasm("swap_aggregator.wasm")
 }
 
 /// Registry `[USDC, ETH, pool, USDC]`: the header declares `token_in = 0` and

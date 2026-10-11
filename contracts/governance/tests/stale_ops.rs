@@ -21,7 +21,8 @@ use crate::constants::{
 };
 use crate::op::{AdminOperation, RoleArgs, TransferOwnershipArgs};
 use crate::test_support::{
-    read_controller_position_limits, register_with_controller, upload_controller_wasm,
+    controller_wasm_bytes, read_controller_position_limits, register_with_controller,
+    upload_controller_wasm,
 };
 use crate::{storage, GovernanceClient};
 
@@ -1017,11 +1018,7 @@ fn try_execute_controller_upgrade(
 /// Uploads the controller WASM with a trailing custom section, so the code
 /// is the same but the hash differs.
 fn upload_controller_wasm_variant(env: &Env, tag: u8) -> BytesN<32> {
-    let path = "target/wasm32v1-none/release/controller.wasm";
-    let mut bytes = std::fs::read(path)
-        .or_else(|_| std::fs::read(std::format!("../{path}")))
-        .or_else(|_| std::fs::read(std::format!("../../{path}")))
-        .expect("controller WASM");
+    let mut bytes = controller_wasm_bytes();
     // Custom section: id 0, size 4, name "v2" (length 2), payload [tag].
     bytes.extend_from_slice(&[0x00, 0x04, 0x02, b'v', b'2', tag]);
     env.deployer()

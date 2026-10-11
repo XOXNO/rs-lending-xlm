@@ -37,6 +37,7 @@ use soroban_sdk::{
     TryFromVal, Vec,
 };
 use test_harness::presets::{AssetConfigPreset, MarketPreset, DEFAULT_ASSET_CONFIG};
+use test_harness::wasm::release_wasm;
 use test_harness::{
     apply_flash_fee, assert_contract_error, errors, eth_preset, hub_asset, map_try_ok_unit,
     map_try_ok_value, usd, usd_cents, usdc_preset, FlashPositionMode, FlashPositionRequest,
@@ -218,11 +219,7 @@ fn one_hop_payload(
 }
 
 fn router_wasm() -> std::vec::Vec<u8> {
-    let rel = "target/wasm32v1-none/release/swap_aggregator.wasm";
-    ["", "../", "../../"]
-        .iter()
-        .find_map(|prefix| std::fs::read(format!("{prefix}{rel}")).ok())
-        .unwrap_or_else(|| panic!("swap_aggregator.wasm not found; run `make build` first"))
+    release_wasm("swap_aggregator.wasm")
 }
 
 /// USDC + ETH book with the production router installed. Bob supplies

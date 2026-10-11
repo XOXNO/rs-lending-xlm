@@ -39,6 +39,7 @@ use test_harness::errors;
 use test_harness::mock_redstone::{MockRedStonePriceFeed, MockRedStonePriceFeedClient};
 use test_harness::mock_reflector::{MockReflector, MockReflectorClient};
 use test_harness::oracle::redstone::register_redstone_adapter;
+use test_harness::wasm::release_wasm;
 use test_harness::{
     assert_contract_error, redstone_single_config, tight_single_source_band, tolerance_band, usd,
     usd_frac, LendingTest, ALICE, BOB, DEFAULT_MAX_SANITY_PRICE_WAD, DEFAULT_MIN_SANITY_PRICE_WAD,
@@ -888,15 +889,21 @@ fn oracle_6b_worst_fan_out_through_governance_fits_mainnet_limits() {
 /// The deploy artifact (`make build-one CRATE=price-aggregator`, then
 /// `scripts/strip_spec_docs.py`) runs the same code optimized and costs less.
 fn read_wasm() -> std::vec::Vec<u8> {
-    let path = std::env::var("ORACLE_FAN_OUT_WASM")
-        .unwrap_or_else(|_| "target/wasm32v1-none/release/price_aggregator.wasm".to_string());
-    for candidate in [path.clone(), format!("../{path}"), format!("../../{path}")] {
-        if let Ok(bytes) = std::fs::read(&candidate) {
-            std::println!("oracle-6c: loaded {candidate} ({} bytes)", bytes.len());
-            return bytes;
+    if let Ok(path) = std::env::var("ORACLE_FAN_OUT_WASM") {
+        for candidate in [path.clone(), format!("../{path}"), format!("../../{path}")] {
+            if let Ok(bytes) = std::fs::read(&candidate) {
+                std::println!("oracle-6c: loaded {candidate} ({} bytes)", bytes.len());
+                return bytes;
+            }
         }
+        panic!("aggregator WASM not found at {path}");
     }
-    panic!("aggregator WASM not found at {path}");
+    let bytes = release_wasm("price_aggregator.wasm");
+    std::println!(
+        "oracle-6c: loaded the release aggregator ({} bytes)",
+        bytes.len()
+    );
+    bytes
 }
 
 /// Registry size the fan-out fills: `ORACLE_FAN_OUT_KEYS` (to re-measure

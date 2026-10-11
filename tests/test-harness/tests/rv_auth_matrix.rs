@@ -25,6 +25,7 @@ use soroban_sdk::testutils::{Address as _, AuthorizedFunction, Ledger, MockAuth,
 use soroban_sdk::xdr::{ScErrorType, SorobanAuthorizationEntry};
 use soroban_sdk::{token, vec, Address, Bytes, BytesN, Env, IntoVal, Symbol, Val, Vec};
 use test_harness::mock_blend::{KIND_COLLATERAL, KIND_LIABILITY};
+use test_harness::wasm::release_wasm;
 use test_harness::{
     build_aggregator_swap, errors, f64_to_i128, hub_asset, usd_cents, usdc_preset, HubAssetKey,
     LendingTest, ALICE, BOB, CAROL, DAVE, EVE, HARNESS_HUB, HARNESS_SPOKE, LIQUIDATOR,
@@ -156,14 +157,9 @@ fn out<T, E: Into<soroban_sdk::Error>>(
     }
 }
 
-/// Uploads a built contract from the workspace target directory and returns its hash. The
-/// test binary runs from the crate directory, so the workspace root is two levels up.
+/// Uploads a built release contract and returns its hash (see `test_harness::wasm`).
 fn upload_wasm(env: &Env, file: &str) -> BytesN<32> {
-    let rel = format!("target/wasm32v1-none/release/{file}");
-    let bytes = ["", "../", "../../"]
-        .iter()
-        .find_map(|prefix| std::fs::read(format!("{prefix}{rel}")).ok())
-        .unwrap_or_else(|| panic!("{file} not found; run `make build` first"));
+    let bytes = release_wasm(file);
     env.deployer()
         .upload_contract_wasm(Bytes::from_slice(env, &bytes))
 }

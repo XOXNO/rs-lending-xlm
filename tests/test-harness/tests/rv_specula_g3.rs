@@ -28,6 +28,7 @@ use governance_interface::{AdminOperation, OperationState};
 use soroban_sdk::testutils::Ledger as _;
 use soroban_sdk::{vec, BytesN, IntoVal, Symbol, Val, Vec};
 use test_harness::errors::GenericError;
+use test_harness::wasm::release_wasm;
 use test_harness::{assert_contract_error, errors, LendingTest, ALICE};
 
 /// `governance::constants::TIMELOCK_OPERATION_GRACE_LEDGERS`.
@@ -89,11 +90,7 @@ fn exec_unpause(t: &LendingTest, byte: u8) -> Result<(), soroban_sdk::Error> {
 }
 
 fn upload_controller_wasm(env: &soroban_sdk::Env) -> BytesN<32> {
-    let mut bytes = std::fs::read("target/wasm32v1-none/release/controller.wasm");
-    if bytes.is_err() {
-        bytes = std::fs::read("../../target/wasm32v1-none/release/controller.wasm");
-    }
-    let bytes = bytes.expect("controller WASM not found. Run 'make build' first.");
+    let bytes = release_wasm("controller.wasm");
     env.deployer()
         .upload_contract_wasm(soroban_sdk::Bytes::from_slice(env, &bytes))
 }

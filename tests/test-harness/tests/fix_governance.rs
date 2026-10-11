@@ -34,6 +34,7 @@ use governance_interface::{
 use soroban_sdk::testutils::{Address as _, Ledger as _};
 use soroban_sdk::{contracttype, vec, Address, Bytes, BytesN, IntoVal, Symbol, Val, Vec};
 use test_harness::errors::GenericError;
+use test_harness::wasm::release_wasm;
 use test_harness::{
     assert_contract_error, errors, eth_preset, hub_asset, tolerance_band, usd, usdc_preset,
     LendingTest, ALICE, HARNESS_HUB, HARNESS_SPOKE, STABLECOIN_SPOKE,
@@ -932,11 +933,7 @@ fn owner_queue_dies_with_a_handover_and_survives_a_self_transfer() {
 }
 
 fn upload_controller_wasm(t: &LendingTest) -> BytesN<32> {
-    let mut bytes = std::fs::read("target/wasm32v1-none/release/controller.wasm");
-    if bytes.is_err() {
-        bytes = std::fs::read("../../target/wasm32v1-none/release/controller.wasm");
-    }
-    let bytes = bytes.expect("controller WASM not found. Run 'make build' first.");
+    let bytes = release_wasm("controller.wasm");
     t.env
         .deployer()
         .upload_contract_wasm(Bytes::from_slice(&t.env, &bytes))
@@ -1783,13 +1780,10 @@ fn exec_limits(t: &LendingTest, supply: u32, byte: u8) -> Result<(), soroban_sdk
     )
 }
 
-/// Uploads `target/wasm32v1-none/release/<file>` with a trailing custom
-/// section carrying `tag`, so the code is the same and the hash differs.
+/// Uploads the release `<file>` with a trailing custom section carrying
+/// `tag`, so the code is the same and the hash differs.
 fn upload_wasm_variant(t: &LendingTest, file: &str, tag: u8) -> BytesN<32> {
-    let path = std::format!("target/wasm32v1-none/release/{file}");
-    let mut bytes = std::fs::read(&path)
-        .or_else(|_| std::fs::read(std::format!("../../{path}")))
-        .expect("WASM not found. Run 'make build' first.");
+    let mut bytes = release_wasm(file);
     // Custom section: id 0, size 4, name "v2" (length 2), payload [tag].
     bytes.extend_from_slice(&[0x00, 0x04, 0x02, b'v', b'2', tag]);
     t.env

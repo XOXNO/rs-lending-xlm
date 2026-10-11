@@ -22,6 +22,7 @@ use soroban_sdk::{
     contract, contractclient, contractimpl, contracttype, token, vec, Address, Bytes, Env, IntoVal,
     Vec,
 };
+use test_harness::wasm::release_wasm;
 use test_harness::{
     apply_flash_fee, eth_preset, hub_asset, usdc_preset, HubAssetKey, LendingTest, ALICE, BOB,
 };
@@ -149,11 +150,7 @@ fn one_hop_payload(
 }
 
 fn router_wasm() -> std::vec::Vec<u8> {
-    let rel = "target/wasm32v1-none/release/swap_aggregator.wasm";
-    ["", "../", "../../"]
-        .iter()
-        .find_map(|prefix| std::fs::read(format!("{prefix}{rel}")).ok())
-        .unwrap_or_else(|| panic!("swap_aggregator.wasm not found; run `make build` first"))
+    release_wasm("swap_aggregator.wasm")
 }
 
 struct Rig {
