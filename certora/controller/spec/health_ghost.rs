@@ -2,10 +2,13 @@
 //!
 //! `record_gate` is driven by `spec_hooks::solvency_gate_checked`, which
 //! production calls from `risk::validation::require_post_pool_risk_gates`.
-//! Besides recording whether the gate ran, it snapshots the supply and debt
-//! books the gate valued. The health rules check that the final persisted books
-//! retain that snapshot's debt and weighted-collateral valuations. They do not
-//! require identical books or prohibit writes after the gate.
+//! Besides recording whether the gate ran, it snapshots the account's full
+//! supply and debt books. The gate values that supply book minus the legs
+//! excluded from the account's valuation (`risk::valued_supply_positions`), so
+//! the snapshot holds at least the collateral the gate counted. The health
+//! rules check that the final persisted books retain that snapshot's debt and
+//! weighted-collateral valuations. They do not require identical books or
+//! prohibit writes after the gate.
 
 use common::types::{Account, AccountPositionRaw, DebtPositionRaw, HubAssetKey};
 use soroban_sdk::{Env, Map};
@@ -25,8 +28,8 @@ pub fn reset() {
 }
 
 /// Records one execution of the post-pool solvency gate together with the
-/// position books it valued. A later gate in the same transaction overwrites
-/// an earlier one: the admitting observation is the last one.
+/// account's full position books. A later gate in the same transaction
+/// overwrites an earlier one: the admitting observation is the last one.
 pub fn record_gate(account: &Account) {
     unsafe {
         GHOST_HF_CHECKED = true;

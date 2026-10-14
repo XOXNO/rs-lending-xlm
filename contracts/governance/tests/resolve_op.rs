@@ -9,10 +9,12 @@ use super::*;
 
 use crate::test_support::register_governance;
 use common::constants::RAY;
-use common::types::{HubAssetKey, IndependencePolicy, MarketParamsRaw, OracleTolerance};
+use common::types::{
+    ControllerKey, HubAssetKey, IndependencePolicy, MarketParamsRaw, OracleTolerance,
+};
 use price_aggregator::PriceAggregatorClient as SeedClient;
 use soroban_sdk::testutils::Address as _;
-use soroban_sdk::{symbol_short, BytesN, String as SorobanString};
+use soroban_sdk::{symbol_short, BytesN, Map, String as SorobanString};
 
 /// A governance instance with a native controller registered, plus that
 /// controller's address. `resolve_op` reads the controller out of instance
@@ -222,6 +224,85 @@ fn relax_spoke_asset_flags_rejects_a_future_epoch_at_proposal() {
     let env = Env::default();
     let (gov_id, _controller_id) = gov_with_controller(&env);
     let op = AdminOperation::RelaxSpokeAssetFlags(relax_args(&env, 1));
+
+    env.as_contract(&gov_id, || resolve_op(&env, &op));
+}
+
+fn restore_args(env: &Env, excluded_at: u32) -> RestoreAccountAssetValuationArgs {
+    RestoreAccountAssetValuationArgs {
+        account_id: 7,
+        hub_asset: HubAssetKey {
+            hub_id: 0,
+            asset: Address::generate(env),
+        },
+        excluded_at,
+    }
+}
+
+/// Writes the controller's exclusion map for `args.account_id` directly: the
+/// proposal-time check reads it through the controller view.
+fn seed_exclusion(env: &Env, controller_id: &Address, args: &RestoreAccountAssetValuationArgs) {
+    let mut exclusions: Map<HubAssetKey, u32> = Map::new(env);
+    exclusions.set(args.hub_asset.clone(), args.excluded_at);
+    env.as_contract(controller_id, || {
+        env.storage().persistent().set(
+            &ControllerKey::AccountValuationExclusions(args.account_id),
+            &exclusions,
+        );
+    });
+}
+
+#[test]
+fn restore_account_asset_valuation_resolves_to_controller_with_standard_delay() {
+    let env = Env::default();
+    let (gov_id, controller_id) = gov_with_controller(&env);
+    let args = restore_args(&env, 40);
+    seed_exclusion(&env, &controller_id, &args);
+    let op = AdminOperation::RestoreAccountAssetValuation(args.clone());
+
+    let resolved = env.as_contract(&gov_id, || resolve_op(&env, &op));
+
+    assert_eq!(resolved.target, controller_id);
+    assert_eq!(
+        resolved.function,
+        Symbol::new(&env, "restore_account_asset_valuation")
+    );
+    assert_eq!(
+        resolved.args,
+        vec![
+            &env,
+            args.account_id.into_val(&env),
+            args.hub_asset.into_val(&env),
+            args.excluded_at.into_val(&env),
+        ]
+    );
+    // Same tier as `RelaxSpokeAssetFlags`: both lift a guardian restriction.
+    assert_eq!(resolved.delay_tier, DelayTier::Standard);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #321)")]
+fn restore_account_asset_valuation_rejects_a_missing_exclusion_at_proposal() {
+    let env = Env::default();
+    let (gov_id, _controller_id) = gov_with_controller(&env);
+    let op = AdminOperation::RestoreAccountAssetValuation(restore_args(&env, 40));
+
+    env.as_contract(&gov_id, || resolve_op(&env, &op));
+}
+
+/// A restore prepared for an earlier exclusion of the same leg names another
+/// stamp than the live one, so it cannot even be proposed.
+#[test]
+#[should_panic(expected = "Error(Contract, #321)")]
+fn restore_account_asset_valuation_rejects_another_stamp_at_proposal() {
+    let env = Env::default();
+    let (gov_id, controller_id) = gov_with_controller(&env);
+    let args = restore_args(&env, 40);
+    seed_exclusion(&env, &controller_id, &args);
+    let op = AdminOperation::RestoreAccountAssetValuation(RestoreAccountAssetValuationArgs {
+        excluded_at: 39,
+        ..args
+    });
 
     env.as_contract(&gov_id, || resolve_op(&env, &op));
 }

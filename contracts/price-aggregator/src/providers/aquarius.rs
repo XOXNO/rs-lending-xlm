@@ -85,8 +85,8 @@ pub(crate) fn read(
     if !decimals_match(&env, share, &tokens, share_decimals, lp) {
         return Err(OracleError::NoLastPrice);
     }
-    let price_a = engine::resolve_nested(session, &lp.key_a, depth + 1)?;
-    let price_b = engine::resolve_nested(session, &lp.key_b, depth + 1)?;
+    let (price_a, _) = engine::resolve_nested(session, &lp.key_a, depth + 1)?;
+    let (price_b, _) = engine::resolve_nested(session, &lp.key_b, depth + 1)?;
     let (reserve_a, reserve_b) =
         aquarius_pool_reserves_call(&env, &lp.pool).ok_or(OracleError::NoLastPrice)?;
     let total_shares =

@@ -6,6 +6,25 @@ use common::constants::{TTL_BUMP_SHARED, TTL_THRESHOLD_SHARED};
 use common::types::{AssetOracle, PriceKey};
 use soroban_sdk::{contractevent, contracttype, Env, Vec};
 
+/// Most keys the registry accepts. `set_oracle` and `set_tolerance`
+/// revalidate every registered dependent of a changed key by scanning the
+/// registry, which touches one ledger entry per key and walks each
+/// dependent's composition. Release builds have no path that removes a key,
+/// so the registry only grows; the cap keeps that scan inside a transaction.
+///
+/// Sized by CPU, not the 400-entry footprint, on the optimized deploy
+/// artifact against the 400M instructions the soroban-sdk 28 mainnet profile
+/// allows per transaction. The costliest measured dependents have two
+/// `Scaled` legs at the resolution depth limit, so validation walks a
+/// three-key quote chain once per leg: both legs on one chain cost about
+/// 351M at this cap, and a first leg on a separate chain that never reaches
+/// the edited key about 357M (405M and 412M at 128 keys). SolvBTC-shaped
+/// pairs two quotes deep cost about 246M. Any other branching above the
+/// edited key (an LP over two deep keys, a quote key with two `Scaled` legs,
+/// branching at more than one level) walks more keys per dependent and is
+/// outside the measured bound. See the `fix_oracle` fan-out tests.
+pub(crate) const MAX_ORACLE_KEYS: u32 = 112;
+
 /// Storage keys: `Oracle` (persistent) holds one asset oracle's configuration,
 /// and `OracleKeys` (instance) indexes all registered oracle keys.
 #[contracttype]

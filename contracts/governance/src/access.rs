@@ -14,6 +14,8 @@ use soroban_sdk::{
 use stellar_access::{access_control, ownable, role_transfer};
 use stellar_governance::timelock::set_min_delay;
 
+use crate::constants::MAX_CANCELLERS;
+use crate::storage::{self, KeyedCounter};
 use crate::{timelock, Governance, GovernanceArgs, GovernanceClient};
 
 /// Role that may call `set_sanity_band`.
@@ -80,7 +82,9 @@ fn sync_pending_admin_transfer(env: &Env, new_owner: &Address, live_until_ledger
 /// as the admin, clears the pending-admin entry, emits an
 /// admin-transfer-completed event, and grants each default operational
 /// role to `new_owner`, revoking it from `previous_owner` when the two
-/// addresses differ and `previous_owner` still holds it.
+/// addresses differ and `previous_owner` still holds it. A previous owner
+/// that loses `PROPOSER` this way has its proposer epoch advanced, like any
+/// other proposer revocation.
 fn sync_owner_access_control(env: &Env, previous_owner: &Address, new_owner: &Address) {
     let previous_admin = access_control::get_admin(env).unwrap_or_else(|| previous_owner.clone());
 
@@ -99,7 +103,17 @@ fn sync_owner_access_control(env: &Env, previous_owner: &Address, new_owner: &Ad
             && access_control::has_role(env, previous_owner, &role).is_some()
         {
             access_control::revoke_role_no_auth(env, previous_owner, &role, new_owner);
+            void_proposer_queue(env, previous_owner, &role);
         }
+    }
+}
+
+/// Advances `account`'s proposer epoch when `role` is `PROPOSER`, voiding
+/// every operation `account` proposed: an address that loses the role loses
+/// its whole queue with it.
+fn void_proposer_queue(env: &Env, account: &Address, role: &Symbol) {
+    if *role == Symbol::new(env, PROPOSER_ROLE) {
+        storage::bump_proposer_epoch(env, account);
     }
 }
 
@@ -118,13 +132,17 @@ pub(crate) fn apply_upgrade(env: &Env, new_wasm_hash: &BytesN<32>) {
 }
 
 /// Renews the governance instance's storage TTL, updates the pending-owner
-/// entry for `new_owner` (recording it as pending until `live_until_ledger`,
-/// or clearing an existing pending transfer to it when `live_until_ledger`
-/// is zero), emits an ownership-transfer event, and mirrors the pending
-/// transfer onto the access-control admin role.
+/// entry for `new_owner` (recording it as pending until `live_until_ledger`
+/// and advancing the nomination epoch, or clearing an existing pending
+/// transfer to it when `live_until_ledger` is zero), emits an
+/// ownership-transfer event, and mirrors the pending transfer onto the
+/// access-control admin role.
 pub(crate) fn apply_transfer_ownership(env: &Env, new_owner: &Address, live_until_ledger: u32) {
     renew_instance(env);
     let current_owner = owner_or_panic(env);
+    if live_until_ledger != 0 {
+        storage::bump_nomination_epoch(env);
+    }
 
     role_transfer::transfer_role(
         env,
@@ -134,6 +152,18 @@ pub(crate) fn apply_transfer_ownership(env: &Env, new_owner: &Address, live_unti
     );
     ownable::emit_ownership_transfer(env, &current_owner, new_owner, live_until_ledger);
     sync_pending_admin_transfer(env, new_owner, live_until_ledger);
+}
+
+/// Returns whether a nomination cancellation recorded at nomination `epoch`
+/// still targets the live nomination: no nomination has been made since, and
+/// `new_owner` is the pending owner.
+pub(crate) fn nomination_cancel_is_current(env: &Env, new_owner: &Address, epoch: u64) -> bool {
+    epoch == storage::nomination_epoch(env)
+        && env
+            .storage()
+            .temporary()
+            .get::<_, role_transfer::PendingTransfer>(&ownable::OwnableStorageKey::PendingOwner)
+            .is_some_and(|pending| &pending.address == new_owner)
 }
 
 /// Panics with `GenericError::InvalidRole` if granting `role` to `account`
@@ -164,22 +194,42 @@ fn require_executor_canceller_separation(
     );
 }
 
+/// Panics with `GenericError::CancellerLimitExceeded` if the canceller role
+/// has more than `MAX_CANCELLERS` holders.
+pub(crate) fn require_canceller_count_within_cap(env: &Env, holders: u32) {
+    assert_with_error!(
+        env,
+        holders <= MAX_CANCELLERS,
+        GenericError::CancellerLimitExceeded
+    );
+}
+
 /// Renews the governance instance's storage TTL and grants `role` to
 /// `account`, after checking that the grant does not give `account` both
-/// the executor and canceller roles.
+/// the executor and canceller roles and keeps the canceller role within
+/// `MAX_CANCELLERS` holders.
 pub(crate) fn apply_grant_role(env: &Env, account: &Address, role: &Symbol) {
     renew_instance(env);
     let owner = owner_or_panic(env);
     require_executor_canceller_separation(env, &owner, account, role);
     access_control::grant_role_no_auth(env, account, role, &owner);
+    if *role == Symbol::new(env, CANCELLER_ROLE) {
+        require_canceller_count_within_cap(env, access_control::get_role_member_count(env, role));
+    }
 }
 
 /// Renews the governance instance's storage TTL, revokes the canceller role
 /// from every current holder other than `owner`, then grants it to each
 /// address in `new_cancellers` that does not already hold it, skipping
-/// `owner` and enforcing the executor/canceller separation on each new
-/// grant.
-pub(crate) fn apply_canceller_reset(env: &Env, new_cancellers: &Vec<Address>) {
+/// `owner`, skipping an address whose `CANCELLER` revocation epoch is no
+/// longer `recorded_epoch(index)` (a revocation after the reset was proposed
+/// stands), and enforcing the executor/canceller separation on each new
+/// grant. The resulting role keeps at most `MAX_CANCELLERS` holders.
+pub(crate) fn apply_canceller_reset(
+    env: &Env,
+    new_cancellers: &Vec<Address>,
+    recorded_epoch: impl Fn(u32) -> u64,
+) {
     renew_instance(env);
     let owner = owner_or_panic(env);
     let role = Symbol::new(env, CANCELLER_ROLE);
@@ -191,19 +241,31 @@ pub(crate) fn apply_canceller_reset(env: &Env, new_cancellers: &Vec<Address>) {
             access_control::revoke_role_no_auth(env, &holder, &role, &owner);
         }
     }
-    for account in new_cancellers.iter() {
-        if account != owner && access_control::has_role(env, &account, &role).is_none() {
+    for (index, account) in (0u32..).zip(new_cancellers.iter()) {
+        if account == owner
+            || KeyedCounter::RoleRevocation(account.clone(), role.clone()).value(env)
+                != recorded_epoch(index)
+        {
+            continue;
+        }
+        if access_control::has_role(env, &account, &role).is_none() {
             require_executor_canceller_separation(env, &owner, &account, &role);
             access_control::grant_role_no_auth(env, &account, &role, &owner);
         }
     }
+    require_canceller_count_within_cap(env, access_control::get_role_member_count(env, &role));
 }
 
-/// Renews the governance instance's storage TTL and revokes `role` from
-/// `account`. Panics with `GenericError::InvalidRole` if `account` does not
-/// hold `role`, with `GenericError::NotAuthorized` if `account` is the
-/// owner, and with `GenericError::CannotRemoveLastProposer` if this would
-/// remove the last remaining holder of the proposer role.
+/// Renews the governance instance's storage TTL, revokes `role` from
+/// `account` and advances that account and role's revocation epoch, so a
+/// `GrantGovRole` of the role to the account proposed before the revocation
+/// cannot restore it. Revoking `PROPOSER` also advances the account's
+/// proposer epoch, voiding every operation it proposed. The timelocked
+/// `RevokeGovRole` and `revoke_role_immediate` both revoke through here.
+/// Panics with `GenericError::InvalidRole` if `account` does not hold `role`, with
+/// `GenericError::NotAuthorized` if `account` is the owner, and with
+/// `GenericError::CannotRemoveLastProposer` if this would remove the last
+/// remaining holder of the proposer role.
 pub(crate) fn apply_revoke_role(env: &Env, account: &Address, role: &Symbol) {
     renew_instance(env);
     assert_with_error!(
@@ -221,17 +283,23 @@ pub(crate) fn apply_revoke_role(env: &Env, account: &Address, role: &Symbol) {
         );
     }
     access_control::revoke_role_no_auth(env, account, role, &owner);
+    KeyedCounter::RoleRevocation(account.clone(), role.clone()).bump(env);
+    void_proposer_queue(env, account, role);
 }
 
 /// Renews the governance instance's storage TTL, completes a pending
-/// ownership transfer to the caller, and synchronizes the access-control
-/// admin and operational-role holders from the previous owner to the new
-/// owner.
+/// ownership transfer to the caller, advances the owner epoch when the owner
+/// changes (a self-transfer keeps it, so the owner's own queue survives), and
+/// synchronizes the access-control admin and operational-role holders from
+/// the previous owner to the new owner.
 pub(crate) fn accept_ownership(env: &Env) {
     renew_instance(env);
     let previous_owner = owner_or_panic(env);
     ownable::accept_ownership(env);
     let new_owner = owner_or_panic(env);
+    if new_owner != previous_owner {
+        storage::bump_owner_epoch(env);
+    }
     sync_owner_access_control(env, &previous_owner, &new_owner);
 }
 

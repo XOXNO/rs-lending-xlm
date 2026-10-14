@@ -1,7 +1,10 @@
 extern crate std;
 
+use crate::wasm::release_wasm;
 use std::collections::HashMap;
 
+use common::math::fp::Ray;
+use common::rates::calculate_scaled_supply;
 use governance::op::{AdminOperation, ConfigureAssetOracleArgs, CreatePoolArgs, SpokeAssetArgs};
 use soroban_sdk::testutils::{Address as _, Ledger, LedgerInfo};
 use soroban_sdk::{token, Address, Env, String, TryFromVal};
@@ -103,6 +106,25 @@ impl LendingTestBuilder {
             }
         }
         panic!("market '{}' not found -- call .with_market() first", name);
+    }
+
+    /// Sets the supply the builder seeds into `name`'s pool, in whole tokens.
+    pub fn with_initial_liquidity(mut self, name: &str, initial_liquidity: f64) -> Self {
+        for pm in &mut self.pending_markets {
+            if pm.name == name {
+                pm.initial_liquidity = initial_liquidity;
+                return self;
+            }
+        }
+        panic!("market '{}' not found -- call .with_market() first", name);
+    }
+
+    /// Seeds no supply into any market listed so far.
+    pub fn without_initial_liquidity(mut self) -> Self {
+        for pm in &mut self.pending_markets {
+            pm.initial_liquidity = 0.0;
+        }
+        self
     }
 
     pub fn with_position_limits(mut self, max_supply: u32, max_borrow: u32) -> Self {
@@ -213,40 +235,17 @@ impl LendingTestBuilder {
 
         controller::ControllerClient::new(&env, &controller_address).unpause();
 
-        let pool_wasm_path = std::env::var("POOL_WASM_PATH")
-            .unwrap_or_else(|_| "target/wasm32v1-none/release/pool.wasm".to_string());
-        let mut bytes = std::fs::read(&pool_wasm_path);
-        if bytes.is_err() {
-            bytes = std::fs::read(format!("../{}", pool_wasm_path));
-        }
-        if bytes.is_err() {
-            bytes = std::fs::read(format!("../../{}", pool_wasm_path));
-        }
-
-        let pool_hash = match bytes {
-            Ok(b) => env
-                .deployer()
-                .upload_contract_wasm(soroban_sdk::Bytes::from_slice(&env, &b)),
-            Err(_) => panic!("Liquidity pool WASM not found. Run 'make build' first."),
-        };
+        let pool_bytes = release_wasm("pool.wasm");
+        let pool_hash = env
+            .deployer()
+            .upload_contract_wasm(soroban_sdk::Bytes::from_slice(&env, &pool_bytes));
         let global_pool_val = gov.execute_immediate(&admin, &AdminOperation::DeployPool(pool_hash));
         let global_pool: Address = Address::try_from_val(&env, &global_pool_val).unwrap();
 
-        let nft_wasm_path = std::env::var("POSITION_NFT_WASM_PATH")
-            .unwrap_or_else(|_| "target/wasm32v1-none/release/position_nft.wasm".to_string());
-        let mut nft_bytes = std::fs::read(&nft_wasm_path);
-        if nft_bytes.is_err() {
-            nft_bytes = std::fs::read(format!("../{}", nft_wasm_path));
-        }
-        if nft_bytes.is_err() {
-            nft_bytes = std::fs::read(format!("../../{}", nft_wasm_path));
-        }
-        let nft_hash = match nft_bytes {
-            Ok(b) => env
-                .deployer()
-                .upload_contract_wasm(soroban_sdk::Bytes::from_slice(&env, &b)),
-            Err(_) => panic!("position-nft WASM not found. Run 'make build' first."),
-        };
+        let nft_bytes = release_wasm("position_nft.wasm");
+        let nft_hash = env
+            .deployer()
+            .upload_contract_wasm(soroban_sdk::Bytes::from_slice(&env, &nft_bytes));
         let ctrl = controller::ControllerClient::new(&env, &controller_address);
         let position_nft = ctrl.deploy_position_nft(
             &nft_hash,
@@ -403,12 +402,21 @@ impl LendingTestBuilder {
                 token_admin.mint(&pool_address, &liquidity_amount);
             }
 
-            env.as_contract(&pool_address, || {
+            let seed_supply_scaled = env.as_contract(&pool_address, || {
                 let key = controller::types::PoolKey::State(hub_asset(asset_address.clone()));
                 let mut state: controller::types::PoolStateRaw =
                     env.storage().persistent().get(&key).unwrap();
+                let seed_shares = calculate_scaled_supply(
+                    &env,
+                    liquidity_amount,
+                    market_decimals,
+                    Ray::from(state.supply_index),
+                )
+                .raw();
                 state.cash += liquidity_amount;
+                state.supplied += seed_shares;
                 env.storage().persistent().set(&key, &state);
+                seed_shares
             });
 
             markets.insert(
@@ -419,6 +427,7 @@ impl LendingTestBuilder {
                     token_admin,
                     decimals: market_decimals,
                     price_wad: pm.price_wad,
+                    seed_supply_scaled,
                 },
             );
         }

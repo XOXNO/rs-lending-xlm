@@ -145,7 +145,7 @@ fn price_cache_consistency(e: Env, asset: Address) {
         asset_decimals,
         timestamp,
     };
-    session.store_price(&key, seeded.clone());
+    session.store_price(&key, seeded.clone(), None);
 
     let feed = crate::engine::resolve(&mut session, &key, 0);
 

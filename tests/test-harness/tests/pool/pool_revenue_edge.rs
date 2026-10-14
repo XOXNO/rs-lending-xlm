@@ -1,4 +1,4 @@
-use test_harness::{assert_contract_error, errors, hub_asset, LendingTest, ALICE, BOB, CAROL};
+use test_harness::{hub_asset, LendingTest, ALICE, BOB, CAROL};
 
 #[test]
 fn test_claim_revenue_else_branch_when_reserves_fully_drained() {
@@ -6,6 +6,7 @@ fn test_claim_revenue_else_branch_when_reserves_fully_drained() {
         .standard_two_asset()
         .with_dust_disabled_all_markets()
         .with_max_utilization_disabled_all_markets()
+        .without_initial_liquidity()
         .build();
 
     let accumulator = t
@@ -78,6 +79,7 @@ fn test_claim_revenue_blocked_when_post_state_insolvent() {
         .standard_two_asset()
         .with_dust_disabled_all_markets()
         .with_max_utilization_disabled_all_markets()
+        .without_initial_liquidity()
         .build();
 
     let accumulator = t
@@ -95,8 +97,30 @@ fn test_claim_revenue_blocked_when_post_state_insolvent() {
     let revenue_pre = t.snapshot_revenue("USDC");
     assert!(revenue_pre > 0, "fixture must accrue revenue");
 
+    // Share-less cash lets ALICE exit in full while BOB's debt stays open,
+    // leaving revenue as the only supply.
+    t.inject_shareless_cash_raw("USDC", 10_000 * 10_000_000);
     t.withdraw_all(ALICE, "USDC");
 
-    let result = t.try_claim_revenue("USDC");
-    assert_contract_error(result, errors::POOL_INSOLVENT);
+    // Pool claim policy fix (F8 and the CR-2 sibling), flipped pin: only revenue
+    // shares back the open debt now, so utilization sits far above the 95% claim
+    // bound and the claim utilization room is empty. Before the fix it tried to
+    // pay the revenue out, emptying
+    // supply under debt, and reverted with `PoolInsolvent`; it now pays zero,
+    // burns nothing and leaves the revenue shares backing the debt.
+    let before = t
+        .pool_client("USDC")
+        .get_sync_data(&hub_asset(t.resolve_asset("USDC")))
+        .state;
+    assert_eq!(t.claim_utilization_room_raw("USDC"), 0);
+    assert_eq!(t.try_claim_revenue("USDC"), Ok(0), "blocked: pays nothing");
+    let after = t
+        .pool_client("USDC")
+        .get_sync_data(&hub_asset(t.resolve_asset("USDC")))
+        .state;
+    assert_eq!(
+        (after.supplied, after.revenue, after.cash),
+        (before.supplied, before.revenue, before.cash)
+    );
+    assert!(after.supplied > 0 && after.borrowed > 0);
 }

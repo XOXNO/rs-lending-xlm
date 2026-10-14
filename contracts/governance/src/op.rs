@@ -20,9 +20,45 @@ use crate::{storage, validate};
 
 pub use governance_interface::{
     AdminOperation, ConfigureAssetOracleArgs, CreatePoolArgs, DeployPositionNftArgs,
-    EditToleranceArgs, RelaxSpokeAssetFlagsArgs, RemoveAssetFromSpokeArgs, RoleArgs,
-    SpokeAssetArgs, SpokeLiquidationCurveArgs, TransferOwnershipArgs, UpgradePoolParamsArgs,
+    EditToleranceArgs, RelaxSpokeAssetFlagsArgs, RemoveAssetFromSpokeArgs,
+    RestoreAccountAssetValuationArgs, RoleArgs, SpokeAssetArgs, SpokeLiquidationCurveArgs,
+    TransferOwnershipArgs, UpgradePoolParamsArgs,
 };
+
+/// Controller function `UpgradeController` schedules; its execution counts as
+/// an emergency action because the controller pauses inside it.
+pub(crate) const CONTROLLER_UPGRADE_FN: &str = "upgrade";
+
+/// Returns whether `op` replaces code, prices, ownership or authority, or sets
+/// liquidation terms (the spoke liquidation curve, forced socialization,
+/// position-manager activation), so only the owner may propose it and only
+/// under that owner's tenure may it execute. A listing edit that moves the
+/// live terms toward the liquidator is owner-only too; `propose` checks it
+/// against the live listing (`guard::require_terms_kept`).
+pub(crate) fn requires_owner_proposer(op: &AdminOperation) -> bool {
+    matches!(
+        op,
+        AdminOperation::TransferGovOwnership(_)
+            | AdminOperation::TransferCtrlOwnership(_)
+            | AdminOperation::UpgradeGov(_)
+            | AdminOperation::UpgradeController(_)
+            | AdminOperation::UpgradePool(_)
+            | AdminOperation::UpgradePositionNft(_)
+            | AdminOperation::UpgradePriceAggregator(_)
+            | AdminOperation::MigrateController(_)
+            | AdminOperation::UpdateGovDelay(_)
+            | AdminOperation::SetPriceAggregator(_)
+            | AdminOperation::ConfigureAssetOracle(_)
+            | AdminOperation::EditOracleTolerance(_)
+            | AdminOperation::SetSwapAggregator(_)
+            | AdminOperation::ApproveBlendPool(_)
+            | AdminOperation::SetAccumulator(_)
+            | AdminOperation::GrantGovRole(_)
+            | AdminOperation::SetSpokeLiquidationCurve(_)
+            | AdminOperation::ForceSocializeBadDebt(_)
+            | AdminOperation::SetPositionManager(_, true)
+    )
+}
 
 /// Validates risk bounds, liquidation fees, and supply/borrow caps for a
 /// spoke-asset add or edit operation. Panics if any of the checks fail.
@@ -267,6 +303,26 @@ pub(crate) fn resolve_op(env: &Env, op: &AdminOperation) -> ResolvedOperation {
                 ],
             )
         }
+        AdminOperation::RestoreAccountAssetValuation(args) => {
+            assert_with_error!(
+                env,
+                ControllerClient::new(env, &storage::get_controller(env))
+                    .get_account_valuation_exclusions(&args.account_id)
+                    .get(args.hub_asset.clone())
+                    == Some(args.excluded_at),
+                SpokeError::SpokeAssetExclusionUnchanged
+            );
+            controller_operation(
+                env,
+                "restore_account_asset_valuation",
+                vec![
+                    env,
+                    args.account_id.into_val(env),
+                    args.hub_asset.clone().into_val(env),
+                    args.excluded_at.into_val(env),
+                ],
+            )
+        }
         AdminOperation::ApproveBlendPool(pool) => {
             validate::require_contract_address(env, pool, GenericError::NotSmartContract);
             controller_operation(
@@ -364,7 +420,11 @@ pub(crate) fn resolve_op(env: &Env, op: &AdminOperation) -> ResolvedOperation {
         ),
         AdminOperation::UpgradeController(hash) => {
             validate::require_nonzero_wasm_hash(env, hash);
-            sensitive_controller_operation(env, "upgrade", vec![env, hash.clone().into_val(env)])
+            sensitive_controller_operation(
+                env,
+                CONTROLLER_UPGRADE_FN,
+                vec![env, hash.clone().into_val(env)],
+            )
         }
         AdminOperation::MigrateController(version) => {
             controller_operation(env, "migrate", vec![env, version.into_val(env)])
@@ -465,6 +525,7 @@ pub(crate) fn apply_self_op(env: &Env, op: &AdminOperation) {
         | AdminOperation::EditAssetInSpoke(_)
         | AdminOperation::RemoveAssetFromSpoke(_)
         | AdminOperation::RelaxSpokeAssetFlags(_)
+        | AdminOperation::RestoreAccountAssetValuation(_)
         | AdminOperation::ApproveBlendPool(_)
         | AdminOperation::RevokeBlendPool(_)
         | AdminOperation::CreateLiquidityPool(_)

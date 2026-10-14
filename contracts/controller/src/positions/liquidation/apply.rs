@@ -1,13 +1,14 @@
 use crate::account;
+use common::constants::POSITION_LIMIT_MAX;
 use common::math::fp::{Ray, Wad};
 use common::math::fp_core::mul_div_floor;
 use common::types::{
     Account, AccountPosition, AccountPositionType, AggregatedPayments, DebtPosition, HubAssetKey,
-    HubPayment, PoolAction, PoolSeizeEntry, PoolWithdrawEntry, RepayEntry, ScaledPositionRaw,
-    SeizeEntry,
+    HubPayment, LiquidationResult, PoolAction, PoolPositionMutation, PoolSeizeEntry,
+    PoolWithdrawEntry, RepayEntry, ScaledPositionRaw, SeizeEntry,
 };
 use common::validation::expect_invariant;
-use soroban_sdk::{assert_with_error, Address, Env, Vec};
+use soroban_sdk::{assert_with_error, Address, Env, IntoVal, TryFromVal, Val, Vec};
 
 use crate::account::update_or_remove_supply_position;
 use crate::context::Context;
@@ -15,22 +16,23 @@ use crate::events;
 use crate::external::pool::pool_seize_positions_call;
 use crate::payments;
 use crate::positions::liquidation::bad_debt;
-use crate::positions::liquidation::curve::is_socializable_bad_debt;
 use crate::positions::liquidation::math;
 use crate::positions::{
-    apply_repay_batch, apply_withdraw_batch, enforce_spoke_asset_flags,
+    apply_repay_batch, apply_withdraw_batch, enforce_spoke_asset_flags, for_each_leg,
     get_supply_position_or_panic, make_pool_action, FreezePolicy, WithdrawKind,
 };
 use crate::risk::validation;
-use crate::risk::AccountRiskTotals;
+use crate::risk::{holds_valuation_excluded_leg, AccountRiskTotals};
 use crate::spoke_usage::UsageSide;
-use common::errors::{GenericError, SpokeError};
+use crate::storage;
+use common::errors::{GenericError, OracleError, SpokeError};
 
 /// Repays from measured pool receipts. Returns WAD USD receipt value, capped
 /// per planned leg and floor-scaled when a token under-delivers.
 ///
 /// With `offered` (a full-close plan), each leg pulls the merged offered amount
 /// and the pool refunds what exceeds the debt; otherwise it pulls the planned amount.
+/// Each pool mutation must report the decimals the plan priced the leg with.
 pub(crate) fn apply_liquidation_repayments(
     env: &Env,
     liquidator: &Address,
@@ -76,7 +78,7 @@ pub(crate) fn apply_liquidation_repayments(
             (&expect_invariant(env, account.borrow_positions.get(entry.hub_asset.clone()))).into();
         actions.push_back(make_pool_action(&position, received, entry.hub_asset));
     }
-    apply_repay_batch(
+    let results = apply_repay_batch(
         env,
         account,
         liquidator,
@@ -84,7 +86,60 @@ pub(crate) fn apply_liquidation_repayments(
         &actions,
         cache,
     );
+    require_pool_decimals_match(env, repaid, &results, |entry| entry.feed.asset_decimals);
     received_usd
+}
+
+/// Requires each pool mutation's `asset_decimals` to equal the decimals the
+/// plan priced that leg with. The plan converts USD to token units with the
+/// oracle's decimals and the pool reads those units in its own, so a mismatch
+/// would move a wrong power of ten; both values are in hand at the mutation.
+fn require_pool_decimals_match<E>(
+    env: &Env,
+    entries: &Vec<E>,
+    results: &Vec<PoolPositionMutation>,
+    feed_decimals: fn(&E) -> u32,
+) where
+    E: IntoVal<Env, Val> + TryFromVal<Env, Val> + Clone,
+{
+    for_each_leg(env, entries, results, |entry, result| {
+        assert_with_error!(
+            env,
+            result.asset_decimals == feed_decimals(&entry),
+            OracleError::InvalidOracleDecimals
+        );
+    });
+}
+
+/// Requires the pool's listed decimals to equal the feed decimals of every
+/// planned leg, so an estimate fails where execution would. Execution checks
+/// the same equality on the pool mutations themselves.
+pub(crate) fn require_plan_decimals_match_pool(
+    env: &Env,
+    cache: &mut Context,
+    result: &LiquidationResult,
+) {
+    for entry in result.repaid.iter() {
+        require_leg_decimals_match_pool(env, cache, &entry.hub_asset, entry.feed.asset_decimals);
+    }
+    for entry in result.seized.iter() {
+        require_leg_decimals_match_pool(env, cache, &entry.hub_asset, entry.feed.asset_decimals);
+    }
+}
+
+/// Requires the pool's listed decimals for `hub_asset` to equal `feed_decimals`.
+fn require_leg_decimals_match_pool(
+    env: &Env,
+    cache: &mut Context,
+    hub_asset: &HubAssetKey,
+    feed_decimals: u32,
+) {
+    let pool_decimals = cache.cached_pool_sync_data(hub_asset).params.asset_decimals;
+    assert_with_error!(
+        env,
+        pool_decimals == feed_decimals,
+        OracleError::InvalidOracleDecimals
+    );
 }
 
 fn offered_amount(env: &Env, offers: &Vec<HubPayment>, hub_asset: &HubAssetKey) -> i128 {
@@ -93,7 +148,8 @@ fn offered_amount(env: &Env, offers: &Vec<HubPayment>, hub_asset: &HubAssetKey) 
 }
 
 /// Executes transfer-mode seizure: burns shares, debits pool cash, and pays
-/// underlying to the liquidator after withholding the protocol fee.
+/// underlying to the liquidator after withholding the protocol fee. Each pool
+/// mutation must report the decimals the plan sized the leg with.
 pub(crate) fn apply_liquidation_seizures(
     env: &Env,
     liquidator: &Address,
@@ -118,7 +174,7 @@ pub(crate) fn apply_liquidation_seizures(
             protocol_fee: entry.protocol_fee,
         });
     }
-    apply_withdraw_batch(
+    let results = apply_withdraw_batch(
         env,
         account,
         liquidator,
@@ -127,6 +183,7 @@ pub(crate) fn apply_liquidation_seizures(
         &entries,
         cache,
     );
+    require_pool_decimals_match(env, seized, &results, |entry| entry.feed.asset_decimals);
 }
 
 /// Debits seized shares `S`, credits `S - fee`, and reclassifies `fee` as revenue.
@@ -134,7 +191,9 @@ pub(crate) fn apply_liquidation_seizures(
 /// also avoids supply-index drift between planning and application.
 ///
 /// The pool reclassifies the fee shares (`absorb_supply_as_revenue`); minting
-/// them would create claims without backing cash.
+/// them would create claims without backing cash. No pool mutation reports the
+/// listed decimals here, so each seized leg's feed decimals are checked against
+/// the pool's sync data instead, as the estimate does.
 pub(crate) fn apply_liquidation_share_credit(
     env: &Env,
     account: &mut Account,
@@ -152,6 +211,8 @@ pub(crate) fn apply_liquidation_share_credit(
             &entry.hub_asset,
             FreezePolicy::SeizureLeg,
         );
+
+        require_leg_decimals_match_pool(env, cache, &entry.hub_asset, entry.feed.asset_decimals);
 
         let seized_scaled = Ray::from(entry.scaled_amount);
         let (fee_scaled, liquidator_scaled) = math::split_seized_shares(
@@ -264,26 +325,58 @@ pub(crate) fn record_share_credit_updates(
 }
 
 /// Enforces receiver position limits to preserve the liquidation resource bound.
-/// The liquidator can choose `Credit(0)` if the existing receiver has no room.
+/// An empty receiver, such as a fresh `Credit(0)` account, skips the governed
+/// limit: its slots are the liquidated account's legs, already bounded by the
+/// limit that admitted them, so a lowered limit cannot leave an account
+/// unliquidatable. Every receiver stays within `POSITION_LIMIT_MAX`, the bound
+/// the per-account resource budget is sized for. The liquidator can choose
+/// `Credit(0)` if the existing receiver has no room.
 pub(crate) fn require_credit_position_limit(
     env: &Env,
     receiver: &Account,
     seized: &Vec<SeizeEntry>,
     cache: &mut Context,
 ) {
+    let aggregated = credited_legs(env, seized);
+    let max_allowed = if receiver.supply_positions.is_empty() {
+        POSITION_LIMIT_MAX
+    } else {
+        storage::get_position_limits(env).max_supply_positions
+    };
+    validation::validate_position_count_within(
+        env,
+        receiver,
+        AccountPositionType::Deposit,
+        &aggregated,
+        max_allowed.min(POSITION_LIMIT_MAX),
+    );
+    validation::require_whole_unit_isolation(env, cache, receiver, &aggregated);
+}
+
+/// Requires a current listing for every credited leg the receiver does not
+/// hold yet, as `credit_supply_shares` does when it opens the position.
+pub(crate) fn require_credit_listings(
+    env: &Env,
+    receiver: &Account,
+    seized: &Vec<SeizeEntry>,
+    cache: &mut Context,
+) {
+    for (hub_asset, _) in credited_legs(env, seized).iter() {
+        if !receiver.supply_positions.contains_key(hub_asset.clone()) {
+            let _ = cache.require_spoke_asset(receiver.spoke_id, &hub_asset);
+        }
+    }
+}
+
+/// Seized legs that credit the receiver a positive share amount.
+fn credited_legs(env: &Env, seized: &Vec<SeizeEntry>) -> AggregatedPayments {
     let mut aggregated: AggregatedPayments = Vec::new(env);
     for entry in seized.iter() {
         if credited_shares(env, &entry) > Ray::ZERO {
             aggregated.push_back((entry.hub_asset.clone(), entry.amount));
         }
     }
-    validation::validate_bulk_position_limits(
-        env,
-        receiver,
-        AccountPositionType::Deposit,
-        &aggregated,
-    );
-    validation::require_whole_unit_isolation(env, cache, receiver, &aggregated);
+    aggregated
 }
 
 /// Derives net receiver shares with the shared fee-splitting rules.
@@ -297,7 +390,9 @@ fn credited_shares(env: &Env, entry: &SeizeEntry) -> Ray {
     liquidator_scaled
 }
 
-/// Removes empty accounts or socializes insolvent debt under the collateral dust cap.
+/// Removes empty accounts or socializes insolvent debt that permissionless
+/// cleanup admits (collateral at or below the dust cap, or a quote that repays
+/// no debt unit), unless the account holds a supply leg excluded from valuation.
 pub(crate) fn check_bad_debt_after_liquidation(
     env: &Env,
     cache: &mut Context,
@@ -310,7 +405,13 @@ pub(crate) fn check_bad_debt_after_liquidation(
         return;
     }
 
-    if is_socializable_bad_debt(totals.total_debt, totals.total_collateral) {
+    // `totals` value an excluded leg at zero; cleanup would write off debt
+    // against it and take it as revenue, so an account holding one stays open.
+    // Checked first: the cleanup gate prices every supply leg of `account`,
+    // and the liquidation never read the excluded leg's price.
+    if !holds_valuation_excluded_leg(env, account_id, account)
+        && bad_debt::admits_permissionless_cleanup(env, cache, account, totals)
+    {
         bad_debt::execute_bad_debt_cleanup(env, cache, account_id, account, totals);
     }
 }

@@ -9,7 +9,7 @@ pub(crate) mod sushi;
 
 pub(crate) use auth::{auth_entry, authorize_token_approve, authorize_token_transfer};
 
-use soroban_sdk::{panic_with_error, token, Address, Env, Map, Vec};
+use soroban_sdk::{panic_with_error, token, vec, Address, Env, Map, Symbol, Vec};
 
 use crate::errors::Error;
 use crate::types::{SwapHop, SwapVenue};
@@ -103,6 +103,24 @@ impl<'a> HopContext<'a> {
     /// Returns the router's balance of the hop's output token.
     pub fn output_balance(&self) -> i128 {
         token::Client::new(self.env, &self.hop.token_out).balance(self.router)
+    }
+
+    /// Reads the pool's two tokens through its no-argument views `view_0` and `view_1` and
+    /// returns [`Self::direction_for_pair`] for them: `true` when the hop swaps the pool's first
+    /// token into its second. Panics with `Error::BrokenTokenChain` if the pool does not hold
+    /// exactly the hop's two tokens.
+    pub fn direction_from_pool(&self, view_0: &str, view_1: &str) -> bool {
+        let token0: Address = self.env.invoke_contract(
+            &self.hop.pool,
+            &Symbol::new(self.env, view_0),
+            vec![self.env],
+        );
+        let token1: Address = self.env.invoke_contract(
+            &self.hop.pool,
+            &Symbol::new(self.env, view_1),
+            vec![self.env],
+        );
+        self.direction_for_pair(&token0, &token1)
     }
 
     /// Returns `true` when the hop swaps `token0` into `token1`, `false` for the reverse

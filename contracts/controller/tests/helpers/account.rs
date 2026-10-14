@@ -144,9 +144,11 @@ fn require_account_owner_owner_passes() {
     });
 }
 
+/// A stranger to a live account is `NotAuthorized` (F7); only missing
+/// metadata is `AccountNotInMarket`.
 #[test]
-#[should_panic(expected = "Error(Contract, #13)")]
-fn require_account_owner_stranger_rejected_as_account_not_in_market() {
+#[should_panic(expected = "Error(Contract, #44)")]
+fn require_account_owner_stranger_rejected_as_not_authorized() {
     let env = Env::default();
     env.mock_all_auths();
     let admin = Address::generate(&env);
@@ -171,8 +173,9 @@ fn require_account_owner_missing_account_rejected_as_account_not_in_market() {
     });
 }
 
+/// An active delegate is a non-owner of a live account: `NotAuthorized` (F7).
 #[test]
-#[should_panic(expected = "Error(Contract, #13)")]
+#[should_panic(expected = "Error(Contract, #44)")]
 fn require_account_owner_rejects_active_delegate() {
     let env = Env::default();
     env.mock_all_auths();

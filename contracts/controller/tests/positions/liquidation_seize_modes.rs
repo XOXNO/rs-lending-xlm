@@ -8,7 +8,8 @@
 
 use super::*;
 use crate::positions::liquidation::math::{calculate_seized_collateral, NormalizedRepaymentPlan};
-use common::constants::{BPS, RAY};
+use crate::Controller;
+use common::constants::{BPS, POSITION_LIMIT_MAX, RAY};
 use common::math::fp::Bps;
 use common::types::{
     AccountPositionRaw, HubAssetKey, MarketIndexRaw, PositionMode, PriceFeedRaw, SeizeEntry,
@@ -358,4 +359,120 @@ fn the_planner_stamps_the_seized_positions_own_fee_rate() {
     // split without reading account state again.
     let (entries, _) = run_seizure(&env, 10_000 * RAY, RAY, 750, 100 * WAD, 500, 10_000 * WAD);
     assert_eq!(entries.get(0).unwrap().liquidation_fees, 750);
+}
+
+/// MC-2: a partial seizure whose floored token amount equals the leg's
+/// half-up balance is a full close in the pool (`resolve_withdrawal` burns
+/// every share and pays the floor), so the plan takes the exact held shares
+/// too. 10,000 shares at index 1 + 3e-12 are worth 10,000 tokens plus 0.3 of
+/// a 7-decimal unit; a seizure of 10,000 tokens plus 0.1 unit floors to the
+/// half-up balance.
+#[test]
+fn a_partial_seizure_at_the_half_up_balance_is_a_full_close() {
+    let env = Env::default();
+    let supply_index = RAY + 3_000_000_000_000_000;
+    let scaled = 10_000 * RAY;
+    let held_wad = 10_000 * WAD + 30_000_000_000;
+    let seizure_wad = 10_000 * WAD + 10_000_000_000;
+    let (entries, position_scaled) =
+        run_seizure(&env, scaled, supply_index, 100, seizure_wad, 0, held_wad);
+
+    let entry = entries.get(0).expect("a seizure must be planned");
+    assert_eq!(
+        entry.amount, 100_000_000_000,
+        "floored to the half-up balance"
+    );
+    assert_eq!(
+        entry.scaled_amount, position_scaled,
+        "the pool closes this leg, so the plan takes every share"
+    );
+    assert!(entry.bonus_scaled <= entry.scaled_amount);
+
+    // One unit less and the leg stays partial in both representations.
+    let (entries, _) = run_seizure(
+        &env,
+        scaled,
+        supply_index,
+        100,
+        seizure_wad - 100_000_000_000,
+        0,
+        held_wad,
+    );
+    let entry = entries.get(0).expect("a seizure must be planned");
+    assert_eq!(entry.amount, 99_999_999_999);
+    assert!(entry.scaled_amount < position_scaled);
+}
+
+/// MC-2 boundary: the promotion follows the pool's half-up rule exactly. At a
+/// remainder of exactly half a unit the half-up balance is one unit above the
+/// floored request, so the pool would not close the leg and the plan must stay
+/// partial; just below half a unit it closes, and the shares the promotion
+/// adds over the planned amount are worth less than half a unit.
+#[test]
+fn mc2_promotion_fires_only_inside_the_pools_half_up_window() {
+    let env = Env::default();
+    let scaled = 10_000 * RAY;
+    let unit_wad = 100_000_000_000;
+
+    // f = 0.5 unit: half-up balance 10,000 tokens + 1 unit, request floors below it.
+    let half_index = RAY + 5_000_000_000_000_000;
+    let held_wad = 10_000 * WAD + unit_wad / 2;
+    let seizure_wad = 10_000 * WAD + unit_wad * 4 / 10;
+    let (entries, position_scaled) =
+        run_seizure(&env, scaled, half_index, 100, seizure_wad, 0, held_wad);
+    let entry = entries.get(0).expect("a seizure must be planned");
+    assert_eq!(entry.amount, 100_000_000_000);
+    assert!(
+        entry.scaled_amount < position_scaled,
+        "at f = 0.5 the pool keeps the leg open, so the plan stays partial"
+    );
+
+    // f just below 0.5 unit: the same request now reaches the half-up balance.
+    let below_index = RAY + 4_999_000_000_000_000;
+    let held_wad = 10_000 * WAD + unit_wad * 4_999 / 10_000;
+    let seizure_wad = 10_000 * WAD + unit_wad / 10;
+    let (entries, position_scaled) =
+        run_seizure(&env, scaled, below_index, 100, seizure_wad, 0, held_wad);
+    let entry = entries.get(0).expect("a seizure must be planned");
+    assert_eq!(entry.amount, 100_000_000_000);
+    assert_eq!(
+        entry.scaled_amount, position_scaled,
+        "promoted to a full close"
+    );
+    // The extra shares are the sub-half-unit remainder, valued in RAY.
+    let held_ray = Ray::from(position_scaled)
+        .mul(&env, Ray::from(below_index))
+        .raw();
+    let planned_ray = entry.amount * 100_000_000_000_000_000_000;
+    assert!(
+        held_ray - planned_ray < 50_000_000_000_000_000_000,
+        "the promotion hands over less than half a unit: {}",
+        held_ray - planned_ray
+    );
+}
+
+/// MC-4 belt: an empty `Credit` receiver skips the governed position limit
+/// (its slots are the liquidated account's legs), but never takes more new
+/// supply slots than `POSITION_LIMIT_MAX`, the bound the per-account resource
+/// budget is sized for. Six credited legs into an empty receiver are refused.
+#[test]
+#[should_panic(expected = "Error(Contract, #109)")]
+fn an_empty_credit_receiver_never_exceeds_the_position_limit_max() {
+    let env = Env::default();
+    let contract = env.register(Controller, (Address::generate(&env),));
+    let receiver = Account {
+        owner: Address::generate(&env),
+        spoke_id: 1,
+        mode: PositionMode::Normal,
+        supply_positions: Map::new(&env),
+        borrow_positions: Map::new(&env),
+    };
+    let mut seized = Vec::new(&env);
+    for _ in 0..=POSITION_LIMIT_MAX {
+        seized.push_back(scaled_entry(&env, 10 * RAY, 0, 0));
+    }
+    env.as_contract(&contract, || {
+        let mut cache = Context::new_view(&env);
+        require_credit_position_limit(&env, &receiver, &seized, &mut cache);
+    });
 }

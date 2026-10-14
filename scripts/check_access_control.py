@@ -129,7 +129,7 @@ EXPECTED_TEST_ONLY = frozenset(
 
 # `#[contractimpl(contracttrait)]` exports the trait's default methods, which
 # live in the dependency, not in this tree. Pinned to OpenZeppelin
-# stellar-contracts rev fbfde388 (Cargo.toml): each stock method's category, and
+# stellar-contracts rev 59b98f8e (Cargo.toml): each stock method's category, and
 # the stock `ContractType` implementations whose bodies back those categories.
 # An override in the impl body is classified from its own source instead.
 CONTRACTTRAIT_METHODS = {

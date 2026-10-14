@@ -61,16 +61,27 @@ pub(crate) fn create_account_with(
 
     let nft = storage::get_position_nft(env);
     let account_id = nft_mint_call(env, &nft, owner);
-    let account = Account {
+    let account = empty_account(env, owner, spoke_id, mode);
+    storage::set_account_meta(env, account_id, &AccountMeta { spoke_id, mode });
+
+    (account_id, account)
+}
+
+/// An account with no positions, as creation stores it. Views use it to
+/// model the receiver a `Credit(0)` liquidation would mint.
+pub(crate) fn empty_account(
+    env: &Env,
+    owner: &Address,
+    spoke_id: u32,
+    mode: PositionMode,
+) -> Account {
+    Account {
         owner: owner.clone(),
         spoke_id,
         mode,
         supply_positions: Map::new(env),
         borrow_positions: Map::new(env),
-    };
-    storage::set_account_meta(env, account_id, &AccountMeta { spoke_id, mode });
-
-    (account_id, account)
+    }
 }
 
 /// Additional checks when reusing an existing account.
@@ -81,8 +92,10 @@ pub(crate) enum AccountGuard {
 }
 
 /// Creates an account for `caller` when `account_id` is zero; otherwise loads it.
-/// Existing accounts require a matching spoke. `Migrate` also requires an owner
-/// or active delegate; `Multiply` additionally requires a matching mode.
+/// Names the account in `cache` for the liquidation-tuple gate
+/// (`Context::set_valued_account`). Existing accounts require a matching spoke.
+/// `Migrate` also requires an owner or active delegate; `Multiply` additionally
+/// requires a matching mode.
 pub(crate) fn load_or_create_account(
     env: &Env,
     caller: &Address,
@@ -93,8 +106,11 @@ pub(crate) fn load_or_create_account(
     cache: &mut Context,
 ) -> (u64, Account) {
     if account_id == 0 {
-        return create_account(env, caller, spoke_id, mode, cache);
+        let created = create_account(env, caller, spoke_id, mode, cache);
+        cache.set_valued_account(created.0);
+        return created;
     }
+    cache.set_valued_account(account_id);
     let account = storage::get_account(env, account_id);
     match guard {
         AccountGuard::Supply => require_spoke_match(env, &account, spoke_id),
@@ -140,10 +156,12 @@ pub(crate) fn require_owner_or_delegate(
 }
 
 /// Returns metadata after verifying that `caller` currently owns the account NFT.
+/// Missing metadata fails with `AccountNotInMarket`, an unresolved NFT with
+/// `AccountNotFound`, and any other caller with `NotAuthorized`.
 pub(crate) fn require_account_owner(env: &Env, account_id: u64, caller: &Address) -> AccountMeta {
     let meta = storage::get_account_meta(env, account_id);
     let owner = storage::account_owner(env, account_id);
-    assert_with_error!(env, owner == *caller, GenericError::AccountNotInMarket);
+    assert_with_error!(env, owner == *caller, GenericError::NotAuthorized);
     meta
 }
 

@@ -531,7 +531,10 @@ flow_flash_position_matrix() {
     record flash_position_matrix ok flash_position "" "" "" "" "" "matrix complete"
 }
 
-# Two declared pushes use the receiver's existing collateral + extra plan.
+# Long open with two pushes: declared XLM collateral plus the borrowed USDC,
+# which the receiver returns and the controller refunds to the caller. Long and
+# Short reject the debt token among the declared collaterals (#7
+# AssetsAreTheSame, as `multiply` does); only Multiply may loop it back.
 # A separate Long account keeps the baseline account's position-limit tests intact.
 fp_long_multi_collateral() {
     local FP_RECV="${FLASH_POSITION_RECEIVER_V2:-$FLASH_POSITION_RECEIVER}"
@@ -539,28 +542,36 @@ fp_long_multi_collateral() {
     local FP_POS_MODE="$FP_MODE_LONG" FP_PLAN_ASSET="$XLM_SAC" FP_SPOKE="$PRIMARY_SPOKE_ID"
     local FP_DEBT FP_COLS FP_REFUNDS='[]' FP_AMOUNT=10000000
     local collateral=2000000000 extra=10000000 acct attributes
-    local pool_xlm pool_usdc receiver_xlm receiver_usdc controller_xlm controller_usdc
+    local pool_xlm pool_usdc receiver_xlm receiver_usdc controller_xlm controller_usdc alice_usdc
     FP_DEBT=$(hub_key "$PRIMARY_HUB_ID" "$USDC_SAC") || return 1
-    FP_COLS=$(pay_vec "$PRIMARY_HUB_ID" "$XLM_SAC" "$collateral" "$USDC_SAC" "$extra") || return 1
     fp_ensure_token "$XLM_SAC" "$(raw_add "$collateral" "$FP_EXTEND_COLLATERAL")" fp_long_fund || return 1
     fp_set_plan fp_plan_long_multi "$FP_MODE_SUCCESS" "$collateral" "$USDC_SAC" "$extra" || return 1
+    # Declaring the debt token as Long collateral is refused before any debt is minted.
+    FP_COLS=$(pay_vec "$PRIMARY_HUB_ID" "$XLM_SAC" "$collateral" "$USDC_SAC" "$extra") || return 1
+    fp_reject_unchanged flash_position_long_debt_collateral 'Error\(Contract, #7\)' || return 1
+    FP_COLS=$(pay_vec "$PRIMARY_HUB_ID" "$XLM_SAC" "$collateral") || return 1
+    FP_REFUNDS=$(fp_refunds "$USDC_SAC") || return 1
     pool_xlm=$(balance "$XLM_SAC" "$POOL") || return 1
     pool_usdc=$(balance "$USDC_SAC" "$POOL") || return 1
     receiver_xlm=$(balance "$XLM_SAC" "$FP_RECV") || return 1
     receiver_usdc=$(balance "$USDC_SAC" "$FP_RECV") || return 1
     controller_xlm=$(balance "$XLM_SAC" "$CONTROLLER") || return 1
     controller_usdc=$(balance "$USDC_SAC" "$CONTROLLER") || return 1
+    alice_usdc=$(balance "$USDC_SAC" "$ALICE_ADDR") || return 1
     acct=$(fp_run create flash_position_long_multi "" | tr -d '\"[:space:]') || return 1
+    FP_REFUNDS='[]'
     save_state ALICE_FP_LONG_ACCT "$acct"
     assert_delta fp_long_xlm_paid "$receiver_xlm" "$(balance "$XLM_SAC" "$FP_RECV")" "-$collateral" || return 1
     assert_delta fp_long_xlm_received "$pool_xlm" "$(balance "$XLM_SAC" "$POOL")" "$collateral" || return 1
-    # All newly borrowed USDC is pushed back as collateral; no wallet receives it.
+    # The receiver returns the borrowed USDC; the controller refunds it to the
+    # caller instead of crediting it, so the pool's USDC leaves as debt.
     assert_delta fp_long_usdc_receiver "$receiver_usdc" "$(balance "$USDC_SAC" "$FP_RECV")" 0 || return 1
-    assert_delta fp_long_usdc_pool "$pool_usdc" "$(balance "$USDC_SAC" "$POOL")" 0 || return 1
+    assert_delta fp_long_usdc_pool "$pool_usdc" "$(balance "$USDC_SAC" "$POOL")" "-$FP_AMOUNT" || return 1
+    assert_delta fp_long_usdc_refund "$alice_usdc" "$(balance "$USDC_SAC" "$ALICE_ADDR")" "$extra" || return 1
     assert_delta fp_long_xlm_protected "$controller_xlm" "$(balance "$XLM_SAC" "$CONTROLLER")" 0 || return 1
     assert_delta fp_long_usdc_protected "$controller_usdc" "$(balance "$USDC_SAC" "$CONTROLLER")" 0 || return 1
     assert_int_view_positive fp_long_xlm_credit get_collateral_amount --account_id "$acct" --hub_asset "$(hub_key "$PRIMARY_HUB_ID" "$XLM_SAC")" || return 1
-    assert_int_view_positive fp_long_usdc_credit get_collateral_amount --account_id "$acct" --hub_asset "$FP_DEBT" || return 1
+    assert_int_view_eq fp_long_usdc_no_credit 0 get_collateral_amount --account_id "$acct" --hub_asset "$FP_DEBT" || return 1
     assert_borrow_at_least fp_long_debt "$acct" "$USDC_SAC" "$FP_AMOUNT" || return 1
     assert_hf_at_least fp_long_hf "$acct" "$WAD" || return 1
     attributes=$(view fp_long_attributes "$CONTROLLER" -- get_account_attributes --account_id "$acct") || return 1

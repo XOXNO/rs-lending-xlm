@@ -21,6 +21,8 @@ pub mod soroswap_mock {
         Token1,
         Reserve0,
         Reserve1,
+        /// Fee numerator over 1_000 in the k check; 3 (30 BPS) when unset.
+        FeeNum,
     }
 
     #[contractimpl]
@@ -34,6 +36,21 @@ pub mod soroswap_mock {
             env.storage()
                 .instance()
                 .set(&SoroswapKey::Reserve1, &reserve1);
+        }
+
+        /// Overrides the fee tier the k check enforces, as `fee_num / 1_000`.
+        pub fn set_fee_num(env: Env, fee_num: i128) {
+            env.storage().instance().set(&SoroswapKey::FeeNum, &fee_num);
+        }
+
+        /// The pair's first token, as stored by `init` (the live pair's `token_0` view).
+        pub fn token_0(env: Env) -> Address {
+            env.storage().instance().get(&SoroswapKey::Token0).unwrap()
+        }
+
+        /// The pair's second token, as stored by `init` (the live pair's `token_1` view).
+        pub fn token_1(env: Env) -> Address {
+            env.storage().instance().get(&SoroswapKey::Token1).unwrap()
         }
 
         pub fn get_reserves(env: Env) -> (i128, i128) {
@@ -78,8 +95,13 @@ pub mod soroswap_mock {
             let amount0_in = (balance0 - (reserve0 - amount_0_out)).max(0);
             let amount1_in = (balance1 - (reserve1 - amount_1_out)).max(0);
 
-            let balance0_adjusted = balance0 * 1000 - amount0_in * 3;
-            let balance1_adjusted = balance1 * 1000 - amount1_in * 3;
+            let fee_num: i128 = env
+                .storage()
+                .instance()
+                .get(&SoroswapKey::FeeNum)
+                .unwrap_or(3);
+            let balance0_adjusted = balance0 * 1000 - amount0_in * fee_num;
+            let balance1_adjusted = balance1 * 1000 - amount1_in * fee_num;
             // An 18-decimal pair holds reserves around 1e24, so the scaled
             // product reaches about 1e54, far past `i128`. Compare the invariant
             // in 256-bit space so the mock works at the scales the adapter quotes.

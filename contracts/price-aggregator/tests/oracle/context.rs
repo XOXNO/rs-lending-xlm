@@ -26,8 +26,21 @@ fn test_price_memo_round_trips_per_key() {
             asset_decimals: 8,
             timestamp: 100,
         },
+        Some(90),
     );
     assert_eq!(session.cached_price(&key).unwrap().price_wad, 7);
+    assert_eq!(session.cached_market_timestamp(&key), Some(90));
+
+    session.store_price(
+        &key,
+        PriceFeedRaw {
+            price_wad: 7,
+            asset_decimals: 8,
+            timestamp: 100,
+        },
+        None,
+    );
+    assert_eq!(session.cached_market_timestamp(&key), None);
 }
 
 #[test]

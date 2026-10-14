@@ -145,6 +145,20 @@ impl GovernanceInterface for Governance {
         )
     }
 
+    /// Excludes account `account_id`'s supply leg of `hub_asset` from its
+    /// valuation while the asset's strict price read fails with a feed outage;
+    /// the controller refuses a usable price and a sanity-band failure.
+    /// Clearing takes the timelocked `RestoreAccountAssetValuation`. Requires
+    /// the caller to hold the guardian role.
+    fn exclude_account_asset_valuation(
+        env: Env,
+        caller: Address,
+        account_id: u64,
+        hub_asset: HubAssetKey,
+    ) {
+        immediate::exclude_account_asset_valuation(&env, &caller, account_id, &hub_asset)
+    }
+
     /// Tightens the sanity-check price band for `key` on the price aggregator;
     /// widening fails. Requires the caller to hold the oracle role.
     fn set_sanity_band(env: Env, caller: Address, key: PriceKey, min_wad: i128, max_wad: i128) {

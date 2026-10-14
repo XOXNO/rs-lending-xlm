@@ -1,5 +1,6 @@
 //! Account entries use persistent user storage; successful reads renew user TTL.
-//! Metadata and delegate writes renew TTL; position-map writes do not.
+//! Metadata, delegate and valuation-exclusion writes renew TTL; position-map
+//! writes do not.
 
 use super::protocol::{get_user, renew_user_key, set_user};
 use crate::constants::MAX_DELEGATES;
@@ -101,6 +102,31 @@ fn write_side_map<V: TryFromVal<Env, Val> + IntoVal<Env, Val>>(
         persistent.remove(key);
     } else {
         persistent.set(key, map);
+    }
+}
+
+/// Returns the account's supply legs excluded from valuation, each mapped to
+/// the ledger sequence its exclusion was set at; empty when none is.
+pub(crate) fn get_account_valuation_exclusions(
+    env: &Env,
+    account_id: u64,
+) -> Map<HubAssetKey, u32> {
+    get_user(env, &ControllerKey::AccountValuationExclusions(account_id))
+        .unwrap_or_else(|| Map::new(env))
+}
+
+/// Stores the account's valuation exclusions and renews user TTL; deletes an
+/// empty map.
+pub(crate) fn set_account_valuation_exclusions(
+    env: &Env,
+    account_id: u64,
+    exclusions: &Map<HubAssetKey, u32>,
+) {
+    let key = ControllerKey::AccountValuationExclusions(account_id);
+    if exclusions.is_empty() {
+        env.storage().persistent().remove(&key);
+    } else {
+        set_user(env, &key, exclusions);
     }
 }
 
@@ -246,13 +272,15 @@ pub(crate) fn remove_delegate(
     true
 }
 
-/// Deletes metadata, both position maps, and delegates. Does not burn the NFT.
+/// Deletes metadata, both position maps, delegates, and valuation exclusions.
+/// Does not burn the NFT.
 pub(crate) fn remove_account_entry(env: &Env, account_id: u64) {
     let persistent = env.storage().persistent();
     persistent.remove(&ControllerKey::AccountMeta(account_id));
     persistent.remove(&ControllerKey::SupplyPositions(account_id));
     persistent.remove(&ControllerKey::BorrowPositions(account_id));
     persistent.remove(&ControllerKey::Delegates(account_id));
+    persistent.remove(&ControllerKey::AccountValuationExclusions(account_id));
 }
 
 /// Renews user TTL for each existing account entry; does not renew the NFT.
@@ -263,6 +291,7 @@ pub(crate) fn renew_user_account(env: &Env, account_id: u64) {
         ControllerKey::SupplyPositions(account_id),
         ControllerKey::BorrowPositions(account_id),
         ControllerKey::Delegates(account_id),
+        ControllerKey::AccountValuationExclusions(account_id),
     ];
     for key in &keys {
         if persistent.has(key) {

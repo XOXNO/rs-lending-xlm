@@ -47,7 +47,7 @@ cargo +nightly fuzz run --fuzz-dir . flow_e2e --sanitizer=thread -Zbuild-std -- 
 | Layer | Location | Purpose |
 |---|---|---|
 | Function fuzzing | `tests/fuzz/fuzz_targets/fp_math.rs`, `rates_and_index.rs`, `fp_ops.rs` | Pure math, rounding, overflow, rates, and index transitions (scaled balances, supply-index floor on bad debt). Fast and cheap. |
-| Native pool fuzzing | `tests/fuzz/fuzz_targets/pool_native.rs` | Pool supply, borrow, withdraw, repay, index and parameter updates, revenue claim, seizure, strategy creation, and views, against reserve invariants (tracked cash ≤ token balance, revenue ≤ supplied). |
+| Native pool fuzzing | `tests/fuzz/fuzz_targets/pool_native.rs` | Pool supply, borrow, withdraw, repay, index and parameter updates, revenue claim, seizure, strategy creation, and views, against reserve invariants (tracked cash ≤ token balance, revenue ≤ supplied, cash plus debt covers supplier claims within 4 units). Both markets are seeded through `supply`, so the seed carries supply shares and the solvency check binds. |
 | Oracle fuzzing | `tests/fuzz/fuzz_targets/aggregator.rs` | Price-aggregator resolution against arbitrary prices, ages, tolerances and sanity bands, on both single- and dual-source configurations. |
 | Protocol flow fuzzing | `tests/fuzz/fuzz_targets/flow_e2e.rs`, `flow_strategy.rs` | Fixed-width byte op streams for multi-asset user flows, liquidations, bad-debt cleanup, flash-loan failure paths, strategy routes, zero controller residual balance, and rollback behavior. |
 | Property tests | `tests/test-harness/tests/fuzz/` | Proptest suites for accounting conservation, strategy invariants, budget metering, `migrate_from_blend` reconciliation, and liquidation differentials vs reference, plus deterministic auth matrices. |
@@ -77,7 +77,7 @@ cargo +nightly fuzz run --fuzz-dir . flow_e2e --sanitizer=thread -Zbuild-std -- 
 | Property (`--test fuzz`) | Scope |
 |---|---|
 | `prop_accounting_conservation` | Pool accounting laws, non-negative reserves, index monotonicity. |
-| `prop_seed_adjusted_cash_conservation_and_token_custody` / `prop_seed_adjusted_cash_conservation_through_liquidation_and_bad_debt` | Seed-adjusted cash conservation and token custody, also through liquidation and bad debt. |
+| `prop_cash_conservation_and_token_custody` / `prop_cash_conservation_through_liquidation_and_bad_debt` | Cash conservation and token custody, also through liquidation and bad debt. |
 | `owner_only_endpoints_reject_unauthed_before_validation` / `governance_endpoints_reject_unauthed_before_validation` | Deterministic privileged endpoint auth matrices. |
 | `prop_valid_multiply_fits_default_budget` | Valid `multiply` calls under Soroban default budget limits. |
 | `prop_multiply_succeeds_with_safe_hf_and_clean_router` / `prop_swap_collateral_conserves_position_delta` | Strategy success, exact deltas, HF, allowance, and flash-guard cleanup. |
@@ -121,7 +121,7 @@ cargo +nightly fuzz tmin --fuzz-dir . <target> artifacts/<target>/crash-<hash>
 
 Proptest stores minimized failures in
 `tests/test-harness/tests/fuzz/*.proptest-regressions`. The files are
-committed, so each stored case replays on every run. The two seed-adjusted cash
+committed, so each stored case replays on every run. The two cash-conservation
 properties do not persist failures.
 
 ## Coverage

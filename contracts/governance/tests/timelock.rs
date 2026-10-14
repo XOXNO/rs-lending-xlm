@@ -1,5 +1,8 @@
+extern crate std;
+
 use soroban_sdk::testutils::{Address as _, Ledger as _};
-use soroban_sdk::{vec, Address, BytesN, Env, IntoVal, Symbol, Vec};
+use soroban_sdk::xdr::{AccountId, PublicKey, ScAddress, Uint256};
+use soroban_sdk::{vec, Address, BytesN, Env, IntoVal, Symbol, TryFromVal, Vec};
 use stellar_governance::timelock::OperationState;
 
 use common::errors::GenericError;
@@ -7,9 +10,11 @@ use common::types::{AssetOracle, IndependencePolicy, OracleTolerance, PositionLi
 
 use crate::access::{CANCELLER_ROLE, EXECUTOR_ROLE, GUARDIAN_ROLE, PROPOSER_ROLE};
 use crate::constants::{
-    TIMELOCK_MAX_DELAY_LEDGERS, TIMELOCK_MIN_DELAY_LEDGERS, TIMELOCK_OPERATION_GRACE_LEDGERS,
-    TIMELOCK_RECOVERY_MIN_DELAY_LEDGERS, TIMELOCK_SENSITIVE_MIN_DELAY_LEDGERS,
+    MAX_CANCELLERS, TIMELOCK_MAX_DELAY_LEDGERS, TIMELOCK_MIN_DELAY_LEDGERS,
+    TIMELOCK_OPERATION_GRACE_LEDGERS, TIMELOCK_RECOVERY_MIN_DELAY_LEDGERS,
+    TIMELOCK_SENSITIVE_MIN_DELAY_LEDGERS,
 };
+use crate::events::ExpiredOperationClearedEvent;
 use crate::op::{
     AdminOperation, ConfigureAssetOracleArgs, EditToleranceArgs, RoleArgs, TransferOwnershipArgs,
 };
@@ -18,6 +23,11 @@ use crate::test_support::{
 };
 use crate::timelock::{operation_delay, validate_delay_update, DelayTier};
 use crate::{Governance, GovernanceClient};
+
+/// Per-transaction contract-event limit enforced by the test environment.
+const CONTRACT_EVENTS_LIMIT_BYTES: u32 = 16_384;
+/// Headroom a reset of a full canceller council keeps below that limit.
+const RESET_EVENT_HEADROOM_BYTES: u32 = 2_048;
 
 fn grant_role_via_timelock(
     env: &Env,
@@ -803,4 +813,260 @@ fn upgrade_price_aggregator_executes_against_the_aggregator() {
     );
 
     assert_eq!(gov.get_operation_state(&id), OperationState::Unset);
+}
+
+/// Grants CANCELLER through the timelock until the role has `MAX_CANCELLERS`
+/// holders, the owner included.
+fn fill_canceller_council(env: &Env, gov: &GovernanceClient<'_>, admin: &Address, delay: u32) {
+    for byte in 1..MAX_CANCELLERS {
+        grant_role_via_timelock(env, gov, admin, delay, CANCELLER_ROLE, byte as u8);
+    }
+}
+
+fn fresh_accounts(env: &Env, count: u32) -> Vec<Address> {
+    let mut accounts = Vec::new(env);
+    for _ in 0..count {
+        accounts.push_back(Address::generate(env));
+    }
+    accounts
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #56)")]
+fn canceller_grant_beyond_the_cap_is_rejected() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let delay = 10u32;
+    let (admin, _controller, gov) = register_with_controller(&env, delay);
+    fill_canceller_council(&env, &gov, &admin, delay);
+
+    grant_role_via_timelock(&env, &gov, &admin, delay, CANCELLER_ROLE, 0xEE);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #56)")]
+fn canceller_reset_list_above_the_cap_is_rejected_at_proposal() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (_admin, _controller, gov) = register_with_controller(&env, 10);
+
+    gov.propose_canceller_reset(
+        &fresh_accounts(&env, MAX_CANCELLERS),
+        &BytesN::<32>::from_array(&env, &[9u8; 32]),
+    );
+}
+
+#[test]
+fn canceller_reset_of_a_full_council_fits_the_event_limit() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let delay = 10u32;
+    let (admin, _controller, gov) = register_with_controller(&env, delay);
+    fill_canceller_council(&env, &gov, &admin, delay);
+    let new_set = fresh_accounts(&env, MAX_CANCELLERS - 1);
+    let salt = BytesN::<32>::from_array(&env, &[9u8; 32]);
+    gov.propose_canceller_reset(&new_set, &salt);
+
+    env.ledger()
+        .with_mut(|l| l.sequence_number += TIMELOCK_RECOVERY_MIN_DELAY_LEDGERS);
+    gov.execute_canceller_reset(&None, &new_set, &salt);
+
+    let resources = env.cost_estimate().resources();
+    assert!(
+        resources.contract_events_size_bytes + RESET_EVENT_HEADROOM_BYTES
+            <= CONTRACT_EVENTS_LIMIT_BYTES
+    );
+    let role = Symbol::new(&env, CANCELLER_ROLE);
+    for account in new_set.iter() {
+        assert!(gov.has_role(&account, &role));
+    }
+}
+
+/// Per-transaction limits of the soroban-sdk 28 mainnet profile
+/// (`soroban-sdk-28.0.0/src/testutils/cost_estimate.rs:146-151`).
+const MAINNET_WRITE_ENTRIES: u32 = 200;
+const MAINNET_LEDGER_ENTRIES: u32 = 400;
+
+/// A classic G-account address, the shape a human council member has.
+fn g_account(env: &Env, index: u32) -> Address {
+    let mut raw = [0u8; 32];
+    raw[..4].copy_from_slice(&index.to_be_bytes());
+    raw[31] = 0x5A;
+    let key = PublicKey::PublicKeyTypeEd25519(Uint256(raw));
+    Address::try_from_val(env, &ScAddress::Account(AccountId(key))).unwrap()
+}
+
+/// Resources a canceller reset spent: write entries, footprint entries and
+/// contract event bytes.
+struct ResetCost {
+    write_entries: u32,
+    ledger_entries: u32,
+    event_bytes: u32,
+}
+
+/// Seats `MAX_CANCELLERS - 1` non-owner members (classic G-accounts when
+/// `classic`, contract addresses otherwise) through timelocked grants, then
+/// resets the council to `incoming` fresh members under `Env::default()`'s
+/// enforced limits, and returns what the reset spent.
+fn measure_full_council_reset(classic: bool, incoming: u32) -> ResetCost {
+    let env = Env::default();
+    env.mock_all_auths();
+    let delay = 10u32;
+    let account = |i: u32| {
+        if classic {
+            g_account(&env, i)
+        } else {
+            Address::generate(&env)
+        }
+    };
+    let admin = account(10_000);
+    let gov_id = env.register(Governance, (admin.clone(), delay));
+    let gov = GovernanceClient::new(&env, &gov_id);
+    for i in 1..MAX_CANCELLERS {
+        let salt = BytesN::<32>::from_array(&env, &[i as u8; 32]);
+        let op = AdminOperation::GrantGovRole(RoleArgs {
+            account: account(i),
+            role: Symbol::new(&env, CANCELLER_ROLE),
+        });
+        gov.propose(&admin, &op, &salt);
+        env.ledger()
+            .with_mut(|l| l.sequence_number += delay.max(TIMELOCK_SENSITIVE_MIN_DELAY_LEDGERS));
+        gov.execute_self(&Some(admin.clone()), &op, &salt);
+    }
+    let mut new_set = Vec::new(&env);
+    for i in 0..incoming {
+        new_set.push_back(account(1_000 + i));
+    }
+    let salt = BytesN::<32>::from_array(&env, &[0xEE; 32]);
+    gov.propose_canceller_reset(&new_set, &salt);
+    env.ledger()
+        .with_mut(|l| l.sequence_number += TIMELOCK_RECOVERY_MIN_DELAY_LEDGERS);
+    gov.execute_canceller_reset(&None, &new_set, &salt);
+    let r = env.cost_estimate().resources();
+    ResetCost {
+        write_entries: r.write_entries,
+        ledger_entries: r.disk_read_entries + r.memory_read_entries + r.write_entries,
+        event_bytes: r.contract_events_size_bytes,
+    }
+}
+
+/// PR #196 verification g4 (gov_b G9): at `MAX_CANCELLERS` (24 with the
+/// owner), the heaviest reset (the 23 sitting members out, 23 fresh ones in)
+/// writes 3N + 6 ledger entries and keeps the event headroom for a council of
+/// classic accounts as well as contract addresses; removing the whole
+/// council is lighter still. Every shape stays inside the mainnet profile.
+#[test]
+fn full_council_reset_resources_stay_within_mainnet_limits() {
+    let seats = MAX_CANCELLERS - 1;
+    for (classic, incoming) in [(false, seats), (true, seats), (false, 0), (true, 0)] {
+        let cost = measure_full_council_reset(classic, incoming);
+        std::println!(
+            "{seats}-out-{incoming}-in reset (classic: {classic}): write_entries={} \
+             ledger_entries={} event_bytes={}",
+            cost.write_entries,
+            cost.ledger_entries,
+            cost.event_bytes
+        );
+        assert!(cost.write_entries <= MAINNET_WRITE_ENTRIES);
+        assert!(cost.ledger_entries <= MAINNET_LEDGER_ENTRIES);
+        assert!(
+            cost.event_bytes + RESET_EVENT_HEADROOM_BYTES <= CONTRACT_EVENTS_LIMIT_BYTES,
+            "events {} B leave less than {} B of headroom",
+            cost.event_bytes,
+            RESET_EVENT_HEADROOM_BYTES
+        );
+        if incoming == seats {
+            assert_eq!(cost.write_entries, 3 * seats + 6, "writes = 3N + 6");
+        }
+    }
+}
+
+fn limits_op() -> AdminOperation {
+    AdminOperation::SetPositionLimits(PositionLimits {
+        max_supply_positions: 4,
+        max_borrow_positions: 3,
+    })
+}
+
+#[test]
+fn expired_operation_is_replaced_by_a_same_salt_proposal() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let delay = 10u32;
+    let (admin, _controller, gov) = register_with_controller(&env, delay);
+    let salt = zero_salt(&env);
+    let id = gov.propose(&admin, &limits_op(), &salt);
+    env.ledger()
+        .with_mut(|l| l.sequence_number += delay + TIMELOCK_OPERATION_GRACE_LEDGERS + 1);
+
+    let again = gov.propose(&admin, &limits_op(), &salt);
+
+    assert_eq!(again, id);
+    assert_eq!(gov.get_operation_state(&id), OperationState::Waiting);
+    assert_eq!(
+        gov.get_operation_ledger(&id),
+        env.ledger().sequence() + delay
+    );
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #4000)")]
+fn live_operation_still_blocks_a_same_salt_proposal() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let delay = 10u32;
+    let (admin, _controller, gov) = register_with_controller(&env, delay);
+    let salt = zero_salt(&env);
+    gov.propose(&admin, &limits_op(), &salt);
+    env.ledger()
+        .with_mut(|l| l.sequence_number += delay + TIMELOCK_OPERATION_GRACE_LEDGERS);
+
+    gov.propose(&admin, &limits_op(), &salt);
+}
+
+#[test]
+fn expired_recovery_reset_is_replaced_by_a_same_salt_proposal() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (admin, _controller, gov) = register_with_controller(&env, 10);
+    let fresh = Address::generate(&env);
+    let new_set = soroban_sdk::vec![&env, fresh.clone()];
+    let salt = BytesN::<32>::from_array(&env, &[7u8; 32]);
+    let id = gov.propose_canceller_reset(&new_set, &salt);
+    env.ledger().with_mut(|l| {
+        l.sequence_number +=
+            TIMELOCK_RECOVERY_MIN_DELAY_LEDGERS + TIMELOCK_OPERATION_GRACE_LEDGERS + 1
+    });
+
+    assert_eq!(gov.propose_canceller_reset(&new_set, &salt), id);
+    assert_eq!(gov.get_operation_state(&id), OperationState::Waiting);
+    env.ledger()
+        .with_mut(|l| l.sequence_number += TIMELOCK_RECOVERY_MIN_DELAY_LEDGERS);
+    gov.execute_canceller_reset(&None, &new_set, &salt);
+    assert!(gov.has_role(&fresh, &Symbol::new(&env, CANCELLER_ROLE)));
+    assert!(gov.has_role(&admin, &Symbol::new(&env, CANCELLER_ROLE)));
+}
+
+#[test]
+fn clearing_an_expired_operation_emits_an_event() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let delay = 10u32;
+    let (admin, _controller, gov) = register_with_controller(&env, delay);
+    let salt = zero_salt(&env);
+    let id = gov.propose(&admin, &limits_op(), &salt);
+    env.ledger()
+        .with_mut(|l| l.sequence_number += delay + TIMELOCK_OPERATION_GRACE_LEDGERS + 1);
+
+    gov.propose(&admin, &limits_op(), &salt);
+
+    use soroban_sdk::testutils::Events as _;
+    use soroban_sdk::Event as _;
+    let cleared = ExpiredOperationClearedEvent { operation_id: id };
+    assert!(env
+        .events()
+        .all()
+        .filter_by_contract(&gov.address)
+        .events()
+        .contains(&cleared.to_xdr(&env, &gov.address)));
 }

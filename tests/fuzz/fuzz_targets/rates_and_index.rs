@@ -275,7 +275,9 @@ struct AccrualState {
 }
 
 /// Mirrors `simulate_update_indexes_body` using only public `common::rates`
-/// helpers, so a span can be accrued in pieces.
+/// helpers, so a span can be accrued in pieces. It omits the market value
+/// ceiling: `AMOUNT_CAP_RAW` keeps every market far below
+/// `MAX_MARKET_VALUE_RAY`, where production never caps interest.
 ///
 /// `assert_partition_invariants` pins this against the production entry point
 /// on the unpartitioned span before using it, so it cannot silently drift.

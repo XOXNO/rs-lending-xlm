@@ -2,7 +2,7 @@
 
 Use this reference to decode protocol events and interpret their amounts, shares and configuration snapshots. Match both the emitting contract and the ordered topic vector.
 
-The contracts define 28 custom event types: controller 21, pool 3, governance 2, price aggregator 1 and DeFindex adapter 1. The position NFT, swap aggregator and XOXNO oracle define no custom events, but their inherited OpenZeppelin events remain observable. Subscribe to both controller and pool events to track account and market changes.
+The contracts define 31 custom event types: controller 22, pool 4, governance 3, price aggregator 1 and DeFindex adapter 1. The position NFT, swap aggregator and XOXNO oracle define no custom events, but their inherited OpenZeppelin events remain observable. Subscribe to both controller and pool events to track account and market changes.
 
 ## Wire rules and units
 
@@ -23,8 +23,9 @@ Field lists use exact Rust types. Map key order is alphabetical, regardless of d
 | Event / ordered topics | Format and fields | Emission / interpretation |
 | --- | --- | --- |
 | `AccountDelegateEvent`<br>`["account", "delegate"]` | map: `account_id: u64, owner: Address, delegate: Address, granted: bool` | add_delegate/remove_delegate, only when list changes. |
+| `AccountValuationEvent`<br>`["account", "valuation_exclusion"]` | map: `account_id: u64, asset: Address, hub_id: u32, excluded: bool, excluded_at: u32` | exclude_account_asset_valuation (`excluded = true`) and restore_account_asset_valuation (`false`); `excluded_at` is the ledger sequence of the exclusion set or cleared. The account is valued without that supply leg from the exclusion on. |
 | `CleanBadDebtEvent`<br>`["debt", "bad_debt"]` | map: `account_id: u64, total_borrow_usd_wad: i128, total_collateral_usd_wad: i128` | clean_bad_debt, force_socialize_bad_debt or liquidation residual cleanup. Totals are taken before cleanup: debt rounds up (the `get_total_borrow_usd` view rounds half-up), and unweighted collateral rounds half-up. Cleanup emits no position batch. The NFT `Burn` and pool snapshots still emit. |
-| `UpdatePositionBatchEvent`<br>`["position", "batch_update"]` | vec: `account_id: u64, account_attributes: EventAccountAttributes, deposits: Vec<EventDepositDelta>, borrows: Vec<EventBorrowDelta>` | Supply/borrow/withdraw/repay/liquidation, all account strategies including flash_position, and update_account_threshold. Suppressed when both leg vectors are empty. |
+| `UpdatePositionBatchEvent`<br>`["position", "batch_update"]` | vec: `account_id: u64, account_attributes: EventAccountAttributes, deposits: Vec<EventDepositDelta>, borrows: Vec<EventBorrowDelta>` | Supply/borrow/withdraw/repay/liquidation, all account strategies including flash_position, and update_account_threshold. Suppressed when both leg vectors are empty. `account_attributes.owner` is the NFT holder when the batch is published: every account strategy re-reads it at finalization, because a `flash_position` receiver callback or a caller-selected router hop may have transferred the NFT. |
 | `LiquidationEvent`<br>`["position", "liquidation"]` | map: `liquidator: Address, account_id: u64, repaid_usd_wad: i128, bonus_bps: i128` | liquidate: repayment USD is measured and capped per planned leg; bonus is BPS. Seizure and fee figures are in position batches. |
 | `FlashLoanEvent`<br>`["position", "flash_loan"]` | map: `hub_id: u32, asset: Address, receiver: Address, caller: Address, amount: i128, fee: i128` | flash_loan: requested principal and charged fee, token units. |
 | `FlashPositionEvent`<br>`["position", "flash_position"]` | map: `account_id: u64, hub_id: u32, asset: Address, receiver: Address, caller: Address, amount: i128, amount_received: i128, fee: i128` | flash_position: requested amount, measured receiver receipt; fee is zero. |
@@ -51,6 +52,7 @@ Field lists use exact Rust types. Map key order is alphabetical, regardless of d
 | `PoolMarketStateBatchEvent`<br>`["market", "batch_state_update"]` | single-value: `updates: Vec<PoolMarketStateEvent>` | Pool supply/borrow/withdraw/repay/seize_positions, update_indexes, recapitalize, flash_loan, create_strategy, net_settle, claim_revenue. update_indexes emits one single-row event per market. Suppressed for an empty batch. |
 | `PoolMarketParamsBatchEvent`<br>`["market", "batch_params_update"]` | single-value: `updates: Vec<PoolMarketParamsEvent>` | create_market/update_params: one full parameter row. |
 | `StrategyFeeEvent`<br>`["strategy", "fee"]` | map: `hub_id: u32, asset: Address, amount: i128, fee: i128, amount_sent: i128` | create_strategy only when fee != 0; amount_sent = requested amount minus fee, not receiver receipt. |
+| `MarketValueCeilingEvent`<br>`["market", "value_ceiling"]` | map: `hub_id: u32, asset: Address` | Any pool call that accrues the market, at most once per market per call, when the market value ceiling (`MAX_MARKET_VALUE_RAY`) held interest below what the rate implies. Precedes that call's state snapshot. |
 
 ### Governance events
 
@@ -58,6 +60,7 @@ Field lists use exact Rust types. Map key order is alphabetical, regardless of d
 | --- | --- | --- |
 | `DeployControllerEvent`<br>`["governance", "deploy_controller"]` | map: `controller: Address, wasm_hash: BytesN<32>` | governance deploy_controller. |
 | `DeployPriceAggregatorEvent`<br>`["governance", "deploy_price_aggregator"]` | map: `price_aggregator: Address, wasm_hash: BytesN<32>` | governance deploy_price_aggregator. |
+| `ExpiredOperationClearedEvent`<br>`["governance", "expired_operation_cleared"]` | map: `operation_id: BytesN<32>` | propose or propose_canceller_reset removed an expired operation with the same id, and its sidecars, before scheduling it again. |
 
 ### Price-aggregator events
 
@@ -90,7 +93,7 @@ Field lists use exact Rust types. Map key order is alphabetical, regardless of d
 | `LiqRepay = 4` | liquidated account repayment |
 | `LiqSeize = 5` | gross collateral debit, both seize modes |
 | `Multiply = 6` | multiply debt mint |
-| `ParamUpd = 7` | risk-parameter rewrite; no token movement. `update_account_threshold` emits it, and so does a borrow, withdrawal or account strategy for each supply leg whose stored LTV it restamps |
+| `ParamUpd = 7` | risk-parameter rewrite; no token movement. `update_account_threshold` emits it, and so does a borrow, withdrawal or account strategy for each supply leg whose stored LTV it restamps, and an account strategy for each touched supply leg whose liquidation tuple its finalization refreshes |
 | `SwDebtR = 8` | both new borrow and old repay in swap_debt |
 | `SwColWd = 9` | swap_collateral withdrawal |
 | `RpColWd = 10` | repay_debt_with_collateral withdrawal |
@@ -164,7 +167,7 @@ OpenZeppelin revision `59b98f8e127f0e877a3870e8eb82fa282a4aadf3` and Soroban SDK
 | Position NFT: `ApproveForAll` | `["approve_for_all", <owner: Address>]` | `operator: Address, live_until_ledger: u32` | approve_for_all |
 | Position NFT: `Mint` | `["mint", <to: Address>]` | `token_id: u32` | mint |
 | Position NFT: `Burn` | `["burn", <from: Address>]` | `token_id: u32` | controller-authorized burn |
-| Controller, governance, router, XOXNO: OwnershipTransfer | `["ownership_transfer"]` | `old_owner: Address, new_owner: Address, live_until_ledger: u32` | transfer_ownership; governance and controller transfers run as the TransferGovOwnership and TransferCtrlOwnership operations |
+| Controller, governance, router, XOXNO: OwnershipTransfer | `["ownership_transfer"]` | `old_owner: Address, new_owner: Address, live_until_ledger: u32` | transfer_ownership; governance and controller transfers run as the TransferGovOwnership and TransferCtrlOwnership operations. A zero-deadline cancel that finds no matching pending transfer, or whose nomination epoch moved, emits none; its trace is OperationExecuted |
 | Controller, governance, router, XOXNO; price aggregator constructor: OwnershipTransferCompleted | `["ownership_transfer_completed"]` | `new_owner: Address` | accept_ownership; controller, governance and price-aggregator constructors emit explicitly |
 | Router, XOXNO: OwnershipRenounced | `["ownership_renounced"]` | `old_owner: Address` | renounce_ownership, only on a deployment that still exports it. Builds from this source do not export it |
 | Governance: RoleGranted | `["role_granted", <role: Symbol>, <account: Address>]` | `caller: Address` | constructor, GrantGovRole, accept_ownership role sync, canceller reset |

@@ -54,12 +54,28 @@ not imply that every operation preserves health or collateral value.
 ### INV-AUTH-04 — Emergency power only tightens
 
 Immediate guardian power can pause and add listing restrictions. Unpausing or
-clearing restrictions requires a timelock under the repository wiring.
+clearing restrictions requires a timelock under the repository wiring. Every
+guardian pause advances the governance emergency epoch, so an `Unpause`
+proposed before a later pause reverts.
 
 A listing edit and the guardian flag method can only keep or tighten flags.
 Only the timelocked `relax_spoke_asset_flags` clears one, and only while the
-listing's flags epoch equals its `expected_epoch`. The oracle role's immediate
-`set_sanity_band` can only keep or narrow a band.
+listing's flags epoch equals its `expected_epoch`. An empty flagged listing
+can be removed, since an absent listing admits no entry; every guardian flag
+write advances the token's governance flag epoch, so an `AddAssetToSpoke` of
+the token proposed before it, in any spoke or hub, reverts. The oracle role's
+immediate `set_sanity_band` can only keep or narrow a band, and a
+`ConfigureAssetOracle` proposed before it reverts
+([INV-AUTH-07](#inv-auth-07)).
+
+The guardian's immediate `exclude_account_asset_valuation` is a restriction of
+the same kind. It removes one supply leg of one named account from that
+account's valuation, and only while the asset's strict price read already
+fails with a feed outage ([INV-HALT-04](#inv-halt-04)). A sanity-band
+violation does not qualify, so the oracle role's immediate band narrowing
+cannot be combined with it to zero a priced leg. Only the timelocked
+`restore_account_asset_valuation` clears it, bound to the exclusion's ledger
+stamp and only once the price is usable again.
 
 <a id="inv-auth-05"></a>
 <a id="inv-auth-05--governance-delay-cannot-be-shortened"></a>
@@ -82,6 +98,72 @@ An account retains its creation-time spoke. Existing-account supply, migration,
 multiply and flash-position calls must match that spoke; borrow, withdraw and
 repay use the stored binding. Credit-mode liquidation requires a receiver in
 the same spoke.
+
+<a id="inv-auth-07"></a>
+
+### INV-AUTH-07 — A queued operation executes only under the state it was proposed under
+
+Every governance proposal records a guard, and execution reverts while the
+operation is pending if a counter the guard bound has moved since:
+
+| Operation | Bound to | Advanced by | Error |
+| --- | --- | --- | --- |
+| Every proposal | Proposer epoch of its proposer | `revoke_role_immediate` or executed `RevokeGovRole` of `PROPOSER` from that address; `accept_ownership` to another address, for the previous owner | `NotAuthorized` |
+| Canceller reset | Owner epoch | `accept_ownership` to a different address | `NotAuthorized` |
+| Canceller reset, each listed account | `CANCELLER` revocation epoch of that account | Executed `RevokeGovRole` of `CANCELLER` from that account | The account is not re-seated; the rest of the list is |
+| `Unpause` | Emergency epoch | Guardian `pause`, executed `UpgradeController` | `EmergencyEpochMismatch` |
+| Every upgrade | Upgrade epoch of the contract it replaces | Every executed upgrade of that contract | `UpgradeSupersededAfterProposal` |
+| `AddAssetToSpoke` | Flag epoch of its token | Guardian `set_spoke_asset_flags` on that token, any spoke or hub | `AssetFlagsChangedAfterProposal` |
+| `GrantGovRole` | Revocation epoch of its account and role | `revoke_role_immediate`, executed `RevokeGovRole` of that pair | `RoleRevokedAfterProposal` |
+| `ConfigureAssetOracle` | Band epoch of its key, and the band it read | `ORACLE` `set_sanity_band` on that key | `OracleBandChangedAfterProposal` |
+| `SetPriceAggregator` | Any-key band epoch | `ORACLE` `set_sanity_band` on any key | `OracleBandChangedAfterProposal` |
+| `EditAssetInSpoke` a non-owner proposed | The listing's liquidation threshold, bonus and fees | Any change to them | `ListingTermsChangedAfterProposal` |
+| `RestoreAccountAssetValuation` | The exclusion's ledger stamp, carried in its arguments and checked by the controller | Every new exclusion of that account and leg | `SpokeAssetExclusionUnchanged` |
+| `TransferGovOwnership` with deadline 0 | Nomination epoch | Every nomination | Completes as a no-op |
+| `TransferCtrlOwnership` with deadline 0 | Controller nomination epoch | Every executed controller nomination | Completes as a no-op |
+
+The counters only increase. The owner always holds `PROPOSER`, so the owner's
+own proposals die exactly when it hands ownership to another address, and
+operations another proposer queued survive a handover. An operation with no
+guard record was scheduled before the governance upgrade that added guards
+and is held to the owner epoch and the counter its kind binds today at 0,
+the value every counter had at that upgrade; nothing binds it to its
+proposer or to listing terms; a canceller reset without a record holds each
+listed account to revocation epoch 0. A canceller reset voided by a handover
+can be cancelled, but a live one cannot, so it carries the revocation binding
+itself: it cannot re-seat a canceller the council removed while it waited. The guard binds the queue, not state: an operation executed before
+the binding moves keeps its effect.
+
+<a id="inv-auth-08"></a>
+
+### INV-AUTH-08 — A reopening never runs ahead of a pending controller upgrade
+
+An `Unpause` reverts `ControllerUpgradePending` while any `UpgradeController`
+proposed since operation guards exist is pending, waiting or ready, voided or
+expired included, until it executes or a canceller cancels it. An executed
+controller upgrade advances the emergency epoch, so a reopening proposed
+before it reverts too; reopening on the new code takes a proposal after the
+upgrade executes. Every upgrade is bound to the upgrade epoch of the contract
+it replaces, so a build proposed before another upgrade of that contract
+executed never lands after it. Operations carry no predecessor: ordering
+covers these two pairs, not arbitrary dependencies
+([ADR-0022](../explanation/decisions.md#adr-0022)).
+
+<a id="inv-auth-09"></a>
+
+### INV-AUTH-09 — Liquidation terms and the canceller council belong to the owner
+
+Only the owner can propose the spoke liquidation curve, forced
+socialization, position-manager activation, and a listing edit that lowers
+the live liquidation threshold, raises the bonus or lowers the fees. A
+non-owner listing edit executes only while the listing still holds the
+liquidation terms it was proposed against, so neither a later owner change
+nor the proposer's own executed edits can be walked back by it. The owner can
+revoke `PROPOSER` and `EXECUTOR` immediately, and a revoked proposer's whole
+queue is void. `CANCELLER` keeps its timelocked removal. The council holds at
+most `MAX_CANCELLERS` (24) members, the owner included, so a canceller reset
+of a full council stays inside one transaction's mainnet limits
+([ADR-0023](../explanation/decisions.md#adr-0023)).
 
 ## Accounting and cash
 
@@ -127,12 +209,18 @@ incoming collateral tokens.
 
 ### INV-ACCT-04 — Backing shortfall blocks new supply
 
-New token-funded supply rejects a positive backing shortfall. The check compares
-floored supplied claims against tracked cash plus ceiled debt value in native
-token units, using saturating arithmetic.
+New token-funded supply rejects a positive backing shortfall. The check
+subtracts ceiled debt value from floored supplied claims at RAY precision,
+floors the difference once to native token units, then subtracts tracked cash.
+The shortfall is the floor of that RAY-precision gap.
 
 Recapitalization fills at most that shortfall, refunds excess and mints no
-shares. It cannot restore a written-down index. The non-zero supply-index floor
+shares; a full fill leaves the RAY-precision gap below one native unit. Accrual adds the
+same interest to claims and debt only up to RAY-precision rounding, up to two raw
+RAY units per chunk, so a fill whose residue sits within those units of a whole
+unit can report a one-unit shortfall again after accrual (about 2e-9 per fill at
+18 decimals, 2e-20 at 7); supply then waits for a one-unit recapitalization. It
+cannot restore a written-down index. The non-zero supply-index floor
 can leave residual claims requiring recapitalization; see the
 [backing calculation](formulas.md#backing-and-cash-constraints).
 
@@ -153,13 +241,20 @@ and protocol-reward conversion can floor to zero revenue shares.
 
 ### INV-ACCT-06 — Revenue claims respect accounting bounds
 
-Revenue payout cannot exceed tracked cash or the floored revenue claim. Full
-payout burns all revenue shares; cash-limited payout burns a proportional
-ceiling of shares. Positive payout cannot burn zero shares.
+Revenue payout cannot exceed tracked cash or the floored revenue claim. While
+the market carries debt it also cannot take the cash the 200 BPS liquidation
+buffer keeps ([INV-ACCT-07](#inv-acct-07)), and a payout that would raise
+utilization past `min(max_utilization, 95%)` (`MAX_CLAIM_UTILIZATION_RAY`) pays
+nothing. Full payout burns all revenue shares; a partial payout burns a
+proportional ceiling of shares. Positive payout cannot burn zero shares.
 
-Claims enforce utilization and reject zero total supply with outstanding debt.
-These checks do not establish full backing. The [payout formula](formulas.md#revenue-payout)
-defines the burn calculation.
+A claim never reverts for want of claimable cash: it pays less, or nothing. A
+claim that pays nothing burns nothing, moves no cash and skips the utilization
+and supply-for-debt checks, so a controller claim batch never fails over a
+market it cannot pay. A positive payout still enforces both checks. These
+checks do not establish full backing, and claims small enough to fit under the
+bound still pay revenue accrued on interest an uncleaned insolvency never pays.
+The [payout formula](formulas.md#revenue-payout) defines the calculation.
 
 <a id="inv-acct-07"></a>
 <a id="inv-acct-07--borrow-draws-leave-a-liquidation-cash-buffer"></a>
@@ -178,24 +273,31 @@ subsequent liquidation.
 
 ### INV-ACCT-08 — Selected operations enforce the utilization ceiling
 
-Borrow debt minting, ordinary withdrawal and revenue claims reject utilization
-above the market ceiling. The gate divides ceiled debt value by floored supply
+Borrow debt minting, ordinary withdrawal and paying revenue claims reject
+utilization above the market ceiling; a paying claim also stays at or under
+the 95% claim bound, and a claim that would cross either pays nothing instead
+of reverting. The gate divides ceiled debt value by floored supply
 value and rounds the ratio up, so rounding cannot admit utilization above the
 ceiling. It skips zero total supply, zero debt value and ceilings at least one
 RAY. Debt against a zero floored supply value fails the gate.
 
-Liquidation withdrawal skips the gate. Accrual and bad-debt writeoff can exceed
-the ceiling; it is not a market-wide bound maintained by every operation.
+Liquidation withdrawal and a claim that pays nothing skip the gate. Accrual and
+bad-debt writeoff can exceed the ceiling; it is not a market-wide bound
+maintained by every operation.
 
 <a id="inv-acct-09"></a>
 <a id="inv-acct-09--exits-cannot-leave-debt-without-supply"></a>
 
-### INV-ACCT-09 — Selected exits cannot leave debt without supply
+### INV-ACCT-09 — Debt mints and selected exits cannot leave debt without supply
 
-Withdrawal, same-asset net settlement and revenue claims reject a resulting
-zero total supplied-share balance with non-zero debt shares. This prevents an
-empty-supply state, without establishing full backing or a liquidation cash
-reserve.
+Borrowing, strategy debt mints, withdrawal, same-asset net settlement and
+paying revenue claims reject a resulting zero total supplied-share balance with
+non-zero debt shares. A debt mint into a market whose suppliers have all exited
+therefore fails, even when rounding left cash behind. A paying claim stays
+inside the claim utilization room, which keeps supply shares under the debt, so
+for claims the check is defence in depth; a claim that pays nothing burns
+nothing and skips it. This prevents an empty-supply state, without establishing
+full backing or a liquidation cash reserve.
 
 <a id="inv-acct-10"></a>
 
@@ -203,7 +305,10 @@ reserve.
 
 The pool stores market totals only. Every pool position call carries the
 account's scaled position, and the pool trusts it: it has no per-account book to
-check the value against. For each market, the sum of account supply shares
+check the value against. It checks only the sign: every leg (supply, borrow,
+withdraw, repay, strategy opening, net settlement and seizure) rejects a
+negative scaled position with `AmountMustBePositive` before it mints or burns.
+For each market, the sum of account supply shares
 equals the pool's supplied shares minus its revenue shares, and the sum of
 account debt shares equals the pool's borrowed shares.
 
@@ -216,8 +321,9 @@ any other source, or that sends a stale position to the pool, breaks this
 invariant without a revert.
 
 The `prop_accounting_conservation` property test checks both equalities in
-token units, within 4 units, after every operation. The seed-adjusted cash tests
-subtract the seeded pool liquidity, so their cash bound is tight. No
+token units, within 4 units, after every operation on markets without seeded
+liquidity. The cash-conservation tests bound cash plus debt value minus supplier
+claims, with the harness seed booked as supply, so their cash bound is tight. No
 on-chain view enumerates accounts, so on a live network only the spoke-level
 identity (pool supplied minus the sum of spoke usage equals revenue) can be
 read.
@@ -232,8 +338,14 @@ Both indexes start at one RAY. Successful accrual with validated rate parameters
 cannot lower the borrow index and caps it at the protocol constant 10^36 raw
 RAY. At the ceiling, further accrual produces no borrower interest.
 
-Debt-value overflow can still revert accrual before that ceiling is reached.
-Bounded indexes do not guarantee representable position or market values.
+Accrual also keeps total debt value and total supply value at or below the
+market value ceiling, `i128::MAX` less one whole token in raw RAY. Interest that
+would carry a total past it is not charged: the borrow index grows only as far
+as the room left, and a market with no room keeps both indexes. The pool emits
+`MarketValueCeilingEvent` when the ceiling holds interest. Market value
+therefore cannot overflow accrual or the index projection that values accounts.
+Supply entry and flash and strategy fee booking reject a total above the
+ceiling. See [numeric limits](formulas.md#numeric-limits).
 
 <a id="inv-idx-02"></a>
 
@@ -266,8 +378,8 @@ identified market. See the [write-down calculation](formulas.md#bad-debt).
 
 No elapsed time means no accrual or accrual-timestamp advance. Longer intervals
 use forward chunks of at most 31,556,926,000 milliseconds. Mutating accrual and
-read-only index projection use the same calculation, including revenue shares
-in subsequent supply totals.
+read-only index projection use the same calculation, including the market value
+ceiling and revenue shares in subsequent supply totals.
 
 Each chunk selects its rate from starting utilization. Call cadence can change
 rates and rounded results; it does not guarantee cadence independence,
@@ -297,7 +409,10 @@ exact conservation of booked supplier and revenue value is not guaranteed. See
 
 A missing or unusable required price aborts a valuation-dependent operation,
 including liquidation. Strict reads reject resolution errors, stale prices,
-source disagreement, nonpositive prices and sanity-band violations.
+source disagreement, nonpositive prices and sanity-band violations. A supply leg
+excluded from its account's valuation is not a required price for that
+account: it is valued at zero without a read ([INV-HALT-04](#inv-halt-04)).
+Debt and bad-debt cleanup always read.
 
 Diagnostic `quotes` can retain a nonzero candidate with `valid=false`. That
 candidate is not accepted for valuation.
@@ -340,6 +455,25 @@ observation timestamp.
 Discarding a required leg makes its single-source or dual-source configuration
 unusable under INV-ORACLE-01 and INV-ORACLE-02.
 
+<a id="inv-oracle-05"></a>
+
+### INV-ORACLE-05 — A shared provider moves an exempt pair at most 11/9
+
+A registered key prices within its sanity band, and a band wider than the
+single-source cap (`max / min` above 11/9) is admitted only for a pair in
+which every provider contract both legs trust is bounded: through a top-level
+`Scaled` factor, the factor range times the contract's reach into that leg's
+quote key times the pair's tolerance is at most 11/9. The quote reach is the
+quote's tolerance when the contract serves one leg of a two-leg quote, and
+unbounded when it serves every leg. Every admission path holds it:
+`set_oracle` validates the key and revalidates its dependents, and
+`set_tolerance` does the same, so a quote edit cannot widen a dependent past
+the cap. `set_sanity_band` only narrows.
+
+An Aquarius LP key is sole-source and is held to the LP band cap instead. A
+provider that serves both legs outright, or several providers acting
+together, are outside this bound; the band is then the only limit.
+
 ## Account risk
 
 <a id="inv-risk-01"></a>
@@ -350,6 +484,12 @@ Ordinary borrowing, withdrawal and account strategies apply final solvency gates
 after pool mutations. With debt remaining, LTV-weighted collateral must cover
 debt, health factor must be at least one, and LTV-weighted collateral must meet
 any nonzero configured floor. Debt-free accounts skip these numerical gates.
+Supply legs excluded from the account's valuation count as zero in these gates,
+in the final 1.05 gate of a keeper threshold refresh, and in the per-leg 1.05
+check that decides whether a liquidator-favoring tuple applies to a refreshed
+leg. That check values the same book liquidation does, so no caller, a third
+party topping up a held leg included, can stamp a tuple the account's valued
+book does not carry at 1.05, and it never reads the excluded leg's price.
 
 Listed LTV snapshots refresh before the shared gate. Listing and count checks
 precede entry; spoke caps use returned pool deltas and revert the whole
@@ -381,6 +521,23 @@ ten WAD. Its full-ramp health threshold must be positive and below the target;
 the bonus factor must be positive and at most BPS. These bounds validate
 configuration; they do not guarantee a profitable liquidation after rounding.
 
+A position keeps its stored liquidation tuple until a refresh copies the
+listed one: a supply, a normal withdrawal, an account strategy or
+`update_account_threshold` with `has_risks`. On an account with debt, a tuple
+that favors the liquidator is applied only if the health factor with it is at
+least 1.05, valued without the legs excluded from the account's valuation
+([INV-HALT-04](#inv-halt-04)). A batch merges every balance first and refreshes its touched legs
+in asset-key order, so the caller's leg order does not change the outcome. Two
+residuals remain. First, each gate reads the legs not yet refreshed at their
+stored tuples: when one refresh tightens a lower-key leg and loosens a
+higher-key leg, the tightening is gated against the sibling's older, tighter
+threshold and can be skipped although the finished state clears 1.05. The
+tightened leg then keeps its stale, looser tuple until the next refresh
+applies the listing; one more `update_account_threshold` call is the repair. Second, the gate is a condition
+of each refresh, not of the account afterwards: single-leg calls in sequence
+can stamp a tighter tuple at 1.05 and then withdraw to a health factor between
+one and 1.05. Neither residual weakens the final solvency gate.
+
 <a id="inv-risk-04"></a>
 
 ### INV-RISK-04 — Position and delegate counts are bounded
@@ -401,13 +558,21 @@ sufficiency.
 ### INV-LIQ-01 — Only unhealthy debt can be liquidated
 
 Ordinary liquidation requires outstanding debt and health factor below one.
+The health factor counts supply legs excluded from the account's valuation as
+zero, so an exclusion can make that account liquidatable on its other legs.
 The liquidator authenticates but need not own the target; owners can
 self-liquidate.
 
 A Credit receiver must be a different account in the same spoke, in Normal
 mode, and controlled by the liquidator as owner or active delegate. `Credit(0)`
 can create a receiver in a deprecated spoke. Ownership and position limits
-still apply.
+still apply, except that an empty receiver skips the governed limit: its
+legs are already bounded by the limit that admitted them, so a lowered limit
+cannot block a `Credit(0)` receiver. No credit opens a supply slot past
+`POSITION_LIMIT_MAX`, the bound the per-account resource budget is sized
+for. The estimate (`get_liquidation_estimate`) applies every receiver gate
+except ownership, which needs the caller a view does not have, so a
+`Credit` estimate fails where execution would.
 
 <a id="inv-liq-02"></a>
 
@@ -418,9 +583,16 @@ also trims the excess above the liquidation curve's quote before transfers.
 Planned refunds are unused input: a partial plan never pulls them; a full-debt
 plan pulls the offered amount and the pool returns what exceeds each leg's
 debt, which equals the planned refund. Seizure is proportional to collateral
-value and capped at held collateral; rounding can leave repayment with no
-payable seizure. A collateral leg below 3 decimals seizes whole units: rounded
-up when the plan repays all debt, otherwise rounded down with the unbacked
+value over the valued legs and capped at held collateral; a leg excluded from
+the account's valuation is never seized. Rounding can leave repayment with no
+payable seizure. A partial seizure whose floored token amount reaches the
+leg's half-up balance is the pool's full close, so the plan records it as one
+in both modes: Transfer and Credit agree on the close, and no leg is stepped
+back or skipped while its repayment is kept. Every repayment and seizure
+leg's feed decimals must equal the pool's listed decimals, at execution and
+in the estimate. A collateral leg below 3 decimals seizes whole units
+(integer base units, as [defined in formulas.md](formulas.md#bonus-and-target-repayment)):
+rounded up when the plan repays all debt, otherwise rounded down with the unbacked
 repayment refunded, and a plan left with no seizure reverts. Such a leg is the
 account's only supply position, so the seizure stays proportional. On a
 solvent account whose leg holds a whole unit, the partial quote can change.
@@ -453,7 +625,9 @@ for bonus selection, sizing and rounding.
 
 Receipt below planned repayment floor-scales seizure amounts, transfer fees,
 seized shares and bonus shares by measured/planned USD. Credit fees are
-recomputed from the scaled bonus shares.
+recomputed from the scaled bonus shares. A seize-all plan on an insolvent
+account is scaled the same way, so an under-delivering debt token does not
+seize every unit; the undelivered share stays with the account.
 
 Repayment USD is capped per leg at its planned value. It does not exactly equal
 every rounded debt-share reduction or refund.
@@ -463,10 +637,17 @@ every rounded debt-share reduction or refund.
 ### INV-LIQ-04 — Bad-debt socialization is explicit and total
 
 Permissionless cleanup requires ceil risk debt greater than half-up unweighted
-collateral and collateral at or below the fixed $5 dust threshold. Owner-only
-forced cleanup omits the dust cap. Both require debt, readable account and NFT
+collateral and either collateral at or below the fixed $5 dust threshold or a
+collateral-backed quote, `floor(C / (1 + base))`, below the smallest payment
+every debt leg accepts (one native unit, or the whole debt when it rounds up
+to one unit), so that no liquidation offer can repay anything. Owner-only
+forced cleanup omits both conditions. Both require debt, readable account and NFT
 state, valid required prices and no active flash guard. Listing flags and
-global pause do not block standalone cleanup.
+global pause do not block standalone cleanup. Standalone and forced cleanup
+ignore valuation exclusions and price every leg. The residual cleanup at the
+end of a liquidation does not run while the account holds an excluded leg.
+Debt is therefore never written off against a leg valued at zero for lack of a
+price.
 
 Cleanup reclassifies all remaining collateral shares as revenue and writes off
 all remaining debt against each debt's market. It releases spoke usage and
@@ -501,7 +682,9 @@ new Credit receiver assets separately require a listing.
 
 Nonzero `no_seize` collateral can block the whole proportional liquidation,
 even if supplied after the flag is set. Zero-token planned seizure legs are
-omitted before that check. Standalone bad-debt cleanup bypasses these flags.
+omitted before that check, and a leg excluded from the account's valuation is
+never planned, so its `no_seize` does not block. Standalone bad-debt cleanup
+bypasses these flags.
 
 <a id="inv-halt-03"></a>
 
@@ -521,6 +704,36 @@ borrow cap cannot saturate. See
 Exits consume no cap. Missing usage rows and zero deltas are no-ops, and stored
 usage cannot become negative. Same-spoke liquidation credit bypasses entry
 caps and books its fee as an exit.
+
+<a id="inv-halt-04"></a>
+
+### INV-HALT-04 — A valuation exclusion zeroes one account leg during a feed outage
+
+`exclude_account_asset_valuation` names one account and a supply leg it holds.
+It is admitted only while the aggregator's `quotes` report the asset not
+`valid`, which holds exactly when the strict `prices` read fails, and only
+when the failure code is a feed outage: stale price, no last price, empty or
+short TWAP history, invalid price, source disagreement, or an Aquarius pool
+below its floor. A sanity-band violation, which the oracle role can cause
+immediately, and configuration failures are refused. From then on that
+account drops the leg before valuation. The leg adds no collateral to the
+health factor, the LTV and threshold gates, the per-leg 1.05 tuple gate, the
+views or the liquidation plan. It is never priced or seized there, and its
+owner can withdraw it, in full or in part, whenever the remaining legs keep
+the account solvent, also while its feed is still unusable. Other accounts holding the same asset
+are valued as before. A debt leg of the asset is still priced, so the
+exclusion cannot unblock an account whose unusable feed is a debt leg.
+
+The exclusion carries the ledger sequence it was set at and outlives a feed
+recovery. Only the timelocked `restore_account_asset_valuation` that names
+that stamp clears it, and only while the asset's price is usable again.
+Withdrawing the leg keeps the exclusion, so a later supply of the asset by
+that account also counts as zero until the restore. Removing the account
+deletes it. Bad-debt cleanup prices excluded legs
+strictly, and the residual cleanup of a liquidation skips an account that
+holds one, so the exclusion never writes off debt against collateral it has
+hidden. The exclusion does not refuse entry; freeze the listing to stop new
+legs.
 
 ## Storage and account lifecycle
 
@@ -678,14 +891,16 @@ tokens, venues or pools for migration.
 
 Flash position mints debt without an origination fee and never automatically
 repays returned debt tokens. Every declared collateral minimum must be
-non-negative, with at least one positive minimum. The controller measures
-callback receipts against those minima, deposits positive receipts and
-remeasures the pool's receipt.
+non-negative, with at least one positive minimum. In Long or Short mode no
+declared collateral may be the debt token, on any hub, as `multiply` requires;
+only Multiply mode may declare the debt token and loop it into collateral. The
+controller measures callback receipts against those minima, deposits positive
+receipts and remeasures the pool's receipt.
 
 Before and after account finalization, the borrowed market must retain positive
 scaled debt and the account must retain supply. Returned debt becomes
-collateral if declared, returns to the caller if refund-listed, or remains
-uncredited if in neither list. Refunds cover only positive callback balance
+collateral if declared (Multiply mode only), returns to the caller if
+refund-listed, or remains uncredited if in neither list. Refunds cover only positive callback balance
 changes.
 
 An already healthy account can support new debt with little additional

@@ -2,6 +2,7 @@
 //! money path. Each test pins a typed protocol error raised before any token
 //! moves, a documented "means all" semantic, or a refund of the excess.
 
+use common::constants::{MAX_MARKET_VALUE_RAY, RAY_DECIMALS};
 use common::types::{HubAssetKey, SeizeMode};
 use common::validation::max_cap_for_decimals;
 use soroban_sdk::{vec, Bytes, Vec};
@@ -39,9 +40,15 @@ fn lift_caps(t: &LendingTest, asset: &str, decimals: u32) {
 }
 
 fn setup(decimals: u32) -> LendingTest {
+    setup_with_liquidity(decimals, market("A", decimals, usd(1)).initial_liquidity)
+}
+
+/// Seeds `a_liquidity` whole tokens of supply into market A.
+fn setup_with_liquidity(decimals: u32, a_liquidity: f64) -> LendingTest {
     let mut t = LendingTest::new()
         .with_market(market("A", decimals, usd(1)))
         .with_market(market("USDC", 7, usd(1)))
+        .with_initial_liquidity("A", a_liquidity)
         .with_min_borrow_collateral_disabled()
         .with_max_utilization_disabled_all_markets()
         .build();
@@ -54,15 +61,21 @@ fn leg(t: &LendingTest, asset: &str, amount: i128) -> Vec<(HubAssetKey, i128)> {
     vec![&t.env, (hub_asset(t.resolve_asset(asset)), amount)]
 }
 
+/// The largest deposit whose value fits `MAX_MARKET_VALUE_RAY` books; one raw
+/// unit more is rejected. The admitted cap sits exactly one whole token above it.
 #[test]
-fn supply_at_the_domain_ceiling_succeeds_and_one_unit_more_is_rejected() {
+fn supply_at_the_market_value_ceiling_succeeds_and_one_unit_more_is_rejected() {
     for decimals in [3u32, 7, 18] {
-        let mut t = setup(decimals);
-        let cap = max_cap_for_decimals(decimals);
-        t.supply_raw(ALICE, "A", cap);
+        let mut t = setup_with_liquidity(decimals, 0.0);
+        let ceiling = MAX_MARKET_VALUE_RAY / 10i128.pow(RAY_DECIMALS - decimals);
+        assert_eq!(
+            max_cap_for_decimals(decimals) - ceiling,
+            10i128.pow(decimals)
+        );
+        t.supply_raw(ALICE, "A", ceiling);
         assert_eq!(
             t.supply_balance_raw(ALICE, "A"),
-            cap,
+            ceiling,
             "decimals {decimals}: the ceiling books exactly"
         );
         let alice = t.get_or_create_user(ALICE);
@@ -76,7 +89,7 @@ fn supply_at_the_domain_ceiling_succeeds_and_one_unit_more_is_rejected() {
         assert_contract_error(map_try_ok_value(result), errors::MATH_OVERFLOW);
         assert_eq!(
             t.supply_balance_raw(ALICE, "A"),
-            cap,
+            ceiling,
             "decimals {decimals}: the rejected unit must not book"
         );
     }

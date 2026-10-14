@@ -1,13 +1,14 @@
 //! GH-13. The receiver is also the caller, so it owns the account the call
 //! opens and may hand the NFT away from inside its own callback. The call
 //! still finalizes under the original id and the new owner holds a solvent
-//! position; no value is created.
+//! position; no value is created. The call's position batch names the new
+//! owner.
 
 use common::types::HubAssetKey;
 use controller::constants::WAD;
 use controller::types::PositionMode;
-use soroban_sdk::testutils::Address as _;
-use soroban_sdk::xdr::ToXdr;
+use soroban_sdk::testutils::{Address as _, Events as _};
+use soroban_sdk::xdr::{ContractEventBody, ScVal, ToXdr};
 use soroban_sdk::{vec, Address, Bytes, Vec};
 use test_harness::{
     assert_contract_error, errors, f64_to_i128, hub_asset, map_try_ok_unit, FlashPositionMode,
@@ -46,6 +47,11 @@ fn a_self_owned_receiver_can_hand_the_account_away_mid_callback_and_finalize_sti
         &mins,
         &Vec::new(&t.env),
     );
+    assert_eq!(
+        batch_owners(&t),
+        std::vec![ScVal::from(&bob)],
+        "CR-19: the position batch names the holder after the callback"
+    );
     assert_eq!(t.nft_owner_of(id), bob, "the callback moved the token");
     assert!(t.borrow_balance_raw_for(id, "ETH") > 0);
     assert!(t.supply_balance_raw_for(id, "USDC") > 0);
@@ -68,4 +74,32 @@ fn a_self_owned_receiver_can_hand_the_account_away_mid_callback_and_finalize_sti
         !t.account_exists(id),
         "the new owner can unwind what it received"
     );
+}
+
+/// `account_attributes.owner` of each controller `position:batch_update` event
+/// in the last invocation.
+fn batch_owners(t: &LendingTest) -> std::vec::Vec<ScVal> {
+    let batch_topic = [
+        ScVal::Symbol("position".try_into().expect("symbol")),
+        ScVal::Symbol("batch_update".try_into().expect("symbol")),
+    ];
+    t.env
+        .events()
+        .all()
+        .events()
+        .iter()
+        .filter_map(|event| {
+            let ContractEventBody::V0(body) = &event.body;
+            if body.topics.len() < 2 || body.topics[..2] != batch_topic {
+                return None;
+            }
+            let ScVal::Vec(Some(data)) = &body.data else {
+                panic!("batch data is a vec");
+            };
+            let ScVal::Vec(Some(attrs)) = &data[1] else {
+                panic!("account attributes are a vec");
+            };
+            Some(attrs[0].clone())
+        })
+        .collect()
 }

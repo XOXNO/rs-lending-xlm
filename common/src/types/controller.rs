@@ -530,9 +530,9 @@ mod tests {
 }
 
 /// Controller storage keys: singleton protocol settings, per-hub and per-spoke configuration,
-/// per-spoke-asset configuration, usage and flags epoch, the address-keyed position-manager
-/// and Blend-pool registries, and per-account metadata, positions, and delegates, all keyed
-/// by the `u64` account id.
+/// per-spoke-asset configuration, usage and flags epoch, the address-keyed position-manager and
+/// Blend-pool registries, and per-account metadata, positions, delegates, and supply legs
+/// excluded from valuation, all keyed by the `u64` account id.
 #[contracttype]
 #[derive(Clone, Debug)]
 pub enum ControllerKey {
@@ -561,4 +561,7 @@ pub enum ControllerKey {
     SupplyPositions(u64),
     BorrowPositions(u64),
     SpokeFlagsEpoch(u32, HubAssetKey),
+    /// The account's supply legs that count as zero collateral, each mapped to the
+    /// ledger sequence its exclusion was set at; missing means none.
+    AccountValuationExclusions(u64),
 }

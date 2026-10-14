@@ -5,7 +5,7 @@ use soroban_sdk::{Address, Env, Map, Vec};
 use common::collections::push_unique_address;
 
 use crate::context::Context;
-use crate::storage::{iter_debt_positions, iter_typed_positions};
+use crate::storage::{get_account_valuation_exclusions, iter_debt_positions, iter_typed_positions};
 
 pub(crate) use common::rates::{position_value, position_value_ceil, position_value_floor};
 
@@ -16,6 +16,48 @@ pub(crate) fn portfolio_hub_keys(
 ) -> Vec<HubAssetKey> {
     supply_keys.append(borrow_keys);
     supply_keys
+}
+
+/// Returns `supply` without the legs excluded from the valuation of
+/// `account_id`. An excluded leg counts as zero collateral: it is never priced,
+/// weighted or seized. Iterates the bounded supply book, not the stored set.
+pub(crate) fn valued_supply_positions(
+    env: &Env,
+    account_id: u64,
+    supply: &Map<HubAssetKey, AccountPositionRaw>,
+) -> Map<HubAssetKey, AccountPositionRaw> {
+    let exclusions = get_account_valuation_exclusions(env, account_id);
+    if exclusions.is_empty() {
+        return supply.clone();
+    }
+    let mut valued = supply.clone();
+    for hub_asset in supply.keys().iter() {
+        if exclusions.contains_key(hub_asset.clone()) {
+            valued.remove(hub_asset);
+        }
+    }
+    valued
+}
+
+/// Returns `account` with the supply legs excluded from its valuation removed.
+pub(crate) fn valued_account(env: &Env, account_id: u64, account: &Account) -> Account {
+    Account {
+        supply_positions: valued_supply_positions(env, account_id, &account.supply_positions),
+        ..account.clone()
+    }
+}
+
+/// Returns whether `account` holds a supply leg excluded from its valuation.
+pub(crate) fn holds_valuation_excluded_leg(env: &Env, account_id: u64, account: &Account) -> bool {
+    let exclusions = get_account_valuation_exclusions(env, account_id);
+    if exclusions.is_empty() {
+        return false;
+    }
+    account
+        .supply_positions
+        .keys()
+        .iter()
+        .any(|hub_asset| exclusions.contains_key(hub_asset))
 }
 
 /// Returns distinct token addresses from both position maps and `extras`.

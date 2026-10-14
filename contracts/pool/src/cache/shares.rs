@@ -47,14 +47,18 @@ impl Cache {
         self.require_revenue_backed();
     }
 
-    /// Burns claimable revenue up to available cash and returns the asset amount withdrawn.
+    /// Burns claimable revenue up to the claimable cash (see
+    /// [`Cache::claimable_cash`]) and returns the asset amount withdrawn.
     ///
     /// Partial claims burn a pro-rata ceiling of revenue shares. Returns `0` when
-    /// nothing is available.
+    /// nothing is available, and also when the payout would raise utilization
+    /// past the claim bound ([`Cache::claim_utilization_room`]): the claim is
+    /// refused whole, as a utilization ceiling refuses it, but pays nothing
+    /// instead of reverting.
     pub(crate) fn burn_claimable_revenue(&mut self) -> i128 {
         let treasury_actual = self.unscale_supply_floor(self.revenue);
-        let amount = self.cash.min(treasury_actual);
-        if amount <= 0 {
+        let amount = self.claimable_cash().min(treasury_actual);
+        if amount <= 0 || amount > self.claim_utilization_room() {
             return 0;
         }
         let scaled_to_burn = if amount >= treasury_actual {

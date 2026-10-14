@@ -5,7 +5,9 @@ use crate::test_support::{hub, init_ledger};
 use crate::{LiquidityPool, LiquidityPoolClient};
 use common::constants::RAY;
 use common::math::fp::Ray;
-use common::rates::{calculate_scaled_borrow_floor, calculate_scaled_supply_ceil};
+use common::rates::{
+    calculate_scaled_borrow_floor, calculate_scaled_supply_ceil, unscale_borrow_ceil,
+};
 use common::types::{MarketParamsRaw, PoolKey};
 use soroban_sdk::testutils::Address as _;
 use soroban_sdk::Address;
@@ -187,7 +189,7 @@ fn test_all_decimal_roundtrips_never_favor_user() {
                     );
 
                     let debt = cache.calculate_scaled_borrow(a);
-                    let owed = cache.unscale_borrow_ceil(debt);
+                    let owed = unscale_borrow_ceil(&t.env, debt, Ray::from(index), decimals);
                     assert!(
                         owed >= a,
                         "borrow roundtrip favored the user: dec={decimals} \

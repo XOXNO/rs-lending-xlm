@@ -1,9 +1,11 @@
-use common::constants::{BPS, LIQUIDATION_BUFFER_BPS};
+use common::constants::{BPS, LIQUIDATION_BUFFER_BPS, MAX_CLAIM_UTILIZATION_RAY};
 use common::math::fp::Ray;
-use common::math::fp_core::mul_div_ceil;
+use common::math::fp_core::{mul_div_ceil, mul_div_floor_saturating};
 use common::rates::unscale_supply_floor;
 use controller::constants::RAY;
-use controller::types::{AccountPositionType, ControllerKey, PositionLimits};
+use controller::types::{
+    AccountPositionType, ControllerKey, PoolKey, PoolStateRaw, PositionLimits,
+};
 use soroban_sdk::token;
 
 use crate::context::LendingTest;
@@ -320,5 +322,51 @@ impl LendingTest {
             sync.params.asset_decimals,
         );
         mul_div_ceil(&self.env, supplied, LIQUIDATION_BUFFER_BPS, BPS)
+    }
+
+    /// Largest revenue payout a claim may make without raising utilization
+    /// past `min(max_utilization, MAX_CLAIM_UTILIZATION_RAY)`, in token units,
+    /// at the stored indexes: `floor(supply_value - (floor(debt_value / bound) + 1))`
+    /// less the pool's two-unit burn margin, at least zero; `i128::MAX` without
+    /// debt. A claim whose payout exceeds it pays nothing. Mirrors
+    /// `pool::cache::Cache::claim_utilization_room`.
+    pub fn claim_utilization_room_raw(&self, asset_name: &str) -> i128 {
+        let asset = self.resolve_asset(asset_name);
+        let sync = self
+            .pool_client(asset_name)
+            .get_sync_data(&hub_asset(asset));
+        if sync.state.borrowed == 0 {
+            return i128::MAX;
+        }
+        let bound = Ray::from(sync.params.max_utilization.min(MAX_CLAIM_UTILIZATION_RAY));
+        let supply_value =
+            mul_div_floor_saturating(&self.env, sync.state.supplied, sync.state.supply_index, RAY);
+        let debt_value =
+            Ray::from(sync.state.borrowed).mul_ceil(&self.env, Ray::from(sync.state.borrow_index));
+        let min_supply_value =
+            mul_div_floor_saturating(&self.env, debt_value.raw(), RAY, bound.raw())
+                .saturating_add(1);
+        Ray::from(supply_value.saturating_sub(min_supply_value).max(0))
+            .to_asset_floor(&self.env, sync.params.asset_decimals)
+            .saturating_sub(2)
+            .max(0)
+    }
+}
+
+impl LendingTest {
+    /// Mints `amount` raw tokens to `asset_name`'s pool and credits them to its
+    /// cash book without minting supply shares.
+    ///
+    /// No public call produces cash without shares. Tests use it to reach a
+    /// guard that only such a state exposes.
+    pub fn inject_shareless_cash_raw(&self, asset_name: &str, amount: i128) {
+        let market = self.resolve_market(asset_name);
+        market.token_admin.mint(&market.pool, &amount);
+        let key = PoolKey::State(hub_asset(market.asset.clone()));
+        self.env.as_contract(&market.pool, || {
+            let mut state: PoolStateRaw = self.env.storage().persistent().get(&key).unwrap();
+            state.cash += amount;
+            self.env.storage().persistent().set(&key, &state);
+        });
     }
 }

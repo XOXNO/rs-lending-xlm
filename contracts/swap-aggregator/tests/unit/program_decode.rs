@@ -8,7 +8,8 @@
 //! `execute_strategy`, so each payload is malformed in one way only and the
 //! exact contract error is observed.
 
-use soroban_sdk::{contract, contractimpl, Address, Bytes, Env};
+use soroban_sdk::testutils::Address as _;
+use soroban_sdk::{contract, contractimpl, Address, Bytes, Env, Vec};
 
 use crate::constants::PPM_DENOMINATOR;
 use crate::errors::Error;
@@ -39,10 +40,10 @@ impl DecodeProbe {
     pub fn header(
         env: Env,
         ops: Bytes,
-        assets_len: u32,
+        assets: Vec<Address>,
         amounts_len: u32,
     ) -> (u32, u32, u32, u32, u64) {
-        let program = Program::decode(&env, &ops, assets_len, amounts_len);
+        let program = Program::decode(&env, &ops, &assets, amounts_len);
         (
             program.len(),
             program.token_in,
@@ -57,15 +58,36 @@ fn probe(env: &Env) -> Address {
     env.register(DecodeProbe, ())
 }
 
-/// Decode `ops`, requiring success.
-fn decode(env: &Env, ops: &Bytes, assets_len: u32, amounts_len: u32) -> (u32, u32, u32, u32, u64) {
-    DecodeProbeClient::new(env, &probe(env)).header(ops, &assets_len, &amounts_len)
+/// An address registry of `len` distinct addresses.
+fn registry(env: &Env, len: u32) -> Vec<Address> {
+    let mut assets = Vec::new(env);
+    for _ in 0..len {
+        assets.push_back(Address::generate(env));
+    }
+    assets
 }
 
-/// Decode `ops`, requiring failure, and return the contract error raised.
+/// Decode `ops` over `assets_len` distinct addresses, requiring success.
+fn decode(env: &Env, ops: &Bytes, assets_len: u32, amounts_len: u32) -> (u32, u32, u32, u32, u64) {
+    DecodeProbeClient::new(env, &probe(env)).header(ops, &registry(env, assets_len), &amounts_len)
+}
+
+/// Decode `ops` over `assets_len` distinct addresses, requiring failure, and
+/// return the contract error raised.
 fn decode_error(env: &Env, ops: &Bytes, assets_len: u32, amounts_len: u32) -> soroban_sdk::Error {
+    decode_error_over(env, ops, &registry(env, assets_len), amounts_len)
+}
+
+/// Decode `ops` over the given registry, requiring failure, and return the
+/// contract error raised.
+fn decode_error_over(
+    env: &Env,
+    ops: &Bytes,
+    assets: &Vec<Address>,
+    amounts_len: u32,
+) -> soroban_sdk::Error {
     DecodeProbeClient::new(env, &probe(env))
-        .try_header(ops, &assets_len, &amounts_len)
+        .try_header(ops, assets, &amounts_len)
         .unwrap_err()
         .unwrap()
 }
@@ -303,6 +325,30 @@ fn decode_rejects_a_strategy_whose_input_and_output_token_coincide() {
         &[],
     );
     assert_eq!(decode_error(&env, &bytes, 3, 1), Error::SameToken.into());
+}
+
+/// R-B fix (router_adapter): the header check compares addresses. A registry
+/// that lists the input token twice cannot declare the input as the output
+/// through a second index; before the fix this header decoded.
+#[test]
+fn decode_rejects_distinct_header_indices_naming_the_same_token() {
+    let env = Env::default();
+    let assets = registry(&env, 3);
+    let mut duplicated = assets.clone();
+    duplicated.push_back(assets.get_unchecked(1)); // index 3 repeats index 1
+    let bytes = encode::program(
+        &env,
+        1,
+        3,
+        0,
+        0,
+        &alloc::vec![swap(encode::ALL, 0, 1, 2)],
+        &[],
+    );
+    assert_eq!(
+        decode_error_over(&env, &bytes, &duplicated, 1),
+        Error::SameToken.into()
+    );
 }
 
 /// The referral id is a big-endian `u32` at a fixed header offset; it must
@@ -555,6 +601,123 @@ fn validate_rejects_a_swap_between_one_token_and_itself() {
         &[],
     );
     assert_eq!(decode_error(&env, &bytes, 3, 1), Error::SameToken.into());
+}
+
+/// R-B fix (router_adapter): the per-swap check compares addresses too, so a
+/// swap from a token into a second registry entry for the same token is
+/// refused at decode, before any earlier instruction runs.
+#[test]
+fn validate_rejects_a_swap_whose_distinct_indices_name_the_same_token() {
+    let env = Env::default();
+    let assets = registry(&env, 3);
+    let mut duplicated = assets.clone();
+    duplicated.push_back(assets.get_unchecked(1)); // index 3 repeats index 1
+    let bytes = encode::program(
+        &env,
+        1,
+        2,
+        0,
+        0,
+        &alloc::vec![swap(encode::ALL, 0, 1, 3)],
+        &[],
+    );
+    assert_eq!(
+        decode_error_over(&env, &bytes, &duplicated, 1),
+        Error::SameToken.into()
+    );
+}
+
+/// Skeptic (router_adapter, R-B), over-refusal guard: the address comparison
+/// applies to each swap's own endpoints and to the strategy endpoints only. A
+/// route that revisits the input token mid-route through a duplicate entry
+/// (A -> B -> A' -> C, A' a second entry for A) has distinct endpoints at every
+/// check and must still decode.
+#[test]
+fn skeptic_rb_decode_accepts_a_route_that_revisits_the_input_through_a_duplicate_index() {
+    let env = Env::default();
+    let base = registry(&env, 4); // [A, B, C, pool]
+    let mut assets = base.clone();
+    assets.push_back(base.get_unchecked(0)); // index 4 repeats A
+    let bytes = encode::program(
+        &env,
+        0,
+        2,
+        0,
+        0,
+        &alloc::vec![
+            swap(encode::ALL, 3, 0, 1),
+            swap(encode::PREV, 3, 1, 4),
+            swap(encode::PREV, 3, 4, 2),
+        ],
+        &[],
+    );
+    let (len, token_in, token_out, _, _) =
+        DecodeProbeClient::new(&env, &probe(&env)).header(&bytes, &assets, &1);
+    assert_eq!((len, token_in, token_out), (3, 0, 2));
+}
+
+/// Skeptic (router_adapter, R-B): the drafter keeps the `Prev` link on index
+/// identity and calls it stricter. Pin that claim: a `Prev` that names the
+/// previous output through a second entry for the same address is refused
+/// with `BrokenTokenChain` at decode, never accepted by address.
+#[test]
+fn skeptic_rb_prev_through_a_duplicate_entry_of_the_previous_output_is_refused() {
+    let env = Env::default();
+    let base = registry(&env, 3); // [A, B, pool]
+    let mut assets = base.clone();
+    assets.push_back(base.get_unchecked(1)); // index 3 repeats B
+    assets.push_back(Address::generate(&env)); // index 4: C
+    let bytes = encode::program(
+        &env,
+        0,
+        4,
+        0,
+        0,
+        &alloc::vec![swap(encode::ALL, 2, 0, 1), swap(encode::PREV, 2, 3, 4)],
+        &[],
+    );
+    assert_eq!(
+        decode_error_over(&env, &bytes, &assets, 1),
+        Error::BrokenTokenChain.into()
+    );
+}
+
+/// Skeptic (router_adapter, R-B): every swap venue shares the per-swap check.
+/// A duplicate-entry same-token swap is refused for each swap opcode, not
+/// only the Soroswap one the drafter's test encodes, and on a later
+/// instruction as well as the first.
+#[test]
+fn skeptic_rb_every_swap_opcode_refuses_a_duplicate_entry_same_token_swap() {
+    let env = Env::default();
+    let base = registry(&env, 4); // [A, B, C, pool]
+    let mut assets = base.clone();
+    assets.push_back(base.get_unchecked(1)); // index 4 repeats B
+    for opcode in 0u8..=4 {
+        let bytes = encode::program(
+            &env,
+            0,
+            2,
+            0,
+            0,
+            &alloc::vec![
+                swap(encode::ALL, 3, 0, 1),
+                RawOp {
+                    opcode,
+                    mode: encode::PREV,
+                    idx_a: 3,
+                    idx_b: 1,
+                    idx_c: 4,
+                },
+                swap(encode::ALL, 3, 1, 2),
+            ],
+            &[],
+        );
+        assert_eq!(
+            decode_error_over(&env, &bytes, &assets, 1),
+            Error::SameToken.into(),
+            "opcode {opcode}"
+        );
+    }
 }
 
 #[test]

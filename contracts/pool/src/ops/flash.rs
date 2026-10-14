@@ -19,7 +19,7 @@ use soroban_sdk::{
 };
 
 use crate::cache::Cache;
-use crate::{events, interest, ops};
+use crate::{events, guards, interest, ops};
 
 /// Precomputed fee and expected pool balances for a flash loan.
 pub(crate) struct FlashTerms {
@@ -124,6 +124,7 @@ pub(crate) fn terms(env: &Env, amount: i128, fee_bps: u32, pre_balance: i128) ->
 pub(crate) fn book_fee(cache: &mut Cache, fee: i128) {
     let protocol_fee = Ray::from_asset(cache.env(), fee, cache.params().asset_decimals);
     interest::add_protocol_revenue(cache, protocol_fee);
+    guards::require_market_value_within_ceiling(cache.env(), cache);
     cache.credit_cash(fee);
 }
 

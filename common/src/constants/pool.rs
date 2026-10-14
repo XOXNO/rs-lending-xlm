@@ -1,5 +1,6 @@
-//! Pool bounds: the supply index floor, the index ceilings and the borrow-rate
-//! ceiling (RAY), and the liquidation cash buffer (BPS).
+//! Pool bounds: the supply index floor, the index ceilings, the market value
+//! ceiling, the borrow-rate ceiling and the revenue-claim utilization bound
+//! (RAY), and the liquidation cash buffer (BPS).
 
 use crate::constants::RAY;
 
@@ -15,9 +16,24 @@ pub const MAX_BORROW_RATE_RAY: i128 = 2 * RAY;
 /// debt mint, borrows and strategy openings alike (INV-ACCT-07).
 pub const LIQUIDATION_BUFFER_BPS: i128 = 200;
 
+/// Utilization, in raw ray units (95%), past which a revenue claim on a market
+/// with outstanding debt pays nothing, whatever the market's own
+/// `max_utilization`; a lower market ceiling binds instead. Revenue accrued on
+/// interest an uncleaned insolvency never pays thus cannot drain the cash of
+/// a market whose ceiling is disabled (INV-ACCT-06).
+pub const MAX_CLAIM_UTILIZATION_RAY: i128 = RAY / 100 * 95;
+
 /// Ceiling the borrow index is clamped to after growth, in raw ray units.
 pub const MAX_BORROW_INDEX_RAY: i128 = 1_000_000_000_000_000_000_000_000_000_000_000_000;
 
 /// Ceiling the supply index is clamped to after growth, in raw ray units.
 /// Equal to [`MAX_BORROW_INDEX_RAY`].
 pub const MAX_SUPPLY_INDEX_RAY: i128 = MAX_BORROW_INDEX_RAY;
+
+/// Ceiling on a market's total supply value and on its total debt value
+/// (`shares * index`), in raw ray units: one whole token below `i128::MAX`.
+///
+/// Accrual stops interest growth before either total passes it, and supply
+/// entry and flash or strategy fee booking reject a total above it, so both
+/// totals stay representable after rounding up.
+pub const MAX_MARKET_VALUE_RAY: i128 = i128::MAX - RAY;

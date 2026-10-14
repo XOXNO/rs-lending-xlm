@@ -158,8 +158,10 @@ impl ControllerInterface for Controller {
     }
 
     /// Socializes insolvent debt into the supply index and removes the account
-    /// when remaining collateral is at or below the dust cap. Permissionless;
-    /// requires caller authorization.
+    /// when remaining collateral is at or below the dust cap, or when the
+    /// collateral-backed quote repays no unit of any debt leg so no
+    /// liquidation can make progress. Permissionless; requires caller
+    /// authorization.
     fn clean_bad_debt(env: Env, caller: Address, account_id: u64) {
         positions::liquidation::process_clean_bad_debt(&env, &caller, account_id);
     }
@@ -466,7 +468,9 @@ impl ControllerInterface for Controller {
 
     /// Estimates gross seizure, protocol fees, refunds, maximum payable debt
     /// in USD (WAD), and bonus (BPS). Seizure and fees use asset units for
-    /// `Transfer`, RAY-scaled supply shares for `Credit`.
+    /// `Transfer`, RAY-scaled supply shares for `Credit`. Fails where
+    /// execution would: a `Credit` receiver passes every gate except
+    /// ownership, and each leg's feed decimals must match the pool's.
     fn get_liquidation_estimate(
         env: Env,
         account_id: u64,
@@ -523,6 +527,12 @@ impl ControllerInterface for Controller {
     /// `relax_spoke_asset_flags` call must name; 0 if never written.
     fn get_spoke_asset_flags_epoch(env: Env, spoke_id: u32, hub_asset: HubAssetKey) -> u64 {
         storage::get_spoke_flags_epoch(&env, spoke_id, &hub_asset)
+    }
+
+    /// Returns the account's supply legs excluded from its valuation, each
+    /// mapped to the ledger sequence its exclusion was set at; empty if none.
+    fn get_account_valuation_exclusions(env: Env, account_id: u64) -> Map<HubAssetKey, u32> {
+        storage::get_account_valuation_exclusions(&env, account_id)
     }
 
     /// Returns the configured price aggregator contract address.
@@ -705,6 +715,38 @@ impl ControllerAdmin for Controller {
                 paused,
                 frozen,
                 no_seize
+            )
+        )
+    }
+
+    /// Excludes one account's supply leg of `hub_asset` from that account's
+    /// valuation while the asset's strict price read fails with a feed outage;
+    /// the leg then counts as zero collateral and is not seized. Owner-only.
+    #[only_owner]
+    fn exclude_account_asset_valuation(env: Env, account_id: u64, hub_asset: HubAssetKey) {
+        renew_then!(
+            env,
+            config::valuation::exclude_account_asset_valuation(&env, account_id, hub_asset)
+        )
+    }
+
+    /// Returns an excluded account leg to valuation when `excluded_at` names
+    /// the live exclusion and the asset's strict price read succeeds.
+    /// Owner-only.
+    #[only_owner]
+    fn restore_account_asset_valuation(
+        env: Env,
+        account_id: u64,
+        hub_asset: HubAssetKey,
+        excluded_at: u32,
+    ) {
+        renew_then!(
+            env,
+            config::valuation::restore_account_asset_valuation(
+                &env,
+                account_id,
+                hub_asset,
+                excluded_at
             )
         )
     }

@@ -3,6 +3,7 @@
 pub(crate) mod asset;
 pub(crate) mod registry;
 pub(crate) mod spoke;
+pub(crate) mod valuation;
 
 #[cfg(feature = "certora")]
 pub(crate) use asset::{add_asset_to_spoke, edit_asset_in_spoke};

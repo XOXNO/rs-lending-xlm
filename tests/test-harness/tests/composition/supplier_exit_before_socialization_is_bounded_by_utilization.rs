@@ -21,6 +21,7 @@ struct Seed {
 fn seed(max_util_unbounded: bool, whale_borrow_eth: f64) -> Seed {
     let mut b = LendingTest::new()
         .standard_two_asset()
+        .with_initial_liquidity("ETH", 0.0)
         .with_min_borrow_collateral_disabled();
     if max_util_unbounded {
         b = b.with_max_utilization_disabled_all_markets();

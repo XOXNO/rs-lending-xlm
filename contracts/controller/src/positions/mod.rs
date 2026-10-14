@@ -79,14 +79,16 @@ pub(crate) fn for_each_leg<E, R>(
 }
 
 /// Restamps listed supply LTVs, then checks collateral coverage, health factor,
-/// and minimum borrow collateral. Returns whether any LTV changed.
+/// and minimum borrow collateral on the account's valued supply legs. Returns
+/// whether any LTV changed.
 pub(crate) fn enforce_post_pool_solvency(
     env: &Env,
     cache: &mut Context,
+    account_id: u64,
     account: &mut Account,
 ) -> bool {
     let restamped = risk::restamp_listed_supply_ltv(cache, account);
-    validation::require_post_pool_risk_gates(env, cache, account);
+    validation::require_post_pool_risk_gates(env, cache, account_id, account);
     restamped
 }
 

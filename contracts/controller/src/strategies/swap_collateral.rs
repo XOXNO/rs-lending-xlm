@@ -5,12 +5,11 @@ use soroban_sdk::{assert_with_error, vec, Address, Env};
 
 use crate::account;
 use crate::config;
-use crate::context::Context;
 use crate::events;
 use crate::positions::require_can_supply;
 use crate::risk::validation::require_authorized_caller;
 use crate::strategies::{
-    prefetch_strategy_prices, strategy_finalize, withdraw_and_swap_from_supply,
+    prefetch_strategy_prices, strategy_context, strategy_finalize, withdraw_and_swap_from_supply,
 };
 use crate::{positions::supply, storage};
 
@@ -45,12 +44,12 @@ pub(crate) fn process_swap_collateral(
 
     let mut account = storage::get_account(env, account_id);
     account::require_owner_or_delegate(env, account_id, caller, &account.owner);
-    let mut cache = Context::new(env);
+    let mut cache = strategy_context(env);
     // Check the destination before withdrawing existing collateral.
     require_can_supply(env, &mut cache, account.spoke_id, new);
 
     let extra_assets = vec![env, current.asset.clone(), new.asset.clone()];
-    prefetch_strategy_prices(&mut cache, &account, &extra_assets);
+    prefetch_strategy_prices(&mut cache, account_id, &account, &extra_assets);
 
     let swapped_amount = withdraw_and_swap_from_supply(
         env,

@@ -4,14 +4,19 @@
 //! check panics with the corresponding `OracleError` or `GenericError`
 //! variant when the configuration is invalid.
 
-use common::constants::{MAX_ASSET_DECIMALS, MAX_REASONABLE_PRICE_WAD, MIN_ASSET_DECIMALS};
+use common::constants::{
+    BPS, MAX_ASSET_DECIMALS, MAX_REASONABLE_PRICE_WAD, MIN_ASSET_DECIMALS, WAD,
+};
 use common::errors::{GenericError, OracleError};
+use common::math::fp_core::mul_div_ceil;
 use common::oracle::observation::{
-    MAX_ORACLE_DECIMALS, MAX_PRICE_STALE_SECONDS, MIN_ORACLE_DECIMALS, MIN_PRICE_STALE_SECONDS,
+    MAX_LEG_AGE_SPREAD_SECONDS, MAX_ORACLE_DECIMALS, MAX_PRICE_STALE_SECONDS,
+    MAX_SINGLE_SOURCE_SANITY_BAND_BPS, MIN_ORACLE_DECIMALS, MIN_PRICE_STALE_SECONDS,
 };
 use common::types::{
-    AquariusLpSource, FeedSource, IndependencePolicy, OracleReadMode, PriceKey, PriceSource,
-    ProviderRef, ScaledSource, MAX_RESOLUTION_DEPTH, MAX_SOURCES, MIN_SOURCES,
+    AquariusLpSource, AssetOracle, FeedSource, IndependencePolicy, OracleReadMode, OracleTolerance,
+    PriceKey, PriceSource, ProviderRef, ScaledSource, MAX_RESOLUTION_DEPTH, MAX_SOURCES,
+    MIN_SOURCES,
 };
 use common::validation::validate_twap_records;
 use soroban_sdk::{panic_with_error, Address, Env, Vec};
@@ -53,6 +58,26 @@ pub(crate) fn staleness_envelope(
     }
 }
 
+/// Panics with `OracleError::InvalidStalenessConfig` when both legs have a
+/// market-nature input and either leg allows one of them to lag by more than
+/// `MAX_LEG_AGE_SPREAD_SECONDS`.
+///
+/// The read marks such a pair stale once its legs' oldest market inputs are
+/// further apart than that bound. Holding every market budget to the bound
+/// also holds every Reflector TWAP window to it, since `attest` caps the
+/// window by the budget; a wider window would be admitted and then fail
+/// every read while both legs are fresh.
+pub(crate) fn leg_spread_budget(env: &Env, first: &SourceProperties, second: &SourceProperties) {
+    if let (Some(first_budget), Some(second_budget)) = (
+        first.loosest_market_max_stale_seconds,
+        second.loosest_market_max_stale_seconds,
+    ) {
+        if first_budget.max(second_budget) > MAX_LEG_AGE_SPREAD_SECONDS {
+            panic_with_error!(env, OracleError::InvalidStalenessConfig);
+        }
+    }
+}
+
 /// Panics with `GenericError::SpotOnlyNotProductionSafe` if `first` has an
 /// unsmoothed market leg and `second` is either absent or also has an
 /// unsmoothed market leg.
@@ -87,6 +112,79 @@ pub(crate) fn independence(
         }
         _ => {}
     }
+}
+
+/// Ratio between the edges of the widest single-source sanity band,
+/// `(BPS + cap) / (BPS - cap)` in WAD: 11/9.
+const CAP_RATIO_WAD: i128 =
+    (BPS + MAX_SINGLE_SOURCE_SANITY_BAND_BPS) * WAD / (BPS - MAX_SINGLE_SOURCE_SANITY_BAND_BPS);
+
+/// The widest ratio between two legs that `tolerance` lets price, in WAD,
+/// rounded up. The read compares a half-up BPS ratio with `upper_ratio_bps`,
+/// so it admits up to half a basis point more; one extra basis point covers
+/// that.
+fn tolerance_ratio_wad(env: &Env, tolerance: &OracleTolerance) -> i128 {
+    mul_div_ceil(env, WAD, i128::from(tolerance.upper_ratio_bps) + 1, BPS)
+}
+
+/// How far a contract that `legs_reached` of `quote`'s legs trust can move
+/// `quote`'s price on its own, as a WAD ratio rounded up, looking one level
+/// down only:
+///
+/// - no leg trusts it: `WAD`, it does not move the quote;
+/// - one leg of a pair: the quote's tolerance ratio, because the quote prices
+///   only while the other leg, which the contract does not reach, sits within
+///   that tolerance of it;
+/// - otherwise `None`: the contract can move the quote anywhere its band
+///   allows, however deep it sits, so it bounds nothing below the
+///   single-source cap.
+pub(crate) fn quote_reach_wad(env: &Env, quote: &AssetOracle, legs_reached: u32) -> Option<i128> {
+    match legs_reached {
+        0 => Some(WAD),
+        1 if quote.sources.len() == 2 => Some(tolerance_ratio_wad(env, &quote.tolerance)),
+        _ => None,
+    }
+}
+
+/// Returns whether `contract`, trusted by both legs of `sources`, serves some
+/// top-level `Scaled` leg through its factor such that the factor range
+/// `max_factor_wad / min_factor_wad`, times that leg's quote reach
+/// (`quote_reach_wad`, in source order, from
+/// [`crate::properties::ConfigProperties`]), times the pair's tolerance ratio
+/// stays within `CAP_RATIO_WAD`. Every ratio rounds up.
+///
+/// One such leg is enough: the contract moves it by at most the factor range
+/// times what it does to the quote, and whatever it does to the other leg,
+/// the pair only prices while that leg sits within the tolerance of the
+/// anchored one, so the blended price moves by at most the product. A
+/// contract that reaches every leg through a plain `Feed`, or only through a
+/// wider factor, moves both legs together and the pair keeps the
+/// single-source band cap. The quote reach looks one level down: a contract
+/// that every leg of the quote trusts is unbounded, however deep it sits.
+pub(crate) fn shared_contract_is_range_bounded(
+    env: &Env,
+    contract: &Address,
+    sources: &Vec<PriceSource>,
+    quote_reach_wad: &[Option<i128>; 2],
+    tolerance: &OracleTolerance,
+) -> bool {
+    sources
+        .iter()
+        .zip(quote_reach_wad.iter())
+        .any(|(source, quote_reach)| match (source, quote_reach) {
+            (PriceSource::Scaled(scaled), Some(quote_reach))
+                if scaled.factor.provider.contract() == contract =>
+            {
+                let range_wad =
+                    mul_div_ceil(env, scaled.max_factor_wad, WAD, scaled.min_factor_wad);
+                range_wad <= CAP_RATIO_WAD && {
+                    let reach_wad = mul_div_ceil(env, range_wad, *quote_reach, WAD);
+                    mul_div_ceil(env, reach_wad, tolerance_ratio_wad(env, tolerance), WAD)
+                        <= CAP_RATIO_WAD
+                }
+            }
+            _ => false,
+        })
 }
 
 /// Returns whether `left` and `right` contain exactly the same addresses,

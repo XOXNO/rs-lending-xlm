@@ -25,9 +25,10 @@ use crate::{storage, Controller, ControllerClient};
 use common::math::fp::Ray;
 use common::rates::{resolve_repay, resolve_withdrawal};
 use common::types::{
-    AccountMeta, AccountPositionRaw, DebtPositionRaw, HubAssetKey, MarketIndexRaw, PoolAction,
-    PoolPositionMutation, PoolSeizeEntry, PoolWithdrawEntry, PositionLimits, PositionMode,
-    PriceFeedRaw, PriceKey, ScaledPositionRaw, SeizeMode, SpokeAssetConfig, SpokeConfig,
+    AccountMeta, AccountPositionRaw, DebtPositionRaw, HubAssetKey, MarketIndexRaw, MarketParamsRaw,
+    PoolAction, PoolPositionMutation, PoolSeizeEntry, PoolStateRaw, PoolSyncData,
+    PoolWithdrawEntry, PositionLimits, PositionMode, PriceFeedRaw, PriceKey, ScaledPositionRaw,
+    SeizeMode, SpokeAssetConfig, SpokeConfig,
 };
 use soroban_sdk::testutils::Address as _;
 use soroban_sdk::{contract, contractimpl, symbol_short, token, Address, Env, Map, Vec};
@@ -55,6 +56,36 @@ impl StubPool {
             out.push_back(unit_index());
         }
         out
+    }
+
+    /// The listing the estimate reads to check the feed decimals (F1).
+    pub fn get_sync_data(_env: Env, hub_asset: HubAssetKey) -> PoolSyncData {
+        PoolSyncData {
+            params: MarketParamsRaw {
+                max_borrow_rate: 0,
+                base_borrow_rate: 0,
+                slope1: 0,
+                slope2: 0,
+                slope3: 0,
+                mid_utilization: 0,
+                optimal_utilization: 0,
+                max_utilization: 0,
+                reserve_factor: 0,
+                is_flashloanable: false,
+                flashloan_fee: 0,
+                asset_id: hub_asset.asset,
+                asset_decimals: DECIMALS,
+            },
+            state: PoolStateRaw {
+                supplied: 0,
+                borrowed: 0,
+                revenue: 0,
+                borrow_index: RAY,
+                supply_index: RAY,
+                last_timestamp: 0,
+                cash: 0,
+            },
+        }
     }
 
     pub fn repay(env: Env, _payer: Address, actions: Vec<PoolAction>) -> Vec<PoolPositionMutation> {

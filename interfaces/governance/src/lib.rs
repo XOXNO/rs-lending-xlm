@@ -32,6 +32,14 @@ pub struct RelaxSpokeAssetFlagsArgs {
 
 #[contracttype]
 #[derive(Clone, Debug)]
+pub struct RestoreAccountAssetValuationArgs {
+    pub account_id: u64,
+    pub hub_asset: HubAssetKey,
+    pub excluded_at: u32,
+}
+
+#[contracttype]
+#[derive(Clone, Debug)]
 pub struct CreatePoolArgs {
     pub hub_id: u32,
     pub asset: Address,
@@ -142,6 +150,8 @@ pub enum AdminOperation {
     ConfigureAssetOracle(ConfigureAssetOracleArgs),
 
     RelaxSpokeAssetFlags(RelaxSpokeAssetFlagsArgs),
+
+    RestoreAccountAssetValuation(RestoreAccountAssetValuationArgs),
 }
 
 #[contractclient(name = "GovernanceClient")]
@@ -198,6 +208,13 @@ pub trait GovernanceInterface {
         paused: bool,
         frozen: bool,
         no_seize: bool,
+    );
+
+    fn exclude_account_asset_valuation(
+        env: Env,
+        caller: Address,
+        account_id: u64,
+        hub_asset: HubAssetKey,
     );
 
     fn set_sanity_band(env: Env, caller: Address, key: PriceKey, min_wad: i128, max_wad: i128);

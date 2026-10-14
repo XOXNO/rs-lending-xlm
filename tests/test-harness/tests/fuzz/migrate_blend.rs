@@ -13,8 +13,6 @@ const SLACK: i128 = 4;
 
 fn setup() -> LendingTest {
     let mut t = LendingTest::new().with_market(usdc_preset()).build();
-    // Preset seed cash does not count as `supplied`. Without a real supplier, a
-    // small hub borrow hits max utilization.
     t.supply(BOB, USDC, 100_000.0);
     t
 }

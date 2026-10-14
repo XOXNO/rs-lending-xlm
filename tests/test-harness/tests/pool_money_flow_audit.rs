@@ -361,7 +361,7 @@ fn pool_loss_floor_recapitalization_returns_only_unused_funding() {
 // Uses a real SAC and no market storage injection.
 #[cfg(test)]
 mod fee_headroom {
-    use common::constants::RAY;
+    use common::constants::{MAX_MARKET_VALUE_RAY, RAY};
     use common::types::{
         HubAssetKey, MarketParamsRaw, PoolAction, PoolSupplyEntry, PoolWithdrawEntry,
         ScaledPositionRaw,
@@ -409,7 +409,8 @@ mod fee_headroom {
         };
         client.create_market(&0, &params);
         let ray_per_unit = RAY / 10_000_000;
-        let amount = i128::MAX / ray_per_unit;
+        // About one token of share headroom is left, below the 10-token fee: the fee fits only after the burn.
+        let amount = MAX_MARKET_VALUE_RAY / ray_per_unit;
         let gross = 100 * 10_000_000;
         let fee = 10 * 10_000_000;
         token::StellarAssetClient::new(&env, &asset).mint(&supplier, &amount);

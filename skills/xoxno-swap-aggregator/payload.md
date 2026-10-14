@@ -60,7 +60,7 @@ Byte layout from `program.rs` (contract) and `abi.rs` (encoder), pinned on both 
 |---|---|---|---|
 | `[0]` | 1 | `version` | Must equal `1` (`VERSION` / `PROGRAM_VERSION` / `STELLAR_PROGRAM_VERSION`; `/api/v1/config.protocolVersion`) |
 | `[1]` | 1 | `token_in` | Index into `assets` |
-| `[2]` | 1 | `token_out` | Index into `assets`; must differ from `token_in` (`SameToken = 25`) |
+| `[2]` | 1 | `token_out` | Index into `assets`; must name a different token address from `token_in`, so a second registry entry for the same address is still `SameToken = 25` |
 | `[3]` | 1 | `min_out` | **Index into `amounts`** of the total minimum output. Every encoder writes `0` here (`amounts[0] = total_min_out`); read it as an index, never as the amount |
 | `[4..8]` | 4 | `referral_id` | `u32` big-endian; `0` = no referral, no fee |
 | `[8]` | 1 | `op_count` | `1..=48` (`MAX_OPS`); `0` or above `48` → `EmptyBatch = 1` |
@@ -78,7 +78,7 @@ Instruction record (5 bytes):
 | `[1]` | `mode` | any | must be `All` (`0`) | must be `All` (`0`) |
 | `[2]` | `idx_a` | pool → `assets` | pool | pool |
 | `[3]` | `idx_b` | `token_in` → `assets` | share token → `assets` | share token → `assets` |
-| `[4]` | `idx_c` | `token_out` → `assets` (≠ `idx_b`) | first index of the per-constituent floor run in `amounts` | index of `mint_min_shares` in `amounts` |
+| `[4]` | `idx_c` | `token_out` → `assets` (address ≠ `idx_b`'s address) | first index of the per-constituent floor run in `amounts` | index of `mint_min_shares` in `amounts` |
 
 The table maps each opcode to its on-chain adapter. It does **not** prove that a
 production pool or the quote server is ABI-compatible with that adapter. Treat venue compatibility as unverified until a deployment test pins pool
@@ -190,14 +190,14 @@ codes overlap. The canonical enum is
 |---|---|---|
 | 1 | `EmptyBatch` | Empty/over-cap instruction batch or over-cap weights |
 | 3 | `InvalidAmount` | Nonpositive amount, vault overdraft, or measured spend mismatch |
-| 4 | `BrokenTokenChain` | Invalid `Prev` dependency; an Aquarius `get_tokens` list that is empty, longer than 256, has duplicates, or omits a hop token; or Sushi `token0`/`token1` does not match the hop pair |
+| 4 | `BrokenTokenChain` | Invalid `Prev` dependency; an Aquarius `get_tokens` list that is empty, longer than 256, has duplicates, or omits a hop token; or a Soroswap pair's `token_0`/`token_1` or a Sushi pool's `token0`/`token1` does not match the hop pair |
 | 5 | `SlippageExceeded` | Nonpositive `min_out` or delivered output below it |
 | 7 | `ZeroOutput` | Venue or LP leg produced no usable output |
 | 9 | `IntegerOverflow` | Checked conversion or arithmetic overflow |
 | 11 / 12 | `ZeroSplitPpm` / `SplitPpmMismatch` | Split weight is zero or above 1,000,000 ppm |
 | 13 | `InvalidRouteXdr` | Strategy map or packed program malformed |
 | 20 / 21 / 22 | `NotAdmin` / `FeeTooHigh` / `ReferralNotFound` | `admin()` found no owner; a fee above `FEE_CAP`; an unknown referral id in an owner setter or `claim_referral_fees`. Owner-only calls fail with `stellar_access` errors, not `NotAdmin` |
-| 25 | `SameToken` | Program input/output or a hop pair is identical |
+| 25 | `SameToken` | Program input/output, or a hop's input/output, name the same token address, whether through one index or two registry entries listing it twice |
 | 26 | `LpTokenMismatch` | Aquarius `share_id` differs from the declared LP token; see [`assert_share_token`](../../contracts/swap-aggregator/src/venues/aquarius/pool.rs) |
 | 27 / 28 | `MinSharesNotMet` / `MinAmountsNotMet` | LP mint or burn floor failed; `28` also when the burn-floor run is shorter than the pool's token count |
 | 29 | `ExcessiveResidual` | A leftover exceeds the per-token residual allowance |

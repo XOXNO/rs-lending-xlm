@@ -132,7 +132,11 @@ After return, the controller:
 6. runs LTV, health-factor, and minimum borrow collateral checks
 
 An undeclared token left on the controller is neither deposited nor refunded.
-Refunding unused debt tokens does not repay the minted debt.
+Refunding unused debt tokens does not repay the minted debt. In `Long` and
+`Short` mode the debt token cannot be a declared collateral, on any hub
+(`AssetsAreTheSame`, checked before any debt is minted); list it as a refund
+asset to return unspent debt to the caller. Only `Multiply` may declare it and
+loop it into collateral.
 
 Position callback example:
 

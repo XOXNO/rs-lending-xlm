@@ -39,9 +39,13 @@ pub(crate) fn renewed_market(env: &Env, hub_asset: &HubAssetKey) -> Cache {
     synced_market(env, hub_asset)
 }
 
-/// Validates `action.amount ≥ 0`, syncs the market, and returns (cache, scaled position).
+/// Validates `action.amount ≥ 0` and `action.position.scaled_amount ≥ 0`, syncs the market,
+/// and returns (cache, scaled position).
 pub(crate) fn load_leg(env: &Env, action: &PoolAction) -> (Cache, Ray) {
     require_nonneg_amount(env, action.amount);
+    // A negative scaled position from the controller would invert the mint or
+    // burn (INV-ACCT-10); every leg rejects it with the same typed error.
+    require_nonneg_amount(env, action.position.scaled_amount);
     let cache = synced_market(env, &action.hub_asset);
     (cache, Ray::from(action.position.scaled_amount))
 }

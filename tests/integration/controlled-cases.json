@@ -120,5 +120,18 @@
     ],
     "test": "position_nft_ttl_and_ownership_reads::liquidation_resolves_nft_ownership_and_succeeds_after_auto_restore",
     "scope": "host recording-mode restore; does not prove RPC restore submission"
+  },
+  {
+    "id": "valuation_exclusion_outage",
+    "execution": "controlled-ledger",
+    "methods": [
+      "governance.exclude_account_asset_valuation",
+      "controller.exclude_account_asset_valuation",
+      "controller.get_account_valuation_exclusions",
+      "controller.restore_account_asset_valuation",
+      "governance.execute"
+    ],
+    "test": "clearing_the_exclusion_takes_the_timelock_and_restores_valuation_and_seizure",
+    "scope": "stale single-source feed on a controlled clock: guardian exclusion through governance, stamp read through the view, timelocked restore after recovery, stale-stamp restore refused; a live network cannot make a feed stale on demand"
   }
 ]

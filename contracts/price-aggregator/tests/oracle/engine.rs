@@ -110,6 +110,162 @@ fn test_two_market_legs_still_cannot_straddle_the_spread_bound() {
     });
 }
 
+/// Age past the spread bound but inside every budget below.
+const LAGGING_AGE: u64 = 6_000;
+/// Inside the spread bound.
+const RECENT_AGE: u64 = 600;
+
+/// Registers `Ref(QUOTE)` with the given legs and returns its key.
+fn quote_key(env: &Env, legs: &[PriceSource]) -> PriceKey {
+    let key = PriceKey::Ref(Symbol::new(env, "QUOTE"));
+    registry::store_oracle(
+        env,
+        &key,
+        &oracle(env, sources(env, legs), SLOW_LEG_BOUND, WAD / 2, 2 * WAD),
+    );
+    key
+}
+
+/// Registers a dual key `[Scaled{factor x quote}, partner]` with a ceiling
+/// loose enough that only the leg-spread rule can mark it stale.
+fn scaled_and_partner_key(
+    env: &Env,
+    factor: FeedSource,
+    quote: PriceKey,
+    partner: FeedSource,
+) -> PriceKey {
+    let key = PriceKey::Token(Address::generate(env));
+    let scaled = PriceSource::Scaled(ScaledSource {
+        factor,
+        quote,
+        min_factor_wad: WAD / 2,
+        max_factor_wad: 2 * WAD,
+    });
+    registry::store_oracle(
+        env,
+        &key,
+        &oracle(
+            env,
+            sources(env, &[scaled, PriceSource::Feed(partner)]),
+            SLOW_LEG_BOUND,
+            WAD / 2,
+            2 * WAD,
+        ),
+    );
+    key
+}
+
+/// A fundamental factor scaling a market quote still moves with the market:
+/// the quote's lag counts against the spread bound.
+#[test]
+#[should_panic(expected = "Error(Contract, #206)")]
+fn test_a_fundamental_factor_does_not_exempt_a_lagging_market_quote() {
+    let env = Env::default();
+    at_now(&env);
+    let (adapter, client) = register_redstone_feed(&env);
+    publish(&client, &env, "Q", WAD, LAGGING_AGE);
+    publish(&client, &env, "F", WAD, 0);
+    publish(&client, &env, "M", WAD, 0);
+
+    in_contract(&env, || {
+        let quote = quote_key(
+            &env,
+            &[PriceSource::Feed(nature_feed(
+                &env,
+                &adapter,
+                "Q",
+                SLOW_LEG_BOUND,
+                FeedNature::Market,
+            ))],
+        );
+        let key = scaled_and_partner_key(
+            &env,
+            nature_feed(&env, &adapter, "F", SLOW_LEG_BOUND, FeedNature::Fundamental),
+            quote,
+            nature_feed(&env, &adapter, "M", ASSET_CEILING, FeedNature::Market),
+        );
+        let mut cache = Session::new(&env);
+        let _ = resolve(&mut cache, &key, 0);
+    });
+}
+
+/// A market factor scaling a quote whose fundamental leg lags is spread-bounded
+/// by its market inputs only: the factor and the quote's market leg.
+#[test]
+fn test_a_lagging_fundamental_leg_under_a_market_composite_does_not_trip_the_spread() {
+    let env = Env::default();
+    at_now(&env);
+    let (adapter, client) = register_redstone_feed(&env);
+    publish(&client, &env, "QM", WAD, RECENT_AGE);
+    publish(&client, &env, "QF", WAD, LAGGING_AGE);
+    publish(&client, &env, "F", WAD, RECENT_AGE);
+    publish(&client, &env, "M", WAD, 0);
+
+    in_contract(&env, || {
+        let quote = quote_key(
+            &env,
+            &[
+                PriceSource::Feed(nature_feed(
+                    &env,
+                    &adapter,
+                    "QM",
+                    ASSET_CEILING,
+                    FeedNature::Market,
+                )),
+                PriceSource::Feed(nature_feed(
+                    &env,
+                    &adapter,
+                    "QF",
+                    SLOW_LEG_BOUND,
+                    FeedNature::Fundamental,
+                )),
+            ],
+        );
+        let key = scaled_and_partner_key(
+            &env,
+            nature_feed(&env, &adapter, "F", ASSET_CEILING, FeedNature::Market),
+            quote,
+            nature_feed(&env, &adapter, "M", ASSET_CEILING, FeedNature::Market),
+        );
+        let mut cache = Session::new(&env);
+        let feed = resolve(&mut cache, &key, 0);
+        assert_eq!(feed.price_wad, WAD);
+        assert_eq!(feed.timestamp, NOW - LAGGING_AGE);
+    });
+}
+
+/// A composite with no market input at all keeps the fundamental exemption.
+#[test]
+fn test_an_all_fundamental_composite_may_lag_its_market_partner() {
+    let env = Env::default();
+    at_now(&env);
+    let (adapter, client) = register_redstone_feed(&env);
+    publish(&client, &env, "Q", WAD, LAGGING_AGE);
+    publish(&client, &env, "F", WAD, 0);
+    publish(&client, &env, "M", WAD, 0);
+
+    in_contract(&env, || {
+        let quote = quote_key(
+            &env,
+            &[PriceSource::Feed(nature_feed(
+                &env,
+                &adapter,
+                "Q",
+                SLOW_LEG_BOUND,
+                FeedNature::Fundamental,
+            ))],
+        );
+        let key = scaled_and_partner_key(
+            &env,
+            nature_feed(&env, &adapter, "F", SLOW_LEG_BOUND, FeedNature::Fundamental),
+            quote,
+            nature_feed(&env, &adapter, "M", ASSET_CEILING, FeedNature::Market),
+        );
+        let mut cache = Session::new(&env);
+        assert_eq!(resolve(&mut cache, &key, 0).price_wad, WAD);
+    });
+}
+
 fn oracle(
     env: &Env,
     sources: Vec<PriceSource>,
@@ -655,12 +811,15 @@ fn test_lp_reverts_when_underlyings_missing() {
     });
 }
 
+/// The factor is readable, so resolution reaches the quote and trips the cycle
+/// check rather than failing earlier on an unreadable factor.
 #[test]
-#[should_panic(expected = "Error(Contract, #210)")]
+#[should_panic(expected = "Error(Contract, #225)")]
 fn test_a_scaled_cycle_reverts_at_read_time_too() {
     let env = Env::default();
     at_now(&env);
-    let (adapter, _client) = register_redstone_feed(&env);
+    let (adapter, client) = register_redstone_feed(&env);
+    publish(&client, &env, "RATIO", WAD, 0);
 
     in_contract(&env, || {
         let key = PriceKey::Ref(Symbol::new(&env, "LOOP"));
@@ -849,6 +1008,7 @@ fn test_cached_lp_price_still_checks_both_dependency_depths() {
                 asset_decimals: 7,
                 timestamp: NOW,
             },
+            Some(NOW),
         );
 
         assert!(matches!(

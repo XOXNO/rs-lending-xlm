@@ -15,7 +15,7 @@ use std::{format, panic, println, thread};
 use crate::config::config;
 use common::math::fp::{Bps, Ray, Wad};
 use common::math::fp_core::{mul_div_ceil, mul_div_floor};
-use common::rates::unscale_borrow_ceil;
+use common::rates::{position_value_floor, unscale_borrow_ceil};
 use common::types::{HubAssetKey, LiquidationEstimate, PriceKey, SeizeMode};
 use common::validation::max_cap_for_decimals;
 use controller::constants::{BPS, RAY, WAD};
@@ -596,6 +596,22 @@ impl World {
         )
     }
 
+    /// The floor-rounded WAD USD debt that repaying the leg at its ceiling clears.
+    fn debt_cleared_usd(&self, leg: &Leg) -> i128 {
+        let (_, debts) = self.t.ctrl_client().get_account_positions(&self.account);
+        let Some(position) = debts.get(leg.key.clone()) else {
+            return 0;
+        };
+        let index = self.t.ctrl_client().get_market_index(&leg.key).borrow_index;
+        position_value_floor(
+            &self.t.env,
+            Ray::from(position.scaled_amount),
+            Ray::from(index),
+            Wad::from(leg.price),
+        )
+        .raw()
+    }
+
     fn unit_usd(&self) -> Wad {
         let env = &self.t.env;
         Wad::from_token(env, 1, self.decimals).mul(env, Wad::from(self.liq_price))
@@ -710,8 +726,8 @@ fn refunded(estimate: &LiquidationEstimate, asset: &Address) -> i128 {
 /// Runs one liquidation, checks P1-P8 and returns whether the account is
 /// still liquidatable with debt left. P2 and P3 allow `tol`, which is
 /// `price / 2e18 + (1 + b) + 1` raw WAD. P2 allows one more unit on a full close,
-/// and `(1 + b) * R`, with `R` one base unit per repaid leg, when an insolvent
-/// call pays within `R` of the collateral-backed quote and receives every unit.
+/// and `(1 + b)` times one base unit of the leg the trim floored, when an
+/// insolvent offer reached the collateral-backed quote and receives every unit.
 /// P3 bounds a partial plan from the other side: the liquidator pays at most
 /// `2 * (1 + b) * R + tol` more than the units it receives are worth.
 fn liquidate_step(
@@ -741,6 +757,17 @@ fn liquidate_step(
     let bonus_m = mirror_bonus(&env, totals, w.listed_bonus, &w.curve);
     let legs = w.legs.clone();
     let debts: Vec<i128> = legs.iter().map(|leg| w.debt_ceil(leg)).collect();
+    let cleared: Vec<i128> = legs.iter().map(|leg| w.debt_cleared_usd(leg)).collect();
+    // The controller credits a leg paid at its ceiling with the debt it clears.
+    let credit_usd = |i: usize, amount: i128| {
+        if amount >= debts[i] {
+            cleared[i]
+        } else {
+            Wad::from_token(&env, amount, legs[i].decimals)
+                .mul(&env, Wad::from(legs[i].price))
+                .raw()
+        }
+    };
     let per_leg_unit = legs
         .iter()
         .zip(&debts)
@@ -775,11 +802,7 @@ fn liquidate_step(
         .iter()
         .enumerate()
         .filter(|(i, _)| offers[*i] > 0)
-        .map(|(i, leg)| {
-            Wad::from_token(&env, offers[i].min(debts[i]), leg.decimals)
-                .mul(&env, Wad::from(leg.price))
-                .raw()
-        })
+        .map(|(i, _)| credit_usd(i, offers[i].min(debts[i])))
         .sum::<i128>();
     let one_plus_bonus_m = Wad::ONE.checked_add(&env, Bps::from(bonus_m).to_wad(&env));
     let offered_backing = Wad::from(offered_usd).mul(&env, one_plus_bonus_m).raw();
@@ -947,9 +970,7 @@ fn liquidate_step(
     for (i, leg) in legs.iter().enumerate() {
         let planned = offers[i] - refunded(&estimate, &leg.key.asset);
         prop_assert_eq!(paid[i], planned, "P7: paid leg {}; {}", leg.name, &ctx);
-        paid_usd_wad += Wad::from_token(&env, paid[i], leg.decimals)
-            .mul(&env, Wad::from(leg.price))
-            .raw();
+        paid_usd_wad += credit_usd(i, paid[i]);
     }
     prop_assert_eq!(
         estimate.max_payment_wad,
@@ -970,17 +991,30 @@ fn liquidate_step(
     let units_after = scaled_after / unit_scaled;
     let quote = Wad::from(c).div_floor(&env, one_plus_bonus_m).raw().min(d);
     let paid_legs = || legs.iter().zip(&paid).filter(|(_, p)| **p > 0);
-    let paid_unit_wad = paid_legs()
-        .map(|(l, _)| {
+    // The insolvent trim floors at most one kept leg below its capped offer.
+    let floored_legs = || {
+        legs.iter()
+            .enumerate()
+            .filter(|(i, _)| paid[*i] > 0 && paid[*i] < offers[*i].min(debts[*i]))
+            .map(|(_, l)| l)
+    };
+    let floored_unit_wad = floored_legs()
+        .map(|l| {
             Wad::from_token(&env, 1, l.decimals)
                 .mul(&env, Wad::from(l.price))
                 .raw()
         })
         .sum::<i128>();
+    let floored_unit = floored_legs()
+        .map(|l| per_unit(l.price, l.decimals))
+        .fold(rat(0), |a, b| a + b);
     let repaid_unit = paid_legs()
         .map(|(l, _)| per_unit(l.price, l.decimals))
         .fold(rat(0), |a, b| a + b);
-    let seize_all = !solvent && paid_usd_wad > 0 && paid_usd_wad + paid_unit_wad >= quote;
+    let seize_all = !solvent
+        && paid_usd_wad > 0
+        && offered_usd >= quote
+        && paid_usd_wad + floored_unit_wad >= quote;
     let tol = per_unit(w.liq_price, 18) / rat(2) + &one_plus_b / rat(BPS) + rat(1);
     let full_close = debts.iter().zip(&paid).all(|(debt, p)| p >= debt);
     let at_bonus = &paid_value * &one_plus_b / rat(BPS);
@@ -1023,10 +1057,10 @@ fn liquidate_step(
             prop_assert_eq!(
                 received_scaled,
                 scaled_before,
-                "an insolvent call within one unit per leg of the quote receives every unit; {}",
+                "an insolvent offer that reached the quote receives every unit; {}",
                 &ctx
             );
-            repaid_unit.clone()
+            floored_unit.clone()
         } else {
             rat(0)
         };
@@ -1045,10 +1079,10 @@ fn liquidate_step(
             &format!("P2 {path}: excess over paid * (1 + b), WAD"),
             &excess,
         );
-        if seize_all {
+        if seize_all && slack > rat(0) {
             record_max(
                 stats,
-                "P2 seize_all: excess / ((1 + b) * R)",
+                "P2 seize_all: excess / ((1 + b) * floored unit)",
                 &(&excess * rat(BPS) / (&slack * &one_plus_b)),
             );
         } else {

@@ -25,8 +25,12 @@ const MAX_NORMALIZED_RESERVE_WAD: u128 = 10u128.pow(34);
 /// `xa_wad` and `xb_wad` at amplification `amp`, via Newton-Raphson
 /// iteration. Returns `OracleError::InvalidPrice` if either reserve is not
 /// positive, `amp` is outside `[MIN_AMP, MAX_AMP]`, either reserve exceeds
-/// `MAX_NORMALIZED_RESERVE_WAD`, or the iteration does not converge within
-/// `MAX_D_ITERATIONS` steps.
+/// `MAX_NORMALIZED_RESERVE_WAD`, an intermediate product overflows `U256`, or
+/// the iteration does not converge within `MAX_D_ITERATIONS` steps.
+///
+/// The reserve bound does not bound the products: a near-empty leg against a
+/// large one drives `d_p` past 256 bits, so every product that grows with `D`
+/// is checked.
 fn solve_stable_d(env: &Env, xa_wad: i128, xb_wad: i128, amp: u128) -> Result<U256, OracleError> {
     if xa_wad <= 0
         || xb_wad <= 0
@@ -47,13 +51,25 @@ fn solve_stable_d(env: &Env, xa_wad: i128, xb_wad: i128, amp: u128) -> Result<U2
 
     let mut d = sum.clone();
     for _ in 0..MAX_D_ITERATIONS {
-        let mut d_p = d.clone();
-        d_p = d_p.mul(&d).div(&xa.mul(&n));
-        d_p = d_p.mul(&d).div(&xb.mul(&n));
+        let d_p = d
+            .checked_mul(&d)
+            .map(|product| product.div(&xa.mul(&n)))
+            .and_then(|partial| partial.checked_mul(&d))
+            .map(|product| product.div(&xb.mul(&n)))
+            .ok_or(OracleError::InvalidPrice)?;
 
         let d_prev = d.clone();
-        let numerator = ann.mul(&sum).add(&n.mul(&d_p)).mul(&d);
-        let denominator = ann.sub(&one).mul(&d).add(&n.add(&one).mul(&d_p));
+        let numerator = n
+            .checked_mul(&d_p)
+            .and_then(|scaled| ann.mul(&sum).checked_add(&scaled))
+            .and_then(|total| total.checked_mul(&d))
+            .ok_or(OracleError::InvalidPrice)?;
+        let denominator = ann
+            .sub(&one)
+            .checked_mul(&d)
+            .zip(n.add(&one).checked_mul(&d_p))
+            .and_then(|(left, right)| left.checked_add(&right))
+            .ok_or(OracleError::InvalidPrice)?;
         d = numerator.div(&denominator);
 
         let converged = if d >= d_prev {
@@ -75,8 +91,8 @@ fn solve_stable_d(env: &Env, xa_wad: i128, xb_wad: i128, amp: u128) -> Result<U2
 /// [`solve_stable_d`], multiplies `D` by the lower of the two legs'
 /// WAD-scaled prices, and divides by the share supply converted to WAD.
 /// Returns `OracleError::InvalidPrice` if any reserve, price, or share
-/// amount is not positive, if `D` fails to solve, or if the result does not
-/// fit in `i128`.
+/// amount is not positive, if `D` fails to solve, or if the product or the
+/// result does not fit in `U256` or `i128` respectively.
 pub fn fair_stable_lp_price_wad(
     env: &Env,
     a: &LpLeg,
@@ -104,7 +120,8 @@ pub fn fair_stable_lp_price_wad(
     }
 
     let fair = d
-        .mul(&U256::from_u128(env, min_price as u128))
+        .checked_mul(&U256::from_u128(env, min_price as u128))
+        .ok_or(OracleError::InvalidPrice)?
         .div(&U256::from_u128(env, share_supply_wad as u128));
     try_u256_to_i128(&fair).ok_or(OracleError::InvalidPrice)
 }
@@ -247,6 +264,92 @@ mod tests {
         )
         .unwrap_err();
         assert_eq!(err, OracleError::InvalidPrice);
+    }
+
+    /// One stroop against 6.5e11 tokens: both legs are inside
+    /// `MAX_NORMALIZED_RESERVE_WAD`, but the Newton products pass 256 bits.
+    #[test]
+    fn one_sided_pool_overflow_errors_not_traps() {
+        let env = Env::default();
+        let near_empty = leg(1, 7, WAD);
+        let flooded = leg(6_532_012_634_211_138_837, 7, WAD);
+        for (a, b) in [(&near_empty, &flooded), (&flooded, &near_empty)] {
+            let err = fair_stable_lp_price_wad(&env, a, b, &supply(40_000_000_000_000), 1500)
+                .unwrap_err();
+            assert_eq!(err, OracleError::InvalidPrice);
+        }
+    }
+
+    /// Specula CR-13: both legs pass the per-leg guard, but one base unit
+    /// against a leg at the guard overflows the first Newton step. The pricer
+    /// returns `InvalidPrice` in either leg order instead of trapping.
+    #[test]
+    fn imbalance_inside_the_reserve_guard_errors_not_panics() {
+        let env = Env::default();
+        // 1e23 raw units at 7 decimals normalize to exactly the guard.
+        let at_guard = 100_000_000_000_000_000_000_000i128;
+        for (reserve_a, reserve_b) in [(1, at_guard), (at_guard, 1)] {
+            let err = fair_stable_lp_price_wad(
+                &env,
+                &leg(reserve_a, 7, WAD),
+                &leg(reserve_b, 7, WAD),
+                &supply(1_000_000_000),
+                1500,
+            )
+            .unwrap_err();
+            assert_eq!(err, OracleError::InvalidPrice, "{reserve_a} vs {reserve_b}");
+        }
+    }
+
+    /// CR-13 sweep: no reserve pair, leg order, decimals, amplification or
+    /// price on either leg, inside or past the reserve guard, traps the
+    /// pricer; every failure is the typed `InvalidPrice`. The `(ann - 1) * d`
+    /// product and the final `d * min_price` are checked as well, so the
+    /// widest price (`i128::MAX`) errors instead of trapping.
+    #[test]
+    fn no_reserve_pair_traps_the_stable_pricer() {
+        let env = Env::default();
+        env.cost_estimate().budget().reset_unlimited();
+        let raws: [i128; 10] = [
+            1,
+            9,
+            1_000,
+            10i128.pow(7),
+            10i128.pow(11),
+            10i128.pow(15),
+            10i128.pow(19),
+            10i128.pow(22),
+            10i128.pow(23),
+            10i128.pow(30),
+        ];
+        let mut errors = 0u32;
+        for decimals in [7u32, 18] {
+            for &a in &raws {
+                for &b in &raws {
+                    for amp in [1u128, 2, 85, 1_500, 1_000_000] {
+                        for price in [1i128, WAD, i128::MAX] {
+                            for (price_a, price_b) in [(price, WAD), (WAD, price)] {
+                                if let Err(err) = fair_stable_lp_price_wad(
+                                    &env,
+                                    &leg(a, decimals, price_a),
+                                    &leg(b, decimals, price_b),
+                                    &supply(1),
+                                    amp,
+                                ) {
+                                    assert_eq!(
+                                        err,
+                                        OracleError::InvalidPrice,
+                                        "{a} vs {b} dec {decimals} amp {amp}"
+                                    );
+                                    errors += 1;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        assert!(errors > 0, "the sweep reaches the failing domain");
     }
 
     #[test]

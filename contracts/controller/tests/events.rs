@@ -313,8 +313,9 @@ use common::math::fp::Ray;
 use common::rates::resolve_withdrawal;
 use common::types::{
     AccountMeta, AccountPositionRaw, DebtPositionRaw, HubAssetKey, HubConfig, MarketIndexRaw,
-    PoolAction, PoolPositionMutation, PoolSeizeEntry, PoolWithdrawEntry, PriceFeedRaw, PriceKey,
-    ScaledPositionRaw, SeizeMode, SpokeConfig, SpokeUsageRaw,
+    PoolAction, PoolPositionMutation, PoolSeizeEntry, PoolStateRaw, PoolSyncData,
+    PoolWithdrawEntry, PriceFeedRaw, PriceKey, ScaledPositionRaw, SeizeMode, SpokeConfig,
+    SpokeUsageRaw,
 };
 use soroban_sdk::testutils::Events as _;
 use soroban_sdk::{contractimpl, symbol_short, token, Map, Symbol, TryFromVal, Val};
@@ -404,6 +405,36 @@ impl MockPool {
             out.push_back(unit_index());
         }
         out
+    }
+
+    /// The listing credit mode reads to check the feed decimals (F1).
+    pub fn get_sync_data(_env: Env, hub_asset: HubAssetKey) -> PoolSyncData {
+        PoolSyncData {
+            params: MarketParamsRaw {
+                max_borrow_rate: 0,
+                base_borrow_rate: 0,
+                slope1: 0,
+                slope2: 0,
+                slope3: 0,
+                mid_utilization: 0,
+                optimal_utilization: 0,
+                max_utilization: 0,
+                reserve_factor: 0,
+                is_flashloanable: false,
+                flashloan_fee: 0,
+                asset_id: hub_asset.asset,
+                asset_decimals: DECIMALS,
+            },
+            state: PoolStateRaw {
+                supplied: 0,
+                borrowed: 0,
+                revenue: 0,
+                borrow_index: RAY,
+                supply_index: RAY,
+                last_timestamp: 0,
+                cash: 0,
+            },
+        }
     }
 
     pub fn repay(env: Env, _payer: Address, actions: Vec<PoolAction>) -> Vec<PoolPositionMutation> {

@@ -8,12 +8,15 @@ use common::math::fp::Ray;
 use common::rates::{unscale_borrow, unscale_supply};
 use common::types::{
     AccountAttributes, AccountPositionRaw, DebtPositionRaw, HubAssetKey, HubPayment,
-    LiquidationEstimate, MarketIndexView, PaymentTuple, PriceStatus, SeizeMode,
+    LiquidationEstimate, MarketIndexView, PaymentTuple, PositionMode, PriceStatus, SeizeMode,
 };
 use soroban_sdk::{assert_with_error, Env, Map, Vec};
 
+use crate::account;
 use crate::external::price_aggregator::fetch_prices_status;
-use crate::positions::liquidation::{build_liquidation_plan, split_seized_shares};
+use crate::positions::liquidation::{
+    apply, build_liquidation_plan, load_credit_receiver, split_seized_shares,
+};
 use crate::storage;
 
 /// Fails with `InvalidPayments` when `values` has more than `MAX_VIEW_INPUTS` entries.
@@ -26,14 +29,14 @@ fn require_view_inputs_bound<T>(env: &Env, values: &Vec<T>) {
 }
 
 /// Returns the account's health factor in WAD, or `i128::MAX` if it has no
-/// debt or does not exist.
+/// debt or does not exist. Supply legs excluded from valuation count as zero.
 pub(crate) fn health_factor(env: &Env, account_id: u64) -> i128 {
     let mut cache = Context::new_view(env);
     match storage::try_get_account(env, account_id) {
         Some(account) if !account.debt_free() => risk::calculate_account_risk_totals(
             env,
             &mut cache,
-            &account.supply_positions,
+            &risk::valued_supply_positions(env, account_id, &account.supply_positions),
             &account.borrow_positions,
         )
         .health_factor
@@ -129,7 +132,8 @@ pub(crate) fn get_account_attributes(env: &Env, account_id: u64) -> AccountAttri
 }
 
 /// Returns the account's liquidation-threshold-weighted collateral value in
-/// USD (WAD), or 0 if the account does not exist.
+/// USD (WAD), or 0 if the account does not exist. Supply legs excluded from
+/// valuation count as zero.
 pub(crate) fn liquidation_collateral_available(env: &Env, account_id: u64) -> i128 {
     let Some(account) = storage::try_get_account(env, account_id) else {
         return 0;
@@ -139,7 +143,7 @@ pub(crate) fn liquidation_collateral_available(env: &Env, account_id: u64) -> i1
     risk::calculate_account_risk_totals(
         env,
         &mut cache,
-        &account.supply_positions,
+        &risk::valued_supply_positions(env, account_id, &account.supply_positions),
         &account.borrow_positions,
     )
     .weighted_collateral
@@ -196,6 +200,11 @@ pub(crate) fn get_all_market_indexes_detailed(
 /// reports RAY-scaled supply shares (what would leave the liquidated account and what would be
 /// reclassified as revenue). In credit mode the liquidator receives
 /// `seized_collaterals - protocol_fees` shares.
+///
+/// The estimate fails where execution would: the pool's decimals must match each leg's feed,
+/// and a `Credit` receiver passes the same gates as at execution (not the liquidated account,
+/// same spoke, `Normal` mode, position bound, whole-unit isolation, listings for new legs),
+/// except the owner-or-delegate check, which needs the caller a view does not have.
 pub(crate) fn liquidation_estimations_detailed(
     env: &Env,
     account_id: u64,
@@ -206,7 +215,25 @@ pub(crate) fn liquidation_estimations_detailed(
     let mut cache = Context::new_view(env);
     let account = storage::get_account(env, account_id);
 
-    let result = build_liquidation_plan(env, &account, debt_payments, &mut cache).into_result();
+    let result =
+        build_liquidation_plan(env, account_id, &account, debt_payments, &mut cache).into_result();
+    apply::require_plan_decimals_match_pool(env, &mut cache, &result);
+    if let SeizeMode::Credit(requested) = seize_mode {
+        // `Credit(0)` mints an empty account in the liquidated account's spoke;
+        // a view models it without minting.
+        let receiver = if requested == 0 {
+            account::empty_account(
+                env,
+                &env.current_contract_address(),
+                account.spoke_id,
+                PositionMode::Normal,
+            )
+        } else {
+            load_credit_receiver(env, account_id, &account, requested)
+        };
+        apply::require_credit_position_limit(env, &receiver, &result.seized, &mut cache);
+        apply::require_credit_listings(env, &receiver, &result.seized, &mut cache);
+    }
 
     let mut seized_collaterals = Vec::new(env);
     let mut protocol_fees = Vec::new(env);
@@ -243,12 +270,17 @@ pub(crate) fn liquidation_estimations_detailed(
 }
 
 /// Returns the account's total supply position value in USD (WAD), or 0 if
-/// it has no metadata or no supply positions.
+/// it has no metadata or no valued supply positions. Supply legs excluded
+/// from valuation count as zero.
 pub(crate) fn total_collateral_in_usd(env: &Env, account_id: u64) -> i128 {
     if storage::try_get_account_meta(env, account_id).is_none() {
         return 0;
     }
-    let supply = storage::get_supply_positions(env, account_id);
+    let supply = risk::valued_supply_positions(
+        env,
+        account_id,
+        &storage::get_supply_positions(env, account_id),
+    );
     if supply.is_empty() {
         return 0;
     }
@@ -277,13 +309,15 @@ pub(crate) fn total_borrow_in_usd(env: &Env, account_id: u64) -> i128 {
 
 /// Returns the account's LTV-weighted collateral value in USD (WAD), or 0 if
 /// the account does not exist. Restamps listed supply LTVs in memory first.
+/// Supply legs excluded from valuation count as zero.
 pub(crate) fn ltv_collateral_in_usd(env: &Env, account_id: u64) -> i128 {
     let Some(mut account) = storage::try_get_account(env, account_id) else {
         return 0;
     };
     let mut cache = Context::new_view(env);
     let _ = risk::restamp_listed_supply_ltv(&mut cache, &mut account);
-    risk::calculate_ltv_collateral_wad(env, &mut cache, &account.supply_positions).raw()
+    let supply = risk::valued_supply_positions(env, account_id, &account.supply_positions);
+    risk::calculate_ltv_collateral_wad(env, &mut cache, &supply).raw()
 }
 
 #[cfg(test)]

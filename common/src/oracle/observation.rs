@@ -22,7 +22,11 @@ pub const MAX_PRICE_STALE_SECONDS: u64 = 93_600;
 
 pub const MIN_ORACLE_RESOLUTION_SECONDS: u32 = 60;
 
-pub const MIN_ORACLE_DECIMALS: u32 = 1;
+/// Fewest decimals a feed may report. A Reflector `Twap` read floors its mean
+/// to one feed quantum, so the quantum bounds how far a debt leg can be
+/// under-valued: at eight decimals that is 1e-8 USD per token. Every consumed
+/// feed reports 8 (RedStone, XOXNO) or 14 (Reflector) decimals.
+pub const MIN_ORACLE_DECIMALS: u32 = 8;
 pub const MAX_ORACLE_DECIMALS: u32 = 18;
 
 pub const MAX_SINGLE_SOURCE_SANITY_BAND_BPS: i128 = 1_000;

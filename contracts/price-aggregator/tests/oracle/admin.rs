@@ -12,7 +12,7 @@ use common::types::{
 };
 use mock_redstone::MockRedStonePriceFeedClient;
 use soroban_sdk::testutils::{Address as _, Ledger as _};
-use soroban_sdk::{Address, String, Symbol};
+use soroban_sdk::{Address, String, Symbol, Vec};
 
 const NOW: u64 = 1_000_000;
 const CEILING: u64 = 3_600;
@@ -112,11 +112,11 @@ fn depends_on_follows_the_chain_past_its_direct_quote() {
         let (base, mid, leaf) = chain(&env, &adapter);
 
         // The direct edge, which is all a non-recursive walk would find.
-        assert!(depends_on(&env, &mid, &base, &mut Vec::new(&env)));
+        assert!(depends_on(&env, &mid, &base, &mut Map::new(&env)));
         // The transitive one: leaf quotes mid, and only mid quotes base.
-        assert!(depends_on(&env, &leaf, &base, &mut Vec::new(&env)));
+        assert!(depends_on(&env, &leaf, &base, &mut Map::new(&env)));
         // Direction matters -- the base does not depend on what is built on it.
-        assert!(!depends_on(&env, &base, &leaf, &mut Vec::new(&env)));
+        assert!(!depends_on(&env, &base, &leaf, &mut Map::new(&env)));
     });
 }
 
@@ -127,7 +127,7 @@ fn depends_on_reports_no_match_for_a_key_outside_the_graph() {
     in_contract(&env, || {
         let (_base, _mid, leaf) = chain(&env, &adapter);
         let stranger = PriceKey::Ref(Symbol::new(&env, "OTHER"));
-        assert!(!depends_on(&env, &leaf, &stranger, &mut Vec::new(&env)));
+        assert!(!depends_on(&env, &leaf, &stranger, &mut Map::new(&env)));
     });
 }
 
@@ -151,11 +151,11 @@ fn depends_on_terminates_on_a_cycle_rather_than_recursing_forever() {
             &oracle_of(&env, one(&env, scaled_onto(&env, &adapter, a.clone()))),
         );
 
-        // Without the `visiting` guard this walk recurses until the host traps.
+        // Without the in-progress mark this walk recurses until the host traps.
         let stranger = PriceKey::Ref(Symbol::new(&env, "OTHER"));
-        assert!(!depends_on(&env, &a, &stranger, &mut Vec::new(&env)));
+        assert!(!depends_on(&env, &a, &stranger, &mut Map::new(&env)));
         // The direct edge from `a` to `b` still matches.
-        assert!(depends_on(&env, &a, &b, &mut Vec::new(&env)));
+        assert!(depends_on(&env, &a, &b, &mut Map::new(&env)));
     });
 }
 

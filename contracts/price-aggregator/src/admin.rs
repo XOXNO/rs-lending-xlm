@@ -13,7 +13,7 @@ use common::validation::{
     validate_lp_sanity_band, validate_oracle_tolerance, validate_sanity_bounds,
     validate_single_source_sanity_band,
 };
-use soroban_sdk::{assert_with_error, panic_with_error, Env, Vec};
+use soroban_sdk::{assert_with_error, panic_with_error, Env, Map};
 
 use crate::engine;
 use crate::properties;
@@ -72,14 +72,21 @@ fn attest_feed(env: &Env, feed: &FeedSource, quote: Option<&PriceKey>) {
 /// the oracle, revalidates dependents, and emits the registry event.
 ///
 /// A replacement must keep the stored `asset_decimals`. Panics with
-/// `OracleError::InvalidOracleDecimals` otherwise.
+/// `OracleError::InvalidOracleDecimals` otherwise. A new key is admitted only
+/// while the registry holds fewer than `MAX_ORACLE_KEYS`; panics with
+/// `OracleError::OracleRegistryFull` otherwise.
 pub(crate) fn set_oracle(env: &Env, key: PriceKey, oracle: AssetOracle) {
-    if let Some(stored) = registry::get_oracle(env, &key) {
-        assert_with_error!(
+    match registry::get_oracle(env, &key) {
+        Some(stored) => assert_with_error!(
             env,
             stored.asset_decimals == oracle.asset_decimals,
             OracleError::InvalidOracleDecimals
-        );
+        ),
+        None => assert_with_error!(
+            env,
+            registry::oracle_keys(env).len() < registry::MAX_ORACLE_KEYS,
+            OracleError::OracleRegistryFull
+        ),
     }
     validate_asset_oracle(env, &key, &oracle);
     attest_sources(env, &key, &oracle);
@@ -105,9 +112,14 @@ pub(crate) fn set_oracle(env: &Env, key: PriceKey, oracle: AssetOracle) {
 /// The pool-kind check is not repeated: only `aquarius::attest` raises
 /// `UnsupportedAquariusPool`, it ran when the dependent was admitted, and
 /// `changed` cannot alter the pool kind.
+///
+/// One memo of each key's answer serves the whole scan, so every key's
+/// composition is read once per pass rather than once per path that reaches
+/// it.
 fn revalidate_dependents(env: &Env, changed: &PriceKey) {
+    let mut memo = Map::new(env);
     for candidate in registry::oracle_keys(env).iter() {
-        if candidate == *changed || !depends_on(env, &candidate, changed, &mut Vec::new(env)) {
+        if candidate == *changed || !depends_on(env, &candidate, changed, &mut memo) {
             continue;
         }
         let oracle = registry::get_oracle(env, &candidate)
@@ -117,32 +129,40 @@ fn revalidate_dependents(env: &Env, changed: &PriceKey) {
 }
 
 /// Returns whether `root`'s registered oracle composition depends, directly or
-/// transitively, on `target`. Guards against cycles in the dependency graph via
-/// `visiting`, treating a key already on the current path as a non-match.
-fn depends_on(env: &Env, root: &PriceKey, target: &PriceKey, visiting: &mut Vec<PriceKey>) -> bool {
-    if visiting.first_index_of(root).is_some() {
-        return false;
+/// transitively, on `target`, recording each answer in `memo` so a key shared
+/// by several dependents is resolved once. A key is marked `false` while its
+/// walk is in progress, so a cycle back to it reads as a non-match instead of
+/// recursing forever. Validation refuses a cycle, so on a registry written
+/// through `set_oracle` every recorded answer is exact.
+fn depends_on(
+    env: &Env,
+    root: &PriceKey,
+    target: &PriceKey,
+    memo: &mut Map<PriceKey, bool>,
+) -> bool {
+    if let Some(found) = memo.get(root.clone()) {
+        return found;
     }
-    visiting.push_back(root.clone());
+    memo.set(root.clone(), false);
     let found = registry::get_oracle(env, root).is_some_and(|oracle| {
         oracle.sources.iter().any(|source| {
             properties::local_properties(env, &source)
                 .dependencies
                 .iter()
                 .any(|dependency| {
-                    dependency == *target || depends_on(env, &dependency, target, visiting)
+                    dependency == *target || depends_on(env, &dependency, target, memo)
                 })
         })
     });
-    visiting.pop_back();
+    memo.set(root.clone(), found);
     found
 }
 
 /// Runs the full validation suite for `oracle` under `key`, covering sanity
 /// bounds, source shape and count, asset decimals, composition depth,
-/// staleness, smoothing, tolerance, and source independence, with the
-/// smoothing and tolerance checks waived for Aquarius LP oracles. Panics if
-/// any check fails.
+/// staleness, smoothing, tolerance, the leg-spread budget, and source
+/// independence, with the smoothing and tolerance checks waived for Aquarius
+/// LP oracles. Panics if any check fails.
 pub(crate) fn validate_asset_oracle(env: &Env, key: &PriceKey, oracle: &AssetOracle) {
     let mut session = Session::new(env);
     session.push_key(key);
@@ -162,8 +182,23 @@ pub(crate) fn validate_asset_oracle(env: &Env, key: &PriceKey, oracle: &AssetOra
             oracle.max_sanity_price_wad,
         );
     } else {
+        // A pair cross-checks its band only when no contract trusted by both
+        // legs can move the blended price past the single-source cap.
         let exempt_from_band_cap = derived.second.as_ref().is_some_and(|second| {
             !validation::same_address_set(&derived.first.trust, &second.trust)
+                && derived
+                    .first
+                    .shared_contracts_with(env, second)
+                    .iter()
+                    .all(|contract| {
+                        validation::shared_contract_is_range_bounded(
+                            env,
+                            &contract,
+                            &oracle.sources,
+                            &derived.quote_reach_wad,
+                            &oracle.tolerance,
+                        )
+                    })
         });
         validate_single_source_sanity_band(
             env,
@@ -196,6 +231,7 @@ pub(crate) fn validate_asset_oracle(env: &Env, key: &PriceKey, oracle: &AssetOra
         validate_oracle_tolerance(env, &oracle.tolerance);
     }
     if let Some(second) = derived.second.as_ref() {
+        validation::leg_spread_budget(env, &derived.first, second);
         validation::independence(env, &derived.first, second, &oracle.independence);
     }
 }
@@ -226,9 +262,14 @@ pub(crate) fn set_sanity_band(env: &Env, key: PriceKey, min_wad: i128, max_wad: 
 }
 
 /// Updates the tolerance of the oracle registered under `key`. Rejects Aquarius LP
-/// oracles, validates the new tolerance, re-probes the oracle, and commits the
-/// result to the registry. Panics if the oracle is not configured, has an
-/// Aquarius LP source, or the tolerance fails validation.
+/// oracles, validates the new tolerance and the oracle under it, re-probes the
+/// oracle, commits the result to the registry, and revalidates its dependents.
+/// Panics if the oracle is not configured, has an Aquarius LP source, or the
+/// tolerance fails validation for the key or any dependent.
+///
+/// The tolerance bounds how far a contract shared by the key's legs can move
+/// the blended price, which decides the key's own band-cap exemption and,
+/// through the key's quote role, those of its dependents.
 pub(crate) fn set_tolerance(env: &Env, key: PriceKey, tolerance: OracleTolerance) {
     let mut oracle = registry::get_oracle(env, &key)
         .unwrap_or_else(|| panic_with_error!(env, OracleError::OracleNotConfigured));
@@ -239,9 +280,11 @@ pub(crate) fn set_tolerance(env: &Env, key: PriceKey, tolerance: OracleTolerance
     );
     validate_oracle_tolerance(env, &tolerance);
     oracle.tolerance = tolerance;
+    validate_asset_oracle(env, &key, &oracle);
     let mut session = Session::new(env);
     engine::probe(&mut session, &key, &oracle);
     registry::commit(env, &key, &oracle);
+    revalidate_dependents(env, &key);
 }
 
 #[cfg(test)]

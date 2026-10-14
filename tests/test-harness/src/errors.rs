@@ -16,6 +16,18 @@ pub mod codes {
     pub const INVALID_ROLE: u32 = GenericError::InvalidRole as u32;
     pub const BLEND_POOL_NOT_APPROVED: u32 = GenericError::BlendPoolNotApproved as u32;
     pub const NOT_AUTHORIZED: u32 = GenericError::NotAuthorized as u32;
+    pub const EMERGENCY_EPOCH_MISMATCH: u32 = GenericError::EmergencyEpochMismatch as u32;
+    pub const ORACLE_BAND_CHANGED_AFTER_PROPOSAL: u32 =
+        GenericError::OracleBandChangedAfterProposal as u32;
+    pub const ASSET_FLAGS_CHANGED_AFTER_PROPOSAL: u32 =
+        GenericError::AssetFlagsChangedAfterProposal as u32;
+    pub const ROLE_REVOKED_AFTER_PROPOSAL: u32 = GenericError::RoleRevokedAfterProposal as u32;
+    pub const CONTROLLER_UPGRADE_PENDING: u32 = GenericError::ControllerUpgradePending as u32;
+    pub const UPGRADE_SUPERSEDED_AFTER_PROPOSAL: u32 =
+        GenericError::UpgradeSupersededAfterProposal as u32;
+    pub const LISTING_TERMS_CHANGED_AFTER_PROPOSAL: u32 =
+        GenericError::ListingTermsChangedAfterProposal as u32;
+    pub const CANCELLER_LIMIT_EXCEEDED: u32 = GenericError::CancellerLimitExceeded as u32;
     pub const INTERNAL_ERROR: u32 = GenericError::InternalError as u32;
     pub const MATH_OVERFLOW: u32 = GenericError::MathOverflow as u32;
     pub const ACCOUNT_NOT_FOUND: u32 = GenericError::AccountNotFound as u32;

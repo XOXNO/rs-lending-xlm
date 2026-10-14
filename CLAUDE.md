@@ -20,7 +20,7 @@ the other documents do not say.
 | `tests/fuzz/` | Separate workspace. Excluded from the root workspace |
 | `certora/` | Sunbeam specs. Each spec tree is mounted **into** its crate (controller, pool, price-aggregator, common) — see Traps |
 | `skills/` | Published integration skill set for downstream consumers; router at `skills/xoxno-lending/SKILL.md`. Not dev tooling |
-| `docs/` | Reference, decision records (ADR-0001..0021), threat model, runbooks |
+| `docs/` | Reference, decision records (ADR-0001..0027), threat model, runbooks |
 | `vendor/` | Patched `cvlr-soroban` and `cvlr-log`. See the comment in `Cargo.toml` |
 | `services/` | Keeper and lending exporter. Separate Cargo workspaces; `make test` does not cover them |
 

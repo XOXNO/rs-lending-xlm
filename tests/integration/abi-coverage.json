@@ -647,6 +647,27 @@
   },
   {
     "contract": "controller",
+    "method": "get_account_valuation_exclusions",
+    "execution": "controlled-ledger",
+    "controlled_case": "valuation_exclusion_outage",
+    "scope": "Reads the exclusion stamp before and after exclusion and restore"
+  },
+  {
+    "contract": "controller",
+    "method": "restore_account_asset_valuation",
+    "execution": "controlled-ledger",
+    "controlled_case": "valuation_exclusion_outage",
+    "scope": "Executed through the Standard timelock after the feed recovers; refused while the feed is stale and for a stale stamp"
+  },
+  {
+    "contract": "controller",
+    "method": "exclude_account_asset_valuation",
+    "execution": "controlled-ledger",
+    "controlled_case": "valuation_exclusion_outage",
+    "scope": "Native controller under governance ownership, stale single-source feed; admitted during the outage, refused while usable and for a sanity-band failure"
+  },
+  {
+    "contract": "controller",
     "method": "remove_asset_from_spoke",
     "case": "flow_admin",
     "label": "spoke_tmp_remove_asset",
@@ -1287,6 +1308,13 @@
     "root_contract": "governance",
     "root_method": "set_spoke_asset_flags",
     "execution": "direct-call"
+  },
+  {
+    "contract": "governance",
+    "method": "exclude_account_asset_valuation",
+    "execution": "controlled-ledger",
+    "controlled_case": "valuation_exclusion_outage",
+    "scope": "Guardian immediate path with role check (stranger refused) reaching the controller"
   },
   {
     "contract": "governance",

@@ -351,6 +351,217 @@ fn partial_seizure_floors_amount_and_zero_fee_stays_zero() {
     assert_eq!(entry.protocol_fee, 0);
 }
 
+/// A leg at its ceiling is credited the floored debt it clears. A solvent trim
+/// whose floored ratio removes no token keeps that credit instead of re-valuing
+/// the leg at its token amount, lists no zero refund, and stops at that leg.
+#[test]
+fn a_trim_that_removes_no_token_keeps_the_legs_credit_and_lists_no_refund() {
+    let env = Env::default();
+    let credited = 5 * WAD / 2;
+    let mut repaid = vec![
+        &env,
+        repay_entry(&env, stroops(4), 4 * WAD),
+        repay_entry(&env, stroops(3), credited),
+    ];
+    let mut refunds = Vec::new(&env);
+
+    let floored = process_excess_payment(&env, &mut repaid, &mut refunds, Wad::from(1), false);
+
+    assert_eq!(floored, Wad::ZERO);
+    assert_eq!(refunds.len(), 0, "no zero-amount refund");
+    let last = repaid.get_unchecked(1);
+    assert_eq!((last.amount, last.usd_wad), (stroops(3), credited));
+    let first = repaid.get_unchecked(0);
+    assert_eq!((first.amount, first.usd_wad), (stroops(4), 4 * WAD));
+}
+
+/// The insolvent trim floors the kept amount, so a planned entry, credited at
+/// or below its token value, always loses a token. This pins the loop for an
+/// entry credited above it: the leg keeps every token and its credit, no zero
+/// refund is listed, and the excess moves on to the earlier leg.
+#[test]
+fn an_insolvent_trim_that_removes_no_token_moves_the_excess_to_the_earlier_leg() {
+    let env = Env::default();
+    let over_credited = 4 * WAD;
+    let mut repaid = vec![
+        &env,
+        repay_entry(&env, stroops(5), 5 * WAD),
+        repay_entry(&env, stroops(3), over_credited),
+    ];
+    let mut refunds = Vec::new(&env);
+
+    let floored = process_excess_payment(&env, &mut repaid, &mut refunds, Wad::from(WAD / 2), true);
+
+    let last = repaid.get_unchecked(1);
+    assert_eq!((last.amount, last.usd_wad), (stroops(3), over_credited));
+    let first = repaid.get_unchecked(0);
+    assert_eq!(
+        first.amount,
+        stroops(4) + stroops(1) / 2,
+        "the earlier leg keeps 4.5 tokens"
+    );
+    assert_eq!(first.usd_wad, 4 * WAD + WAD / 2);
+    assert_eq!(
+        floored.raw(),
+        WAD / 10_000_000,
+        "one unit of the floored leg"
+    );
+    assert_eq!(refunds.len(), 1, "one refund, for the earlier leg only");
+    assert_eq!(refunds.get_unchecked(0).amount, stroops(1) / 2);
+}
+
+/// Seizes `repay_usd_raw` at zero bonus from one $1 collateral leg of
+/// `decimals` holding `scaled` RAY tokens at index one. Returns the seizures,
+/// the unbacked repayment, and the position's scaled balance.
+fn seize_from_one_leg(
+    env: &Env,
+    decimals: u32,
+    scaled: i128,
+    repay_usd_raw: i128,
+    repays_all_debt: bool,
+) -> (Vec<SeizeEntry>, Wad) {
+    let contract = env.register(Controller, (Address::generate(env),));
+    let hub_asset = hub_key(env);
+    let mut supply_positions = Map::new(env);
+    supply_positions.set(
+        hub_asset.clone(),
+        AccountPositionRaw {
+            scaled_amount: scaled,
+            liquidation_threshold: 8_000,
+            liquidation_bonus: 0,
+            loan_to_value: 7_500,
+            liquidation_fees: 0,
+        },
+    );
+    let account = Account {
+        supply_positions,
+        ..empty_account(env)
+    };
+    env.as_contract(&contract, || {
+        let mut cache = Context::new_view(env);
+        let mut prices = Map::new(env);
+        prices.set(
+            hub_asset.asset.clone(),
+            PriceFeedRaw {
+                price_wad: WAD,
+                asset_decimals: decimals,
+                timestamp: 0,
+            },
+        );
+        cache.set_prices(prices);
+        cache.put_market_index(&hub_asset, &index_raw());
+        let total = Ray::from(scaled).to_wad(env);
+        let plan = NormalizedRepaymentPlan {
+            repays_all_debt,
+            ..plan_for_seizure(env, repay_usd_raw, 0)
+        };
+        calculate_seized_collateral(env, &account, total, &plan, &mut cache)
+    })
+}
+
+/// MC-2. A 3-decimal leg holds 10 270.2 native units, so the pool full-closes
+/// any request of 10 270 or more. A partial seizure of 10 270.06 units floors
+/// to 10 270, the pool's half-up balance, so the plan records the pool's full
+/// close: Transfer asks for 10 270 and Credit takes every share.
+// Fix MC-2 (promotion to a recorded full close): flipped from the one-unit step-back.
+#[test]
+fn a_partial_transfer_request_at_the_pool_full_close_is_a_recorded_full_close() {
+    let env = Env::default();
+    let scaled = Ray::from_asset(&env, 10_270, 3).raw() + 2 * 10i128.pow(23);
+    let repay = 10_270_060 * 10i128.pow(12);
+
+    let (seized, unbacked) = seize_from_one_leg(&env, 3, scaled, repay, false);
+
+    let entry = seized.get_unchecked(0);
+    assert_eq!(entry.amount, 10_270, "the floored amount, no unit dropped");
+    let (burned, paid) = resolve_withdrawal(&env, entry.amount, Ray::from(scaled), Ray::ONE, 3);
+    assert_eq!(burned, Ray::from(scaled), "the pool closes the position");
+    assert_eq!(paid, 10_270);
+    assert_eq!(
+        entry.scaled_amount, scaled,
+        "credit takes every share, as the pool burns them"
+    );
+    assert_eq!(unbacked, Wad::ZERO);
+}
+
+/// MC-2. A whole-unit leg holding 10.2 units backs 10.01: the floored ten
+/// units reach the pool's half-up balance, so the leg closes in both modes
+/// and only the 0.01 fraction leaves the repayment.
+// Fix MC-2 (promotion to a recorded full close): flipped from the nine-unit step-back.
+#[test]
+fn a_rounded_down_whole_unit_seizure_at_the_pool_full_close_closes_the_leg() {
+    let env = Env::default();
+    let scaled = Ray::from_asset(&env, 10, 0).raw() + RAY / 5;
+
+    let (seized, unbacked) = seize_from_one_leg(&env, 0, scaled, 10 * WAD + WAD / 100, false);
+
+    let entry = seized.get_unchecked(0);
+    assert_eq!(entry.amount, 10);
+    let (burned, _) = resolve_withdrawal(&env, entry.amount, Ray::from(scaled), Ray::ONE, 0);
+    assert_eq!(burned, Ray::from(scaled), "the pool closes the position");
+    assert_eq!(entry.scaled_amount, scaled, "credit takes every share");
+    assert_eq!(
+        unbacked,
+        Wad::from(WAD / 100),
+        "only the dropped fraction leaves the repayment"
+    );
+}
+
+/// MC-2. A plan that repays all debt rounds a whole-unit leg up: 2.6 of 3.4
+/// held units becomes 3, the pool's half-up balance, so the pool closes the
+/// leg. The plan records that close in both modes: Transfer asks for 3 units
+/// and Credit takes all 3.4 units of shares, so nothing the liquidator repaid
+/// is lost to a step-back.
+// Fix MC-2 (promotion to a recorded full close): flipped from the two-unit step-back.
+#[test]
+fn a_rounded_up_full_repayment_seizure_at_the_pool_full_close_closes_the_leg() {
+    let env = Env::default();
+    for decimals in 0..MIN_BORROWABLE_ASSET_DECIMALS {
+        // 3.4 native units held; 2.6 native units of repayment at $1 per token.
+        let scaled = Ray::from_asset(&env, 34, decimals + 1).raw();
+        let repay = 26 * WAD / 10 / 10i128.pow(decimals);
+
+        let (seized, unbacked) = seize_from_one_leg(&env, decimals, scaled, repay, true);
+
+        let entry = seized.get_unchecked(0);
+        assert_eq!(entry.amount, 3, "{decimals} decimals");
+        assert_eq!(entry.scaled_amount, scaled, "credit takes every share");
+        let (burned, _) =
+            resolve_withdrawal(&env, entry.amount, Ray::from(scaled), Ray::ONE, decimals);
+        assert_eq!(burned, Ray::from(scaled), "the pool closes the position");
+        assert_eq!(unbacked, Wad::ZERO, "a full repayment refunds nothing");
+    }
+}
+
+/// MC-2. With 1.4 held units and 0.6 to seize on a full repayment, stepping
+/// back would seize nothing; the leg closes in full instead, so Transfer and
+/// Credit agree on the close and the liquidator receives at most one unit
+/// times `1 + bonus` above the repayment.
+#[test]
+fn a_rounded_up_single_unit_full_repayment_seizure_closes_the_leg() {
+    let env = Env::default();
+    let scaled = Ray::from_asset(&env, 14, 1).raw();
+    let repay = 6 * WAD / 10;
+
+    let (seized, unbacked) = seize_from_one_leg(&env, 0, scaled, repay, true);
+
+    let entry = seized.get_unchecked(0);
+    assert_eq!(
+        entry.amount, 1,
+        "the half-up balance requests the full close"
+    );
+    let (burned, paid) = resolve_withdrawal(&env, entry.amount, Ray::from(scaled), Ray::ONE, 0);
+    assert_eq!(burned, Ray::from(scaled), "the pool closes the position");
+    assert_eq!(paid, 1);
+    assert_eq!(entry.scaled_amount, scaled, "credit takes every share");
+    let seized_usd = Ray::from(entry.scaled_amount).to_wad(&env).raw();
+    assert!(
+        seized_usd >= repay && seized_usd - repay <= WAD,
+        "seized ${seized_usd} vs repaid ${repay} at zero bonus"
+    );
+    assert_eq!(unbacked, Wad::ZERO, "a full repayment releases nothing");
+}
+
 /// Ten stroops repaid at a 50% bonus seize 15: five stroops are realised above
 /// the repayment, and the 10% fee on them, half a stroop, becomes one stroop.
 #[test]
@@ -382,7 +593,11 @@ fn process_excess_payment_zero_excess_is_noop() {
     repaid.push_back(repay_entry(&env, stroops(100), 100 * WAD));
     let mut refunds = Vec::new(&env);
 
-    process_excess_payment(&env, &mut repaid, &mut refunds, Wad::ZERO, false);
+    assert_eq!(
+        process_excess_payment(&env, &mut repaid, &mut refunds, Wad::ZERO, false),
+        Wad::ZERO,
+        "a ratio trim floors no kept leg"
+    );
 
     assert_eq!(refunds.len(), 0);
     assert_eq!(repaid.len(), 1);
@@ -397,7 +612,11 @@ fn process_excess_payment_boundary_leg_is_removed() {
     repaid.push_back(repay_entry(&env, stroops(5), 5 * WAD));
     let mut refunds = Vec::new(&env);
 
-    process_excess_payment(&env, &mut repaid, &mut refunds, Wad::from(5 * WAD), false);
+    assert_eq!(
+        process_excess_payment(&env, &mut repaid, &mut refunds, Wad::from(5 * WAD), false),
+        Wad::ZERO,
+        "a ratio trim floors no kept leg"
+    );
 
     assert_eq!(repaid.len(), 1, "the exactly-consumed leg must be removed");
     assert_eq!(repaid.get_unchecked(0).amount, stroops(10));
@@ -412,7 +631,11 @@ fn process_excess_payment_survives_exhausting_all_legs() {
     repaid.push_back(repay_entry(&env, stroops(10), 5 * WAD));
     let mut refunds = Vec::new(&env);
 
-    process_excess_payment(&env, &mut repaid, &mut refunds, Wad::from(8 * WAD), false);
+    assert_eq!(
+        process_excess_payment(&env, &mut repaid, &mut refunds, Wad::from(8 * WAD), false),
+        Wad::ZERO,
+        "a ratio trim floors no kept leg"
+    );
 
     assert_eq!(repaid.len(), 0);
     assert_eq!(refunds.len(), 1);
@@ -427,7 +650,11 @@ fn process_excess_payment_spans_legs_with_pro_rata_split() {
     repaid.push_back(repay_entry(&env, stroops(40), 40 * WAD));
     let mut refunds = Vec::new(&env);
 
-    process_excess_payment(&env, &mut repaid, &mut refunds, Wad::from(60 * WAD), false);
+    assert_eq!(
+        process_excess_payment(&env, &mut repaid, &mut refunds, Wad::from(60 * WAD), false),
+        Wad::ZERO,
+        "a ratio trim floors no kept leg"
+    );
 
     assert_eq!(refunds.len(), 2);
     assert_eq!(refunds.get_unchecked(0).amount, stroops(40));
@@ -663,10 +890,10 @@ fn racing_insolvent_liquidations_never_repay_more_than_the_collateral_backs() {
 
 /// Two 3-decimal legs at $1 per unit, each owing 100 400.4 units: the ceilings
 /// (100 401 each) exceed the debt by 1.2 units. The full-close plan keeps both
-/// legs at their ceilings, refunds only the offer above them, and credits
-/// every ceiling unit instead of trimming one unit it would still pull.
+/// legs at their ceilings and refunds only the offer above them, but credits
+/// only the debt the legs clear, so the ceiling units buy no collateral.
 #[test]
-fn a_full_close_plan_credits_every_legs_ceiling_without_a_trim_refund() {
+fn a_full_close_plan_keeps_every_leg_at_its_ceiling_and_credits_the_debt() {
     let env = Env::default();
     let contract = env.register(Controller, (Address::generate(&env),));
     let (d1, d2) = (hub_key(&env), hub_key(&env));
@@ -730,8 +957,8 @@ fn a_full_close_plan_credits_every_legs_ceiling_without_a_trim_refund() {
         }
         assert_eq!(
             plan.repay_usd.raw(),
-            200_802 * WAD,
-            "every ceiling unit is credited"
+            debt,
+            "the credit is the debt cleared, not the ceilings"
         );
     });
 }
@@ -2011,11 +2238,10 @@ fn an_exactly_covered_account_quotes_the_full_debt_at_zero_bonus_not_the_insolve
 // `V < L_round / (b * (1 - f))`, where `L_round` bounds the summed rounding loss,
 // `b` the bonus and `f` the protocol's cut of the bonus.
 //
-// The debt leg adds no rounding loss. Its asset-unit ceiling
-// (`unscale_borrow_ceil` in `calculate_repayment_amounts`) is priced into
-// `RepayEntry::usd_wad`, which `calculate_seized_collateral` multiplies by
-// `(1 + bonus)`, so the liquidator is credited for every unit it rounds up.
-// Both rounding sites are on the collateral leg, per seized position:
+// A fully repaid debt leg pulls its asset-unit ceiling (`unscale_borrow_ceil`
+// in `calculate_repayment_amounts`) but credits only the floor-valued debt it
+// clears, so it can cost the liquidator up to one debt-token unit per leg.
+// `L_round` below counts the collateral leg only, per seized position:
 //
 //   1. `capped_ray.to_asset_floor(&env, decimals)` on a partial seizure  -> <= 1 unit
 //   2. the dust fee bump, `protocol_fee_ray > 0 && fee_asset == 0` -> <= 1 unit
@@ -2027,12 +2253,12 @@ fn an_exactly_covered_account_quotes_the_full_debt_at_zero_bonus_not_the_insolve
 // See `docs/reference/formulas.md#liquidation-sizing-and-fees`
 
 /// The debt-leg half of that claim: a full close pays `ceil(debt)` asset units,
-/// and `RepayEntry::usd_wad` is the price of what was transferred, not of the
-/// exact debt. `calculate_seized_collateral` then sizes the seizure from
-/// `repay_usd * (1 + bonus)`, so the ceiling returns to the liquidator with the
-/// bonus on top instead of being a loss.
+/// but `RepayEntry::usd_wad` is the floor value of the exact debt the pool
+/// burns. `calculate_seized_collateral` sizes the seizure from
+/// `repay_usd * (1 + bonus)`, so the rounded-up units buy no collateral and
+/// cannot push a covered account across `C = D`.
 #[test]
-fn the_debt_legs_asset_unit_ceiling_is_priced_into_the_repayment_credit() {
+fn the_debt_legs_asset_unit_ceiling_is_credited_at_the_debt_it_clears() {
     let env = Env::default();
     let contract = env.register(Controller, (Address::generate(&env),));
     let asset = Address::generate(&env);
@@ -2081,12 +2307,8 @@ fn the_debt_legs_asset_unit_ceiling_is_priced_into_the_repayment_credit() {
         assert_eq!(repaid.get_unchecked(0).amount, 2);
         assert_eq!(
             total.raw(),
-            2 * WAD,
-            "the credit is the price of the ceiling, not of the 1.5-token debt",
-        );
-        assert!(
-            total.raw() > 3 * WAD / 2,
-            "and it strictly exceeds the exact debt value",
+            3 * WAD / 2,
+            "the credit is the 1.5-token debt, not the price of the ceiling",
         );
     });
 }
@@ -2772,4 +2994,293 @@ fn band_partials_never_lower_the_collateral_coverage() {
         coll * debt_0 * 10_000 <= coll_0 * debt * 10_001,
         "coverage drifted more than one bps: {coll_0}/{debt_0} -> {coll}/{debt}"
     );
+}
+
+// ---------------------------------------------------------------------------
+// Liquidation fixes on PR #196: regression tests ported from the PR's
+// verification (`l<N>` = check liquidation-N) and from our fix series. Each
+// asserts the safe outcome.
+// ---------------------------------------------------------------------------
+
+/// l5c (MC-1, release path). A capped leg pulled at 2 tokens but credited 1.5
+/// WAD (the floored debt it clears). Releasing a sub-unit unbacked excess
+/// removes no token, so the leg keeps its credit and no zero-amount refund is
+/// listed.
+#[test]
+fn l5c_release_keeps_a_capped_legs_credit() {
+    let env = Env::default();
+    // Half a native unit of a $1, 7-decimal token, and a 1 000 raw WAD excess.
+    for excess in [WAD / 20_000_000, 1_000] {
+        let mut repaid = Vec::new(&env);
+        repaid.push_back(repay_entry(&env, stroops(2), 3 * WAD / 2));
+        let mut plan = NormalizedRepaymentPlan {
+            repaid,
+            refunds: Vec::new(&env),
+            repay_usd: Wad::from(3 * WAD / 2),
+            bonus: Bps::from(0i128),
+            full_close: true,
+            repays_all_debt: false,
+            seize_all: false,
+        };
+        release_unbacked_repayment(&env, &mut plan, Wad::from(excess));
+        let leg = plan.repaid.get_unchecked(0);
+        assert_eq!(leg.amount, stroops(2), "no token removed");
+        assert_eq!(leg.usd_wad, 3 * WAD / 2, "the credit is never raised");
+        assert_eq!(plan.repay_usd.raw(), 3 * WAD / 2);
+        assert_eq!(plan.refunds.len(), 0, "no zero-amount refund");
+    }
+}
+
+/// l7a (MC-2, >= 3-decimal branch). A 3-decimal leg holds 1.2 native units;
+/// the plan backs 1.1 units. The floored request (1 unit) reaches the pool's
+/// half-up balance. Safe: the leg is seized (the pool's full close), or the
+/// whole repayment is released as unbacked, so the liquidator is never charged
+/// for a leg it does not receive. The one-unit step-back skipped it and kept
+/// the repayment.
+#[test]
+fn l7a_a_leg_at_the_pool_full_close_is_seized_not_skipped() {
+    let env = Env::default();
+    let scaled = 10i128.pow(24) + 2 * 10i128.pow(23);
+    let repay = 11 * 10i128.pow(14);
+    let (seized, unbacked) = seize_from_one_leg(&env, 3, scaled, repay, false);
+    assert!(
+        !seized.is_empty() || unbacked == Wad::from(repay),
+        "the leg is skipped but only {} of the {repay} repayment is released",
+        unbacked.raw()
+    );
+    let entry = seized.get_unchecked(0);
+    assert_eq!(entry.amount, 1, "the pool's half-up balance");
+    assert_eq!(entry.scaled_amount, scaled, "a recorded full close");
+}
+
+/// l7b (MC-2, the PR's own fixture). 10 270.2 units held, 10 270.06 units
+/// backed. Safe: the liquidator is charged for at most the sub-unit fraction
+/// it does not receive (the floor), never for a whole dropped unit: either the
+/// request keeps the floored 10 270 units, or a dropped unit's repayment is
+/// released as unbacked.
+#[test]
+fn l7b_no_whole_unit_is_charged_without_being_seized() {
+    let env = Env::default();
+    let scaled = Ray::from_asset(&env, 10_270, 3).raw() + 2 * 10i128.pow(23);
+    let repay = 10_270_060 * 10i128.pow(12);
+    let one_unit_wad = 10i128.pow(15);
+    let (seized, unbacked) = seize_from_one_leg(&env, 3, scaled, repay, false);
+    let entry = seized.get_unchecked(0);
+    let received_wad = Wad::from_token(&env, entry.amount, 3).raw();
+    assert!(
+        received_wad + unbacked.raw() > repay - one_unit_wad,
+        "the liquidator pays {repay} and receives {received_wad} (unbacked {}): \
+         a whole unit or more is lost",
+        unbacked.raw()
+    );
+    assert_eq!(entry.amount, 10_270);
+}
+
+/// l8a (MC-2, whole-unit rounded-down branch). A 0-decimal leg holds 1.2
+/// units; the plan backs 1.01 units. Safe: the plan that backs one whole unit
+/// seizes it (the pool closes the 1.2 holding at one unit) instead of seizing
+/// nothing.
+#[test]
+fn l8a_a_one_unit_sale_of_a_fractional_holding_is_not_refused() {
+    let env = Env::default();
+    let scaled = Ray::from_asset(&env, 1, 0).raw() + RAY / 5;
+    let (seized, unbacked) = seize_from_one_leg(&env, 0, scaled, WAD + WAD / 100, false);
+    assert!(
+        !seized.is_empty(),
+        "one backed whole unit seizes nothing; unbacked {} (everything released)",
+        unbacked.raw()
+    );
+    let entry = seized.get_unchecked(0);
+    assert_eq!(entry.amount, 1);
+    assert_eq!(entry.scaled_amount, scaled, "the pool closes the leg");
+    assert_eq!(
+        unbacked,
+        Wad::from(WAD / 100),
+        "only the fraction is released"
+    );
+}
+
+/// extra-1 (MC-2, whole-unit rounded-up branch). A plan that repays all debt
+/// rounds a whole-unit leg up; 3.4 units held, 2.6 units repaid at zero bonus.
+/// Safe: the liquidator receives at least the value it repaid, less sub-unit
+/// rounding, or the shortfall is released as unbacked. The step-back gave 2
+/// units for 2.6 with nothing released.
+#[test]
+fn extra1_rounded_up_seizure_is_not_charged_to_the_liquidator() {
+    let env = Env::default();
+    let scaled = Ray::from_asset(&env, 34, 1).raw();
+    let repay = 26 * WAD / 10;
+    let (seized, unbacked) = seize_from_one_leg(&env, 0, scaled, repay, true);
+    let entry = seized.get_unchecked(0);
+    let seized_usd = Ray::from(entry.scaled_amount).to_wad(&env).raw();
+    assert!(
+        seized_usd + unbacked.raw() >= repay,
+        "the liquidator repays {repay} and receives {seized_usd} (unbacked {})",
+        unbacked.raw()
+    );
+    assert!(
+        Wad::from_token(&env, entry.amount, 0).raw() + unbacked.raw() >= repay - WAD / 2,
+        "transfer pays {} units for {repay}",
+        entry.amount
+    );
+}
+
+/// Builds an account with one 7-decimal supply leg per `(tokens, bonus_bps)`
+/// at index one and price $1, and returns its bonus bounds for `proportion`.
+fn bonus_params_for(env: &Env, legs: &[(i128, u32)], proportion: i128) -> BonusBounds {
+    bonus_params_at_price(env, legs, WAD, proportion)
+}
+
+/// [`bonus_params_for`] with every leg priced at `price_wad` (WAD USD per
+/// whole token).
+fn bonus_params_at_price(
+    env: &Env,
+    legs: &[(i128, u32)],
+    price_wad: i128,
+    proportion: i128,
+) -> BonusBounds {
+    let contract = env.register(Controller, (Address::generate(env),));
+    let feed = PriceFeedRaw {
+        price_wad,
+        ..feed_raw()
+    };
+    let mut supply_positions = Map::new(env);
+    let mut prices = Map::new(env);
+    let mut keys = Vec::new(env);
+    let mut total = 0i128;
+    for &(tokens, bonus) in legs {
+        let key = hub_key(env);
+        supply_positions.set(
+            key.clone(),
+            AccountPositionRaw {
+                scaled_amount: Ray::from_asset(env, stroops(tokens), 7).raw(),
+                liquidation_threshold: 8_000,
+                liquidation_bonus: bonus,
+                loan_to_value: 7_500,
+                liquidation_fees: 0,
+            },
+        );
+        prices.set(key.asset.clone(), feed.clone());
+        keys.push_back(key);
+        total += tokens * price_wad;
+    }
+    env.as_contract(&contract, || {
+        let mut cache = Context::new_view(env);
+        cache.set_prices(prices);
+        for key in keys.iter() {
+            cache.put_market_index(&key, &index_raw());
+        }
+        get_account_bonus_params(
+            env,
+            &mut cache,
+            &supply_positions,
+            Wad::from(total),
+            Wad::from(proportion),
+        )
+    })
+}
+
+/// l12a (fifth-pass base bonus). Four equal legs at 250 BPS: each per-leg
+/// half-up term was 63 (252 in total); the single rounding gives the listing
+/// bonus exactly.
+#[test]
+fn l12a_four_equal_legs_give_the_listing_bonus() {
+    let env = Env::default();
+    let bounds = bonus_params_for(
+        &env,
+        &[(2_500, 250), (2_500, 250), (2_500, 250), (2_500, 250)],
+        WAD / 2,
+    );
+    assert_eq!(bounds.max.raw(), 10_000);
+    assert_eq!(bounds.base.raw(), 250, "one rounding of an exact 250");
+}
+
+/// l12b (fifth-pass base bonus). The adversarial five-leg book: every per-leg
+/// product has fraction .5, so the per-leg rounding gained 2.5 BPS (253). The
+/// exact weighted average is 250.5, which rounds half-up once to 251.
+#[test]
+fn l12b_adversarial_five_leg_book_is_within_half_a_bps() {
+    let env = Env::default();
+    let bounds = bonus_params_for(
+        &env,
+        &[(21, 250), (21, 250), (21, 250), (27, 250), (10, 255)],
+        8 * WAD / 10,
+    );
+    assert_eq!(bounds.max.raw(), 2_500, "LT 8000 everywhere gives max 2500");
+    assert_eq!(bounds.base.raw(), 251, "exact 250.5 rounds once, half-up");
+}
+
+/// Base bonus: a deterministic sweep of one-to-five-leg books with adversarial
+/// sizes and bonuses. The executed base must equal the exact USD-weighted
+/// average rounded half-up once, for every book (the per-leg rounding drifted
+/// by up to half a BPS per leg).
+#[test]
+fn account_bonus_params_equal_the_exact_average_rounded_once() {
+    let mut seed: u64 = 0x5eed_1234_abcd_0001;
+    let mut next = |bound: u64| {
+        seed = seed
+            .wrapping_mul(6_364_136_223_846_793_005)
+            .wrapping_add(1_442_695_040_888_963_407);
+        (seed >> 33) % bound
+    };
+    let env = Env::default();
+    for case in 0..300 {
+        let legs = 1 + next(5) as usize;
+        let mut slots = [(0i128, 0u32); 5];
+        for slot in slots.iter_mut().take(legs) {
+            // Sizes that put the per-leg products on halves often: small,
+            // odd, and large magnitudes.
+            let tokens = match next(3) {
+                0 => 1 + next(40) as i128,
+                1 => 1 + next(100_000) as i128,
+                _ => 1 + next(1_000_000_000) as i128,
+            };
+            let bonus = 100 + next(2_900) as u32;
+            *slot = (tokens, bonus);
+        }
+        let book = &slots[..legs];
+        let bounds = bonus_params_for(&env, book, WAD / 10);
+        let num: i128 = book.iter().map(|(t, b)| t * i128::from(*b)).sum();
+        let den: i128 = book.iter().map(|(t, _)| *t).sum();
+        let exact = num / den + i128::from(2 * (num % den) >= den);
+        assert_eq!(
+            bounds.base.raw(),
+            exact,
+            "case {case}: book {book:?} must round the exact average once"
+        );
+    }
+}
+
+/// Base bonus domain: a book whose value-times-bonus products leave `i128`
+/// (two legs of 1e10 tokens at $1e8, 1e36 raw WAD each, times about 1,000 BPS)
+/// still gets the exact average rounded half-up once. An `i128`-only sum
+/// reverts with `MathOverflow` here; the per-leg weights returned a base, so
+/// the single rounding must not narrow the domain.
+#[test]
+fn account_bonus_params_keep_the_valuation_domain_when_the_products_leave_i128() {
+    let env = Env::default();
+    let price = 100_000_000 * WAD;
+    let whole = 10_000_000_000i128;
+    for (book, expected) in [
+        // Exact 750.
+        (&[(whole, 1_000u32), (whole, 500u32)][..], 750i128),
+        // Exact 1000.5: the widened division still rounds half-up.
+        (&[(whole, 1_000u32), (whole, 1_001u32)][..], 1_001i128),
+        // The sum widens on the second leg and keeps adding exactly.
+        (
+            &[(3, 2_000u32), (whole, 1_000u32), (whole, 500u32)][..],
+            750i128,
+        ),
+    ] {
+        let bounds = bonus_params_at_price(&env, book, price, WAD / 2);
+        assert!(
+            book.iter()
+                .map(|(t, _)| t * price)
+                .try_fold(0i128, |acc, v| acc.checked_add(v.checked_mul(1_000)?))
+                .is_none(),
+            "fixture must overflow an i128 product sum"
+        );
+        assert_eq!(bounds.max.raw(), 10_000);
+        assert_eq!(bounds.base.raw(), expected, "book {book:?}");
+    }
 }

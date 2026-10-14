@@ -4,7 +4,7 @@
 
 use common::types::SeizeMode;
 use test_harness::{
-    assert_contract_error, errors, usd, LendingTest, ALICE, BOB, CAROL, LIQUIDATOR,
+    assert_contract_error, errors, usd, usd_cents, LendingTest, ALICE, BOB, CAROL, LIQUIDATOR,
 };
 
 fn two_positions_then_limit_of_one() -> LendingTest {
@@ -49,4 +49,42 @@ fn a_credit_liquidation_into_an_over_limit_account_that_holds_the_asset_still_la
     let receiver = t.account_id(LIQUIDATOR);
     t.try_liquidate_with_mode(LIQUIDATOR, CAROL, "ETH", 0.5, SeizeMode::Credit(receiver))
         .expect("seizing an asset the receiver already holds opens no slot");
+}
+
+/// MC-4. A `Credit(0)` receiver takes every seized leg even after the supply
+/// limit drops below the liquidated account's leg count; otherwise a market
+/// without cash leaves the account with no liquidation path at all.
+#[test]
+fn a_credit_zero_receiver_takes_every_seized_leg_after_the_limit_drops() {
+    let mut t = two_positions_then_limit_of_one();
+    t.set_position_limits(2, 2);
+    t.borrow(ALICE, "WBTC", 0.15);
+    t.set_position_limits(1, 1);
+    t.set_price("USDC", usd_cents(60));
+    t.assert_liquidatable(ALICE);
+
+    let receiver = t
+        .try_liquidate_with_mode(LIQUIDATOR, ALICE, "WBTC", 0.01, SeizeMode::Credit(0))
+        .expect("the receiver admits as many legs as the liquidated account holds");
+
+    let (supply, _) = t.ctrl_client().get_account_positions(&receiver);
+    assert_eq!(supply.len(), 2, "both seized legs are credited");
+}
+
+/// MC-4. Only an empty receiver is exempt: a receiver with positions still
+/// cannot open slots past the lowered limit.
+#[test]
+fn an_existing_receiver_keeps_the_lowered_position_limit() {
+    let mut t = two_positions_then_limit_of_one();
+    t.set_position_limits(2, 2);
+    t.borrow(ALICE, "WBTC", 0.15);
+    t.supply(LIQUIDATOR, "WBTC", 0.01);
+    t.set_position_limits(1, 1);
+    t.set_price("USDC", usd_cents(60));
+
+    let receiver = t.account_id(LIQUIDATOR);
+    assert_contract_error(
+        t.try_liquidate_with_mode(LIQUIDATOR, ALICE, "WBTC", 0.01, SeizeMode::Credit(receiver)),
+        errors::POSITION_LIMIT_EXCEEDED,
+    );
 }

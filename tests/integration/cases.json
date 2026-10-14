@@ -7908,6 +7908,26 @@
         ]
       },
       {
+        "label": "flash_position_long_debt_collateral",
+        "method": "flash_position",
+        "status": "xfail",
+        "count": 1,
+        "execution": [
+          "simulation",
+          "rejected_transaction"
+        ],
+        "contract": "controller"
+      },
+      {
+        "label": "flash_position_long_debt_collateral_rollback",
+        "method": "assert",
+        "status": "ok",
+        "count": 1,
+        "execution": [
+          "assertion"
+        ]
+      },
+      {
         "label": "flash_position_long_multi",
         "method": "flash_position",
         "status": "ok",
@@ -8024,6 +8044,15 @@
         ]
       },
       {
+        "label": "fp_long_usdc_refund",
+        "method": "assert",
+        "status": "ok",
+        "count": 1,
+        "execution": [
+          "assertion"
+        ]
+      },
+      {
         "label": "fp_long_xlm_protected",
         "method": "assert",
         "status": "ok",
@@ -8079,7 +8108,7 @@
         "contract": "controller"
       },
       {
-        "label": "fp_long_usdc_credit",
+        "label": "fp_long_usdc_no_credit",
         "method": "get_collateral_amount",
         "status": "read",
         "count": 1,
