@@ -561,7 +561,7 @@ fn validate_rejects_a_swap_between_one_token_and_itself() {
 fn validate_rejects_an_unknown_opcode() {
     let env = Env::default();
     let ops = alloc::vec![RawOp {
-        opcode: 7,
+        opcode: 8,
         mode: encode::ALL,
         idx_a: 0,
         idx_b: 1,
