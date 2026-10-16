@@ -11,6 +11,7 @@ pub enum OracleKind {
     Reflector,
     RedStone,
     Xoxno,
+    Chainlink,
 }
 
 #[derive(Debug, Clone)]
@@ -21,6 +22,8 @@ pub struct OracleSource {
     pub asset_ref: Option<ScVal>,
 
     pub feed_id: Option<String>,
+    pub data_id: Option<ScVal>,
+    pub decimals: u32,
     pub max_stale_seconds: u64,
 }
 
@@ -54,11 +57,15 @@ pub fn decode_oracle_config(value: &ScVal) -> Result<OracleConfig> {
         .ok_or_else(|| anyhow!("max_price_stale_seconds missing"))?;
 
     let tolerance = map_field(value, "tolerance").ok_or_else(|| anyhow!("tolerance missing"))?;
-    let tolerance_upper_bps = field_u32(tolerance, "upper_ratio_bps").unwrap_or(0);
-    let tolerance_lower_bps = field_u32(tolerance, "lower_ratio_bps").unwrap_or(0);
+    let tolerance_upper_bps = field_u32(tolerance, "upper_ratio_bps")
+        .ok_or_else(|| anyhow!("tolerance.upper_ratio_bps missing"))?;
+    let tolerance_lower_bps = field_u32(tolerance, "lower_ratio_bps")
+        .ok_or_else(|| anyhow!("tolerance.lower_ratio_bps missing"))?;
 
-    let min_sanity_price_wad = field_i128(value, "min_sanity_price_wad").unwrap_or(0);
-    let max_sanity_price_wad = field_i128(value, "max_sanity_price_wad").unwrap_or(0);
+    let min_sanity_price_wad = field_i128(value, "min_sanity_price_wad")
+        .ok_or_else(|| anyhow!("min_sanity_price_wad missing"))?;
+    let max_sanity_price_wad = field_i128(value, "max_sanity_price_wad")
+        .ok_or_else(|| anyhow!("max_sanity_price_wad missing"))?;
 
     let raw_sources =
         vec_items(map_field(value, "sources").ok_or_else(|| anyhow!("sources missing"))?)
@@ -68,7 +75,7 @@ pub fn decode_oracle_config(value: &ScVal) -> Result<OracleConfig> {
     let mut sources = Vec::with_capacity(raw_sources.len());
     let mut lp_floor = None;
     for raw in raw_sources {
-        if let Some(source) = decode_price_source(raw, max_price_stale_seconds)? {
+        if let Some(source) = decode_price_source(raw)? {
             sources.push(source);
         } else {
             lp_floor = decode_lp_floor(raw);
@@ -96,10 +103,7 @@ fn decode_lp_floor(value: &ScVal) -> Option<LpFloor> {
     })
 }
 
-fn decode_price_source(
-    value: &ScVal,
-    market_default_max_stale: u64,
-) -> Result<Option<OracleSource>> {
+fn decode_price_source(value: &ScVal) -> Result<Option<OracleSource>> {
     let (tag, payload) =
         enum_variant(value).ok_or_else(|| anyhow!("price source not enum-tagged"))?;
     let inner = payload
@@ -107,22 +111,23 @@ fn decode_price_source(
         .ok_or_else(|| anyhow!("price source has no payload"))?;
 
     match tag.as_str() {
-        "Feed" => decode_feed_source(inner, market_default_max_stale).map(Some),
+        "Feed" => decode_feed_source(inner).map(Some),
         "Scaled" => {
             let factor = map_field(inner, "factor")
                 .ok_or_else(|| anyhow!("scaled source missing factor"))?;
-            decode_feed_source(factor, market_default_max_stale).map(Some)
+            decode_feed_source(factor).map(Some)
         }
         "AquariusLp" | "AquariusStableLp" => Ok(None),
         other => Err(anyhow!("unknown price source variant {other}")),
     }
 }
 
-fn decode_feed_source(value: &ScVal, market_default_max_stale: u64) -> Result<OracleSource> {
+fn decode_feed_source(value: &ScVal) -> Result<OracleSource> {
     let provider =
         map_field(value, "provider").ok_or_else(|| anyhow!("feed source missing provider"))?;
-    let max_stale_seconds =
-        field_u64(value, "max_stale_seconds").unwrap_or(market_default_max_stale);
+    let max_stale_seconds = field_u64(value, "max_stale_seconds")
+        .ok_or_else(|| anyhow!("feed max_stale_seconds missing"))?;
+    let decimals = field_u32(value, "decimals").ok_or_else(|| anyhow!("feed decimals missing"))?;
 
     let (tag, payload) =
         enum_variant(provider).ok_or_else(|| anyhow!("provider not enum-tagged"))?;
@@ -134,24 +139,50 @@ fn decode_feed_source(value: &ScVal, market_default_max_stale: u64) -> Result<Or
         .ok_or_else(|| anyhow!("provider contract missing"))?;
 
     match tag.as_str() {
-        "Reflector" => Ok(OracleSource {
-            kind: OracleKind::Reflector,
-            contract,
-            asset_ref: map_field(inner, "asset").cloned(),
-            feed_id: None,
-            max_stale_seconds,
-        }),
+        "Reflector" => {
+            let asset_ref = map_field(inner, "asset")
+                .cloned()
+                .ok_or_else(|| anyhow!("Reflector asset missing"))?;
+            Ok(OracleSource {
+                kind: OracleKind::Reflector,
+                contract,
+                asset_ref: Some(asset_ref),
+                feed_id: None,
+                data_id: None,
+                decimals,
+                max_stale_seconds,
+            })
+        }
         "RedStone" | "Xoxno" => {
             let kind = if tag == "RedStone" {
                 OracleKind::RedStone
             } else {
                 OracleKind::Xoxno
             };
+            let feed_id = map_field(inner, "feed_id")
+                .and_then(string_text)
+                .ok_or_else(|| anyhow!("{tag} feed_id missing"))?;
             Ok(OracleSource {
                 kind,
                 contract,
                 asset_ref: None,
-                feed_id: map_field(inner, "feed_id").and_then(string_text),
+                feed_id: Some(feed_id),
+                data_id: None,
+                decimals,
+                max_stale_seconds,
+            })
+        }
+        "Chainlink" => {
+            let data_id = map_field(inner, "data_id")
+                .cloned()
+                .ok_or_else(|| anyhow!("Chainlink data_id missing"))?;
+            Ok(OracleSource {
+                kind: OracleKind::Chainlink,
+                contract,
+                asset_ref: None,
+                feed_id: None,
+                data_id: Some(data_id),
+                decimals,
                 max_stale_seconds,
             })
         }
@@ -209,10 +240,28 @@ pub fn decode_redstone_price(value: &ScVal) -> Result<PriceObservation> {
     })
 }
 
+pub fn decode_chainlink_round(value: &ScVal) -> Result<PriceObservation> {
+    let Some(ScVal::I256(answer)) = map_field(value, "answer") else {
+        return Err(anyhow!("Chainlink Round.answer missing"));
+    };
+    if answer.hi_hi < 0
+        || (answer.hi_hi == 0 && answer.hi_lo == 0 && answer.lo_hi == 0 && answer.lo_lo == 0)
+    {
+        return Err(anyhow!("Chainlink Round.answer non-positive"));
+    }
+    let Some(ScVal::U64(_)) = map_field(value, "round_id") else {
+        return Err(anyhow!("Chainlink Round.round_id missing"));
+    };
+    let Some(ScVal::U64(ts)) = map_field(value, "timestamp") else {
+        return Err(anyhow!("Chainlink Round.timestamp missing"));
+    };
+    Ok(PriceObservation { feed_ts_secs: *ts })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use stellar_xdr::{Int128Parts, ScMap, ScMapEntry, ScVec, VecM};
+    use stellar_xdr::{BytesM, Int128Parts, Int256Parts, ScBytes, ScMap, ScMapEntry, ScVec, VecM};
 
     fn sym(t: &str) -> ScVal {
         ScVal::Symbol(crate::keys::symbol(t).unwrap())
@@ -223,6 +272,14 @@ mod tests {
             lo: v as u64,
         })
     }
+    fn positive_i256() -> ScVal {
+        ScVal::I256(Int256Parts {
+            hi_hi: 0,
+            hi_lo: 0,
+            lo_hi: 0,
+            lo_lo: 1,
+        })
+    }
     fn map(entries: Vec<(&str, ScVal)>) -> ScVal {
         ScVal::Map(Some(ScMap(
             entries
@@ -231,6 +288,19 @@ mod tests {
                     key: sym(k),
                     val: v,
                 })
+                .collect::<Vec<_>>()
+                .try_into()
+                .unwrap(),
+        )))
+    }
+    fn without_field(value: ScVal, field: &str) -> ScVal {
+        let ScVal::Map(Some(ScMap(entries))) = value else {
+            panic!("expected map")
+        };
+        ScVal::Map(Some(ScMap(
+            entries
+                .into_iter()
+                .filter(|entry| crate::scval::symbol_text(&entry.key).as_deref() != Some(field))
                 .collect::<Vec<_>>()
                 .try_into()
                 .unwrap(),
@@ -289,6 +359,24 @@ mod tests {
         ])
     }
 
+    fn chainlink_feed(contract_byte: u8, max_stale: u64) -> ScVal {
+        let data_id = ScVal::Bytes(ScBytes(BytesM::try_from(vec![7; 32]).unwrap()));
+        map(vec![
+            (
+                "provider",
+                enum_val(
+                    "Chainlink",
+                    vec![map(vec![
+                        ("contract", addr(contract_byte)),
+                        ("data_id", data_id),
+                    ])],
+                ),
+            ),
+            ("decimals", ScVal::U32(18)),
+            ("max_stale_seconds", ScVal::U64(max_stale)),
+        ])
+    }
+
     fn asset_oracle(sources: Vec<ScVal>) -> ScVal {
         map(vec![
             ("asset_decimals", ScVal::U32(7)),
@@ -325,6 +413,122 @@ mod tests {
             decode_reflector_price(&m).unwrap().unwrap().feed_ts_secs,
             42
         );
+    }
+
+    #[test]
+    fn decodes_chainlink_round_timestamp_in_seconds() {
+        let round = map(vec![
+            ("round_id", ScVal::U64(1)),
+            ("answer", positive_i256()),
+            ("timestamp", ScVal::U64(1_700_000_000)),
+        ]);
+        assert_eq!(
+            decode_chainlink_round(&round).unwrap().feed_ts_secs,
+            1_700_000_000
+        );
+    }
+
+    #[test]
+    fn decodes_chainlink_provider_data_id_and_decimals() {
+        let oracle = asset_oracle(vec![enum_val("Feed", vec![chainlink_feed(8, 93_600)])]);
+        let cfg = decode_oracle_config(&oracle).unwrap();
+        assert_eq!(cfg.sources[0].kind, OracleKind::Chainlink);
+        assert_eq!(cfg.sources[0].decimals, 18);
+        assert!(cfg.sources[0].data_id.is_some());
+        assert_eq!(cfg.sources[0].max_stale_seconds, 93_600);
+    }
+
+    #[test]
+    fn providers_require_their_selector_and_feed_decimals() {
+        let chainlink_without_id = map(vec![
+            (
+                "provider",
+                enum_val("Chainlink", vec![map(vec![("contract", addr(8))])]),
+            ),
+            ("decimals", ScVal::U32(18)),
+            ("max_stale_seconds", ScVal::U64(93_600)),
+        ]);
+        let chainlink_without_decimals = map(vec![
+            (
+                "provider",
+                enum_val(
+                    "Chainlink",
+                    vec![map(vec![
+                        ("contract", addr(8)),
+                        (
+                            "data_id",
+                            ScVal::Bytes(ScBytes(BytesM::try_from(vec![7; 32]).unwrap())),
+                        ),
+                    ])],
+                ),
+            ),
+            ("max_stale_seconds", ScVal::U64(93_600)),
+        ]);
+        let chainlink_without_staleness =
+            without_field(chainlink_feed(8, 93_600), "max_stale_seconds");
+
+        for feed in [
+            chainlink_without_id,
+            chainlink_without_decimals,
+            chainlink_without_staleness,
+        ] {
+            let oracle = asset_oracle(vec![enum_val("Feed", vec![feed])]);
+            assert!(decode_oracle_config(&oracle).is_err());
+        }
+    }
+
+    #[test]
+    fn oracle_metric_fields_are_required() {
+        for field in [
+            "max_price_stale_seconds",
+            "min_sanity_price_wad",
+            "max_sanity_price_wad",
+        ] {
+            let oracle = without_field(
+                asset_oracle(vec![enum_val("Feed", vec![chainlink_feed(8, 93_600)])]),
+                field,
+            );
+            assert!(
+                decode_oracle_config(&oracle).is_err(),
+                "accepted missing {field}"
+            );
+        }
+
+        for tolerance in [
+            map(vec![("lower_ratio_bps", ScVal::U32(9091))]),
+            map(vec![("upper_ratio_bps", ScVal::U32(11000))]),
+        ] {
+            let oracle = map(vec![
+                ("max_price_stale_seconds", ScVal::U64(43_200)),
+                (
+                    "sources",
+                    vec_val(vec![enum_val("Feed", vec![chainlink_feed(8, 93_600)])]),
+                ),
+                ("tolerance", tolerance),
+                ("min_sanity_price_wad", i128v(0)),
+                ("max_sanity_price_wad", i128v(0)),
+            ]);
+            assert!(decode_oracle_config(&oracle).is_err());
+        }
+    }
+
+    #[test]
+    fn malformed_chainlink_round_is_rejected() {
+        for round in [
+            map(vec![("timestamp", ScVal::U64(1))]),
+            map(vec![
+                ("round_id", ScVal::U32(1)),
+                ("answer", positive_i256()),
+                ("timestamp", ScVal::U64(1)),
+            ]),
+            map(vec![
+                ("round_id", ScVal::U64(1)),
+                ("answer", ScVal::I256(Int256Parts::default())),
+                ("timestamp", ScVal::U64(1)),
+            ]),
+        ] {
+            assert!(decode_chainlink_round(&round).is_err());
+        }
     }
 
     #[test]

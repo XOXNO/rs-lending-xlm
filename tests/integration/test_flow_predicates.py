@@ -192,8 +192,9 @@ prod_execute_split setPriceAggregator setPriceAggregator >/dev/null'''
             result=shell('flows/production.sh','RUN_DIR="$1"; LOG_DIR="$1/logs"; prod_execute_split setAggregator setAggregator',d)
             self.assertNotEqual(result.returncode,0)
     def test_production_fixture_groups_keep_plan_order_and_serial_xoxno(self):
-        plan={'CZ1':{'kind':'Reflector'},'CA2':{'kind':'RedStone'},'CM3':{'kind':'Xoxno'},'CB4':{'kind':'token','decimals':7,'name':'T'},'CC5':{'kind':'pool','decimals':7,'name':'LPPOOL'}}
+        plan={'CZ1':{'kind':'Reflector'},'CA2':{'kind':'RedStone'},'CK3':{'kind':'Chainlink'},'CM4':{'kind':'Xoxno'},'CB5':{'kind':'token','decimals':7,'name':'T'},'CC6':{'kind':'pool','decimals':7,'name':'LPPOOL'}}
         seeds=[dict(kind='Reflector',contract='R1',asset={'Other':'A'},price='1'),dict(kind='RedStone',contract='S',feed='F',price='2'),
+               dict(kind='Chainlink',contract='C',data_id='01'+'00'*31,price='2'),
                dict(kind='Xoxno',contract='X',feed='XF',price='30000000000'),dict(kind='RedStone',contract='S',feed='F',price='2'),
                dict(kind='Reflector',contract='R1',asset={'Other':'B'},price='3')]
         body=r'''source "$1/lib/core.sh"; source "$1/lib/assert.sh"; source "$1/flows/production.sh"
@@ -263,9 +264,9 @@ else:
         self.assertEqual(list(mapping.items()),[(k,cid(n)) for n,k in enumerate(plan,1)])
         fixtures=[(a,e) for a,e in zip(actions,evidence) if a['label'].startswith('production_fixture_')]
         self.assertEqual([(a['label'],a['status'],a['fn'],e['execution'],e['contract']) for a,e in fixtures],
-                         [(f'production_fixture_{n}','ok','deploy','deployment',cid(n)) for n in range(1,6)])
+                         [(f'production_fixture_{n}','ok','deploy','deployment',cid(n)) for n in range(1,7)])
         self.assertTrue(all(len(a['hash'])==64 for a,_ in fixtures))
-        self.assertEqual(deploys,[f'{n}|c{(n-1)%3+1}' for n in range(1,6)])
+        self.assertEqual(deploys,[f'{n}|c{(n-1)%3+1}' for n in range(1,7)])
         required=next(c for c in json.loads((HERE/'cases.json').read_text()) if c['id']=='flow_production_fixtures')['required_actions']
         for r in required:
             self.assertGreaterEqual(len([a for a in actions if (a['label'],a['fn'],a['status'])==(r['label'],r['method'],r['status'])]),r['count'],r)
@@ -274,8 +275,9 @@ else:
             serial=w['label'] in ('prod_xoxno_register','prod_xoxno_seed','prod_lp_fixture')
             self.assertEqual((w['job']=='',w['signer']=='admin'),(serial,serial),w)
         self.assertEqual(len([w for w in writes if w['label']=='prod_redstone_seed']),1)
-        self.assertEqual(len(seed_jobs),3)
-        seeds[3]=dict(seeds[3],price='9')
+        self.assertEqual(len([w for w in writes if w['label']=='prod_chainlink_seed']),1)
+        self.assertEqual(len(seed_jobs),4)
+        seeds[4]=dict(seeds[4],price='9')
         with tempfile.TemporaryDirectory() as d:
             result,root,writes,actions,_=run(d,seeds)
             spawned=list(root.glob('jobs/prod_seeds.*'))+list(root.glob('jobs/prod_bases.*'))

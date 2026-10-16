@@ -281,6 +281,7 @@ EXTERNAL_CLIENT_READS = {
             "assets",
         }
     ),
+    "ChainlinkDataFeedsProxyClient": frozenset({"latest_round"}),
     "AquariusPoolClient": frozenset(
         {"a", "pool_type", "get_reserves", "get_tokens", "share_id", "get_total_shares"}
     ),

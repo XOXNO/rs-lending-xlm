@@ -195,7 +195,7 @@ prod_fixture_job() {
     local row="$1" n original kind wasm wasm_path id base args=()
     n=$(jq -r '.n' <<<"$row"); original=$(jq -r '.key' <<<"$row"); kind=$(jq -r '.value.kind' <<<"$row")
     case "$kind" in
-        Reflector) wasm=mock_oracle;; RedStone) wasm=mock_redstone;; Xoxno) wasm=xoxno-oracle-adapter;; *) wasm=production_fixture;;
+        Reflector) wasm=mock_oracle;; RedStone|Chainlink) wasm=mock_redstone;; Xoxno) wasm=xoxno-oracle-adapter;; *) wasm=production_fixture;;
     esac
     if [ "$wasm" = production_fixture ]; then
         args=(-- --admin "$ADMIN_ADDR" --decimals "$(jq -r '.value.decimals' <<<"$row")" --symbol "$(jq -r '.value.name' <<<"$row")")
@@ -215,10 +215,10 @@ prod_fixture_job() {
 }
 
 prod_price_seeds() {
-    jq -c '[.seeds[] | select(.kind == "Reflector" or .kind == "RedStone")]
-        | group_by([.contract, (.asset // .feed)])
+    jq -c '[.seeds[] | select(.kind == "Reflector" or .kind == "RedStone" or .kind == "Chainlink")]
+        | group_by([.contract, (.asset // .feed // .data_id)])
         | map(if (map(.price) | unique | length) == 1 then .[0]
-              else error("seed \(.[0].contract) \(.[0].asset // .[0].feed | tojson) has conflicting prices \(map(.price) | unique)") end)
+              else error("seed \(.[0].contract) \(.[0].asset // .[0].feed // .[0].data_id | tojson) has conflicting prices \(map(.price) | unique)") end)
         | .[]' "$1"
 }
 
@@ -227,13 +227,20 @@ prod_base_job() {
 }
 
 prod_seed_job() {
-    local id price
+    local id price kind
     id=$(jq -r '.contract' <<<"$1"); price=$(jq -r '.price' <<<"$1")
-    if [ "$(jq -r '.kind' <<<"$1")" = Reflector ]; then
-        inv prod_reflector_seed "${E2E_SRC:-$ADMIN}" "$id" -- set_price --asset "$(jq -c '.asset' <<<"$1")" --price_wad "$price" >/dev/null
-    else
-        inv prod_redstone_seed "${E2E_SRC:-$ADMIN}" "$id" -- set_price --feed_id "$(jq -r '.feed' <<<"$1")" --price_wad "$price" >/dev/null
-    fi
+    kind=$(jq -r '.kind' <<<"$1")
+    case "$kind" in
+        Reflector)
+            inv prod_reflector_seed "${E2E_SRC:-$ADMIN}" "$id" -- set_price --asset "$(jq -c '.asset' <<<"$1")" --price_wad "$price" >/dev/null
+            ;;
+        Chainlink)
+            inv prod_chainlink_seed "${E2E_SRC:-$ADMIN}" "$id" -- set_chainlink_price --data_id "$(jq -r '.data_id' <<<"$1")" --price_wad "$price" >/dev/null
+            ;;
+        RedStone)
+            inv prod_redstone_seed "${E2E_SRC:-$ADMIN}" "$id" -- set_price --feed_id "$(jq -r '.feed' <<<"$1")" --price_wad "$price" >/dev/null
+            ;;
+    esac
 }
 
 # Reflector TWAP includes two older 300-second samples. Keep fixture prices

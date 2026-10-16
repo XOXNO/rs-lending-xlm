@@ -14,7 +14,7 @@
 groups:
   - name: lending-protocol
     rules:
-      # Leg budgets run from 1h (Reflector legs) to 26h (RedStone factor legs).
+      # Leg budgets run from 1h (Reflector legs) to 26h (daily provider legs).
       # Slow legs spend most of their budget between pushes, so a fixed-seconds
       # or half-budget threshold pages in normal operation. This rule warns in the
       # last 10% of the budget. On a 1h leg that is six minutes, so for fast legs
@@ -27,7 +27,7 @@ groups:
         labels: { severity: warning }
         annotations:
           summary: "Oracle freshness budget for {{ $labels.symbol }} ({{ $labels.network }}) below 10%"
-          description: "{{ $value | humanizePercentage }} of the staleness budget remains; a feed heartbeat was likely missed. Check the feeder (Xoxno bots / RedStone push) before the leg is rejected on-chain."
+          description: "{{ $value | humanizePercentage }} of the staleness budget remains; a feed heartbeat was likely missed. Check the provider or feeder before the leg is rejected on-chain."
 
       # An on-time push leaves 7200 s; under 5400 s it is at least 30 minutes late.
       - alert: LendingOracleDailyPushLate
@@ -35,8 +35,8 @@ groups:
         for: 5m
         labels: { severity: warning }
         annotations:
-          summary: "Daily oracle push for {{ $labels.symbol }} ({{ $labels.network }}) is late"
-          description: "The 24h-heartbeat leg has not been pushed on time; the market fails closed when the leg goes stale. Check the RedStone push before the 26h budget ends."
+          summary: "Daily oracle update for {{ $labels.symbol }} ({{ $labels.network }}) is late"
+          description: "The 24h-heartbeat leg has not updated on time; the market fails closed when the leg goes stale. Check the provider or feeder before the 26h budget ends."
 
       # Pool value = LP price x share supply. Under 1.0x the LP price is rejected.
       - alert: LendingLpPoolValueNearFloor

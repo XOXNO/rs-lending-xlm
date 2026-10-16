@@ -134,6 +134,8 @@ pub async fn scrape_once(
             }
         }
 
+        let oracle_labels = [net, market.asset_strkey.as_str(), market.symbol.as_str()];
+        metrics.remove_oracle_config_and_freshness(&oracle_labels);
         if let Some(agg_id) = &aggregator_id {
             publish_oracle_config_and_freshness(
                 client,
@@ -724,11 +726,12 @@ async fn publish_oracle_config_and_freshness(
 
     let mut worst: Option<(f64, u64, u64)> = None;
     for source in &config.sources {
-        if let Some(feed_ts) = read_feed_timestamp(client, metrics, net, market, source).await {
-            let sut = model::seconds_until_stale(now_secs, feed_ts, source.max_stale_seconds);
-            if worst.map(|(w, _, _)| sut < w).unwrap_or(true) {
-                worst = Some((sut, feed_ts, source.max_stale_seconds));
-            }
+        let Some(feed_ts) = read_feed_timestamp(client, metrics, net, market, source).await else {
+            return;
+        };
+        let sut = model::seconds_until_stale(now_secs, feed_ts, source.max_stale_seconds);
+        if worst.map(|(w, _, _)| sut < w).unwrap_or(true) {
+            worst = Some((sut, feed_ts, source.max_stale_seconds));
         }
     }
     if let Some((sut, feed_ts, effective_max)) = worst {
@@ -805,9 +808,13 @@ async fn read_oracle_config(
     let LedgerEntryData::ContractData(cd) = value else {
         return None;
     };
-    oracle::decode_oracle_config(&cd.val)
-        .map_err(|e| debug!(target: "exporter.collector", asset = %market.asset_strkey, error = %e, "decode oracle config failed"))
-        .ok()
+    decode_or_count(
+        metrics,
+        net,
+        "oracle_config",
+        &market.asset_strkey,
+        oracle::decode_oracle_config(&cd.val),
+    )
 }
 
 async fn read_feed_timestamp(
@@ -833,10 +840,15 @@ async fn read_feed_timestamp(
                 vec![arg],
             )
             .await?;
-            oracle::decode_reflector_price(&scv)
-                .ok()
-                .flatten()
-                .map(|o| o.feed_ts_secs)
+            decode_or_count(
+                metrics,
+                net,
+                "lastprice",
+                &market.asset_strkey,
+                oracle::decode_reflector_price(&scv),
+            )
+            .flatten()
+            .map(|o| o.feed_ts_secs)
         }
         oracle::OracleKind::RedStone | oracle::OracleKind::Xoxno => {
             let feed = source.feed_id.as_ref()?;
@@ -852,9 +864,56 @@ async fn read_feed_timestamp(
                 vec![arg],
             )
             .await?;
-            oracle::decode_redstone_price(&scv)
-                .ok()
-                .map(|o| o.feed_ts_secs)
+            decode_or_count(
+                metrics,
+                net,
+                "read_price_data_for_feed",
+                &market.asset_strkey,
+                oracle::decode_redstone_price(&scv),
+            )
+            .map(|o| o.feed_ts_secs)
+        }
+        oracle::OracleKind::Chainlink => {
+            let data_id = source.data_id.clone()?;
+            let scv = read_view(
+                client,
+                metrics,
+                net,
+                "latest_round",
+                &market.asset_strkey,
+                &contract,
+                "latest_round",
+                vec![data_id, ScVal::U32(source.decimals)],
+            )
+            .await?;
+            decode_or_count(
+                metrics,
+                net,
+                "latest_round",
+                &market.asset_strkey,
+                oracle::decode_chainlink_round(&scv),
+            )
+            .map(|o| o.feed_ts_secs)
+        }
+    }
+}
+
+fn decode_or_count<T>(
+    metrics: &Metrics,
+    net: &str,
+    view: &str,
+    asset: &str,
+    result: Result<T>,
+) -> Option<T> {
+    match result {
+        Ok(value) => Some(value),
+        Err(error) => {
+            metrics
+                .view_failures
+                .with_label_values(&[net, view, asset, "decode"])
+                .inc();
+            debug!(target: "exporter.collector", view, asset, error = %error, "decode view result failed");
+            None
         }
     }
 }
@@ -1179,6 +1238,27 @@ mod tests {
         assert_eq!(bucket_error_code("HostError: Error(Contract, #210)"), "210");
         assert_eq!(bucket_error_code("no code here"), "unknown");
         assert_eq!(bucket_error_code("#30 trailing"), "30");
+    }
+
+    #[test]
+    fn decode_failures_are_counted() {
+        let metrics = Metrics::new().unwrap();
+        let decoded: Option<()> = decode_or_count(
+            &metrics,
+            "testnet",
+            "latest_round",
+            "CASSET",
+            Err(anyhow!("malformed round")),
+        );
+
+        assert!(decoded.is_none());
+        assert_eq!(
+            metrics
+                .view_failures
+                .with_label_values(&["testnet", "latest_round", "CASSET", "decode"])
+                .get(),
+            1
+        );
     }
 }
 

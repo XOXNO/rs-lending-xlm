@@ -41,6 +41,15 @@ for role in $roles; do
         *) echo "FAIL: grantGovRole usage omits role $role" >&2; fail=1 ;;
     esac
 done
+
+upgrade_all=$(awk -F: '$1 == "upgrade-all" {print; exit}' "$ROOT/Makefile")
+case "$upgrade_all" in
+    *upgrade-price-aggregator*upgrade-governance*) ;;
+    *) echo "FAIL: upgrade-all must upgrade price-aggregator before governance" >&2; fail=1 ;;
+esac
+grep -q '^\.NOTPARALLEL: upgrade-all$' "$ROOT/Makefile" \
+    || { echo "FAIL: upgrade-all must stay sequential under make -j" >&2; fail=1; }
+
 # Exercise referral-claim dispatch without a signer or network connection.
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT

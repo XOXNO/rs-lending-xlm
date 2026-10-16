@@ -2,7 +2,7 @@
 //! assembled from one or two underlying sources (direct feeds, factor-scaled feeds, or Aquarius
 //! LP token valuations), with independence and sanity-bound checks applied across sources.
 
-use soroban_sdk::{contracttype, Address, String, Symbol, Vec};
+use soroban_sdk::{contracttype, Address, BytesN, String, Symbol, Vec};
 
 use super::oracle::{OracleAssetRef, OracleReadMode, OracleTolerance};
 
@@ -35,6 +35,14 @@ pub struct ReflectorFeedRef {
     pub read_mode: OracleReadMode,
 }
 
+/// References a feed served by Chainlink's network-wide Stellar proxy.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ChainlinkFeedRef {
+    pub contract: Address,
+    pub data_id: BytesN<32>,
+}
+
 /// Classifies a feed as tracking a live market price or a slower-moving fundamental value.
 #[contracttype]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -61,6 +69,7 @@ pub enum ProviderRef {
     Reflector(ReflectorFeedRef),
     RedStone(MultiFeedRef),
     Xoxno(MultiFeedRef),
+    Chainlink(ChainlinkFeedRef),
 }
 
 impl ProviderRef {
@@ -69,26 +78,28 @@ impl ProviderRef {
         match self {
             ProviderRef::Reflector(r) => &r.contract,
             ProviderRef::RedStone(r) | ProviderRef::Xoxno(r) => &r.contract,
+            ProviderRef::Chainlink(r) => &r.contract,
         }
     }
 
     /// Returns true if the reference uses multi-observation (non-spot) sampling
     /// rather than a spot price. Reflector references are smoothed when their
     /// read mode is `Twap` (equal-weight mean of records); RedStone and Xoxno
-    /// references are never smoothed.
+    /// and Chainlink references are never smoothed.
     fn is_smoothed(&self) -> bool {
         match self {
             ProviderRef::Reflector(r) => matches!(r.read_mode, OracleReadMode::Twap(_)),
-            ProviderRef::RedStone(_) | ProviderRef::Xoxno(_) => false,
+            ProviderRef::RedStone(_) | ProviderRef::Xoxno(_) | ProviderRef::Chainlink(_) => false,
         }
     }
 
-    /// Returns the feed's nature. Reflector references are always `Market`; RedStone and
-    /// Xoxno references carry an explicit `FeedNature`.
+    /// Returns the feed's nature. Reflector and Chainlink references are always
+    /// `Market`; RedStone and Xoxno references carry an explicit `FeedNature`.
     pub fn nature(&self) -> FeedNature {
         match self {
             ProviderRef::Reflector(_) => FeedNature::Market,
             ProviderRef::RedStone(r) | ProviderRef::Xoxno(r) => r.nature,
+            ProviderRef::Chainlink(_) => FeedNature::Market,
         }
     }
 

@@ -3,15 +3,15 @@ extern crate std;
 use crate::op::{
     AdminOperation, ConfigureAssetOracleArgs, EditToleranceArgs, RoleArgs, SpokeAssetArgs,
 };
-use common::constants::MAX_REASONABLE_PRICE_WAD;
+use common::constants::{MAX_REASONABLE_PRICE_WAD, WAD};
 use common::types::{
-    AssetOracle, ControllerKey, FeedSource, HubAssetKey, IndependencePolicy, OracleAssetRef,
-    OracleReadMode, OracleTolerance, PositionLimits, PriceKey, PriceSource, ProviderRef,
-    ReflectorFeedRef,
+    AssetOracle, ChainlinkFeedRef, ControllerKey, FeedNature, FeedSource, HubAssetKey,
+    IndependencePolicy, MultiFeedRef, OracleAssetRef, OracleReadMode, OracleTolerance,
+    PositionLimits, PriceKey, PriceSource, ProviderRef, ReflectorFeedRef,
 };
 use soroban_sdk::testutils::storage::Instance as _;
 use soroban_sdk::testutils::{Address as _, Ledger as _, MockAuth, MockAuthInvoke};
-use soroban_sdk::{vec, Address, BytesN, Env, IntoVal, Symbol};
+use soroban_sdk::{vec, Address, BytesN, Env, IntoVal, String, Symbol};
 use stellar_access::ownable;
 
 use crate::access::EXECUTOR_ROLE;
@@ -50,6 +50,40 @@ fn sample_asset_oracle(env: &Env) -> AssetOracle {
         independence: IndependencePolicy::RequireDisjoint,
         min_sanity_price_wad: 1,
         max_sanity_price_wad: MAX_REASONABLE_PRICE_WAD,
+    }
+}
+
+fn sample_chainlink_oracle(env: &Env) -> AssetOracle {
+    AssetOracle {
+        asset_decimals: 7,
+        max_price_stale_seconds: 93_600,
+        sources: soroban_sdk::vec![
+            env,
+            PriceSource::Feed(FeedSource {
+                provider: ProviderRef::Chainlink(ChainlinkFeedRef {
+                    contract: Address::generate(env),
+                    data_id: BytesN::from_array(env, &[7; 32]),
+                }),
+                decimals: 18,
+                max_stale_seconds: 93_600,
+            }),
+            PriceSource::Feed(FeedSource {
+                provider: ProviderRef::RedStone(MultiFeedRef {
+                    contract: Address::generate(env),
+                    feed_id: String::from_str(env, "USDT0"),
+                    nature: FeedNature::Fundamental,
+                }),
+                decimals: 8,
+                max_stale_seconds: 57_600,
+            })
+        ],
+        tolerance: OracleTolerance {
+            upper_ratio_bps: 10_500,
+            lower_ratio_bps: 9_524,
+        },
+        independence: IndependencePolicy::RequireDisjoint,
+        min_sanity_price_wad: WAD * 95 / 100,
+        max_sanity_price_wad: WAD * 105 / 100,
     }
 }
 
@@ -259,6 +293,35 @@ fn configure_market_oracle_requires_oracle_role() {
             oracle: sample_asset_oracle(&env),
         }),
     );
+}
+
+#[test]
+fn configure_market_oracle_forwards_chainlink_provider() {
+    let env = Env::default();
+    env.cost_estimate().budget().reset_unlimited();
+    env.cost_estimate().disable_resource_limits();
+    env.mock_all_auths();
+    let (admin, gov_id, gov) = register_governance(&env);
+    let aggregator_id = env.register(price_aggregator::PriceAggregator, (gov_id,));
+    gov.set_price_aggregator(&aggregator_id);
+    let asset = env
+        .register_stellar_asset_contract_v2(admin.clone())
+        .address();
+    let key = PriceKey::Token(asset);
+    let oracle = sample_chainlink_oracle(&env);
+
+    gov.execute_immediate(
+        &admin,
+        &AdminOperation::ConfigureAssetOracle(ConfigureAssetOracleArgs {
+            key: key.clone(),
+            oracle: oracle.clone(),
+        }),
+    );
+
+    let stored = price_aggregator::PriceAggregatorClient::new(&env, &aggregator_id)
+        .oracle(&key)
+        .expect("oracle");
+    assert_eq!(stored, oracle);
 }
 
 #[test]

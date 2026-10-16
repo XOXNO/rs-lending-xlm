@@ -137,14 +137,14 @@ def fixture_price(root, key):
         return (2 * n + d) // (2 * d)
     def feed(spec):
         kind, provider = next(iter(spec['provider'].items()))
-        identity = provider.get('feed_id', provider.get('asset'))
+        identity = provider.get('feed_id', provider.get('data_id', provider.get('asset')))
         if isinstance(identity, dict) and 'Symbol' in identity:
             identity = {'Other': identity['Symbol']}
         seeds = [seed for seed in fixtures['seeds'] if seed['kind'] == kind
                  and seed['contract'] == provider['contract']
-                 and seed.get('feed', seed.get('asset')) == identity]
+                 and seed.get('feed', seed.get('data_id', seed.get('asset'))) == identity]
         assert seeds, 'missing provider seed'
-        unit = 10**4 if kind == 'Reflector' else 10**10
+        unit = 10**4 if kind == 'Reflector' else (1 if kind == 'Chainlink' else 10**10)
         return int(seeds[-1]['price']) // unit * unit
     def resolve(price_key, stack=()):
         k = json.dumps(price_key, sort_keys=True)
@@ -187,7 +187,7 @@ def fixture_price(root, key):
     return resolve(key)
 
 
-CALLER_MARKETS = ('XLM', 'USDC', 'SolvBTC', 'XAUM', 'USST', 'AQUA', 'XAUMUSDC_LP')
+CALLER_MARKETS = ('XLM', 'USDC', 'USDT0', 'SolvBTC', 'XAUM', 'USST', 'AQUA', 'XAUMUSDC_LP')
 
 
 def restrict_markets(markets, only):
@@ -227,7 +227,7 @@ def plan(root, only=None):
     for m in enabled:
         definitions[m['asset_address']] = dict(kind='token', decimals=m['oracle']['asset_decimals'], name=m['name'])
     for node in walk([enabled, markets.get('references', [])]):
-        for kind in ('Reflector', 'RedStone', 'Xoxno'):
+        for kind in ('Reflector', 'RedStone', 'Xoxno', 'Chainlink'):
             if kind in node:
                 definitions[node[kind]['contract']] = dict(kind=kind)
         for kind in ('AquariusLp', 'AquariusStableLp'):
@@ -277,6 +277,11 @@ def materialize(source, output, mapping, network, only=None):
             kind='RedStone' if 'RedStone' in provider else 'Xoxno'
             p = provider[kind]
             seeds.append(dict(kind=kind, contract=mapping[p['contract']], feed=p['feed_id'], price=str(price)))
+        elif 'Chainlink' in provider:
+            p = provider['Chainlink']
+            seeds.append(dict(
+                kind='Chainlink', contract=mapping[p['contract']], data_id=p['data_id'],
+                price=str(price)))
         else:
             raise ValueError(f'provider fixture unsupported: {provider}')
     for entry in original.get('references', []) + original['markets']:

@@ -9220,6 +9220,7 @@
       "register_feed",
       "set_base",
       "set_price",
+      "set_chainlink_price",
       "submit_price"
     ],
     "execution": "assertion",
@@ -9263,6 +9264,15 @@
       {
         "label": "prod_redstone_seed",
         "method": "set_price",
+        "status": "ok",
+        "count": 1,
+        "execution": [
+          "transaction"
+        ]
+      },
+      {
+        "label": "prod_chainlink_seed",
+        "method": "set_chainlink_price",
         "status": "ok",
         "count": 1,
         "execution": [

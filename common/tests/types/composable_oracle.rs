@@ -1,5 +1,5 @@
 use super::*;
-use soroban_sdk::{testutils::Address as _, Env, String, Symbol};
+use soroban_sdk::{testutils::Address as _, BytesN, Env, String, Symbol};
 
 fn multi_feed(env: &Env, contract: &Address, xoxno: bool) -> FeedSource {
     let feed = MultiFeedRef {
@@ -51,6 +51,20 @@ fn reflector_spot_is_unsmoothed_market_leg() {
         asset: OracleAssetRef::Symbol(Symbol::new(&env, "BTC")),
         read_mode: OracleReadMode::Spot,
     });
+    assert!(!provider.is_smoothed());
+    assert!(provider.is_unsmoothed_market_leg());
+}
+
+#[test]
+fn chainlink_is_an_unsmoothed_market_leg() {
+    let env = Env::default();
+    let contract = Address::generate(&env);
+    let provider = ProviderRef::Chainlink(ChainlinkFeedRef {
+        contract: contract.clone(),
+        data_id: BytesN::from_array(&env, &[7; 32]),
+    });
+    assert_eq!(provider.contract(), &contract);
+    assert_eq!(provider.nature(), FeedNature::Market);
     assert!(!provider.is_smoothed());
     assert!(provider.is_unsmoothed_market_leg());
 }

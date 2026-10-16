@@ -285,23 +285,18 @@
       "asset_address": "CBSJZEIO5C7KC2SF3MKSNXXJSW5G3VTNBX4ATMKUI3B2MR4JKM4R26YF",
       "oracle": {
         "asset_decimals": 7,
-        "max_price_stale_seconds": 57600,
+        "max_price_stale_seconds": 93600,
         "sources": [
           {
             "Feed": {
               "provider": {
-                "Reflector": {
-                  "contract": "CAFJZQWSED6YAWZU3GWRTOCNPPCGBN32L7QV43XX5LZLFTK6JLN34DLN",
-                  "asset": {
-                    "Symbol": "USDT"
-                  },
-                  "read_mode": {
-                    "Twap": 3
-                  }
+                "Chainlink": {
+                  "contract": "CDQBHEUGLDHMSUHG4IH33RJBUTMNCZOT4JIAQR4WZFRDZW6DR6S32ZLZ",
+                  "data_id": "016d06ebb6000332000000000000000000000000000000000000000000000000"
                 }
               },
-              "decimals": 14,
-              "max_stale_seconds": 3600
+              "decimals": 18,
+              "max_stale_seconds": 93600
             }
           },
           {

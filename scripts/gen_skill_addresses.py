@@ -42,6 +42,7 @@ CONTRACT_ROWS = (
     ("aggregator", "Swap aggregator router (`execute_strategy`)"),
     ("xoxno_oracle_adapter", "XOXNO oracle adapter"),
     ("redstone_adapter_contract", "RedStone adapter (external)"),
+    ("chainlink_data_feeds_proxy", "Chainlink Data Feeds proxy (external)"),
     ("reflector_cex_oracle", "Reflector CEX oracle (external)"),
     ("reflector_dex_oracle", "Reflector DEX oracle (external)"),
     ("reflector_fx_oracle", "Reflector FX oracle (external)"),

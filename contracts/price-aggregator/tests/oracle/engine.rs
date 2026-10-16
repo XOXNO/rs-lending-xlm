@@ -8,12 +8,13 @@ use crate::test_support::{
 use common::constants::WAD;
 use common::oracle::observation::MAX_LEG_AGE_SPREAD_SECONDS;
 use common::types::{
-    AquariusLpSource, AssetOracle, FeedNature, FeedSource, IndependencePolicy, MultiFeedRef,
-    OracleAssetRef, OracleReadMode, OracleTolerance, ProviderRef, ReflectorFeedRef, ScaledSource,
+    AquariusLpSource, AssetOracle, ChainlinkFeedRef, FeedNature, FeedSource, IndependencePolicy,
+    MultiFeedRef, OracleAssetRef, OracleReadMode, OracleTolerance, ProviderRef, ReflectorFeedRef,
+    ScaledSource,
 };
 use mock_redstone::MockRedStonePriceFeedClient;
 use soroban_sdk::testutils::{Address as _, Ledger as _};
-use soroban_sdk::{Address, String, Symbol, Vec};
+use soroban_sdk::{Address, BytesN, String, Symbol, Vec};
 
 const NOW: u64 = 1_000_000;
 const ASSET_CEILING: u64 = 3_600;
@@ -43,6 +44,53 @@ fn nature_feed(
         decimals: 8,
         max_stale_seconds: max_stale,
     }
+}
+
+fn chainlink_feed(env: &Env, proxy: &Address, max_stale: u64) -> FeedSource {
+    FeedSource {
+        provider: ProviderRef::Chainlink(ChainlinkFeedRef {
+            contract: proxy.clone(),
+            data_id: BytesN::from_array(env, &[9; 32]),
+        }),
+        decimals: 18,
+        max_stale_seconds: max_stale,
+    }
+}
+
+#[test]
+fn test_chainlink_market_leg_blends_with_redstone_fundamental_leg() {
+    let env = Env::default();
+    at_now(&env);
+    let (proxy, chainlink) = register_redstone_feed(&env);
+    let (redstone, redstone_client) = register_redstone_feed(&env);
+    chainlink.set_chainlink_price(&BytesN::from_array(&env, &[9; 32]), &WAD);
+    publish(&redstone_client, &env, "USDT0", WAD, 0);
+
+    let key = PriceKey::Token(Address::generate(&env));
+    let chainlink = PriceSource::Feed(chainlink_feed(&env, &proxy, 93_600));
+    let redstone = PriceSource::Feed(nature_feed(
+        &env,
+        &redstone,
+        "USDT0",
+        57_600,
+        FeedNature::Fundamental,
+    ));
+    let price = in_contract(&env, || {
+        registry::store_oracle(
+            &env,
+            &key,
+            &oracle(
+                &env,
+                sources(&env, &[chainlink, redstone]),
+                93_600,
+                WAD * 95 / 100,
+                WAD * 105 / 100,
+            ),
+        );
+        resolve(&mut Session::new(&env), &key, 0)
+    });
+    assert_eq!(price.price_wad, WAD);
+    assert_eq!(price.timestamp, NOW);
 }
 
 /// Mainnet's shape: a fast market leg blended with a slow fundamental leg whose

@@ -13,6 +13,27 @@ from production_config import CALLER_MARKETS, decimal_cases, fixture_price, full
 
 
 class ProductionPolicyChecks(unittest.TestCase):
+    def test_mainnet_usdt0_uses_chainlink_and_redstone(self):
+        config = Path(__file__).resolve().parents[2] / 'configs'
+        markets = load(config / 'mainnet', 'markets.json')
+        networks = json.loads((config / 'networks.json').read_text())
+        self.assertEqual(
+            networks['mainnet']['chainlink_data_feeds_proxy'],
+            'CDQBHEUGLDHMSUHG4IH33RJBUTMNCZOT4JIAQR4WZFRDZW6DR6S32ZLZ',
+        )
+        usdt0 = next(m for m in markets['markets'] if m['name'] == 'USDT0')
+        feeds = [source['Feed'] for source in usdt0['oracle']['sources']]
+        providers = {next(iter(feed['provider'])): feed for feed in feeds}
+
+        self.assertEqual(set(providers), {'Chainlink', 'RedStone'})
+        chainlink = providers['Chainlink']
+        self.assertEqual(chainlink['provider']['Chainlink'], {
+            'contract': networks['mainnet']['chainlink_data_feeds_proxy'],
+            'data_id': '016d06ebb6000332000000000000000000000000000000000000000000000000',
+        })
+        self.assertEqual((chainlink['decimals'], chainlink['max_stale_seconds']), (18, 93_600))
+        self.assertEqual(providers['RedStone']['provider']['RedStone']['nature'], 'Fundamental')
+
     def test_operator_refreshes_expired_fixture_twap_after_setup(self):
         script = Path(__file__).resolve().parent / 'flows/production.sh'
         seeds = [dict(kind='Reflector', contract='R', asset={'Other': 'XLM'}, price='525000000000000000'),
@@ -133,7 +154,7 @@ flow_production_operator
         source = Path(__file__).resolve().parents[2] / 'configs' / 'mainnet'
         complete, filtered = plan(source), plan(source, CALLER_MARKETS)
         self.assertLessEqual(set(filtered), set(complete))
-        self.assertLessEqual({'Reflector', 'RedStone', 'Xoxno', 'token', 'pool'}, {d['kind'] for d in filtered.values()})
+        self.assertLessEqual({'Reflector', 'RedStone', 'Xoxno', 'Chainlink', 'token', 'pool'}, {d['kind'] for d in filtered.values()})
         self.assertLessEqual(len(complete) + 1, 99)
         mapping = {address: f'fixture-{i}' for i, address in enumerate(complete)}
         with tempfile.TemporaryDirectory() as directory:

@@ -364,6 +364,133 @@ env RESOLVED=0 STORED=0 POOL_1=0 bash -c 'source "$1"; configure_market_oracle A
 [ "$(cat "$tmp/oracle-schedules")" = '{"Token":"CASSET"}' ] || fail 'configure_market_oracle scheduled the wrong key'
 echo 'listed token decimals: OK'
 
+# A Chainlink proposal proves that the configured deployment serves the exact
+# feed selector and precision before governance receives the operation.
+chainlink_id=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+cat > "$tmp/chainlink-preflight.sh" <<EOF
+NETWORK=mainnet SOURCE_FLAG=
+get_chainlink_proxy() { [ "\${NO_PROXY_LOOKUP:-}" != 1 ] || return 1; echo CPROXY; }
+die() { echo "ERROR: \$*" >&2; exit 1; }
+invoke_view() {
+    printf '%s\n' "\$*" >> '$tmp/chainlink-calls'
+    [ "\${ROUND_MODE:-ok}" != rpc ] || return 1
+    case "\${ROUND_MODE:-ok}" in
+        malformed) echo '{}' ;;
+        zero) echo '{"answer":"0","round_id":1,"timestamp":1}' ;;
+        stale) echo '{"answer":"1","round_id":1,"timestamp":1}' ;;
+        future) printf '{"answer":"1","round_id":1,"timestamp":%s}\n' "\$(( \$(date +%s) + 61 ))" ;;
+        wrong_type) echo '{"answer":{},"round_id":"1","timestamp":"1"}' ;;
+        *) printf '{"answer":"1000000000000000000","round_id":1,"timestamp":%s}\n' "\$(date +%s)" ;;
+    esac
+}
+$(extract preflight_chainlink_sources)
+EOF
+direct_chainlink=$(jq -nc --arg id "$chainlink_id" '{sources:[{Feed:{provider:{Chainlink:{contract:"CPROXY",data_id:$id}},decimals:18,max_stale_seconds:93600}}]}')
+scaled_chainlink=$(jq -nc --arg id "$chainlink_id" '{sources:[{Scaled:{factor:{provider:{Chainlink:{contract:"CPROXY",data_id:$id}},decimals:18,max_stale_seconds:93600},quote:{Ref:"USD"},min_factor_wad:"1",max_factor_wad:"2"}}]}')
+lp_chainlink=$(printf '%s' "$direct_chainlink" | jq -c '.sources = [{AquariusLp:{pool:"CPOOL",min_pool_value_wad:"1"}}] + .sources')
+redstone_only='{"sources":[{"Feed":{"provider":{"RedStone":{"contract":"CR","feed_id":"USDT0","nature":"Fundamental"}},"decimals":8,"max_stale_seconds":57600}}]}'
+preflight_chainlink() {
+    rm -f "$tmp/chainlink-calls"
+    env "${@:2}" bash -c 'source "$1"; preflight_chainlink_sources test "$2"' _ "$tmp/chainlink-preflight.sh" "$1"
+}
+preflight_chainlink "$redstone_only" NO_PROXY_LOOKUP=1 \
+    || fail 'a non-Chainlink oracle depended on the Chainlink deployment'
+[ ! -e "$tmp/chainlink-calls" ] || fail 'a non-Chainlink oracle called the Chainlink proxy'
+preflight_chainlink "$direct_chainlink" || fail 'a valid direct Chainlink source failed preflight'
+[ "$(cat "$tmp/chainlink-calls")" = "CPROXY latest_round --data_id $chainlink_id --decimals 18" ] \
+    || fail "direct Chainlink preflight used the wrong call: $(cat "$tmp/chainlink-calls")"
+preflight_chainlink "$scaled_chainlink" || fail 'a valid scaled Chainlink factor failed preflight'
+[ "$(cat "$tmp/chainlink-calls")" = "CPROXY latest_round --data_id $chainlink_id --decimals 18" ] \
+    || fail "scaled Chainlink preflight used the wrong call: $(cat "$tmp/chainlink-calls")"
+preflight_chainlink "$lp_chainlink" || fail 'an LP leg hid a later Chainlink source from preflight'
+[ "$(cat "$tmp/chainlink-calls")" = "CPROXY latest_round --data_id $chainlink_id --decimals 18" ] \
+    || fail 'mixed LP and Chainlink preflight used the wrong call'
+for bad in \
+    "$(printf '%s' "$direct_chainlink" | jq -c '.sources[0].Feed.provider.Chainlink.contract="CWRONG"')" \
+    "$(printf '%s' "$direct_chainlink" | jq -c '.sources[0].Feed.provider.Chainlink.data_id="abcd"')" \
+    "$(printf '%s' "$direct_chainlink" | jq -c '.sources[0].Feed.decimals=8')"; do
+    if preflight_chainlink "$bad" >/dev/null 2>&1; then fail 'malformed Chainlink source passed preflight'; fi
+done
+for mode in malformed zero stale future wrong_type; do
+    if preflight_chainlink "$direct_chainlink" ROUND_MODE="$mode" >/dev/null 2>&1; then
+        fail "$mode Chainlink round passed preflight"
+    fi
+done
+if preflight_chainlink "$direct_chainlink" ROUND_MODE=rpc >/dev/null 2>&1; then
+    fail 'unreadable Chainlink round passed preflight'
+fi
+
+# A queued oracle operation repeats the provider preflight immediately before
+# submission, including operations reused after their timelock expires.
+cat > "$tmp/chainlink-execute.sh" <<EOF
+set -e
+SOURCE_FLAG= NETWORK=testnet
+op_record_path() { echo '$tmp/chainlink-op.json'; }
+get_governance() { echo CGOV; }
+resolve_oracle_op_args() { echo '[]'; }
+preflight_chainlink_sources() {
+    echo preflight >> '$tmp/chainlink-execute-log'
+    [ "\${PREFLIGHT_FAIL:-}" != 1 ]
+}
+retry_tx() { echo execute >> '$tmp/chainlink-execute-log'; }
+mark_op_executed() { echo marked >> '$tmp/chainlink-execute-log'; }
+$(extract execute_op)
+EOF
+jq -nc --argjson oracle "$direct_chainlink" '{
+    cli_executable:true, kind:"price_aggregator", target:"CAGG", function:"set_oracle",
+    predecessor:"00", salt:"00",
+    resolve:{view_fn:"resolve_asset_oracle", args:{key:{Token:"C"}, oracle:$oracle}}
+}' > "$tmp/chainlink-op.json"
+rm -f "$tmp/chainlink-execute-log"
+bash -c 'source "$1"; execute_op test' _ "$tmp/chainlink-execute.sh" >/dev/null \
+    || fail 'queued Chainlink execution failed after a successful preflight'
+[ "$(tr '\n' ' ' < "$tmp/chainlink-execute-log")" = 'preflight execute marked ' ] \
+    || fail "queued Chainlink execution order is wrong: $(cat "$tmp/chainlink-execute-log")"
+rm -f "$tmp/chainlink-execute-log"
+if PREFLIGHT_FAIL=1 bash -c 'source "$1"; execute_op test' _ "$tmp/chainlink-execute.sh" >/dev/null 2>&1; then
+    fail 'queued Chainlink execution continued after a failed preflight'
+fi
+[ "$(cat "$tmp/chainlink-execute-log")" = preflight ] \
+    || fail 'failed execution preflight submitted or marked the operation'
+
+cat > "$tmp/chainlink-schedule.sh" <<EOF
+NETWORK=testnet
+get_governance() { echo CGOV; }
+get_signer_address() { echo GADMIN; }
+get_price_aggregator() { echo CAGG; }
+gen_salt() { echo salt; }
+resolve_oracle_args_for() { printf '%s' "\${RESOLVED_ARGS:-}"; }
+probe_salt_generations() { echo 'salt op Unset 0'; }
+preflight_chainlink_sources() { echo preflight >> '$tmp/chainlink-schedule-log'; }
+retry_tx() { echo proposed >> '$tmp/chainlink-schedule-log'; echo op; }
+parse_op_id() { echo op; }
+write_oracle_op_record() { :; }
+schedule_and_maybe_execute() { [ "\$1" = op ]; }
+die() { echo "ERROR: \$*" >&2; exit 1; }
+$(extract schedule_configure_asset_oracle)
+EOF
+rm -f "$tmp/chainlink-schedule-log"
+if bash -c 'source "$1"; schedule_configure_asset_oracle test "{\"Token\":\"C\"}" "$2"' \
+    _ "$tmp/chainlink-schedule.sh" "$direct_chainlink" >/dev/null 2>&1; then
+    fail 'Chainlink scheduling accepted incompatible deployed ABIs'
+fi
+[ ! -e "$tmp/chainlink-schedule-log" ] || fail 'an incompatible Chainlink ABI reached preflight or proposal'
+if bash -c 'source "$1"; schedule_configure_asset_oracle test "{\"Token\":\"C\"}" "$2"' \
+    _ "$tmp/chainlink-schedule.sh" "$lp_chainlink" >/dev/null 2>&1; then
+    fail 'an LP leg hid Chainlink from the deployed-ABI gate'
+fi
+RESOLVED_ARGS='[]' bash -c 'source "$1"; schedule_configure_asset_oracle test "{\"Token\":\"C\"}" "$2"' \
+    _ "$tmp/chainlink-schedule.sh" "$direct_chainlink" >/dev/null \
+    || fail 'compatible Chainlink ABIs did not reach proposal'
+[ "$(tr '\n' ' ' < "$tmp/chainlink-schedule-log")" = 'preflight proposed ' ] \
+    || fail "Chainlink scheduling order is wrong: $(cat "$tmp/chainlink-schedule-log")"
+rm -f "$tmp/chainlink-schedule-log"
+bash -c 'source "$1"; schedule_configure_asset_oracle test "{\"Token\":\"C\"}" "$2"' \
+    _ "$tmp/chainlink-schedule.sh" "$redstone_only" >/dev/null \
+    || fail 'non-Chainlink scheduling lost its compatibility fallback'
+grep -q '^proposed$' "$tmp/chainlink-schedule-log" || fail 'non-Chainlink config was not proposed'
+echo 'Chainlink proposal preflight: OK'
+
 # Explicit hub listings need one qualified read, never the discarded spoke read.
 cat > "$tmp/listing-spokes.json" <<'JSON'
 {"5":{"assets":{"XLM":{"hub_id":1,"can_be_collateral":true,"can_be_borrowed":true,"ltv":1,"liquidation_threshold":2,"liquidation_bonus":3,"liquidation_fees":4}}}}

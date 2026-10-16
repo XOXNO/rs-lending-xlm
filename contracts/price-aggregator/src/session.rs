@@ -210,12 +210,12 @@ fn collect_key(
 
 /// Records the feed id referenced by `provider` under its adapter contract
 /// in `by_adapter`, deduplicating against feeds already recorded for that
-/// adapter. Reflector providers are not bulk-fetchable and are skipped.
+/// adapter. Chainlink and Reflector providers are not bulk-fetchable and are skipped.
 #[cfg(not(feature = "certora"))]
 fn collect_provider(env: &Env, by_adapter: &mut Map<Address, Vec<String>>, provider: &ProviderRef) {
     let multi_feed = match provider {
         ProviderRef::RedStone(feed) | ProviderRef::Xoxno(feed) => feed,
-        ProviderRef::Reflector(_) => return,
+        ProviderRef::Chainlink(_) | ProviderRef::Reflector(_) => return,
     };
     let mut feeds = by_adapter
         .get(multi_feed.contract.clone())

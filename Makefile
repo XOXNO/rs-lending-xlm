@@ -1405,7 +1405,8 @@ upgrade-pool: _preflight-controller _preflight-governance $(CORE_WASM)
 		$(CONFIG_DIR)/networks.json > $$TMP_JSON && mv $$TMP_JSON $(CONFIG_DIR)/networks.json
 
 
-upgrade-all: upgrade-pool upgrade-governance upgrade-controller _unpause-after-setup _post-setup-status
+.NOTPARALLEL: upgrade-all
+upgrade-all: upgrade-pool upgrade-price-aggregator upgrade-governance upgrade-controller _unpause-after-setup _post-setup-status
 
 
 
@@ -1951,7 +1952,7 @@ POSITIONAL_ACCOUNT_ACTIONS := getHealth getAccount getCollateralUsd getBorrowUsd
                               getLtvUsd getLiqAvailable canLiquidate
 POSITIONAL_ACCOUNT_MARKET_ACTIONS := getCollateral getBorrow maxWithdraw maxSupply maxBorrow
 POSITIONAL_ACCOUNT_ROLE_ACTIONS := hasRole grantGovRole revokeGovRole
-REFLECTOR_PROBE_ACTIONS := queryReflector queryReflectorPrice queryReflectorTwap queryRedStone
+ORACLE_PROBE_ACTIONS := queryReflector queryReflectorPrice queryReflectorTwap queryRedStone queryChainlink
 VARARG_ACTIONS := updateIndexes claimRevenue supply borrow withdraw getLiquidationEstimate \
 	claimAggregatorAdminFees claimAggregatorReferralFees sweepAggregatorBalance tightenAssetFlags relaxAssetFlags
 
@@ -1964,7 +1965,7 @@ MAKEFILE_ACTIONS := deploy upgradeController upgradeGovernance upgradePool upgra
 ALL_ACTIONS := $(SIMPLE_ACTIONS) $(POSITIONAL_MARKET_ACTIONS) $(POSITIONAL_ID_ACTIONS) \
                $(POSITIONAL_ID_ASSET_ACTIONS) $(POSITIONAL_ACCOUNT_ACTIONS) \
                $(POSITIONAL_ACCOUNT_MARKET_ACTIONS) $(POSITIONAL_ACCOUNT_ROLE_ACTIONS) \
-               $(REFLECTOR_PROBE_ACTIONS) $(VARARG_ACTIONS) $(MAKEFILE_ACTIONS)
+               $(ORACLE_PROBE_ACTIONS) $(VARARG_ACTIONS) $(MAKEFILE_ACTIONS)
 
 .PHONY: $(ALL_ACTIONS)
 
@@ -2138,7 +2139,7 @@ help:
 	$(call ROW,make help-deploy,setup | upgrades | mainnet env | flash receiver)
 	$(call ROW,make help-ops,governance | markets | spokes | positions | control)
 	$(call ROW,make help-views,read-only probes (controller + pool))
-	$(call ROW,make help-oracle,adapter | feeds | Reflector | RedStone)
+	$(call ROW,make help-oracle,adapter | feeds | Reflector | RedStone | Chainlink)
 	$(call ROW,make help-aggregator,swap aggregator admin + ownership)
 	$(call ROW,make help-all,print every topic (grep-friendly))
 	$(call BLANK)
@@ -2359,6 +2360,7 @@ help-oracle:
 	$(call NOTE,make <n> queryReflectorPrice C other|stellar ASSET     (lastprice))
 	$(call ROW,make <n> queryReflectorTwap C other ASSET N,prices history)
 	$(call NOTE,make <n> queryRedStone FEED_ID [adapter])
+	$(call NOTE,make <n> queryChainlink DATA_ID [proxy] [decimals=18])
 	$(call BLANK)
 
 

@@ -335,7 +335,8 @@ snapshot shared by independent contexts.
 Feed timestamps beyond ledger time plus 60 seconds are discarded; the exact
 boundary is allowed. Multi-feed reads check both package and write timestamps
 after converting milliseconds to whole seconds. Reflector reads check each
-observation timestamp.
+observation timestamp. Chainlink round timestamps are already Unix seconds and
+are checked without conversion.
 
 Discarding a required leg makes its single-source or dual-source configuration
 unusable under INV-ORACLE-01 and INV-ORACLE-02.

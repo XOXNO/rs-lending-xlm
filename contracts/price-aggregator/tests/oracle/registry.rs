@@ -2,14 +2,15 @@ use super::*;
 use crate::admin::{set_oracle, set_sanity_band, set_tolerance};
 use crate::session::Session;
 use common::errors::OracleError;
+use common::oracle::providers::chainlink::CHAINLINK_DECIMALS;
 use common::oracle::providers::redstone::REDSTONE_DECIMALS;
 use common::types::{
-    AquariusLpSource, FeedNature, FeedSource, IndependencePolicy, MultiFeedRef, OracleAssetRef,
-    OracleReadMode, OracleTolerance, PriceSource, ProviderRef, ReflectorFeedRef, ScaledSource,
-    MAX_RESOLUTION_DEPTH,
+    AquariusLpSource, ChainlinkFeedRef, FeedNature, FeedSource, IndependencePolicy, MultiFeedRef,
+    OracleAssetRef, OracleReadMode, OracleTolerance, PriceSource, ProviderRef, ReflectorFeedRef,
+    ScaledSource, MAX_RESOLUTION_DEPTH,
 };
 use soroban_sdk::testutils::{Address as _, Ledger as _};
-use soroban_sdk::{Address, String, Symbol, Vec};
+use soroban_sdk::{Address, BytesN, String, Symbol, Vec};
 
 use crate::test_support::{
     EmptyReflector, NonUsdReflector, QuotedReflector, QuotedReflectorClient, StubXoxnoAdapter,
@@ -48,6 +49,36 @@ fn with_contract<T>(env: &Env, body: impl FnOnce() -> T) -> T {
     env.as_contract(&id, body)
 }
 
+fn chainlink_oracle(env: &Env, decimals: u32) -> AssetOracle {
+    let mut cfg = oracle(env, 7);
+    cfg.max_price_stale_seconds = 93_600;
+    cfg.sources = Vec::from_array(
+        env,
+        [
+            PriceSource::Feed(FeedSource {
+                provider: ProviderRef::Chainlink(ChainlinkFeedRef {
+                    contract: Address::generate(env),
+                    data_id: BytesN::from_array(env, &[3; 32]),
+                }),
+                decimals,
+                max_stale_seconds: 93_600,
+            }),
+            PriceSource::Feed(FeedSource {
+                provider: ProviderRef::RedStone(MultiFeedRef {
+                    contract: Address::generate(env),
+                    feed_id: String::from_str(env, "USDT0"),
+                    nature: FeedNature::Fundamental,
+                }),
+                decimals: REDSTONE_DECIMALS,
+                max_stale_seconds: 57_600,
+            }),
+        ],
+    );
+    cfg.min_sanity_price_wad = WAD * 95 / 100;
+    cfg.max_sanity_price_wad = WAD * 105 / 100;
+    cfg
+}
+
 #[test]
 fn test_round_trips_a_token_key() {
     let env = Env::default();
@@ -65,6 +96,37 @@ fn test_round_trips_a_reference_key() {
         let key = PriceKey::Ref(Symbol::new(&env, "BTC"));
         store_oracle(&env, &key, &oracle(&env, 0));
         assert!(get_oracle(&env, &key).is_some());
+    });
+}
+
+#[test]
+fn test_round_trips_a_chainlink_provider() {
+    let env = Env::default();
+    with_contract(&env, || {
+        let key = PriceKey::Token(Address::generate(&env));
+        store_oracle(&env, &key, &chainlink_oracle(&env, CHAINLINK_DECIMALS));
+        let stored = get_oracle(&env, &key).expect("oracle");
+        assert!(matches!(
+            stored.sources.get_unchecked(0),
+            PriceSource::Feed(FeedSource {
+                provider: ProviderRef::Chainlink(_),
+                ..
+            })
+        ));
+    });
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #221)")]
+fn test_set_oracle_rejects_non_native_chainlink_decimals() {
+    let env = Env::default();
+    env.ledger().set_timestamp(1_000_000);
+    with_contract(&env, || {
+        set_oracle(
+            &env,
+            PriceKey::Token(Address::generate(&env)),
+            chainlink_oracle(&env, CHAINLINK_DECIMALS - 1),
+        );
     });
 }
 

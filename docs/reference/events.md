@@ -129,6 +129,7 @@ Timestamp uses milliseconds and cash uses raw token units. Indexes and supplied,
 | `MarketParamsRaw` | `max_borrow_rate: i128, base_borrow_rate: i128, slope1: i128, slope2: i128, slope3: i128, mid_utilization: i128, optimal_utilization: i128, max_utilization: i128, reserve_factor: u32, is_flashloanable: bool, flashloan_fee: u32, asset_id: Address, asset_decimals: u32` |
 | `AssetOracle` | `asset_decimals: u32, max_price_stale_seconds: u64, sources: Vec<PriceSource>, tolerance: OracleTolerance, independence: IndependencePolicy, min_sanity_price_wad: i128, max_sanity_price_wad: i128` |
 | `ReflectorFeedRef` | `contract: Address, asset: OracleAssetRef, read_mode: OracleReadMode` |
+| `ChainlinkFeedRef` | `contract: Address, data_id: BytesN<32>` |
 | `MultiFeedRef` | `contract: Address, feed_id: String, nature: FeedNature` |
 | `FeedSource` | `provider: ProviderRef, decimals: u32, max_stale_seconds: u64` |
 | `ScaledSource` | `factor: FeedSource, quote: PriceKey, min_factor_wad: i128, max_factor_wad: i128` |
@@ -145,7 +146,7 @@ Spoke flags and deprecation affect admission differently for entry, exit and sei
 | --- | --- |
 | PriceKey | `["Token", Address]`, `["Ref", Symbol]` |
 | PriceSource | `["Feed", FeedSource]`, `["Scaled", ScaledSource]`, `["AquariusLp", AquariusLpSource]`, `["AquariusStableLp", AquariusLpSource]` |
-| ProviderRef | `["Reflector", ReflectorFeedRef]`, `["RedStone", MultiFeedRef]`, `["Xoxno", MultiFeedRef]` |
+| ProviderRef | `["Reflector", ReflectorFeedRef]`, `["RedStone", MultiFeedRef]`, `["Xoxno", MultiFeedRef]`, `["Chainlink", ChainlinkFeedRef]` |
 | OracleAssetRef | `["Stellar", Address]`, `["Symbol", Symbol]`, `["String", String]` |
 | OracleReadMode | `["Spot"]`, `["Twap", u32]`; Twap is the equal-weight mean of records |
 | FeedNature | `["Market"]`, `["Fundamental"]` |

@@ -5,6 +5,7 @@
 //! composition depends on the changed key.
 
 use common::errors::OracleError;
+use common::oracle::providers::chainlink::CHAINLINK_DECIMALS;
 use common::oracle::providers::redstone::REDSTONE_DECIMALS;
 use common::oracle::providers::reflector::ReflectorClient;
 use common::oracle::providers::xoxno::XoxnoOracleAdapterClient;
@@ -47,6 +48,11 @@ fn attest_feed(env: &Env, feed: &FeedSource, quote: Option<&PriceKey>) {
         ProviderRef::RedStone(_) => assert_with_error!(
             env,
             feed.decimals == REDSTONE_DECIMALS,
+            OracleError::InvalidOracleDecimals
+        ),
+        ProviderRef::Chainlink(_) => assert_with_error!(
+            env,
+            feed.decimals == CHAINLINK_DECIMALS,
             OracleError::InvalidOracleDecimals
         ),
         ProviderRef::Xoxno(xoxno_feed) => {

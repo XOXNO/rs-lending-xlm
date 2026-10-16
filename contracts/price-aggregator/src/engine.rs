@@ -12,7 +12,7 @@ use common::types::{
 use soroban_sdk::{panic_with_error, Env};
 
 use crate::observation::OracleObservation;
-use crate::providers::{aquarius, multi_feed, reflector};
+use crate::providers::{aquarius, chainlink, multi_feed, reflector};
 use crate::registry;
 use crate::session::Session;
 use crate::tolerance::{midpoint_price_or_zero, within_tolerance_band};
@@ -600,11 +600,12 @@ fn evaluate_source(
     }
 }
 
-/// Reads `feed` from its provider (Reflector, RedStone, or Xoxno), returning
+/// Reads `feed` from its provider (Chainlink, Reflector, RedStone, or Xoxno), returning
 /// `None` if the provider has no observation. Computes staleness against
 /// `feed.max_stale_seconds`.
 fn read_feed(session: &mut Session, feed: &FeedSource) -> Option<(OracleObservation, bool)> {
     let observation = match &feed.provider {
+        ProviderRef::Chainlink(c) => chainlink::read_chainlink_source(session, c, feed.decimals),
         ProviderRef::Reflector(r) => reflector::read_reflector_source(session, r, feed.decimals),
         ProviderRef::RedStone(r) => multi_feed::read_multi_feed_source(session, r, feed.decimals),
         ProviderRef::Xoxno(x) => multi_feed::read_multi_feed_source(session, x, feed.decimals),
