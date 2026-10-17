@@ -16,6 +16,7 @@ pub enum SwapVenue {
     Phoenix,
     Sushi,
     CometDex,
+    Curve,
 }
 
 /// One pool hop: swaps `token_in` for `token_out` through `venue`.

@@ -114,6 +114,7 @@ impl Opcode {
             4 => Some(Self::Swap(SwapVenue::CometDex)),
             5 => Some(Self::Burn),
             6 => Some(Self::Mint),
+            7 => Some(Self::Swap(SwapVenue::Curve)),
             _ => None,
         }
     }

@@ -3,6 +3,7 @@
 pub(crate) mod aquarius;
 mod auth;
 pub(crate) mod comet;
+mod curve;
 pub(crate) mod phoenix;
 pub(crate) mod soroswap;
 pub(crate) mod sushi;
@@ -37,6 +38,7 @@ pub(crate) fn dispatch_hop(
         SwapVenue::Phoenix => phoenix::swap(&ctx),
         SwapVenue::Sushi => sushi::swap(&ctx),
         SwapVenue::CometDex => comet::swap(&ctx),
+        SwapVenue::Curve => curve::swap(&ctx, tokens_cache),
     };
 
     let received = ctx
