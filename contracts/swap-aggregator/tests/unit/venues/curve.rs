@@ -10,17 +10,17 @@ use crate::{
 
 use super::super::support::{new_asset, one_hop_path, strategy_xdr};
 
-mod pool_abi {
+pub(super) mod pool_abi {
     soroban_sdk::contractimport!(file = "tests/fixtures/curve/pool-2coin.wasm");
 }
 
-const TWO_COIN: &[u8] = include_bytes!("../../fixtures/curve/pool-2coin.wasm");
-const THREE_COIN: &[u8] = include_bytes!("../../fixtures/curve/pool-3coin.wasm");
+pub(super) const TWO_COIN: &[u8] = include_bytes!("../../fixtures/curve/pool-2coin.wasm");
+pub(super) const THREE_COIN: &[u8] = include_bytes!("../../fixtures/curve/pool-3coin.wasm");
 const LIQUIDITY: i128 = 1_000_000_000;
 const INPUT: i128 = 10_000_000;
 
 #[contract]
-struct Factory;
+pub(super) struct Factory;
 
 #[contractimpl]
 impl Factory {
@@ -59,16 +59,16 @@ impl Factory {
     }
 }
 
-struct Fixture {
-    env: Env,
-    user: Address,
-    router: Address,
-    pool: Address,
-    tokens: Vec<Address>,
+pub(super) struct Fixture {
+    pub(super) env: Env,
+    pub(super) user: Address,
+    pub(super) router: Address,
+    pub(super) pool: Address,
+    pub(super) tokens: Vec<Address>,
 }
 
 impl Fixture {
-    fn new(wasm: &[u8], count: u32) -> Self {
+    pub(super) fn new(wasm: &[u8], count: u32) -> Self {
         let env = Env::default();
         env.cost_estimate().budget().reset_unlimited();
         let admin = Address::generate(&env);
