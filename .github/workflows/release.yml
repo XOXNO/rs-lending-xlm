@@ -71,7 +71,7 @@ jobs:
           esac
 
       - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@e2a55d2ffb04f378e9626c28d38b36d230d1e12f # master
+        uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
         with:
           toolchain: "1.95"
           targets: wasm32v1-none
@@ -83,7 +83,7 @@ jobs:
       - name: Build canonical candidate
         run: make candidate-wasm candidate-size-check integration-fixtures
 
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: '24'
           package-manager-cache: false
@@ -134,7 +134,7 @@ jobs:
             dist/distribution.json
 
       - name: Upload artifact
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: release-wasm
           path: |
@@ -151,7 +151,7 @@ jobs:
         working-directory: artifacts/wasm/fixtures
         run: sha256sum ./*.wasm > SHA256SUMS
       - name: Upload separate E2E fixtures
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: e2e-fixtures
           path: |
@@ -161,7 +161,7 @@ jobs:
 
       - name: Upload offline verification log
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: controlled-ledger-log
           path: controlled-tests.log
@@ -199,12 +199,12 @@ jobs:
           fi
           sudo apt-get update -q && sudo apt-get install -y -q jq xxd
 
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: release-wasm
           path: artifacts/wasm/deploy
 
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: e2e-fixtures
           path: artifacts/wasm/fixtures
@@ -213,7 +213,7 @@ jobs:
           python3 tests/integration/artifacts.py distribution-check artifacts/wasm/deploy
           (cd artifacts/wasm/fixtures && sha256sum --strict --check SHA256SUMS)
 
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: '24'
           package-manager-cache: false
@@ -236,7 +236,7 @@ jobs:
         env:
           RUN_TS: release-${{ github.run_id }}-${{ github.run_attempt }}
         run: python3 tests/integration/release_gate.py collect tests/integration/runs "$RUN_TS" artifacts/wasm/deploy
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: release-gate
           path: tests/integration/runs/release-${{ github.run_id }}-${{ github.run_attempt }}-release-gate.json
@@ -244,7 +244,7 @@ jobs:
 
       - name: Upload e2e reports
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: testnet-e2e-report
           path: |
@@ -277,11 +277,11 @@ jobs:
         with:
           persist-credentials: false
           ref: ${{ needs.build.outputs.source_sha }}
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: release-wasm
           path: dist
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: release-gate
           path: gate
