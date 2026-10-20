@@ -83,7 +83,7 @@ SDK `try_` calls distinguish contract errors from host, authorization, storage, 
 | 133 `SelfLiquidationNotAllowed` | Credit receiver id equals the liquidated account id. | Choose another receiver; owner self-liquidation is otherwise allowed. |
 | 134 `InvalidLiquidationCurve` | The target HF is outside (1 WAD, `MAX_LIQUIDATION_TARGET_HF_WAD`], the max-bonus HF is outside (0, target HF), or the bonus factor is outside (0, BPS]. | Fix the curve bounds in the proposal. |
 
-### Oracle errors (201–235)
+### Oracle errors (201–237)
 
 | Code / variant | Condition | Response |
 | --- | --- | --- |
@@ -114,6 +114,8 @@ SDK `try_` calls distinguish contract errors from host, authorization, storage, 
 | 232 `IndependenceNotDeclared` | Two sources share a provider contract while the policy requires disjoint sources, or the declared shared set is empty or differs from the actual one. | Declare the shared contracts, or use independent sources. |
 | 234 `UnsupportedAquariusPool` | LP attestation finds wrong pool kind, absent stable amp, nonpositive reserves or share supply. | Configure a supported, funded pool. |
 | 235 `InsufficientAquariusLiquidity` | The Aquarius pool's total value is below the source's `min_pool_value_wad` floor. | Wait for deeper pool liquidity. |
+| 236 `UnsupportedCurvePool` | Curve executable hash, LP binding, coin order/count, decimals or normalization rates do not match the configured plain pool. | Review the executable and pool configuration before relisting. |
+| 237 `InsufficientCurveLiquidity` | The Curve pool's conservative total value is below `min_pool_value_wad`. | Wait for deeper pool liquidity. |
 
 ### Spoke errors (300–319)
 

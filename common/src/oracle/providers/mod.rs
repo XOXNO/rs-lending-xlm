@@ -4,6 +4,7 @@
 
 pub mod aquarius;
 pub mod chainlink;
+pub mod curve;
 pub mod redstone;
 pub mod reflector;
 pub mod xoxno;

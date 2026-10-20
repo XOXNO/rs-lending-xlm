@@ -109,6 +109,14 @@ pub(crate) fn local_properties(env: &Env, source: &PriceSource) -> LocalProperti
             },
             dependencies: Vec::from_array(env, [lp.key_a.clone(), lp.key_b.clone()]),
         },
+        PriceSource::CurveStableLp(lp) => LocalProperties {
+            local: SourceProperties {
+                has_unsmoothed_market_leg: true,
+                trust: Vec::from_array(env, [lp.pool.clone()]),
+                ..SourceProperties::empty(env)
+            },
+            dependencies: Vec::from_iter(env, lp.coins.iter().map(PriceKey::Token)),
+        },
     }
 }
 

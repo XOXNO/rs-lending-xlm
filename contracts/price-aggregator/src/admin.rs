@@ -18,7 +18,7 @@ use soroban_sdk::{assert_with_error, panic_with_error, Env, Vec};
 
 use crate::engine;
 use crate::properties;
-use crate::providers::{aquarius, reflector};
+use crate::providers::{aquarius, curve, reflector};
 use crate::registry;
 use crate::session::Session;
 use crate::validation;
@@ -34,6 +34,7 @@ fn attest_sources(env: &Env, key: &PriceKey, oracle: &AssetOracle) {
 
             PriceSource::AquariusLp(lp) => aquarius::attest(env, key, oracle, lp, false),
             PriceSource::AquariusStableLp(lp) => aquarius::attest(env, key, oracle, lp, true),
+            PriceSource::CurveStableLp(lp) => curve::attest(env, key, oracle, lp),
         }
     }
 }
@@ -90,7 +91,7 @@ pub(crate) fn set_oracle(env: &Env, key: PriceKey, oracle: AssetOracle) {
     validate_asset_oracle(env, &key, &oracle);
     attest_sources(env, &key, &oracle);
     let mut session = Session::new(env);
-    if oracle.has_aquarius_lp_source() {
+    if oracle.has_lp_source() {
         engine::probe_priceable(&mut session, &key, &oracle);
     } else {
         engine::probe(&mut session, &key, &oracle);
@@ -147,7 +148,7 @@ fn depends_on(env: &Env, root: &PriceKey, target: &PriceKey, visiting: &mut Vec<
 /// Runs the full validation suite for `oracle` under `key`, covering sanity
 /// bounds, source shape and count, asset decimals, composition depth,
 /// staleness, smoothing, tolerance, and source independence, with the
-/// smoothing and tolerance checks waived for Aquarius LP oracles. Panics if
+/// smoothing and tolerance checks waived for LP oracles. Panics if
 /// any check fails.
 pub(crate) fn validate_asset_oracle(env: &Env, key: &PriceKey, oracle: &AssetOracle) {
     let mut session = Session::new(env);
@@ -160,7 +161,7 @@ pub(crate) fn validate_asset_oracle(env: &Env, key: &PriceKey, oracle: &AssetOra
         oracle.min_sanity_price_wad,
         oracle.max_sanity_price_wad,
     );
-    if oracle.has_aquarius_lp_source() {
+    if oracle.has_lp_source() {
         // Sole-source by construction, so the band is the only backstop.
         validate_lp_sanity_band(
             env,
@@ -184,7 +185,7 @@ pub(crate) fn validate_asset_oracle(env: &Env, key: &PriceKey, oracle: &AssetOra
         validation::source_shape(env, &source);
     }
 
-    let has_lp = oracle.sources.iter().any(|source| source.is_aquarius_lp());
+    let has_lp = oracle.sources.iter().any(|source| source.is_lp());
     if has_lp && oracle.sources.len() != 1 {
         panic_with_error!(env, OracleError::SourceCountOutOfRange);
     }
@@ -194,11 +195,11 @@ pub(crate) fn validate_asset_oracle(env: &Env, key: &PriceKey, oracle: &AssetOra
         validation::composition_depth(env, second);
     }
     validation::staleness_envelope(env, oracle.max_price_stale_seconds, &derived.combined());
-    if !oracle.has_aquarius_lp_source() {
+    if !oracle.has_lp_source() {
         validation::smoothing(env, &derived.first, derived.second.as_ref());
     }
 
-    if !oracle.has_aquarius_lp_source() {
+    if !oracle.has_lp_source() {
         validate_oracle_tolerance(env, &oracle.tolerance);
     }
     if let Some(second) = derived.second.as_ref() {
@@ -240,7 +241,7 @@ pub(crate) fn set_tolerance(env: &Env, key: PriceKey, tolerance: OracleTolerance
         .unwrap_or_else(|| panic_with_error!(env, OracleError::OracleNotConfigured));
     assert_with_error!(
         env,
-        !oracle.has_aquarius_lp_source(),
+        !oracle.has_lp_source(),
         OracleError::SourceCountOutOfRange
     );
     validate_oracle_tolerance(env, &tolerance);

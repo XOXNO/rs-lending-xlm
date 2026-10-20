@@ -94,8 +94,8 @@ fn asset_oracle_identifies_aquarius_lp() {
         min_sanity_price_wad: 1,
         max_sanity_price_wad: i128::MAX / 2,
     };
-    assert!(oracle.has_aquarius_lp_source());
-    assert!(oracle.sources.get_unchecked(0).is_aquarius_lp());
+    assert!(oracle.has_lp_source());
+    assert!(oracle.sources.get_unchecked(0).is_lp());
     assert!(!oracle.is_dual());
 
     let stable = PriceSource::AquariusStableLp(AquariusLpSource {
@@ -108,19 +108,19 @@ fn asset_oracle_identifies_aquarius_lp() {
         reserve_b_decimals: 7,
         min_pool_value_wad: 1,
     });
-    assert!(stable.is_aquarius_lp());
+    assert!(stable.is_lp());
     let stable_oracle = AssetOracle {
         sources: Vec::from_array(&env, [stable]),
         ..oracle
     };
-    assert!(stable_oracle.has_aquarius_lp_source());
+    assert!(stable_oracle.has_lp_source());
 }
 
 #[test]
 fn feed_source_is_not_aquarius_and_two_sources_are_dual() {
     let env = Env::default();
     let feed = PriceSource::Feed(multi_feed(&env, &Address::generate(&env), false));
-    assert!(!feed.is_aquarius_lp());
+    assert!(!feed.is_lp());
     let second = PriceSource::Feed(multi_feed(&env, &Address::generate(&env), true));
     let oracle = AssetOracle {
         asset_decimals: 7,
@@ -135,5 +135,5 @@ fn feed_source_is_not_aquarius_and_two_sources_are_dual() {
         max_sanity_price_wad: i128::MAX / 2,
     };
     assert!(oracle.is_dual());
-    assert!(!oracle.has_aquarius_lp_source());
+    assert!(!oracle.has_lp_source());
 }

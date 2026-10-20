@@ -108,6 +108,11 @@ pub(crate) fn source_shape(env: &Env, source: &PriceSource) {
         PriceSource::AquariusLp(lp) | PriceSource::AquariusStableLp(lp) => {
             aquarius_lp_shape(env, lp)
         }
+        PriceSource::CurveStableLp(lp) => {
+            if !crate::providers::curve::shape(lp) {
+                panic_with_error!(env, OracleError::InvalidOracleBase);
+            }
+        }
     }
 }
 

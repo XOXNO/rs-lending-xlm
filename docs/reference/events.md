@@ -134,6 +134,7 @@ Timestamp uses milliseconds and cash uses raw token units. Indexes and supplied,
 | `FeedSource` | `provider: ProviderRef, decimals: u32, max_stale_seconds: u64` |
 | `ScaledSource` | `factor: FeedSource, quote: PriceKey, min_factor_wad: i128, max_factor_wad: i128` |
 | `AquariusLpSource` | `pool: Address, token_a: Address, token_b: Address, key_a: PriceKey, key_b: PriceKey, reserve_a_decimals: u32, reserve_b_decimals: u32, min_pool_value_wad: i128` |
+| `CurveStableLpSource` | `pool: Address, coins: Vec<Address>, wasm_hash: BytesN<32>, min_pool_value_wad: i128` |
 | `OracleTolerance` | `upper_ratio_bps: u32, lower_ratio_bps: u32` |
 
 Rate fields `base_borrow_rate`, `max_borrow_rate` and `slope1/2/3` use annual RAY. Slopes are additive segment increments; `max_utilization` is an operation limit. See [formulas](formulas.md) for the curve and rounding. Reserve factor and flash-loan fee use BPS; asset decimals describe raw token units. Spoke caps use raw token units; position limits and entry counts are counts.
@@ -145,7 +146,7 @@ Spoke flags and deprecation affect admission differently for entry, exit and sei
 | Type | Exact variant shape |
 | --- | --- |
 | PriceKey | `["Token", Address]`, `["Ref", Symbol]` |
-| PriceSource | `["Feed", FeedSource]`, `["Scaled", ScaledSource]`, `["AquariusLp", AquariusLpSource]`, `["AquariusStableLp", AquariusLpSource]` |
+| PriceSource | `["Feed", FeedSource]`, `["Scaled", ScaledSource]`, `["AquariusLp", AquariusLpSource]`, `["AquariusStableLp", AquariusLpSource]`, `["CurveStableLp", CurveStableLpSource]` |
 | ProviderRef | `["Reflector", ReflectorFeedRef]`, `["RedStone", MultiFeedRef]`, `["Xoxno", MultiFeedRef]`, `["Chainlink", ChainlinkFeedRef]` |
 | OracleAssetRef | `["Stellar", Address]`, `["Symbol", Symbol]`, `["String", String]` |
 | OracleReadMode | `["Spot"]`, `["Twap", u32]`; Twap is the equal-weight mean of records |

@@ -491,6 +491,63 @@ bash -c 'source "$1"; schedule_configure_asset_oracle test "{\"Token\":\"C\"}" "
 grep -q '^proposed$' "$tmp/chainlink-schedule-log" || fail 'non-Chainlink config was not proposed'
 echo 'Chainlink proposal preflight: OK'
 
+curve_lp='{"sources":[{"CurveStableLp":{"pool":"CPOOL"}}]}'
+rm -f "$tmp/chainlink-schedule-log"
+if bash -c 'source "$1"; schedule_configure_asset_oracle test "{\"Token\":\"CPOOL\"}" "$2"' \
+    _ "$tmp/chainlink-schedule.sh" "$curve_lp" >/dev/null 2>&1; then
+    fail 'Curve LP scheduling accepted incompatible deployed ABIs'
+fi
+[ ! -e "$tmp/chainlink-schedule-log" ] || fail 'an incompatible Curve ABI reached proposal'
+RESOLVED_ARGS='[]' bash -c 'source "$1"; schedule_configure_asset_oracle test "{\"Token\":\"CPOOL\"}" "$2"' \
+    _ "$tmp/chainlink-schedule.sh" "$curve_lp" >/dev/null \
+    || fail 'compatible Curve LP ABIs did not reach proposal'
+grep -q '^proposed$' "$tmp/chainlink-schedule-log" || fail 'Curve LP config was not proposed'
+echo 'Curve LP proposal ABI guard: OK'
+
+cat > "$tmp/curve-validate.sh" <<EOF
+NETWORK=testnet
+MARKET_CONFIG_FILE='$tmp/curve-market.json'
+SPOKES_FILE='$tmp/curve-spokes.json'
+NETWORKS_FILE='$tmp/networks.json'
+get_network_value() { echo configured; }
+get_cex_oracle() { echo CEX; }
+get_dex_oracle() { echo DEX; }
+get_fx_oracle() { echo FX; }
+get_redstone_adapter() { echo REDSTONE; }
+get_chainlink_proxy() { echo CHAINLINK; }
+get_xoxno_oracle_adapter() { echo XOXNO; }
+all_oracle_ref_dependencies() { :; }
+enabled_market_names() { :; }
+$(extract validate_configs)
+validate_configs
+EOF
+echo '{}' > "$tmp/curve-spokes.json"
+jq '{markets:[.markets[0]]} |
+    .markets[0].asset_address = ("C" + ("A" * 55)) |
+    .markets[0].oracle |= (.asset_decimals = 18 |
+        .tolerance = {upper_ratio_bps:0,lower_ratio_bps:0} |
+        .sources = [{CurveStableLp:{
+            pool:("C" + ("A" * 55)), wasm_hash:("ab" * 32),
+            coins:[("C" + ("B" * 55)),("C" + ("D" * 55)),("C" + ("E" * 55))],
+            min_pool_value_wad:"1000000000000000000"}}])' \
+    "$ROOT/configs/mainnet/markets.json" > "$tmp/curve-valid.json"
+cp "$tmp/curve-valid.json" "$tmp/curve-market.json"
+bash "$tmp/curve-validate.sh" >/dev/null 2>&1 || fail 'valid Curve LP config rejected'
+for mutation in \
+    '.markets[0].oracle.asset_decimals = 7' \
+    '.markets[0].oracle.sources[0].CurveStableLp.wasm_hash = "bad"' \
+    '.markets[0].oracle.sources[0].CurveStableLp.pool = "wrong"' \
+    '.markets[0].oracle.sources[0].CurveStableLp.coins |= .[:1]' \
+    '.markets[0].oracle.sources[0].CurveStableLp.coins[2] = .markets[0].oracle.sources[0].CurveStableLp.coins[0]' \
+    '.markets[0].oracle.sources[0].CurveStableLp.min_pool_value_wad = "0"' \
+    '.markets[0].oracle.sources += .markets[0].oracle.sources'; do
+    jq "$mutation" "$tmp/curve-valid.json" > "$tmp/curve-market.json"
+    if bash "$tmp/curve-validate.sh" >/dev/null 2>&1; then
+        fail "invalid Curve LP config accepted: $mutation"
+    fi
+done
+echo 'Curve LP config validation: OK'
+
 # Explicit hub listings need one qualified read, never the discarded spoke read.
 cat > "$tmp/listing-spokes.json" <<'JSON'
 {"5":{"assets":{"XLM":{"hub_id":1,"can_be_collateral":true,"can_be_borrowed":true,"ltv":1,"liquidation_threshold":2,"liquidation_bonus":3,"liquidation_fees":4}}}}

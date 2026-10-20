@@ -1,9 +1,9 @@
 #![no_std]
 
 pub use common::types::{
-    AquariusLpSource, AssetOracle, ChainlinkFeedRef, FeedNature, FeedSource, IndependencePolicy,
-    MultiFeedRef, OracleTolerance, PriceFeedRaw, PriceKey, PriceSource, PriceStatus, ProviderRef,
-    ReflectorFeedRef, ScaledSource,
+    AquariusLpSource, AssetOracle, ChainlinkFeedRef, CurveStableLpSource, FeedNature, FeedSource,
+    IndependencePolicy, MultiFeedRef, OracleTolerance, PriceFeedRaw, PriceKey, PriceSource,
+    PriceStatus, ProviderRef, ReflectorFeedRef, ScaledSource,
 };
 use soroban_sdk::{contractclient, Address, BytesN, Env, Map, Vec};
 
