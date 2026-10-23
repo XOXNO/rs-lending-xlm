@@ -47,6 +47,40 @@ Mainnet USDT0 gives the Chainlink leg 93,600 seconds (26 hours) for its
 published 24-hour heartbeat. The same source, asset, deviation, midpoint, and
 sanity gates used by every other provider still apply.
 
+## Curve LP collateral
+
+`CurveStableLp` values plain Curve StableSwap LP shares with 2–8 coins:
+
+```text
+price_wad = floor(get_virtual_price() * min(all coin prices_wad) / 1e18)
+pool_value_wad = floor(price_wad * total_supply() / 1e18)
+```
+
+Curve supplies the invariant/share calculation, including amplification ramps
+and active reserve accounting. The aggregator resolves every constituent's
+`PriceKey::Token` oracle, uses the oldest timestamp, and enforces the existing
+freshness, depth, cycle and LP sanity-band rules. The pool value must meet
+`min_pool_value_wad`. This is conservative gross value, not a guarantee of
+one-coin redemption proceeds; collateral risk parameters must allow for fees
+and liquidation liquidity.
+
+To list: upgrade governance and the price aggregator for the new ABI, configure
+all coin oracles first, then configure the LP token with `asset_decimals: 18`
+and exactly one `CurveStableLp` source. Its fields are `pool`, `coins` (exact
+pool order), `wasm_hash` (64 hexadecimal characters in CLI JSON), and
+`min_pool_value_wad`. The pool address is also the LP token address. Create the
+18-decimal lending market and enable collateral in the desired spoke normally.
+
+Governance must review the pinned executable and underlying tokens for plain
+pool semantics. Each read rechecks its hash, ordered coins, live decimals and
+fixed rates `10^(36 - coin_decimals)`. Rate-bearing/rebasing pools and metapools
+are outside this admission policy; metadata alone cannot establish their safety.
+An executable change makes the source unpriceable until reviewed and reconfigured.
+Actual WASM fixtures cover 2/3 coins; 8 is a structural resource ceiling, and
+larger deployments require their own code and transaction-resource validation.
+The generic production-fixture runner rejects Curve sources; Curve tests use
+the real pool WASMs.
+
 ## Entrypoints
 
 `prices` and `quotes` are bulk only. Pass a `Vec<PriceKey>` even for one key.
@@ -82,7 +116,7 @@ validation.rs   # write-time config checks (sources, depth, staleness, decimals)
 tolerance.rs    # dual-source disagreement bounds
 observation.rs  # provider payload → normalized WAD observation
 properties.rs   # write-time dependency walk
-providers/      # aquarius (LP) + chainlink + multi_feed (bulk) + reflector
+providers/      # aquarius + curve (LP) + chainlink + multi_feed (bulk) + reflector
 ```
 
 ## References

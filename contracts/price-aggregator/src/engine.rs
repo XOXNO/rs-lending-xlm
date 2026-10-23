@@ -12,7 +12,7 @@ use common::types::{
 use soroban_sdk::{panic_with_error, Env};
 
 use crate::observation::OracleObservation;
-use crate::providers::{aquarius, chainlink, multi_feed, reflector};
+use crate::providers::{aquarius, chainlink, curve, multi_feed, reflector};
 use crate::registry;
 use crate::session::Session;
 use crate::tolerance::{midpoint_price_or_zero, within_tolerance_band};
@@ -319,8 +319,8 @@ pub(crate) fn resolve_nested(
 
 /// Validates that resolving `key` from a session cache hit would still respect
 /// the depth and cycle limits at `depth`, by walking the oracle's configured
-/// sources (recursing into a scaled source's quote and an Aquarius LP source's
-/// paired dependencies) as if resolving them fresh. Returns the first
+/// sources (recursing into scaled quotes and every LP constituent)
+/// as if resolving them fresh. Returns the first
 /// `OracleError` encountered, if any.
 fn validate_cached_path(
     session: &mut Session,
@@ -339,21 +339,13 @@ fn validate_cached_path(
     session.push_key(key);
     let mut result = Ok(());
     'sources: for source in oracle.sources.iter() {
-        match source {
-            PriceSource::Feed(_) => {}
-            PriceSource::Scaled(scaled) => {
-                if let Err(err) = validate_cached_path(session, &scaled.quote, depth + 1) {
-                    result = Err(err);
-                    break;
-                }
-            }
-            PriceSource::AquariusLp(lp) | PriceSource::AquariusStableLp(lp) => {
-                for dependency in [&lp.key_a, &lp.key_b] {
-                    if let Err(err) = validate_cached_path(session, dependency, depth + 1) {
-                        result = Err(err);
-                        break 'sources;
-                    }
-                }
+        for dependency in crate::properties::local_properties(&env, &source)
+            .dependencies
+            .iter()
+        {
+            if let Err(err) = validate_cached_path(session, &dependency, depth + 1) {
+                result = Err(err);
+                break 'sources;
             }
         }
     }
@@ -574,7 +566,9 @@ fn source_nature(source: &PriceSource) -> FeedNature {
     match source {
         PriceSource::Feed(feed) => feed.provider.nature(),
         PriceSource::Scaled(scaled) => scaled.factor.provider.nature(),
-        PriceSource::AquariusLp(_) | PriceSource::AquariusStableLp(_) => FeedNature::Market,
+        PriceSource::AquariusLp(_)
+        | PriceSource::AquariusStableLp(_)
+        | PriceSource::CurveStableLp(_) => FeedNature::Market,
     }
 }
 
@@ -597,6 +591,7 @@ fn evaluate_source(
         PriceSource::AquariusStableLp(lp) => {
             aquarius::read(session, key, lp, asset_decimals, depth, true)
         }
+        PriceSource::CurveStableLp(lp) => curve::read(session, key, lp, asset_decimals, depth),
     }
 }
 

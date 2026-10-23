@@ -227,6 +227,8 @@ def plan(root, only=None):
     for m in enabled:
         definitions[m['asset_address']] = dict(kind='token', decimals=m['oracle']['asset_decimals'], name=m['name'])
     for node in walk([enabled, markets.get('references', [])]):
+        if 'CurveStableLp' in node:
+            raise ValueError('Curve LP fixtures require the reviewed pool WASM; generic production-fixture pools are unsupported')
         for kind in ('Reflector', 'RedStone', 'Xoxno', 'Chainlink'):
             if kind in node:
                 definitions[node[kind]['contract']] = dict(kind=kind)

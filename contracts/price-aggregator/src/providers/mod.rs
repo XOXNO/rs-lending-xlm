@@ -4,5 +4,6 @@
 
 pub(crate) mod aquarius;
 pub(crate) mod chainlink;
+pub(crate) mod curve;
 pub(crate) mod multi_feed;
 pub(crate) mod reflector;

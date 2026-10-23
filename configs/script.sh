@@ -1281,7 +1281,7 @@ validate_configs() {
             vc_err "market ${m}: oracle still uses legacy primary/anchor/strategy/tolerance_bps fields"
         fi
         if ! printf '%s' "$o" | jq -e '
-            any(.sources[]?; has("AquariusLp") or has("AquariusStableLp")) or (
+            any(.sources[]?; has("AquariusLp") or has("AquariusStableLp") or has("CurveStableLp")) or (
                 (.tolerance.upper_ratio_bps // 0) > 10000 and
                 (.tolerance.lower_ratio_bps // 99999) < 10000 and
                 (.tolerance.lower_ratio_bps // 0) >= 1
@@ -1402,8 +1402,24 @@ validate_configs() {
                 fi
                 i=$((i + 1))
                 continue
+            elif printf '%s' "$sjson" | jq -e 'has("CurveStableLp")' >/dev/null; then
+                if ! printf '%s' "$sjson" | jq -e --arg asset "$addr" --argjson oracle "$o" '
+                    .CurveStableLp as $lp |
+                    $lp.pool == $asset and
+                    $oracle.asset_decimals == 18 and ($oracle.sources | length) == 1 and
+                    ($lp.wasm_hash | test("^[0-9a-fA-F]{64}$")) and
+                    ($lp.coins | type == "array") and
+                    ($lp.coins | length >= 2 and length <= 8) and
+                    ($lp.coins | unique | length) == ($lp.coins | length) and
+                    all($lp.coins[]; test("^C[A-Z2-7]{55}$") and . != $lp.pool) and
+                    ($lp.min_pool_value_wad | tonumber) > 0
+                ' >/dev/null; then
+                    vc_err "market ${m}: sources[$i] Curve LP needs the pool LP token, 18 decimals, a reviewed WASM hash, 2..8 distinct ordered coins, and a positive liquidity floor"
+                fi
+                i=$((i + 1))
+                continue
             else
-                vc_err "market ${m}: sources[$i] must be Feed, Scaled, AquariusLp, or AquariusStableLp"
+                vc_err "market ${m}: sources[$i] must be Feed, Scaled, AquariusLp, AquariusStableLp, or CurveStableLp"
                 i=$((i + 1))
                 continue
             fi
@@ -2812,17 +2828,17 @@ schedule_configure_asset_oracle() {
     resolve_args=$(jq -nc --argjson key "$key_json" --argjson oracle "$cfg_json" \
         '{key:$key, oracle:$oracle}')
 
-    local agg resolved_args salt_use known_id state gen has_chainlink=false
+    local agg resolved_args salt_use known_id state gen requires_current_abi=false
     if printf '%s' "$cfg_json" | jq -e '
-        any(.sources[]?; ((.Feed // .Scaled.factor).provider.Chainlink? != null))
+        any(.sources[]?; has("CurveStableLp") or ((.Feed // .Scaled.factor).provider.Chainlink? != null))
     ' >/dev/null; then
-        has_chainlink=true
+        requires_current_abi=true
     fi
     agg=$(get_price_aggregator)
     resolved_args=$(resolve_oracle_args_for resolve_asset_oracle "$agg" \
         set_oracle "$key_json" "$cfg_json" 2>/dev/null) || resolved_args=""
-    if [ "$has_chainlink" = true ] && { [ -z "$resolved_args" ] || [ "$resolved_args" = "null" ]; }; then
-        die "Chainlink oracle configuration requires compatible governance and price-aggregator deployments; run 'make ${NETWORK} upgradeAll' first"
+    if [ "$requires_current_abi" = true ] && { [ -z "$resolved_args" ] || [ "$resolved_args" = "null" ]; }; then
+        die "This oracle configuration requires compatible governance and price-aggregator deployments; run 'make ${NETWORK} upgradeAll' first"
     fi
     if [ -n "$resolved_args" ] && [ "$resolved_args" != "null" ]; then
         read -r salt_use known_id state gen < <(probe_salt_generations "$agg" set_oracle "$resolved_args" "$salt")

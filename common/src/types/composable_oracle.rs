@@ -1,5 +1,5 @@
 //! Configuration types for the composable price-aggregator oracle: how an asset's price is
-//! assembled from one or two underlying sources (direct feeds, factor-scaled feeds, or Aquarius
+//! assembled from one or two underlying sources (direct feeds, factor-scaled feeds, or
 //! LP token valuations), with independence and sanity-bound checks applied across sources.
 
 use soroban_sdk::{contracttype, Address, BytesN, String, Symbol, Vec};
@@ -7,7 +7,7 @@ use soroban_sdk::{contracttype, Address, BytesN, String, Symbol, Vec};
 use super::oracle::{OracleAssetRef, OracleReadMode, OracleTolerance};
 
 /// Maximum recursion depth allowed while resolving a `PriceKey`, counting nested lookups
-/// through `ScaledSource::quote` and `AquariusLpSource` leg keys.
+/// through scaled quotes and LP constituent keys.
 pub const MAX_RESOLUTION_DEPTH: u32 = 3;
 
 /// Minimum number of `PriceSource` entries an `AssetOracle` may declare.
@@ -154,9 +154,22 @@ pub struct AquariusLpSource {
     pub min_pool_value_wad: i128,
 }
 
-/// One input used to price an asset: a direct feed, a factor-scaled feed, or an Aquarius LP
-/// share valuation for a constant-product (`AquariusLp`) or stable-swap (`AquariusStableLp`)
-/// pool.
+/// Plain Curve LP valuation. Governance pins the reviewed pool executable;
+/// every ordered coin must have its own registered `PriceKey::Token` oracle.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CurveStableLpSource {
+    pub pool: Address,
+    pub coins: Vec<Address>,
+    pub wasm_hash: BytesN<32>,
+    pub min_pool_value_wad: i128,
+}
+
+/// Structural resource ceiling; each pool executable still requires governance review.
+pub const MAX_CURVE_COINS: u32 = 8;
+
+/// One input used to price an asset: a direct feed, a factor-scaled feed, or an LP
+/// share valuation for a constant-product or stable-swap pool.
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[allow(clippy::large_enum_variant)]
@@ -166,14 +179,17 @@ pub enum PriceSource {
     AquariusLp(AquariusLpSource),
 
     AquariusStableLp(AquariusLpSource),
+    CurveStableLp(CurveStableLpSource),
 }
 
 impl PriceSource {
-    /// Returns true for either Aquarius LP variant.
-    pub fn is_aquarius_lp(&self) -> bool {
+    /// Returns true for an LP valuation.
+    pub fn is_lp(&self) -> bool {
         matches!(
             self,
-            PriceSource::AquariusLp(_) | PriceSource::AquariusStableLp(_)
+            PriceSource::AquariusLp(_)
+                | PriceSource::AquariusStableLp(_)
+                | PriceSource::CurveStableLp(_)
         )
     }
 }
@@ -215,11 +231,9 @@ impl AssetOracle {
         self.sources.len() == 2
     }
 
-    /// Returns true if the first configured source is an Aquarius LP valuation.
-    pub fn has_aquarius_lp_source(&self) -> bool {
-        self.sources
-            .get(0)
-            .is_some_and(|source| source.is_aquarius_lp())
+    /// Returns true if the first configured source is an LP valuation.
+    pub fn has_lp_source(&self) -> bool {
+        self.sources.get(0).is_some_and(|source| source.is_lp())
     }
 }
 

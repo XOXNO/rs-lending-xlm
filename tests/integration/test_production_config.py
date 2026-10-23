@@ -13,6 +13,16 @@ from production_config import CALLER_MARKETS, decimal_cases, fixture_price, full
 
 
 class ProductionPolicyChecks(unittest.TestCase):
+    def test_curve_fixture_plan_requires_real_pool_wasm(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / 'markets.json').write_text(json.dumps({'markets': [{
+                'name': 'CurveLP', 'asset_address': 'CPOOL',
+                'oracle': {'asset_decimals': 18, 'sources': [{'CurveStableLp': {}}]},
+            }]}))
+            with self.assertRaisesRegex(ValueError, 'reviewed pool WASM'):
+                plan(root)
+
     def test_mainnet_usdt0_uses_chainlink_and_redstone(self):
         config = Path(__file__).resolve().parents[2] / 'configs'
         markets = load(config / 'mainnet', 'markets.json')

@@ -9,7 +9,7 @@ anyone can call it for a plain swap.
 | --- | --- |
 | Owner | OZ `Ownable`, two-step |
 | Trust | Untrusted by the controller, which checks balance deltas |
-| Venues | Aquarius, Comet, Phoenix, Soroswap, Sushi |
+| Venues | Aquarius, Comet, Curve, Phoenix, Soroswap, Sushi |
 | Client | [`interfaces/swap-aggregator`](../../interfaces/swap-aggregator) |
 
 Full signatures are in `contracts/swap-aggregator/src/lib.rs`; the generated

@@ -209,6 +209,39 @@ fn test_a_lone_feed_is_read_lazily_rather_than_bulked() {
 }
 
 #[test]
+fn curve_warms_all_coin_feeds_in_one_batch() {
+    let env = Env::default();
+    env.ledger().set_timestamp(NOW);
+    let (adapter, client) = counting_adapter(&env, &["A", "B", "C"]);
+    in_contract(&env, || {
+        let mut coins = Vec::new(&env);
+        for name in ["A", "B", "C"] {
+            let PriceKey::Token(coin) = feed_key(&env, &adapter, name) else {
+                unreachable!()
+            };
+            coins.push_back(coin);
+        }
+        let pool = Address::generate(&env);
+        let key = PriceKey::Token(pool.clone());
+        crate::registry::store_oracle(
+            &env,
+            &key,
+            &oracle_of(
+                &env,
+                PriceSource::CurveStableLp(common::types::CurveStableLpSource {
+                    pool,
+                    coins,
+                    wasm_hash: soroban_sdk::BytesN::from_array(&env, &[0; 32]),
+                    min_pool_value_wad: WAD,
+                }),
+            ),
+        );
+        Session::new(&env).warm(&Vec::from_array(&env, [key]));
+    });
+    assert_eq!(client.counts(), (0, 1, 3));
+}
+
+#[test]
 fn test_the_prefetch_walk_stops_at_the_composition_cap() {
     let env = Env::default();
     env.ledger().set_timestamp(NOW);
