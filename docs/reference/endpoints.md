@@ -39,8 +39,8 @@ Every user mutation below requires the named caller, payer or liquidator to auth
 | `update_account_threshold(caller: Address, has_risks: bool, account_ids: Vec<u64>)` | None | gated | Refresh LTV; optional risk refresh requires final HF >= 1.05. |
 | `recapitalize(payer: Address, hub_asset: HubAssetKey, amount: i128) -> i128` | None | open | Measured backing injection; refund surplus; return amount applied. |
 | `renew_account(caller: Address, account_id: u64)` | NFT owner | open | Renew account and NFT ownership storage. |
-| `add_delegate(caller: Address, account_id: u64, delegate: Address)` | NFT owner | gated | Grant only to active approved manager; maximum 16. |
-| `remove_delegate(caller: Address, account_id: u64, delegate: Address)` | NFT owner | open | Revoke grant. |
+| `add_delegate(caller: Address, account_id: u64, delegate: Address)` | NFT owner | gated | Grant only to active approved manager; maximum 16. Replaces a previous owner's dormant list. |
+| `remove_delegate(caller: Address, account_id: u64, delegate: Address)` | NFT owner | open | Revoke grant. Grants survive an NFT transfer and return with the NFT, so revoke each one before transferring. Called by a new owner, deletes the previous owner's dormant list without an event. |
 
 ### Accounts and authorization
 

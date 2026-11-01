@@ -81,8 +81,11 @@ debt. This is not a narrowly scoped permission to handle a collectible.
 An account delegate also needs active global position-manager registration.
 Its grant is stamped with the granting owner's address, not a transfer epoch:
 it becomes inactive while someone else holds the NFT and can revive if the
-NFT returns before an intervening owner updates delegates. Owner revocation
-is immediate; global deactivation takes effect when governance executes it.
+NFT returns before an intervening owner updates delegates. A transfer is
+therefore not a revocation: an owner who wants delegates gone must call
+`remove_delegate` for each one before transferring, and no view lists the
+live delegates. Owner revocation is immediate; global deactivation takes
+effect when governance executes it.
 Delegates can borrow/withdraw to their chosen recipient within account gates.
 Those gates do not constrain them to acting in the owner's economic interest.
 
