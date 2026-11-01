@@ -49,6 +49,11 @@ For each candidate:
 when eligibility changes or no target debt remains. Identify the panicking
 contract before mapping the number.
 
+`liquidate` prices every supply and debt leg, so one failing price reverts it.
+When the failing asset is a dust debt leg, `repay` is permissionless and reads
+no price: repay that leg in full, then liquidate. A paused listing rejects that
+repayment.
+
 ## 2. Select the seize mode
 
 | Mode | Result | Estimate units | Main constraint |
@@ -73,9 +78,15 @@ manager delegated by that owner. Require the same spoke, `Normal` mode,
 and a receiver distinct from the target. Simulate the complete
 write for every mode.
 
-Use Credit when Transfer cannot draw pool cash. Convert Credit estimate shares
-to token units with the matching market supply index and asset decimals before
-valuation:
+Use Credit when Transfer cannot draw pool cash. A liquidation that leaves at
+most $5 of collateral below the remaining debt socializes that debt in the
+same call. A Credit receiver credited in a market written down there shares
+that write-down pro rata, and the estimate does not show it. In a shallow
+market a seize-all Credit liquidation can therefore lose money. Use Transfer
+there, or a partial size that leaves more than $5 of collateral.
+
+Convert Credit estimate shares to token units with the matching market supply
+index and asset decimals before valuation:
 
 ```text
 value_ray   = floor(shares * supply_index / RAY)

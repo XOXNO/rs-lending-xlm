@@ -66,7 +66,7 @@ Seizure checks only `no_seize`. Liquidators cannot choose a different collateral
 
 Credit liquidation transfers supply shares without moving collateral tokens. The receiver must differ from the target, share its spoke and use Normal mode. `Credit(0)` can create a receiver in a deprecated spoke. Position limits apply; collateral permissions and supply caps do not gate this credit.
 
-Liquidation estimates report gross seizure before protocol fees. Transfer-mode seizure and fees use token units; Credit-mode seizure and fees use RAY shares. `refunds` use debt-token units. Execution can differ from an estimate because prices, indexes and measured token delivery can change.
+Liquidation estimates report gross seizure before protocol fees. Transfer-mode seizure and fees use token units; Credit-mode seizure and fees use RAY shares. `refunds` use debt-token units. Execution can differ from an estimate because prices, indexes and measured token delivery can change. When a liquidation leaves the account eligible for dust cleanup, the same call socializes its remaining debt after the seizure; a `Credit` receiver credited in a market written down there shares that write-down pro rata. The estimate's share counts and `LiquidationEvent.bonus_bps` are amounts before that write-down.
 
 ### Strategy payments and callbacks
 

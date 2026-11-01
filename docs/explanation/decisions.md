@@ -172,6 +172,11 @@ A valuation-dependent operation must obtain every required valid price in its
 context. Price failure aborts the operation. This protects risk decisions at
 the cost of withdrawal and liquidation availability during outages.
 
+A borrower can hold a dust leg of a failing asset to block its own
+liquidation ([DoS.1](threat-model.md#stride-register)). Repayment reads no
+price, so anyone can repay a dust debt leg during the outage and then
+liquidate, unless that listing is paused.
+
 <a id="adr-0014"></a>
 
 ### ADR-0014: Governed source admission

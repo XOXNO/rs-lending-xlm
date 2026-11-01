@@ -263,8 +263,10 @@ pub(crate) fn record_share_credit_updates(
     }
 }
 
-/// Enforces receiver position limits to preserve the liquidation resource bound.
-/// The liquidator can choose `Credit(0)` if the existing receiver has no room.
+/// Enforces receiver position limits to preserve the liquidation resource bound,
+/// then whole-unit isolation. Each credited asset the receiver lacks takes a new
+/// slot under the governed limit. A `Credit(0)` receiver starts empty, so it
+/// fails once the seizure credits more assets than that limit allows.
 pub(crate) fn require_credit_position_limit(
     env: &Env,
     receiver: &Account,

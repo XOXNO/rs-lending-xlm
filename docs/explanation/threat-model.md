@@ -210,7 +210,8 @@ applies from that report. A liquidation does not decrease the units held for
 each unit of debt, so the result also applies after a liquidation. Thus
 lenders cannot lose while `LT < 1 / u`. The band ratio `u` is the threshold,
 not the price deviation. The Liqvid hub has LT 60% or 53% and `u` at most
-11/9, so it has a large margin.
+11/9, so it has a large margin. That margin statement covers the Liqvid hub
+only.
 
 This result has limits. It applies to one collateral leg. It prices the debt
 at its true value. If the debt feed can also move in its own band, the
@@ -218,6 +219,22 @@ effective `u` is the product of the two band ratios. It does not include
 interest that accrues after the borrow. When governance moves the band, the
 result applies again only from a report in the new band at which the account
 is healthy.
+
+Admission does not enforce this envelope. Listing validation checks only
+`LTV < LT <= 1` and `LT * (1 + bonus) <= 1`, and oracle admission reads no
+listing. Check each collateral and debt pair of a spoke against each provider
+contract. A provider's reach on a key is the largest ratio between two prices
+of that key that the aggregator accepts while every other provider stays
+fixed. The band bounds it. On a single-source key it is the band ratio. On a
+two-source key where the provider serves one leg, it is the upper tolerance
+ratio, because the midpoint moves by at most that ratio. A scaled source's
+price is factor times quote, so a provider that serves the factor feed moves
+it by up to `max_factor_wad / min_factor_wad`, times its reach on the quote
+key. A provider that serves both the collateral key and a debt key moves both
+at once, so lenders are safe from it only while
+`LT * reach(collateral) * reach(debt) < 1`. A two-source key whose legs have
+different provider sets is exempt from the 10% single-source band cap, so
+its band does not bound that reach to 11/9.
 
 The borrower has less protection. The bonus `b` is the curve bonus at the
 reported HF, capped at `HF / LT - 1`. It is not the base bonus. On the default
@@ -310,6 +327,25 @@ material unpaid backing, so displayed supplier claims are not a universal
 pro-rata cash-payout guarantee. New supply checks backing; recapitalization
 repairs the book's measured shortfall without minting shares.
 
+A liquidation that leaves the account's collateral at or below $5 with debt
+above it runs this cleanup in the same call, after the seizure. A `Credit`
+receiver credited in a market that this cleanup writes down is a supplier
+present at cleanup, so its credited shares lose the same fraction as every
+other claim in that market. `get_liquidation_estimate` share counts and
+`LiquidationEvent.bonus_bps` describe the plan before that write-down. In a
+shallow market, a seize-all `Credit` liquidation can therefore lose money
+where `Transfer` would not. A liquidator avoids it with `Transfer`, or with a
+partial size that leaves more than $5 of collateral, so no cleanup runs in
+that call.
+
+An insolvent account whose collateral-backed quote `floor(C / (1 + base))`
+is below one base unit of every debt leg cannot be liquidated: the trim drops
+every leg and `liquidate` reverts with `InvalidPayments` (16). With `C` above
+$5, only the owner's force-socialize path clears it. A borrowable token whose
+base unit is worth more than `$5 / (1 + base)`, about $4.76 at a 500 BPS base
+bonus, can create such accounts. That is a 3-decimal token above about
+$4,762 or a 4-decimal token above about $47,620. Listing review must note it.
+
 The compile-time dust cleanup threshold and governance-settable collateral
 floor can diverge. Above the permissionless cleanup threshold, an insolvent
 account may require the governed [force-socialize runbook](../reference/runbooks/force-socialize-bad-debt.md).
@@ -364,14 +400,14 @@ these rows do not assign severity or establish exploitability.
 | Info.2 | Liquidation competition and MEV; the bonus curve bounds terms, not ordering or liquidator profit. |
 | Info.3 | Visible pending governance changes allow anticipatory positioning; observability is intentional. |
 | Info.4 | Invalid quotes may contain prices; use validity flags or strict reads. |
-| DoS.1 | Price outage blocks valuation-dependent actions, including liquidation; fail-closed availability cost. Supply needs no price, so an indebted borrower can add a dust leg of any listed collateral and choose which feed outage shields the account. For an Aquarius LP leg, liquidity providers can cause that outage by withdrawing pool value below `min_pool_value_wad`. The same leg blocks bad-debt cleanup and force-socialization. |
+| DoS.1 | Price outage blocks valuation-dependent actions, including liquidation; fail-closed availability cost. A new supply leg needs no price, so an indebted borrower can add a dust leg of any listed collateral and choose which feed outage shields the account. A supply into an existing leg prices every leg of the account when the live listing favours liquidators over that leg's stored terms and the account has debt ([listing refresh gate](../reference/runbooks/liqvid-listing-params.md#10-existing-positions-keep-their-stamped-terms)). For an Aquarius LP leg, liquidity providers can cause that outage by withdrawing pool value below `min_pool_value_wad`. The same leg blocks bad-debt cleanup and force-socialization. A dust debt leg of the outage asset shields the same way, but borrowing prices every leg, so it must be opened while the feed is live. `repay` is permissionless and reads no price, so anyone can repay that leg during the outage and remove the shield before liquidating, unless the listing is paused. |
 | DoS.2 | Selected paused debt or no_seize collateral blocks liquidation; distinct flag policies matter. |
 | DoS.3 | False-alarm pause needs delayed reopening; emergency response is asymmetric. |
 | DoS.4 | Lost governance keys; proposer safeguards and owner-dependent canceller recovery do not restore a lost owner. |
 | DoS.5 | Resource exhaustion; limits do not substitute for real-WASM maximum-case measurements. |
 | DoS.6 | Archived storage blocks access until restoration; controller renewal is owner-authorized. |
 | DoS.7 | Signer liveness loss prevents new aggregates; a prior aggregate can remain usable until stale. |
-| DoS.8 | Cash/utilization/cap limits reject otherwise desired actions; zero caps admit no new exposure. |
+| DoS.8 | Cash/utilization/cap limits reject otherwise desired actions; zero caps admit no new exposure. A Transfer liquidation that burns a market's last supply shares while that market has debt reverts with `PoolInsolvent` (123) unless the leg's protocol fee books revenue shares first; `Credit` mode, a smaller Transfer seizure, or a repayment of that debt avoids it ([INV-ACCT-09](../reference/invariants.md#inv-acct-09)). |
 | DoS.9 | Dust and zero-share movements; rejection/floors reduce griefing but do not guarantee liquidation profitability. |
 | DoS.10 | Router/oracle owner loss disables administration; existing oracle signers may continue, but future repair powers are lost. The source ABIs export no `renounce_ownership`; verify that the deployed artifacts match. |
 | Elevation.1 | Governance-owner compromise; actual configured delay and approved replacement code determine exposure. |
