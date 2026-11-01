@@ -415,6 +415,12 @@ jobs:
             kind: contract
           - target: aggregator
             kind: contract
+          - target: oracle_math
+            kind: function
+          - target: oracle_sources
+            kind: contract
+          - target: xoxno_oracle
+            kind: contract
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

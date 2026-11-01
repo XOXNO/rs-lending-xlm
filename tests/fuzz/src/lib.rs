@@ -1,9 +1,12 @@
 mod context;
 mod decode;
 mod invariants;
+pub mod oracle_mocks;
 
 pub use context::{build_wide_context, LendingTest};
-pub use decode::{amount_for_value, asset_price_usd, fraction, scaled_amount, HF_WAD_FLOOR};
+pub use decode::{
+    amount_for_value, asset_price_usd, edge_biased_amount, fraction, scaled_amount, HF_WAD_FLOOR,
+};
 pub use invariants::{
     assert_flash_guard_cleared, assert_pool_accounting, assert_state_preserved_on_failure,
     assert_user_health, snapshot, StateSnapshot,
