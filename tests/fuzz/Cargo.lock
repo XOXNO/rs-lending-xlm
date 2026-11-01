@@ -1753,6 +1753,7 @@ dependencies = [
  "sha2",
  "soroban-sdk",
  "test-harness",
+ "xoxno-oracle",
 ]
 
 [[package]]

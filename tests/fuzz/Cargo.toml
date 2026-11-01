@@ -22,6 +22,7 @@ common = { path = "../../common" }
 controller = { path = "../../contracts/controller", features = ["testing"] }
 pool = { path = "../../contracts/pool" }
 price-aggregator = { path = "../../contracts/price-aggregator", features = ["testing"] }
+xoxno-oracle = { path = "../../contracts/xoxno-oracle" }
 mock-redstone = { path = "../../mock/mock-redstone" }
 test-harness = { path = "../test-harness", features = ["testing"] }
 num-bigint = "0.4"
@@ -79,6 +80,27 @@ bench = false
 [[bin]]
 name = "aggregator"
 path = "fuzz_targets/aggregator.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "oracle_sources"
+path = "fuzz_targets/oracle_sources.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "xoxno_oracle"
+path = "fuzz_targets/xoxno_oracle.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "oracle_math"
+path = "fuzz_targets/oracle_math.rs"
 test = false
 doc = false
 bench = false

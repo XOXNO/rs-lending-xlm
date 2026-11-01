@@ -58,6 +58,9 @@ focus_regex() {
         flow_e2e) echo 'contracts/controller/src/(positions|strategies|storage|risk|account|markets|payments|context|config)|common/src/oracle|TOTAL' ;;
         flow_strategy) echo 'contracts/controller/src/(strategies|positions|risk|payments|context)|TOTAL' ;;
         pool_native) echo 'contracts/pool/src|common/src/(rates|math|validation)|TOTAL' ;;
+        aggregator|oracle_sources) echo 'common/src/oracle|contracts/price-aggregator/src|TOTAL' ;;
+        xoxno_oracle) echo 'contracts/xoxno-oracle/src|TOTAL' ;;
+        oracle_math) echo 'common/src/oracle/(lp|lp_stable|observation)\.rs|providers/reflector\.rs|TOTAL' ;;
         *) echo 'TOTAL' ;;
     esac
 }
