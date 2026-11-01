@@ -1264,3 +1264,6 @@ fn test_the_first_stable_lp_leg_is_resolved_one_level_below_the_lp() {
 fn test_the_second_stable_lp_leg_is_resolved_one_level_below_the_lp() {
     assert_deepened_stable_leg_exhausts_the_cap(false);
 }
+
+#[path = "stable_lp_new002.rs"]
+mod new002;

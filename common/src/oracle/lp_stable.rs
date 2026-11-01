@@ -23,9 +23,11 @@ const MAX_NORMALIZED_RESERVE_WAD: u128 = 10u128.pow(34);
 
 /// Solves the two-coin StableSwap invariant `D` for WAD-normalized reserves
 /// `xa_wad` and `xb_wad` at amplification `amp`, via Newton-Raphson
-/// iteration. Returns `OracleError::InvalidPrice` if either reserve is not
-/// positive, `amp` is outside `[MIN_AMP, MAX_AMP]`, either reserve exceeds
-/// `MAX_NORMALIZED_RESERVE_WAD`, or the iteration does not converge within
+/// iteration. The result does not depend on the order of the two reserves.
+/// Returns `OracleError::InvalidPrice` if either reserve is not positive,
+/// `amp` is outside `[MIN_AMP, MAX_AMP]`, either reserve exceeds
+/// `MAX_NORMALIZED_RESERVE_WAD`, an intermediate product overflows `U256`
+/// (extreme reserve imbalance), or the iteration does not converge within
 /// `MAX_D_ITERATIONS` steps.
 fn solve_stable_d(env: &Env, xa_wad: i128, xb_wad: i128, amp: u128) -> Result<U256, OracleError> {
     if xa_wad <= 0
@@ -39,21 +41,33 @@ fn solve_stable_d(env: &Env, xa_wad: i128, xb_wad: i128, amp: u128) -> Result<U2
 
     let n = U256::from_u32(env, N_COINS);
     let one = U256::from_u32(env, 1);
-    let xa = U256::from_u128(env, xa_wad as u128);
-    let xb = U256::from_u128(env, xb_wad as u128);
+    // `d_p` divides by one reserve and then the other. The first quotient's
+    // truncation is multiplied by `d / (2 * second reserve)`, so dividing by the
+    // larger reserve first lets it outgrow the exit test below and the
+    // iteration cycles. Dividing by the smaller reserve first keeps it at a
+    // unit or two.
+    let (smaller, larger) = if xa_wad <= xb_wad {
+        (xa_wad, xb_wad)
+    } else {
+        (xb_wad, xa_wad)
+    };
+    let x_smaller = U256::from_u128(env, smaller as u128);
+    let x_larger = U256::from_u128(env, larger as u128);
 
-    let sum = xa.add(&xb);
+    let sum = x_smaller.add(&x_larger);
     let ann = U256::from_u128(env, amp).mul(&n);
 
+    // Every iterate stays below 2 * sum (< 2^116), so `d * d`, `ann * sum`,
+    // `(ann - 1) * d` and, once `d_p` exists, `2 * d_p` fit; only the products
+    // and sums carrying `d_p` can exceed U256.
     let mut d = sum.clone();
     for _ in 0..MAX_D_ITERATIONS {
-        let mut d_p = d.clone();
-        d_p = d_p.mul(&d).div(&xa.mul(&n));
-        d_p = d_p.mul(&d).div(&xb.mul(&n));
+        let d_p = d.mul(&d).div(&x_smaller.mul(&n));
+        let d_p = checked_mul(&d_p, &d)?.div(&x_larger.mul(&n));
 
         let d_prev = d.clone();
-        let numerator = ann.mul(&sum).add(&n.mul(&d_p)).mul(&d);
-        let denominator = ann.sub(&one).mul(&d).add(&n.add(&one).mul(&d_p));
+        let numerator = checked_mul(&checked_add(&ann.mul(&sum), &n.mul(&d_p))?, &d)?;
+        let denominator = checked_add(&ann.sub(&one).mul(&d), &checked_mul(&n.add(&one), &d_p)?)?;
         d = numerator.div(&denominator);
 
         let converged = if d >= d_prev {
@@ -66,6 +80,16 @@ fn solve_stable_d(env: &Env, xa_wad: i128, xb_wad: i128, amp: u128) -> Result<U2
         }
     }
     Err(OracleError::InvalidPrice)
+}
+
+/// `a * b`, or `InvalidPrice` where `U256` would overflow and trap the host.
+fn checked_mul(a: &U256, b: &U256) -> Result<U256, OracleError> {
+    a.checked_mul(b).ok_or(OracleError::InvalidPrice)
+}
+
+/// `a + b`, or `InvalidPrice` where `U256` would overflow and trap the host.
+fn checked_add(a: &U256, b: &U256) -> Result<U256, OracleError> {
+    a.checked_add(b).ok_or(OracleError::InvalidPrice)
 }
 
 /// Computes the fair-value price of one LP share, in WAD (1e18) scale, for a
@@ -287,3 +311,7 @@ mod tests {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "../../tests/oracle/lp_stable_new002.rs"]
+mod new002_tests;
