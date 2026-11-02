@@ -86,12 +86,12 @@ not increase.
 The market's backing check uses native units:
 
 ```rust
-let shortfall = max(0, floor(supply_value) - (cash + ceil(debt_value)));
+let shortfall = max(0, floor(supply_value_ray - ceil_ray(debt_value)) - cash);
 ```
 
-Addition and subtraction saturate. Supply entry rejects a positive shortfall.
-Recapitalization credits at most that shortfall, refunds excess and mints no
-shares.
+The RAY-precision gap rounds down to native units once; the cash subtraction
+saturates. Supply entry rejects a positive shortfall. Recapitalization credits
+at most that shortfall, refunds excess and mints no shares.
 
 Borrow draws must retain a 200 BPS liquidation buffer, rounded up from the
 floored supplied token value. Borrow, user withdrawal and revenue claims
@@ -487,7 +487,7 @@ These are arithmetic limits, not recommended market sizes or deployment proofs.
 These $5 repayment fixtures use ample collateral, selected USD prices and the
 decimals, bonus and fee of one mainnet listing each. They illustrate native
 arithmetic, excluding network fees and slippage. The prices are not live
-quotes; four rows sit at their listing's `max_sanity_price_wad`. The results
+quotes; five rows sit at their listing's `max_sanity_price_wad`. The results
 do not guarantee profitability. The fixture tests also run each row at its
 listing's `max_sanity_price_wad`. The fixture models at most two token-unit
 rounding costs per collateral leg; that is not a universal execution bound.

@@ -74,9 +74,12 @@ fn test_bulk_supply_returns_input_ordered_mutations() {
     let entry1 = PoolSupplyEntry {
         action: make_action(0, 100_000_000, &t.asset),
     };
-    let entry2 = PoolSupplyEntry {
-        action: make_action(0, 50_000_000, &t.asset),
-    };
+    // The same token on a second hub is a distinct market.
+    let params = t.client().get_sync_data(&hub(&t.asset)).params;
+    t.client().create_market(&1u32, &params);
+    let mut action2 = make_action(0, 50_000_000, &t.asset);
+    action2.hub_asset.hub_id = 1;
+    let entry2 = PoolSupplyEntry { action: action2 };
     let results = client.supply(&vec![&t.env, entry1, entry2]);
     assert_eq!(results.len(), 2);
     assert_eq!(results.get(0).unwrap().actual_amount, 100_000_000);

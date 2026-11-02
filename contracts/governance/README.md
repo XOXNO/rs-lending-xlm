@@ -31,8 +31,9 @@ are in its rustdoc.
 - An op executes once ready and before it expires. `execute` runs ops that
   target another contract; `execute_self` runs ops that target governance.
 - The owner must be the proposer for: ownership, upgrade, migration, delay
-  (`UpdateGovDelay`), oracle, swap-aggregator, Blend approval, accumulator and
-  role-grant ops.
+  (`UpdateGovDelay`), oracle, swap-aggregator, Blend approval, accumulator,
+  role-grant and position-manager activation ops. Any proposer can schedule a
+  position-manager deactivation; a GUARDIAN can also apply it immediately.
 
 ## Entrypoints
 
@@ -58,6 +59,7 @@ Recovery delay and cannot be cancelled.
 | `pause(caller)` | `GUARDIAN` | Pauses the controller |
 | `set_spoke_asset_flags(caller, spoke_id, hub_asset, paused, frozen, no_seize)` | `GUARDIAN` | Tightens a listing's halt flags (see below) |
 | `create_hub(caller) -> u32`, `add_spoke(caller) -> u32` | `GUARDIAN` | Creates a controller hub or spoke |
+| `deactivate_position_manager(caller, manager)`, `revoke_blend_pool(caller, pool)` | `GUARDIAN` | Withdraws a position manager or a Blend migration source; activation and approval stay timelocked |
 | `set_sanity_band(caller, key, min_wad, max_wad)` | `ORACLE` | Narrows an aggregator price band; a wider band reverts `SanityBandMustTighten` |
 | `revoke_role_immediate(account, role)` | owner | Strips `GUARDIAN` or `ORACLE` from `account` |
 

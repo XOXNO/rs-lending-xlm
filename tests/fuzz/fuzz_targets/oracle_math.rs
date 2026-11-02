@@ -93,26 +93,11 @@ fn check_stable(env: &Env, i: &In, a: &LpLeg, b: &LpLeg, supply: &LpSupply, any_
         fair_stable_lp_price_wad(env, a, b, supply, 1_000_001).is_err(),
         "amp above MAX_AMP accepted"
     );
-    match (&st1, &st_swapped) {
-        (Ok(p), Ok(q)) => {
-            // Leg order changes intermediate truncation by a few units of D; on dust pools one
-            // unit of D is a large share of the price (crash-5aa0db21...: 4 units = 0.047%).
-            let d_unit = to_wad(supply.total_shares, supply.decimals)
-                .filter(|s| *s > 0)
-                .map_or(0, |s| a.price_wad.min(b.price_wad) / s + 1);
-            let tol = (*p.max(q) / 100_000).max(d_unit.saturating_mul(8)).max(4);
-            assert!(
-                (p - q).abs() <= tol,
-                "stable LP price depends on leg order: {p} vs {q} a={a:?} b={b:?} \
-                 supply={supply:?} amp={amp1}"
-            );
-        }
-        // Known finding (crash-ac3b8816..., ratio 1e11; and a ratio ~7.8e3 case at amp 1):
-        // `solve_stable_d` truncates `D^2 / 2x` before the second leg, so one leg order can
-        // miss convergence while the other solves. Not asserted until the solver is fixed.
-        (Ok(_), Err(_)) | (Err(_), Ok(_)) => {}
-        _ => {}
-    }
+    // The solver orders legs by reserve, so both orders run the same arithmetic.
+    assert_eq!(
+        st1, st_swapped,
+        "stable LP price depends on leg order: a={a:?} b={b:?} supply={supply:?} amp={amp1}"
+    );
     if let Ok(p) = st1 {
         // D lies between 2*sqrt(xa*xb) and xa + xb.
         if let (Some(xa), Some(xb), Some(shares_wad)) = (
@@ -192,18 +177,5 @@ fuzz_target!(|i: In| {
         }
     }
 
-    // Known finding (artifact crash-5933d804...): with sum^3 / (2 * min_reserve) beyond
-    // U256, `solve_stable_d` traps on U256 overflow (lp_stable.rs:52/55) instead of
-    // returning InvalidPrice. Skip only that region so the rest stays fuzzed; delete
-    // this guard once the solver bounds it.
-    let known_stable_trap = match (to_wad(a.reserve, a.decimals), to_wad(b.reserve, b.decimals)) {
-        (Some(xa), Some(xb)) if xa > 0 && xb > 0 => {
-            let sum = xa as f64 + xb as f64;
-            sum.powi(3) / (2.0 * (xa.min(xb) as f64)) > 1e75
-        }
-        _ => false,
-    };
-    if !known_stable_trap {
-        check_stable(&env, &i, &a, &b, &supply, any_nonpositive);
-    }
+    check_stable(&env, &i, &a, &b, &supply, any_nonpositive);
 });

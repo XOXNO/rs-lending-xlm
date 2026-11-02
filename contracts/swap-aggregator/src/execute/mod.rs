@@ -60,7 +60,7 @@ pub(crate) fn run(env: Env, sender: Address, total_in: i128, payload: StrategyPa
         assets,
         ops,
     } = payload;
-    let program = Program::decode(&env, &ops, assets.len(), amounts.len());
+    let program = Program::decode(&env, &ops, &assets, amounts.len());
 
     let input_token = assets.get_unchecked(program.token_in);
     let output_token = assets.get_unchecked(program.token_out);

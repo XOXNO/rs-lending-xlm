@@ -970,6 +970,10 @@ fn test_a_scaled_chain_past_the_cap_is_rejected_by_the_depth_it_accumulates() {
             resolve_nested(&mut session, &current, 0),
             Err(common::errors::OracleError::OracleDepthExceeded)
         ));
+        // The depth error belongs to that walk, not to L1: a shallow read of
+        // L1 in the same session must still price.
+        let first_level = PriceKey::Ref(Symbol::new(&env, "L1"));
+        assert!(resolve_nested(&mut session, &first_level, 0).is_ok());
     });
 }
 

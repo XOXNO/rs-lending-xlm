@@ -207,6 +207,10 @@ pub trait GovernanceInterface {
 
     fn add_spoke(env: Env, caller: Address) -> u32;
 
+    fn deactivate_position_manager(env: Env, caller: Address, manager: Address);
+
+    fn revoke_blend_pool(env: Env, caller: Address, pool: Address);
+
     fn revoke_role_immediate(env: Env, account: Address, role: Symbol);
 
     fn execute_self(env: Env, executor: Option<Address>, op: AdminOperation, salt: BytesN<32>);

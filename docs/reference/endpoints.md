@@ -48,7 +48,7 @@ Account id `0` creates an account on `supply`, `multiply`, `flash_position`, `mi
 
 Delegates belong to the granting owner. An NFT transfer disables that owner's grants; a transfer back can reactivate them unless a later owner has replaced or deleted the list. NFT ownership, including control of collateral and the debt obligation, transfers atomically.
 
-Ordinary payment lists sum duplicate markets in first-appearance order and reject negative amounts. `supply`, `borrow` and `repay` reject zero. In `withdraw`, zero means the full balance and overrides positive amounts for the same market. Flash-position declaration lists reject duplicates.
+Ordinary payment lists sum duplicate markets in first-appearance order and reject negative amounts. `supply`, `borrow` and `repay` reject zero. In `withdraw`, zero means the full balance; a zero and a positive amount for the same market fail with `InvalidPayments`. Flash-position declaration lists reject duplicates.
 
 ### Risk checks and pause flags
 
@@ -218,6 +218,8 @@ Constructor `(admin: Address, min_delay: u32)` initializes the owner, access-con
 | `set_sanity_band(caller: Address, key: PriceKey, min_wad: i128, max_wad: i128)` | ORACLE_ROLE; immediate tightening only |
 | `create_hub(caller: Address) -> u32` | GUARDIAN_ROLE; immediate |
 | `add_spoke(caller: Address) -> u32` | GUARDIAN_ROLE; immediate |
+| `deactivate_position_manager(caller: Address, manager: Address)` | GUARDIAN_ROLE; immediate, deactivation only |
+| `revoke_blend_pool(caller: Address, pool: Address)` | GUARDIAN_ROLE; immediate, revocation only |
 | `revoke_role_immediate(account: Address, role: Symbol)` | Owner; only guardian/oracle roles |
 | `execute_self(executor: Option<Address>, op: AdminOperation, salt: BytesN<32>)` | Ready scheduled self-operation; optional executor |
 | `propose_canceller_reset(new_cancellers: Vec<Address>, salt: BytesN<32>) -> BytesN<32>` | Owner; schedule uncancellable recovery |
