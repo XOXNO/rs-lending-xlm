@@ -93,7 +93,7 @@ each proof README for numbers.
 | `HOST-OBJECT-LEMMAS` | same | 14 | Lean: `HostObjectLemmas.lean` (minWidth, signed/unsigned, memory model) |
 | `U64-BITWISE-SMT` | same | `#u64Or`, `#u64Xor` + 2 concrete rules + bv SMT hooks | Lean: `U64Lemmas.smt_hook_or/xor` |
 | `SIGNED-…-FIXED64-XOR` | `pool-math/proofs/borrow-double/double-cli.k` | 17 | Lean: `DoubleCliRules.lean` (one theorem per rule) |
-| `UTILIZATION-COMPLEMENT-LEMMAS` | `pool-math/proofs/utilization/arithmetic.k` | 39 (17 shared + 22 `utilization-*`) | Lean: `utilization/lean/*` (rule-by-rule mapping pending) |
+| `UTILIZATION-COMPLEMENT-LEMMAS` | `pool-math/proofs/utilization/arithmetic.k` | 39 (17 shared + 22 `utilization-*`) | Lean: `utilization/lean/UtilizationRules.lean` (one theorem per `utilization-*` rule) + `DoubleCliRules.lean` |
 
 Backend repairs that matter for soundness: the erased-operand definedness
 guard (with requires rollback) in Booster `ApplyEquations.hs`; see
