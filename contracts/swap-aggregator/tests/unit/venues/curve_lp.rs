@@ -164,7 +164,7 @@ fn curve_lp_real_rejects_other_pool_lp_and_absent_constituent_with_complete_roll
 }
 
 #[test]
-fn curve_lp_real_mint_without_nested_transfer_authorization_fails_and_rolls_back() {
+fn curve_pool_requires_caller_transfer_auth_for_mint() {
     let mut f = Fixture::new(2);
     f.router = f.env.register(UnauthenticatedMint, ());
     let input = f.tokens.get(0).unwrap();

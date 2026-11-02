@@ -560,18 +560,22 @@ fn validate_rejects_a_swap_between_one_token_and_itself() {
 #[test]
 fn validate_rejects_an_unknown_opcode() {
     let env = Env::default();
-    let ops = alloc::vec![RawOp {
-        opcode: u8::MAX,
-        mode: encode::ALL,
-        idx_a: 0,
-        idx_b: 1,
-        idx_c: 2,
-    }];
-    let bytes = encode::program(&env, 1, 2, 0, 0, &ops, &[]);
-    assert_eq!(
-        decode_error(&env, &bytes, 3, 1),
-        Error::InvalidRouteXdr.into()
-    );
+    // 8 is the first byte past the last venue opcode (7, Curve).
+    for opcode in [8, u8::MAX] {
+        let ops = alloc::vec![RawOp {
+            opcode,
+            mode: encode::ALL,
+            idx_a: 0,
+            idx_b: 1,
+            idx_c: 2,
+        }];
+        let bytes = encode::program(&env, 1, 2, 0, 0, &ops, &[]);
+        assert_eq!(
+            decode_error(&env, &bytes, 3, 1),
+            Error::InvalidRouteXdr.into(),
+            "opcode {opcode} must be rejected"
+        );
+    }
 }
 
 /// Both liquidity legs consume the whole vault balance, so a sized mode would

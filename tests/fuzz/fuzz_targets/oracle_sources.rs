@@ -915,6 +915,11 @@ fuzz_target!(|i: In| {
     };
 
     let admitted = install(&agg, &key, &cfg);
+    // Curve selectors 7..=15 each break the pool binding or its views.
+    assert!(
+        !(admitted && shape == 8 && i.lp.corrupt % 16 >= 7),
+        "set_oracle admitted a corrupt Curve pool"
+    );
     if admitted && cfg.has_lp_source() {
         let q = quote(&env, &agg, &key).expect("an admitted LP oracle must quote");
         assert!(

@@ -522,7 +522,8 @@ $(extract validate_configs)
 validate_configs
 EOF
 echo '{}' > "$tmp/curve-spokes.json"
-jq '{markets:[.markets[0]]} |
+jq '.markets[0] as $coin |
+    {markets:[$coin] + [("B", "D", "E") as $c | $coin | .name = $c | .asset_address = ("C" + ($c * 55))]} |
     .markets[0].asset_address = ("C" + ("A" * 55)) |
     .markets[0].oracle |= (.asset_decimals = 18 |
         .tolerance = {upper_ratio_bps:0,lower_ratio_bps:0} |
@@ -540,6 +541,9 @@ for mutation in \
     '.markets[0].oracle.sources[0].CurveStableLp.coins |= .[:1]' \
     '.markets[0].oracle.sources[0].CurveStableLp.coins += ["C" + ("F" * 55)]' \
     '.markets[0].oracle.sources[0].CurveStableLp.coins[2] = .markets[0].oracle.sources[0].CurveStableLp.coins[0]' \
+    '.markets[0].oracle.sources[0].CurveStableLp.coins[1] = .markets[0].oracle.sources[0].CurveStableLp.pool' \
+    '.markets[0].oracle.sources[0].CurveStableLp.coins[0] = "bad"' \
+    '.markets |= .[:3]' \
     '.markets[0].oracle.sources[0].CurveStableLp.min_pool_value_wad = "0"' \
     '.markets[0].oracle.sources += .markets[0].oracle.sources'; do
     jq "$mutation" "$tmp/curve-valid.json" > "$tmp/curve-market.json"

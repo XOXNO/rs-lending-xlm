@@ -1414,8 +1414,14 @@ validate_configs() {
                     all($lp.coins[]; test("^C[A-Z2-7]{55}$") and . != $lp.pool) and
                     ($lp.min_pool_value_wad | tonumber) > 0
                 ' >/dev/null; then
-                    vc_err "market ${m}: sources[$i] Curve LP needs the pool LP token, 18 decimals, a reviewed WASM hash, 2..3 distinct ordered coins, and a positive liquidity floor"
+                    vc_err "market ${m}: sources[$i] Curve LP needs the pool LP token, 18 decimals, a 64-hex WASM hash, 2..3 distinct ordered coins, and a positive liquidity floor"
                 fi
+                local coin
+                while IFS= read -r coin; do
+                    if ! jq -e --arg a "$coin" 'any(.markets[]?; .asset_address == $a)' "$MARKET_CONFIG_FILE" >/dev/null; then
+                        vc_err "market ${m}: sources[$i] Curve coin ${coin} not in markets.json"
+                    fi
+                done < <(printf '%s' "$sjson" | jq -r '.CurveStableLp.coins[]? | strings')
                 i=$((i + 1))
                 continue
             else

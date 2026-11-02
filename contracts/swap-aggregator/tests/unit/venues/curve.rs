@@ -6,7 +6,6 @@ use soroban_sdk::{
 
 use crate::{
     errors::Error,
-    program::MAX_ASSETS,
     types::{SwapHop, SwapVenue},
     Router, RouterClient,
 };
@@ -249,16 +248,18 @@ fn curve_rejects_invalid_coins_and_missing_route_token_before_exchange() {
     let a = fixture.tokens.get(0).unwrap();
     let b = fixture.tokens.get(1).unwrap();
     let absent = Address::generate(env);
-    let oversized = Vec::from_iter(env, (0..=MAX_ASSETS).map(|_| Address::generate(env)));
-    for coins in [
-        vec![env],
-        vec![env, a.clone()],
-        vec![env, a.clone(), a.clone()],
-        vec![env, a.clone(), absent.clone()],
-        vec![env, b.clone(), absent],
-        oversized,
+    let own = Address::generate(env);
+    // The first two lists hold both route tokens, so only `pool_tokens` can reject them.
+    for (pool, coins) in [
+        (
+            Address::generate(env),
+            vec![env, a.clone(), b.clone(), a.clone()],
+        ),
+        (own.clone(), vec![env, a.clone(), b.clone(), own]),
+        (Address::generate(env), vec![env, a.clone(), absent.clone()]),
+        (Address::generate(env), vec![env, b.clone(), absent]),
     ] {
-        let pool = env.register(AdversarialPool, (&coins,));
+        env.register_at(&pool, AdversarialPool, (&coins,));
         let before = fixture.state();
         let xdr = fixture.payload(alloc::vec![curve_hop(&pool, &a, &b)], 1);
         assert_eq!(
