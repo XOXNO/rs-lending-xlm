@@ -192,6 +192,42 @@ fn set_oracle_replaces_a_key_that_keeps_its_decimals() {
     assert_eq!(client.oracle(&key), Some(retuned));
 }
 
+/// A dual oracle: a direct `DIRECT` feed on `direct_adapter`, and `FACTOR` on
+/// `factor_adapter` scaled by `quote_key`.
+fn scaled_parent(
+    env: &Env,
+    direct_adapter: &Address,
+    factor_adapter: &Address,
+    quote_key: &PriceKey,
+    independence: IndependencePolicy,
+) -> AssetOracle {
+    let factor_feed = match redstone_feed(env, factor_adapter, "FACTOR", 900) {
+        PriceSource::Feed(feed) => feed,
+        _ => unreachable!(),
+    };
+    AssetOracle {
+        asset_decimals: 7,
+        max_price_stale_seconds: 900,
+        sources: soroban_sdk::vec![
+            env,
+            redstone_feed(env, direct_adapter, "DIRECT", 900),
+            PriceSource::Scaled(ScaledSource {
+                factor: factor_feed,
+                quote: quote_key.clone(),
+                min_factor_wad: WAD,
+                max_factor_wad: WAD,
+            }),
+        ],
+        tolerance: OracleTolerance {
+            upper_ratio_bps: 10_500,
+            lower_ratio_bps: 9_524,
+        },
+        independence,
+        min_sanity_price_wad: WAD / 2,
+        max_sanity_price_wad: 2 * WAD,
+    }
+}
+
 #[test]
 fn child_reconfiguration_cannot_invalidate_parent_independence() {
     let env = Env::default();
@@ -209,32 +245,14 @@ fn child_reconfiguration_cannot_invalidate_parent_independence() {
     original_quote.asset_decimals = 0;
     client.set_oracle(&quote_key, &original_quote);
 
-    let factor_feed = match redstone_feed(&env, &factor_adapter, "FACTOR", 900) {
-        PriceSource::Feed(feed) => feed,
-        _ => unreachable!(),
-    };
     let parent_key = PriceKey::Token(Address::generate(&env));
-    let parent = AssetOracle {
-        asset_decimals: 7,
-        max_price_stale_seconds: 900,
-        sources: soroban_sdk::vec![
-            &env,
-            redstone_feed(&env, &direct_adapter, "DIRECT", 900),
-            PriceSource::Scaled(ScaledSource {
-                factor: factor_feed,
-                quote: quote_key.clone(),
-                min_factor_wad: WAD,
-                max_factor_wad: WAD,
-            }),
-        ],
-        tolerance: OracleTolerance {
-            upper_ratio_bps: 10_500,
-            lower_ratio_bps: 9_524,
-        },
-        independence: IndependencePolicy::RequireDisjoint,
-        min_sanity_price_wad: WAD / 2,
-        max_sanity_price_wad: 2 * WAD,
-    };
+    let parent = scaled_parent(
+        &env,
+        &direct_adapter,
+        &factor_adapter,
+        &quote_key,
+        IndependencePolicy::RequireDisjoint,
+    );
     client.set_oracle(&parent_key, &parent);
 
     let mut repointed = redstone_single(&env, &direct_adapter, "DIRECT", 900);
@@ -242,6 +260,47 @@ fn child_reconfiguration_cannot_invalidate_parent_independence() {
     assert!(client.try_set_oracle(&quote_key, &repointed).is_err());
     assert_eq!(client.oracle(&quote_key), Some(original_quote));
     assert_eq!(hard_price(&env, &client, parent_key).price_wad, WAD);
+}
+
+#[test]
+fn child_edit_that_drops_a_declared_shared_provider_keeps_the_parent_valid() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (_owner, client) = register_agg(&env);
+    let (direct_adapter, direct) = register_feed(&env);
+    let (factor_adapter, factor) = register_feed(&env);
+    let (quote_adapter, quote) = register_feed(&env);
+    direct.set_price(&String::from_str(&env, "DIRECT"), &WAD);
+    direct.set_price(&String::from_str(&env, "QUOTE"), &WAD);
+    factor.set_price(&String::from_str(&env, "FACTOR"), &WAD);
+    quote.set_price(&String::from_str(&env, "QUOTE"), &WAD);
+
+    // The quote starts on the direct leg's adapter, so the parent shares it.
+    let quote_key = PriceKey::Ref(soroban_sdk::Symbol::new(&env, "QUOTE"));
+    let mut shared_quote = redstone_single(&env, &direct_adapter, "QUOTE", 900);
+    shared_quote.asset_decimals = 0;
+    client.set_oracle(&quote_key, &shared_quote);
+    let parent_key = PriceKey::Token(Address::generate(&env));
+    let declared = IndependencePolicy::AllowShared(Vec::from_array(&env, [direct_adapter.clone()]));
+    let parent = scaled_parent(&env, &direct_adapter, &factor_adapter, &quote_key, declared);
+    client.set_oracle(&parent_key, &parent);
+
+    // Moving the quote off the shared adapter shrinks the overlap to nothing;
+    // the parent's declaration still covers it.
+    let mut moved_quote = redstone_single(&env, &quote_adapter, "QUOTE", 900);
+    moved_quote.asset_decimals = 0;
+    client.set_oracle(&quote_key, &moved_quote);
+    assert_eq!(client.oracle(&quote_key), Some(moved_quote));
+    client.set_sanity_band(&parent_key, &(WAD / 2), &(WAD * 3 / 2));
+    assert_eq!(hard_price(&env, &client, parent_key.clone()).price_wad, WAD);
+
+    // The parent's own `set_oracle` still demands an exact declaration.
+    assert_eq!(
+        client.try_set_oracle(&parent_key, &parent),
+        Err(Ok(soroban_sdk::Error::from_contract_error(
+            Error::IndependenceNotDeclared as u32,
+        )))
+    );
 }
 
 #[test]

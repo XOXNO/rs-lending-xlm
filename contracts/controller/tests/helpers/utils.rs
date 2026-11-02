@@ -48,7 +48,7 @@ fn aggregate_zero_is_withdraw_all_sentinel() {
         0
     );
     assert_eq!(
-        aggregate_payment_amount(&env, Some(0), 5, ZeroLeg::MeansAll),
+        aggregate_payment_amount(&env, Some(0), 0, ZeroLeg::MeansAll),
         0
     );
     assert_eq!(

@@ -372,7 +372,7 @@ fn test_withdraw_aggregates_duplicate_assets() {
 }
 
 #[test]
-fn test_withdraw_duplicate_zero_full_close_is_sticky() {
+fn test_withdraw_rejects_mixed_zero_and_positive_legs() {
     let mut t = LendingTest::new()
         .with_market(usdc_preset())
         .with_dust_disabled_all_markets()
@@ -381,27 +381,20 @@ fn test_withdraw_duplicate_zero_full_close_is_sticky() {
     t.supply(ALICE, "USDC", 10_000.0);
     let usdc = t.resolve_asset("USDC");
     let wallet_before = t.token_balance_raw(ALICE, "USDC");
-    let withdrawals = vec![
-        &t.env,
-        (hub_asset(usdc.clone()), 10_000_000_000i128),
-        (hub_asset(usdc.clone()), 0i128),
-        (hub_asset(usdc), 5_000_000_000i128),
-    ];
+    let supply_before = t.supply_balance_raw(ALICE, "USDC");
+    // Both leg orders: a zero (withdraw-all) leg cannot mix with a positive one.
+    for (first, second) in [(5_000_000_000i128, 0i128), (0i128, 5_000_000_000i128)] {
+        let withdrawals = vec![
+            &t.env,
+            (hub_asset(usdc.clone()), first),
+            (hub_asset(usdc.clone()), second),
+        ];
 
-    let paid = try_withdraw_payments(&mut t, ALICE, withdrawals).unwrap();
-
-    assert_eq!(paid.len(), 1, "zero sentinel should stay aggregated");
-    let (_, paid_amount) = paid.get(0).unwrap();
-    assert!(
-        (99_999_999_999..=100_000_000_000).contains(&paid_amount),
-        "sticky zero should full-close and pay ~10k USDC, got {paid_amount}"
-    );
-    assert_eq!(
-        t.token_balance_raw(ALICE, "USDC") - wallet_before,
-        paid_amount
-    );
-    assert_eq!(t.supply_balance_raw(ALICE, "USDC"), 0);
-    assert_eq!(t.get_active_accounts(ALICE).len(), 0);
+        let result = try_withdraw_payments(&mut t, ALICE, withdrawals);
+        assert_contract_error(result, errors::INVALID_PAYMENTS);
+    }
+    assert_eq!(t.token_balance_raw(ALICE, "USDC"), wallet_before);
+    assert_eq!(t.supply_balance_raw(ALICE, "USDC"), supply_before);
 }
 
 #[test]

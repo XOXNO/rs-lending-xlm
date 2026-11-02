@@ -242,8 +242,10 @@ fn propose_transfer_controller_ownership_rejects_non_contract_owner() {
     assert_contract_error(mapped, errors::NOT_SMART_CONTRACT);
 }
 
+/// Execution is permissionless: a named executor without `EXECUTOR` reverts,
+/// but the same ready op runs with no executor named and no role held.
 #[test]
-fn non_executor_execute_rejected() {
+fn execution_is_permissionless_but_a_named_executor_needs_the_role() {
     let t = LendingTest::new().build();
     let gov = t.gov_iface_client();
     let admin = t.admin();
@@ -262,11 +264,13 @@ fn non_executor_execute_rejected() {
         .ledger()
         .with_mut(|l| l.sequence_number += TEST_DELAY_LEDGERS);
 
+    let args = soroban_sdk::vec![&t.env, new_limits.into_val(&t.env)];
+    let function = Symbol::new(&t.env, SET_POSITION_LIMITS);
     let result = gov.try_execute(
         &Some(stranger),
         &t.controller,
-        &Symbol::new(&t.env, SET_POSITION_LIMITS),
-        &soroban_sdk::vec![&t.env, new_limits.into_val(&t.env)],
+        &function,
+        &args,
         &salt(&t.env, 0),
         &s,
     );
@@ -275,6 +279,13 @@ fn non_executor_execute_rejected() {
         Err(e) => Err(e.expect("expected contract error, got InvokeError")),
     };
     assert_contract_error(mapped, errors::UNAUTHORIZED);
+
+    // No executor named: the op runs without any authorization or role.
+    t.env.set_auths(&[]);
+    gov.execute(&None, &t.controller, &function, &args, &salt(&t.env, 0), &s);
+    let stored = read_controller_position_limits(&t);
+    assert_eq!(stored.max_supply_positions, 5);
+    assert_eq!(stored.max_borrow_positions, 4);
 }
 
 #[test]

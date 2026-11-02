@@ -118,7 +118,7 @@ fn revalidate_dependents(env: &Env, changed: &PriceKey) {
         }
         let oracle = registry::get_oracle(env, &candidate)
             .unwrap_or_else(|| panic_with_error!(env, OracleError::OracleNotConfigured));
-        validate_asset_oracle(env, &candidate, &oracle);
+        validate_oracle(env, &candidate, &oracle, false);
     }
 }
 
@@ -148,8 +148,15 @@ fn depends_on(env: &Env, root: &PriceKey, target: &PriceKey, visiting: &mut Vec<
 /// bounds, source shape and count, asset decimals, composition depth,
 /// staleness, smoothing, tolerance, and source independence, with the
 /// smoothing and tolerance checks waived for Aquarius LP oracles. Panics if
-/// any check fails.
+/// any check fails. An `AllowShared` declaration must match the shared set
+/// exactly.
 pub(crate) fn validate_asset_oracle(env: &Env, key: &PriceKey, oracle: &AssetOracle) {
+    validate_oracle(env, key, oracle, true);
+}
+
+/// Runs [`validate_asset_oracle`]'s checks; `exact_independence` false lets a
+/// stored `AllowShared` declaration cover a shared set that has since shrunk.
+fn validate_oracle(env: &Env, key: &PriceKey, oracle: &AssetOracle, exact_independence: bool) {
     let mut session = Session::new(env);
     session.push_key(key);
     let derived = properties::properties_of_config(&mut session, &oracle.sources);
@@ -202,7 +209,13 @@ pub(crate) fn validate_asset_oracle(env: &Env, key: &PriceKey, oracle: &AssetOra
         validate_oracle_tolerance(env, &oracle.tolerance);
     }
     if let Some(second) = derived.second.as_ref() {
-        validation::independence(env, &derived.first, second, &oracle.independence);
+        validation::independence(
+            env,
+            &derived.first,
+            second,
+            &oracle.independence,
+            exact_independence,
+        );
     }
 }
 
@@ -224,7 +237,7 @@ pub(crate) fn set_sanity_band(env: &Env, key: PriceKey, min_wad: i128, max_wad: 
     );
     oracle.min_sanity_price_wad = min_wad;
     oracle.max_sanity_price_wad = max_wad;
-    validate_asset_oracle(env, &key, &oracle);
+    validate_oracle(env, &key, &oracle, false);
 
     let mut session = Session::new(env);
     engine::probe(&mut session, &key, &oracle);

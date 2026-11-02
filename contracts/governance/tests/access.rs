@@ -1,6 +1,6 @@
 use super::*;
-use soroban_sdk::testutils::Address as _;
-use soroban_sdk::Env;
+use soroban_sdk::testutils::{Address as _, Events as _};
+use soroban_sdk::{Env, Event as _};
 
 use crate::test_support::fresh_governance;
 use crate::{constants, GovernanceClient};
@@ -63,6 +63,17 @@ fn grant_role_allows_separated_executor_and_canceller() {
                 .is_some()
         );
     });
+    // A timelocked grant names governance, not the owner, as the caller.
+    let granted = access_control::RoleGranted {
+        role: Symbol::new(&env, CANCELLER_ROLE),
+        account: canceller,
+        caller: id.clone(),
+    };
+    assert!(env
+        .events()
+        .all()
+        .events()
+        .contains(&granted.to_xdr(&env, &id)));
 }
 
 #[test]
@@ -111,7 +122,7 @@ fn revoke_role_rejects_unheld() {
     let id = fresh_governance(&env);
     let stranger = Address::generate(&env);
     env.as_contract(&id, || {
-        apply_revoke_role(&env, &stranger, &Symbol::new(&env, ORACLE_ROLE));
+        apply_revoke_role(&env, &stranger, &Symbol::new(&env, ORACLE_ROLE), &id);
     });
 }
 
@@ -132,6 +143,16 @@ fn canceller_reset_grants_each_member_once() {
         assert!(access_control::has_role(&env, &owner, &role).is_some());
         assert_eq!(access_control::get_role_member_count(&env, &role), 2);
     });
+    let granted = access_control::RoleGranted {
+        role: Symbol::new(&env, CANCELLER_ROLE),
+        account: a,
+        caller: id.clone(),
+    };
+    assert!(env
+        .events()
+        .all()
+        .events()
+        .contains(&granted.to_xdr(&env, &id)));
 }
 
 /// The constructor emits `ownership_transfer_completed` and

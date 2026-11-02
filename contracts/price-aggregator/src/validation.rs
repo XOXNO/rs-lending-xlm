@@ -10,8 +10,8 @@ use common::oracle::observation::{
     MAX_ORACLE_DECIMALS, MAX_PRICE_STALE_SECONDS, MIN_ORACLE_DECIMALS, MIN_PRICE_STALE_SECONDS,
 };
 use common::types::{
-    AquariusLpSource, FeedSource, IndependencePolicy, OracleReadMode, PriceKey, PriceSource,
-    ProviderRef, ScaledSource, MAX_RESOLUTION_DEPTH, MAX_SOURCES, MIN_SOURCES,
+    AquariusLpSource, FeedSource, IndependencePolicy, OracleAssetRef, OracleReadMode, PriceKey,
+    PriceSource, ProviderRef, ScaledSource, MAX_RESOLUTION_DEPTH, MAX_SOURCES, MIN_SOURCES,
 };
 use common::validation::validate_twap_records;
 use soroban_sdk::{panic_with_error, Address, Env, Vec};
@@ -68,12 +68,16 @@ pub(crate) fn smoothing(env: &Env, first: &SourceProperties, second: Option<&Sou
 /// `policy`, panicking with `OracleError::IndependenceNotDeclared` if
 /// `policy` requires disjoint sources and any contract is shared, or if
 /// `policy` declares an allowed-shared set that is empty or does not
-/// exactly match the contracts actually shared between the two.
+/// cover the contracts actually shared between the two. With `exact`, the
+/// declared set must also match the shared set exactly; without it (a
+/// dependent revalidated after a key it reads changed, or a sanity-band
+/// edit), any subset passes.
 pub(crate) fn independence(
     env: &Env,
     first: &SourceProperties,
     second: &SourceProperties,
     policy: &IndependencePolicy,
+    exact: bool,
 ) {
     let shared = first.shared_contracts_with(env, second);
     match policy {
@@ -81,7 +85,9 @@ pub(crate) fn independence(
             panic_with_error!(env, OracleError::IndependenceNotDeclared)
         }
         IndependencePolicy::AllowShared(declared)
-            if declared.is_empty() || !same_address_set(&shared, declared) =>
+            if declared.is_empty()
+                || !covers(declared, &shared)
+                || (exact && !covers(&shared, declared)) =>
         {
             panic_with_error!(env, OracleError::IndependenceNotDeclared)
         }
@@ -92,8 +98,12 @@ pub(crate) fn independence(
 /// Returns whether `left` and `right` contain exactly the same addresses,
 /// irrespective of order or duplicates.
 pub(crate) fn same_address_set(left: &Vec<Address>, right: &Vec<Address>) -> bool {
-    left.iter().all(|address| right.contains(&address))
-        && right.iter().all(|address| left.contains(&address))
+    covers(left, right) && covers(right, left)
+}
+
+/// Returns whether every address in `inner` also appears in `outer`.
+fn covers(outer: &Vec<Address>, inner: &Vec<Address>) -> bool {
+    inner.iter().all(|address| outer.contains(&address))
 }
 
 /// Validates the shape of a single price source, dispatching to the
@@ -149,8 +159,9 @@ fn key_prices_token(key: &PriceKey, token: &Address) -> bool {
 /// `MIN_ORACLE_DECIMALS..=MAX_ORACLE_DECIMALS`, and with
 /// `OracleError::InvalidStalenessConfig` if `feed.max_stale_seconds` falls
 /// outside `MIN_PRICE_STALE_SECONDS..=MAX_PRICE_STALE_SECONDS`. For a
-/// Reflector provider in TWAP read mode, also validates the TWAP record
-/// count via `validate_twap_records` and panics with
+/// Reflector provider, panics with `OracleError::InvalidOracleTokenType` if
+/// the asset is a `String` reference; in TWAP read mode, also validates the
+/// TWAP record count via `validate_twap_records` and panics with
 /// `OracleError::TwapInsufficientObservations` if it is below
 /// `MIN_SMOOTHING_TWAP_RECORDS`.
 fn feed_shape(env: &Env, feed: &FeedSource) {
@@ -161,6 +172,9 @@ fn feed_shape(env: &Env, feed: &FeedSource) {
         panic_with_error!(env, OracleError::InvalidStalenessConfig);
     }
     if let ProviderRef::Reflector(reflector) = &feed.provider {
+        if matches!(reflector.asset, OracleAssetRef::String(_)) {
+            panic_with_error!(env, OracleError::InvalidOracleTokenType);
+        }
         if let OracleReadMode::Twap(records) = reflector.read_mode {
             validate_twap_records(env, records);
             if records < MIN_SMOOTHING_TWAP_RECORDS {
