@@ -1,0 +1,16 @@
+{
+ "proofs": [
+  {
+   "name": "borrow-double",
+   "crate": "komet/pool-math",
+   "feature": "borrow-double",
+   "wasm_sha256": "099e7e12701d31576386154e93ffe1c1b3afe9aa981e62a59f291bf442820073",
+   "module": "komet/pool-math/proofs/borrow-double/double-cli.k:SIGNED-DISTRIBUTE-COMPLEMENT-NEGATIVE-PACK64-DOUBLE-RAY-SIGNED-DECODER-FLOOR-EQUALITY-LOW-WORD-SIGNED64-SIGN-FIXED64-XOR",
+   "cap_seconds": 14400,
+   "tests": [
+    {"id": "test_borrow_double", "expect": "pass"},
+    {"id": "test_borrow_double_wrong", "expect": "fail"}
+   ]
+  }
+ ]
+}
