@@ -13,6 +13,7 @@ HUBS_FILE="$CONFIG_ROOT/${NETWORK}/hubs.json"
 SPOKES_FILE="$CONFIG_ROOT/${NETWORK}/spokes.json"
 MARKET_CONFIG_FILE="$CONFIG_ROOT/${NETWORK}/markets.json"
 BLEND_POOLS_FILE="$CONFIG_ROOT/${NETWORK}/blend.json"
+CURVE_REVIEWED_POOLS_FILE="$CONFIG_ROOT/${NETWORK}/curve_reviewed_pools.json"
 
 require_tool() {
     if ! command -v "$1" >/dev/null 2>&1; then
@@ -84,6 +85,22 @@ get_market_value() {
     local market=$1
     local field=$2
     jq -r ".markets[] | select(.name == \"$market\") | .$field" "$MARKET_CONFIG_FILE"
+}
+
+# LP prices (Aquarius or Curve) are collateral-only: an LP mark is a
+# conservative lower bound, so it understates a debt denominated in the LP.
+market_has_lp_source() {
+    jq -e --arg m "$1" '
+        any(.markets[]? | select(.name == $m) | .oracle.sources[]?;
+            has("AquariusLp") or has("AquariusStableLp") or has("CurveStableLp"))
+    ' "$MARKET_CONFIG_FILE" >/dev/null
+}
+
+refuse_borrowable_lp() {
+    local asset_name=$1 can_borrow=$2
+    if [ "$can_borrow" = "true" ] && market_has_lp_source "$asset_name"; then
+        die "${asset_name} has an LP oracle source and is collateral-only; set can_be_borrowed: false in ${SPOKES_FILE}"
+    fi
 }
 
 get_spoke_value() {
@@ -1211,6 +1228,24 @@ validate_configs() {
         fi
     done
 
+    # Governance-reviewed Curve pool executables for this network. A missing
+    # file lists nothing, so any CurveStableLp source then fails below.
+    local curve_reviewed='[]'
+    if [ -f "$CURVE_REVIEWED_POOLS_FILE" ]; then
+        if ! jq -e '
+            (.pools | type) == "array" and
+            all(.pools[];
+                (.wasm_hash | type == "string" and test("^[0-9a-f]{64}$")) and
+                all(.source_repo, .source_commit, .review, .expected_factory;
+                    type == "string" and length > 0)) and
+            ([.pools[].wasm_hash] | unique | length) == (.pools | length)
+        ' "$CURVE_REVIEWED_POOLS_FILE" >/dev/null 2>&1; then
+            vc_err "${CURVE_REVIEWED_POOLS_FILE}: need {\"pools\": [...]} with unique lowercase 64-hex wasm_hash and non-empty source_repo, source_commit, review, expected_factory"
+        else
+            curve_reviewed=$(jq -c '[.pools[].wasm_hash]' "$CURVE_REVIEWED_POOLS_FILE")
+        fi
+    fi
+
     local cex dex fx redstone chainlink xoxno_adapter
     cex=$(get_cex_oracle)
     dex=$(get_dex_oracle)
@@ -1416,6 +1451,11 @@ validate_configs() {
                 ' >/dev/null; then
                     vc_err "market ${m}: sources[$i] Curve LP needs the pool LP token, 18 decimals, a 64-hex WASM hash, 2..3 distinct ordered coins, and a positive liquidity floor"
                 fi
+                if ! printf '%s' "$sjson" | jq -e --argjson reviewed "$curve_reviewed" '
+                    (.CurveStableLp.wasm_hash | ascii_downcase) as $h | $reviewed | index($h) != null
+                ' >/dev/null 2>&1; then
+                    vc_err "market ${m}: sources[$i] Curve wasm_hash $(printf '%s' "$sjson" | jq -r '.CurveStableLp.wasm_hash') is not in ${CURVE_REVIEWED_POOLS_FILE}"
+                fi
                 local coin
                 while IFS= read -r coin; do
                     if ! jq -e --arg a "$coin" 'any(.markets[]?; .asset_address == $a)' "$MARKET_CONFIG_FILE" >/dev/null; then
@@ -1593,6 +1633,10 @@ validate_configs() {
                 ((.liquidation_threshold // 0) * (10000 + (.liquidation_bonus // 0))) <= 100000000 and
                 ((.liquidation_fees // 0) <= 10000)' >/dev/null; then
                 vc_err "spoke ${cat}/${a}: risk bounds invalid (need ltv < threshold <= 10000, bonus/fees <= 10000, threshold*(1+bonus) <= 100%)"
+            fi
+            if printf '%s' "$sj" | jq -e '.can_be_borrowed == true' >/dev/null &&
+               market_has_lp_source "$a"; then
+                vc_err "spoke ${cat}/${a}: LP oracle source (Aquarius or Curve) is collateral-only; set can_be_borrowed: false"
             fi
         done
     done
@@ -1876,6 +1920,7 @@ add_asset_to_spoke() {
     can_collateral=$(get_spoke_value "$config_category_id" ".assets.\"$asset_name\".can_be_collateral")
     local can_borrow
     can_borrow=$(get_spoke_value "$config_category_id" ".assets.\"$asset_name\".can_be_borrowed")
+    refuse_borrowable_lp "$asset_name" "$can_borrow"
     local ltv
     ltv=$(get_spoke_value "$config_category_id" ".assets.\"$asset_name\".ltv")
     local threshold
@@ -1968,6 +2013,7 @@ edit_asset_in_spoke() {
     can_collateral=$(get_spoke_value "$config_category_id" ".assets.\"$asset_name\".can_be_collateral")
     local can_borrow
     can_borrow=$(get_spoke_value "$config_category_id" ".assets.\"$asset_name\".can_be_borrowed")
+    refuse_borrowable_lp "$asset_name" "$can_borrow"
     local ltv
     ltv=$(get_spoke_value "$config_category_id" ".assets.\"$asset_name\".ltv")
     local threshold

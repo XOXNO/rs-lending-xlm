@@ -72,6 +72,8 @@ pool order), `wasm_hash` (64 hexadecimal characters in CLI JSON), and
 18-decimal lending market and enable collateral in the desired spoke normally.
 LP sources (Aquarius or Curve) are collateral-only: keep LP markets at
 `can_be_borrowed: false`; Curve's lowest-coin price understates an LP debt.
+`validateConfigs` rejects a spoke listing that makes an LP market borrowable,
+and `addAssetToSpoke` / `editAssetInSpoke` refuse one before proposing.
 Set the LP's `min_sanity_price_wad` at or below the smallest coin
 `min_sanity_price_wad` times the lowest expected virtual price / WAD, so the
 LP band never trips before the coin bands.
@@ -81,6 +83,15 @@ pool semantics. Each read rechecks its hash, ordered coins, live decimals and
 fixed rates `10^(36 - coin_decimals)`. Rate-bearing/rebasing pools and metapools
 are outside this admission policy; metadata alone cannot establish their safety.
 An executable change makes the source unpriceable until reviewed and reconfigured.
+
+Record each reviewed executable in `configs/<network>/curve_reviewed_pools.json`
+as `{"pools": [{wasm_hash, source_repo, source_commit, review, expected_factory}]}`
+(lowercase 64-hex hash, every field non-empty; write `unknown` rather than guess).
+`validateConfigs` rejects a `CurveStableLp` source whose `wasm_hash` is not
+listed for that network. The mainnet list is empty: no Curve pool executable
+has been reviewed for mainnet. The testnet list holds the two fixture
+executables, whose upstream source is unknown (see the
+[fixture README](../swap-aggregator/tests/fixtures/curve/README.md)).
 
 LP value depends on the amplification coefficient A whenever the pool is
 imbalanced, and the pool factory's admin can ramp A. The source pins the
