@@ -70,7 +70,8 @@ pub(crate) fn smoothing(env: &Env, first: &SourceProperties, second: Option<&Sou
 /// `policy` declares an allowed-shared set that is empty or does not
 /// cover the contracts actually shared between the two. With `exact`, the
 /// declared set must also match the shared set exactly; without it (a
-/// dependent revalidated after a key it reads changed), any subset passes.
+/// dependent revalidated after a key it reads changed, or a sanity-band
+/// edit), any subset passes.
 pub(crate) fn independence(
     env: &Env,
     first: &SourceProperties,
