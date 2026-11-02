@@ -14,6 +14,7 @@ import check_lender_envelope as le
 
 REDSTONE = "CA526Y2NQWGWVVQ7RFFPGAZMU66PSYJ3UC2MTVAV4ZU7OM5BOPHDXUSG"
 REFLECTOR = "CAFJZQWSED6YAWZU3GWRTOCNPPCGBN32L7QV43XX5LZLFTK6JLN34DLN"
+REFLECTOR_DEX = "CALI2BYU2JE6WVRUFYTS6MSBNEHGJ35P4AVCZYF3B6QOE3QKOB2PLE6M"
 CHAINLINK = "CDQBHEUGLDHMSUHG4IH33RJBUTMNCZOT4JIAQR4WZFRDZW6DR6S32ZLZ"
 WAD = 10**18
 
@@ -33,6 +34,18 @@ def reflector(symbol, contract=REFLECTOR):
         "Feed": {
             "provider": {
                 "Reflector": {"contract": contract, "asset": {"Symbol": symbol}, "read_mode": {"Twap": 3}}
+            },
+            "decimals": 14,
+            "max_stale_seconds": 3600,
+        }
+    }
+
+
+def reflector_stellar(asset, contract=REFLECTOR_DEX):
+    return {
+        "Feed": {
+            "provider": {
+                "Reflector": {"contract": contract, "asset": {"Stellar": asset}, "read_mode": {"Twap": 3}}
             },
             "decimals": 14,
             "max_stale_seconds": 3600,
@@ -73,13 +86,29 @@ SOLVBTC = oracle(
     20000,
     300000,
 )
+PYUSD = oracle(
+    [
+        {
+            "Scaled": {
+                "factor": reflector_stellar("ADDR_PYUSD")["Feed"],
+                "quote": {"Token": "ADDR_USDC"},
+                "min_factor_wad": str(95 * WAD // 100),
+                "max_factor_wad": str(105 * WAD // 100),
+            }
+        },
+        redstone("PYUSD"),
+    ],
+    0.95,
+    1.05,
+    10200,
+)
 MARKETS = {
     "references": [BTC_REF],
     "markets": [
         market("XLM", oracle([reflector("XLM"), redstone("XLM")], 0.05, 1, 11000)),
         market("USDC", oracle([reflector("USDC"), redstone("USDC")], 0.95, 1.05)),
         market("EURC", oracle([reflector("EURC"), redstone("EUROC")], 1.06, 1.22)),
-        market("PYUSD", oracle([redstone("PYUSD")], 0.95, 1.05)),
+        market("PYUSD", PYUSD),
         market("USDY", oracle([redstone("USDY_FUNDAMENTAL/USD")], 1.08, 1.32)),
         market("SolvBTC", SOLVBTC),
         market("xSolvBTC", SOLVBTC),
@@ -130,6 +159,16 @@ class ReachMathTest(unittest.TestCase):
         # Reflector reaches only the scaled leg (through BTC): the tolerance caps it.
         self.assertAlmostEqual(self.oracles.reach(REFLECTOR, key("SolvBTC")), 1.05005, places=12)
 
+    def test_shared_pyusd_quote_reaches_match_declared_exceptions(self):
+        pyusd_redstone = self.oracles.reach(REDSTONE, key("PYUSD"))
+        self.assertAlmostEqual(pyusd_redstone, 1.05005 * 1.02005, places=12)
+        self.assertAlmostEqual(self.oracles.reach(REFLECTOR, key("PYUSD")), 1.02005, places=12)
+        self.assertAlmostEqual(self.oracles.reach(REFLECTOR_DEX, key("PYUSD")), 1.02005, places=12)
+
+        usdc_redstone = self.oracles.reach(REDSTONE, key("USDC"))
+        self.assertEqual(round(0.92 * usdc_redstone * pyusd_redstone, 6), 1.034735)
+        self.assertEqual(round(0.90 * pyusd_redstone * usdc_redstone, 6), 1.012241)
+
     def test_spoke_1_xlm_against_solvbtc_debt(self):
         u_c = self.oracles.reach(REDSTONE, key("XLM"))
         u_d = self.oracles.reach(REDSTONE, key("SolvBTC"))
@@ -141,7 +180,7 @@ class ReachMathTest(unittest.TestCase):
     def test_tighter_btc_tolerance_and_factor_cap_close_spoke_1(self):
         # The S3-CR-1 fix: Ref BTC tolerance +-4% (10400) and a 1.03 factor cap
         # bring SolvBTC under RedStone to 1.03 x 1.04005 x 1.05005 = 1.124868,
-        # so the binding spoke-1 pair, PYUSD (LT 0.79) -> SolvBTC, is 0.982187.
+        # The dual PYUSD shape tightens the former binding pair further.
         btc = {**BTC_REF, "oracle": oracle([reflector("BTC"), redstone("BTC")], 20000, 300000, 10400)}
         scaled = dict(SOLVBTC["sources"][0]["Scaled"], max_factor_wad=str(103 * WAD // 100))
         solvbtc = dict(SOLVBTC, sources=[{"Scaled": scaled}, SOLVBTC["sources"][1]])
@@ -154,7 +193,7 @@ class ReachMathTest(unittest.TestCase):
         u_d = oracles.reach(REDSTONE, key("SolvBTC"))
         self.assertAlmostEqual(u_d, 1.03 * 1.04005 * 1.05005, places=12)
         u_c = oracles.reach(REDSTONE, key("PYUSD"))
-        self.assertEqual(round(0.79 * u_c * u_d, 6), 0.982187)
+        self.assertEqual(round(0.79 * u_c * u_d, 6), 0.951831)
         self.assertLess(0.79 * u_c * u_d, le.LIMIT)
 
     def test_control_usdc_debt(self):
