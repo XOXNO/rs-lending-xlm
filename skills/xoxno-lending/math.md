@@ -58,7 +58,7 @@ Full-close rules (`resolve_withdrawal`, `resolve_repay`):
 - A withdrawal request `≥` the half-up displayed supply balance burns **all** supply shares and pays the **floor** balance. A request below it is partial: it pays exactly the request and burns `ceil` shares. When the floor balance is below the half-up balance, a request sized from the floor balance is partial and leaves dust shares.
 - A repayment `≥` the ceiled debt balance burns **all** debt shares and refunds the excess. A smaller repayment burns `floor` shares.
 - Positive supply, borrow, gross withdrawal, net repayment and net settlement amounts must move at least one share; a zero-share result reverts with `SupplyRoundsToZeroShares`, `BorrowRoundsToZeroShares`, `WithdrawRoundsToZeroShares`, `RepayRoundsToZeroShares`, or `NetSettleRoundsToZeroShares` (`contracts/pool/src/ops/*.rs`).
-- `withdraw` with amount `0` means the whole position (`contracts/controller/src/positions/supply.rs` maps `0` to `WITHDRAW_ALL_SENTINEL = i128::MAX`). Any `0` leg for a hub asset makes that hub asset's aggregate a withdraw-all sentinel, regardless of positive legs before or after it (`payments.rs`, `ZeroLeg::MeansAll`). Pass `0` to close instead of computing a balance.
+- `withdraw` with amount `0` means the whole position (`contracts/controller/src/positions/supply.rs` maps `0` to `WITHDRAW_ALL_SENTINEL = i128::MAX`). A `0` leg for a hub asset makes that hub asset's aggregate a withdraw-all sentinel; mixing it with a positive leg for the same hub asset, in either order, reverts with `InvalidPayments` (`payments.rs`, `ZeroLeg::MeansAll`). Pass `0` to close instead of computing a balance.
 
 ### Worked example: USDC (7 decimals)
 

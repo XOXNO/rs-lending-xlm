@@ -48,7 +48,7 @@ Account id `0` creates an account on `supply`, `multiply`, `flash_position`, `mi
 
 Delegates belong to the granting owner. An NFT transfer disables that owner's grants; a transfer back can reactivate them unless a later owner has replaced or deleted the list. NFT ownership, including control of collateral and the debt obligation, transfers atomically.
 
-Ordinary payment lists sum duplicate markets in first-appearance order and reject negative amounts. `supply`, `borrow` and `repay` reject zero. In `withdraw`, zero means the full balance and overrides positive amounts for the same market. Flash-position declaration lists reject duplicates.
+Ordinary payment lists sum duplicate markets in first-appearance order and reject negative amounts. `supply`, `borrow` and `repay` reject zero. In `withdraw`, zero means the full balance; a zero and a positive amount for the same market fail with `InvalidPayments`. Flash-position declaration lists reject duplicates.
 
 ### Risk checks and pause flags
 
