@@ -59,8 +59,8 @@ sanity gates used by every other provider still apply.
 | `oracle(key) -> Option<AssetOracle>` | anyone | The registered configuration |
 | `get_owner() -> Option<Address>` | anyone | The owner |
 | `set_oracle(key, oracle)` | owner | Registers a configuration after validation and attestation. A replacement must keep the stored `asset_decimals` (`InvalidOracleDecimals`) |
-| `set_sanity_band(key, min_wad, max_wad)` | owner | Narrows the accepted range; a wider band reverts `SanityBandMustTighten`. Live-probes first |
-| `set_tolerance(key, tolerance)` | owner | Sets the dual-source tolerance. Live-probes first |
+| `set_sanity_band(key, min_wad, max_wad)` | owner | Narrows the accepted range; a wider band reverts `SanityBandMustTighten`. Probes for configuration errors only. A band under which the live price fails is committed |
+| `set_tolerance(key, tolerance)` | owner | Sets the dual-source tolerance. Probes for configuration errors only. A tolerance under which the live price fails is committed |
 | `upgrade(new_wasm_hash)` | owner | Renews the instance TTL, then replaces the Wasm |
 
 Governance calls `set_sanity_band` on its immediate path. To widen a band, use
