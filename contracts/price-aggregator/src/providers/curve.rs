@@ -9,6 +9,12 @@ use soroban_sdk::{token, Env, Executable};
 
 use crate::{engine, observation::OracleObservation, session::Session};
 
+/// Returns a client for `lp.pool` only if the pool still matches its
+/// configured binding: `key` is `Token(pool)`, the LP and the oracle both use
+/// 18 decimals, the executable is the pinned `wasm_hash`, `pool_info` lists
+/// exactly `lp.coins` in order with WAD precision, and every coin's live token
+/// decimals (at most 18) equal its reported decimals with the fixed rate
+/// `10^(36 - decimals)`. Returns `None` on any mismatch or failed read.
 fn bound_pool<'a>(
     env: &'a Env,
     key: &PriceKey,
@@ -42,6 +48,15 @@ fn bound_pool<'a>(
     Some(client)
 }
 
+/// Values one LP share as `virtual_price * min(coin prices) / WAD`, floored,
+/// a lower bound for a plain pool. The observation timestamp is the oldest
+/// coin's. Coin prices resolve at `depth + 1` and their errors propagate.
+///
+/// # Errors
+/// - `UnsupportedCurvePool` if the pool no longer matches its binding.
+/// - `NoLastPrice` if `get_virtual_price` or `total_supply` fails.
+/// - `InsufficientCurveLiquidity` if the pool value at that price is below
+///   `lp.min_pool_value_wad`.
 pub(crate) fn read(
     session: &mut Session,
     key: &PriceKey,

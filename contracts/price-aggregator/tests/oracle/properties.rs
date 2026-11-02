@@ -252,10 +252,9 @@ fn test_curve_lp_is_a_market_leg_depending_on_every_coin() {
         wasm_hash: BytesN::from_array(&env, &[0; 32]),
         min_pool_value_wad: 1,
     });
-    let described = local_properties(&env, &source);
-    assert!(described.local.has_unsmoothed_market_leg);
+    assert!(local_properties(&env, &source).has_unsmoothed_market_leg);
     assert_eq!(
-        described.dependencies,
+        dependencies(&env, &source),
         vec![
             &env,
             PriceKey::Token(c0),
@@ -450,23 +449,20 @@ fn test_an_lp_source_is_an_unsmoothed_market_leg_naming_both_underlyings() {
     with_contract(&env, || {
         let key_a = PriceKey::Ref(Symbol::new(&env, "A"));
         let key_b = PriceKey::Ref(Symbol::new(&env, "B"));
-        let described = local_properties(
-            &env,
-            &PriceSource::AquariusLp(common::types::AquariusLpSource {
-                pool: Address::generate(&env),
-                token_a: Address::generate(&env),
-                token_b: Address::generate(&env),
-                key_a: key_a.clone(),
-                key_b: key_b.clone(),
-                reserve_a_decimals: 7,
-                reserve_b_decimals: 7,
-                min_pool_value_wad: 1,
-            }),
-        );
+        let source = PriceSource::AquariusLp(common::types::AquariusLpSource {
+            pool: Address::generate(&env),
+            token_a: Address::generate(&env),
+            token_b: Address::generate(&env),
+            key_a: key_a.clone(),
+            key_b: key_b.clone(),
+            reserve_a_decimals: 7,
+            reserve_b_decimals: 7,
+            min_pool_value_wad: 1,
+        });
 
-        assert!(described.local.has_unsmoothed_market_leg);
+        assert!(local_properties(&env, &source).has_unsmoothed_market_leg);
         assert_eq!(
-            described.dependencies,
+            dependencies(&env, &source),
             Vec::from_array(&env, [key_a, key_b]),
             "both underlyings must reach the prefetch and independence walks"
         );

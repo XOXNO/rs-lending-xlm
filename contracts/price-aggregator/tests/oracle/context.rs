@@ -2,11 +2,11 @@ use super::*;
 use crate::test_support::{in_contract, CountingRedStoneAdapter, CountingRedStoneAdapterClient};
 use common::constants::WAD;
 use common::types::{
-    AssetOracle, FeedNature, FeedSource, IndependencePolicy, MultiFeedRef, OracleTolerance,
-    ScaledSource,
+    AssetOracle, CurveStableLpSource, FeedNature, FeedSource, IndependencePolicy, MultiFeedRef,
+    OracleTolerance, ScaledSource,
 };
 use soroban_sdk::testutils::{Address as _, Ledger as _};
-use soroban_sdk::{Address, Symbol};
+use soroban_sdk::{Address, BytesN, Symbol};
 
 fn token(env: &Env) -> PriceKey {
     PriceKey::Token(Address::generate(env))
@@ -228,10 +228,10 @@ fn curve_warms_all_coin_feeds_in_one_batch() {
             &key,
             &oracle_of(
                 &env,
-                PriceSource::CurveStableLp(common::types::CurveStableLpSource {
+                PriceSource::CurveStableLp(CurveStableLpSource {
                     pool,
                     coins,
-                    wasm_hash: soroban_sdk::BytesN::from_array(&env, &[0; 32]),
+                    wasm_hash: BytesN::from_array(&env, &[0; 32]),
                     min_pool_value_wad: WAD,
                 }),
             ),

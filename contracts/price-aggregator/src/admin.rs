@@ -134,8 +134,7 @@ fn depends_on(env: &Env, root: &PriceKey, target: &PriceKey, visiting: &mut Vec<
     visiting.push_back(root.clone());
     let found = registry::get_oracle(env, root).is_some_and(|oracle| {
         oracle.sources.iter().any(|source| {
-            properties::local_properties(env, &source)
-                .dependencies
+            properties::dependencies(env, &source)
                 .iter()
                 .any(|dependency| {
                     dependency == *target || depends_on(env, &dependency, target, visiting)

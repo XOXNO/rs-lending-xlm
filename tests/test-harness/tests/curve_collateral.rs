@@ -19,8 +19,8 @@ use common::{
 use curve::pool_abi;
 use governance::op::{AdminOperation, CreatePoolArgs, SpokeAssetArgs};
 use soroban_sdk::{
-    contracttype, testutils::Address as _, token, vec, xdr::ToXdr, Address, Bytes, Env, Executable,
-    String, Vec,
+    contracttype, testutils::Address as _, token, vec, xdr::ToXdr, Address, Bytes, Env, Error,
+    Executable, String, Vec,
 };
 use test_harness::{
     hub_asset,
@@ -268,7 +268,12 @@ fn curve_three_coin_collateral_lifecycle() {
         .get(key)
         .unwrap();
     assert_eq!(status.error_code, Some(OracleError::PriceFeedStale as u32));
-    assert!(ctrl.try_get_health_factor(&account).is_err());
+    assert_eq!(
+        ctrl.try_get_health_factor(&account),
+        Err(Ok(Error::from_contract_error(
+            OracleError::PriceFeedStale as u32
+        )))
+    );
     s.prices().set_price(&s.feed_id(2), &(WAD * 9 / 10));
     let depegged = ctrl.get_health_factor(&account);
     assert!(depegged < WAD);

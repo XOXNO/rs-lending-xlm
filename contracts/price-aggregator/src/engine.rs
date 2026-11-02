@@ -12,6 +12,7 @@ use common::types::{
 use soroban_sdk::{panic_with_error, Env};
 
 use crate::observation::OracleObservation;
+use crate::properties;
 use crate::providers::{aquarius, chainlink, curve, multi_feed, reflector};
 use crate::registry;
 use crate::session::Session;
@@ -339,10 +340,7 @@ fn validate_cached_path(
     session.push_key(key);
     let mut result = Ok(());
     'sources: for source in oracle.sources.iter() {
-        for dependency in crate::properties::local_properties(&env, &source)
-            .dependencies
-            .iter()
-        {
+        for dependency in properties::dependencies(&env, &source).iter() {
             if let Err(err) = validate_cached_path(session, &dependency, depth + 1) {
                 result = Err(err);
                 break 'sources;

@@ -2,14 +2,15 @@ use super::*;
 use common::oracle::providers::curve::{CurvePool, CurvePoolInfo, CurvePoolScales};
 use common::types::{
     AssetOracle, FeedNature, FeedSource, IndependencePolicy, MultiFeedRef, OracleTolerance,
-    PriceSource, ProviderRef, MAX_CURVE_COINS,
+    PriceFeedRaw, PriceSource, ProviderRef, MAX_CURVE_COINS,
 };
 use soroban_sdk::{
     contract, contractimpl, contracttype,
     testutils::{Address as _, Ledger},
-    vec, Address, BytesN, Error, String, Symbol, Vec,
+    vec, Address, BytesN, ContractExecutable, Error, String, Symbol, Vec,
 };
 
+use crate::test_support::register_redstone_feed;
 use crate::{PriceAggregator, PriceAggregatorClient};
 
 #[path = "../../../swap-aggregator/tests/fixtures/curve/factory.rs"]
@@ -33,7 +34,7 @@ impl Fixture {
             .with_mut(|ledger| ledger.timestamp = 1_700_000_000);
         let user = Address::generate(&env);
         let aggregator = env.register(PriceAggregator, (&user,));
-        let (feed, prices) = crate::test_support::register_redstone_feed(&env);
+        let (feed, prices) = register_redstone_feed(&env);
         prices.set_price(&String::from_str(&env, "USD"), &WAD);
         let mut coins = Vec::new(&env);
         for _ in 0..count {
@@ -92,7 +93,7 @@ impl Fixture {
             .set_oracle(&self.key(), &self.oracle());
     }
 
-    fn price(&self) -> common::types::PriceFeedRaw {
+    fn price(&self) -> PriceFeedRaw {
         PriceAggregatorClient::new(&self.env, &self.aggregator)
             .prices(&vec![&self.env, self.key()])
             .get(self.key())
@@ -151,7 +152,7 @@ fn real_two_and_three_coin_lp_prices_use_virtual_price_and_every_coin_feed() {
             .mint(&f.source.pool, &1_000_000_000);
         assert_eq!(f.price().price_wad, virtual_price);
         for coin in f.source.coins.iter() {
-            let (feed, prices) = crate::test_support::register_redstone_feed(&f.env);
+            let (feed, prices) = register_redstone_feed(&f.env);
             prices.set_price(&String::from_str(&f.env, "USD"), &(WAD * 97 / 100));
             let client = PriceAggregatorClient::new(&f.env, &f.aggregator);
             client.set_oracle(&PriceKey::Token(coin.clone()), &feed_oracle(&f.env, &feed));
@@ -168,6 +169,8 @@ struct State {
     price: i128,
     supply: i128,
     decimals: u32,
+    /// 1 reverts `get_virtual_price`, 2 reverts `total_supply`.
+    fail: u32,
 }
 
 fn state(env: &Env, coins: &Vec<Address>) -> State {
@@ -188,6 +191,7 @@ fn state(env: &Env, coins: &Vec<Address>) -> State {
         price: WAD + 1,
         supply: 1_000 * WAD,
         decimals: 18,
+        fail: 0,
     }
 }
 
@@ -215,7 +219,7 @@ impl MockPool {
 
     pub fn upgrade(env: Env, hash: BytesN<32>) {
         env.deployer()
-            .update_current_contract(soroban_sdk::ContractExecutable::Wasm(hash));
+            .update_current_contract(ContractExecutable::Wasm(hash));
     }
 }
 
@@ -225,10 +229,14 @@ impl CurvePool for MockPool {
         Self::state(env).info
     }
     fn get_virtual_price(env: Env) -> i128 {
-        Self::state(env).price
+        let state = Self::state(env);
+        assert!(state.fail != 1, "virtual price reverted");
+        state.price
     }
     fn total_supply(env: Env) -> i128 {
-        Self::state(env).supply
+        let state = Self::state(env);
+        assert!(state.fail != 2, "total supply reverted");
+        state.supply
     }
     fn decimals(env: Env) -> u32 {
         Self::state(env).decimals
@@ -237,7 +245,7 @@ impl CurvePool for MockPool {
 
 #[test]
 fn configuration_and_every_read_reject_binding_scale_rate_and_hash_drift() {
-    let f = Fixture::new(3, false);
+    let mut f = Fixture::new(3, false);
     f.register();
     let pool = MockPoolClient::new(&f.env, &f.source.pool);
     let original = pool.state();
@@ -251,7 +259,11 @@ fn configuration_and_every_read_reject_binding_scale_rate_and_hash_drift() {
             1 => {
                 changed.info.rates.pop_back();
             }
-            2 => changed.info.coin_decimals.set(2, 6),
+            2 => {
+                // Rate matches the claimed 6 decimals, so only the live token binding rejects.
+                changed.info.coin_decimals.set(2, 6);
+                changed.info.rates.set(2, 10i128.pow(30));
+            }
             3 => changed.info.rates.set(2, 10i128.pow(29) + 1),
             4 => changed.info.scales.precision = 10_000_000,
             5 => changed.decimals = 7,
@@ -286,6 +298,17 @@ fn configuration_and_every_read_reject_binding_scale_rate_and_hash_drift() {
         assert!(bound_pool(&f.env, &PriceKey::Token(f.feed.clone()), &f.source, 18).is_none());
         assert!(bound_pool(&f.env, &f.key(), &f.source, 7).is_none());
     });
+    // Healthy pool state, wrong pinned executable: only the hash check rejects.
+    let pinned = f.source.wasm_hash.clone();
+    f.source.wasm_hash = BytesN::from_array(&f.env, &[7; 32]);
+    assert_eq!(f.read_error(), OracleError::UnsupportedCurvePool);
+    assert_eq!(
+        client.try_set_oracle(&f.key(), &f.oracle()),
+        Err(Ok(Error::from_contract_error(
+            OracleError::UnsupportedCurvePool as u32
+        )))
+    );
+    f.source.wasm_hash = pinned;
     let hash = f.env.deployer().upload_contract_wasm(pool_abi::WASM);
     pool.upgrade(&hash);
     assert_eq!(f.read_error(), OracleError::UnsupportedCurvePool);
@@ -320,12 +343,27 @@ fn price_and_supply_fail_closed_and_liquidity_uses_conservative_value() {
             );
         });
     }
+    for fail in [1, 2] {
+        pool.set_state(&State {
+            fail,
+            ..original.clone()
+        });
+        assert_eq!(f.read_error(), OracleError::NoLastPrice, "fail {fail}");
+    }
     pool.set_state(&original);
     f.source.min_pool_value_wad = (WAD + 1) * 1_000 + 1;
     assert_eq!(f.read_error(), OracleError::InsufficientCurveLiquidity);
     f.source.min_pool_value_wad -= 1;
     f.register();
     assert_eq!(f.price().price_wad, WAD + 1);
+    // The liquidity floor uses the min-coin price, not the virtual price: 970 WAD, not 1000.
+    let (feed, prices) = register_redstone_feed(&f.env);
+    prices.set_price(&String::from_str(&f.env, "USD"), &(WAD * 97 / 100));
+    let coin = PriceKey::Token(f.source.coins.get_unchecked(0));
+    PriceAggregatorClient::new(&f.env, &f.aggregator)
+        .set_oracle(&coin, &feed_oracle(&f.env, &feed));
+    f.source.min_pool_value_wad = 970 * WAD + 1;
+    assert_eq!(f.read_error(), OracleError::InsufficientCurveLiquidity);
 }
 
 #[test]
@@ -376,7 +414,7 @@ fn third_coin_controls_freshness() {
     let f = Fixture::new(3, false);
     f.register();
     let key = PriceKey::Token(f.source.coins.get_unchecked(2));
-    let (feed, prices) = crate::test_support::register_redstone_feed(&f.env);
+    let (feed, prices) = register_redstone_feed(&f.env);
     let usd = String::from_str(&f.env, "USD");
     prices.set_price(&usd, &WAD);
     let client = PriceAggregatorClient::new(&f.env, &f.aggregator);

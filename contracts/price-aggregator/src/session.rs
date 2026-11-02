@@ -200,8 +200,7 @@ fn collect_key(
             }
             _ => {}
         }
-        let local = properties::local_properties(env, &source);
-        for dependency in local.dependencies.iter() {
+        for dependency in properties::dependencies(env, &source).iter() {
             collect_key(env, by_adapter, visited, &dependency, depth + 1);
         }
     }
