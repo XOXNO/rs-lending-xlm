@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Build one harness feature into a Wasm with the pinned builder image.
-# Usage: build-wasm.sh <crate-dir relative to repo root> <feature> <out-dir>
+# Usage: build-wasm.sh <crate-dir relative to repo root> <feature or ""> <out-dir>
 # Prints the Wasm SHA-256. The repository is mounted read-only.
 set -euo pipefail
 
@@ -19,7 +19,7 @@ docker run --rm --network=host \
   -v "$repo:/src:ro" -v "$cache:/cache" -v "$out:/out" \
   -w /src "$WASM_IMAGE" \
   stellar contract build --locked --manifest-path "$crate/Cargo.toml" \
-    --no-default-features --features "$feature" --out-dir /out >&2
+    ${feature:+--no-default-features --features "$feature"} --out-dir /out >&2
 wasm=$(ls "$out"/*.wasm)
 test "$(echo "$wasm" | wc -l)" -eq 1
 sha256sum "$wasm" | cut -d' ' -f1

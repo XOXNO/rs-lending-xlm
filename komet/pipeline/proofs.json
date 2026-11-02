@@ -8,8 +8,472 @@
    "module": "komet/pool-math/proofs/borrow-double/double-cli.k:SIGNED-DISTRIBUTE-COMPLEMENT-NEGATIVE-PACK64-DOUBLE-RAY-SIGNED-DECODER-FLOOR-EQUALITY-LOW-WORD-SIGNED64-SIGN-FIXED64-XOR",
    "cap_seconds": 14400,
    "tests": [
-    {"id": "test_borrow_double", "expect": "pass"},
-    {"id": "test_borrow_double_wrong", "expect": "fail"}
+    {
+     "id": "test_borrow_double",
+     "expect": "pass"
+    },
+    {
+     "id": "test_borrow_double_wrong",
+     "expect": "fail"
+    }
+   ]
+  },
+  {
+   "name": "oracle-staleness",
+   "crate": "komet/oracle-staleness",
+   "feature": "",
+   "wasm_sha256": "5c9dff7f26e852382bea8e0b2262ae551ab41f7e4ad4d165fdebe191ca1dcede",
+   "cap_seconds": 14400,
+   "tests": [
+    {
+     "id": "test_fresh_never_stale",
+     "expect": "pass"
+    },
+    {
+     "id": "test_fresh_wrong",
+     "expect": "fail"
+    }
+   ]
+  },
+  {
+   "name": "index-identity",
+   "crate": "komet/pool-math",
+   "feature": "index-identity",
+   "wasm_sha256": "41bd95eac6350502b14bbf0eec775f3553fc503f3dd00c60f294424821858c9a",
+   "module": "komet/pool-math/proofs/borrow-double/double-cli.k:SIGNED-DISTRIBUTE-COMPLEMENT-NEGATIVE-PACK64-DOUBLE-RAY-SIGNED-DECODER-FLOOR-EQUALITY-LOW-WORD-SIGNED64-SIGN-FIXED64-XOR",
+   "cap_seconds": 14400,
+   "tests": [
+    {
+     "id": "test_borrow_index_identity",
+     "expect": "pass"
+    },
+    {
+     "id": "test_borrow_index_identity_wrong",
+     "expect": "fail"
+    },
+    {
+     "id": "test_borrow_cap_sticky",
+     "expect": "pass"
+    },
+    {
+     "id": "test_borrow_cap_sticky_wrong",
+     "expect": "fail"
+    }
+   ]
+  },
+  {
+   "name": "noop-guards",
+   "crate": "komet/pool-math",
+   "feature": "noop-guards",
+   "wasm_sha256": "e2dadfaa4e8d418baafa7c68747fd64bc76aed0190fa2e58dd24ec29e8f83773",
+   "module": "komet/pool-math/proofs/borrow-double/double-cli.k:SIGNED-DISTRIBUTE-COMPLEMENT-NEGATIVE-PACK64-DOUBLE-RAY-SIGNED-DECODER-FLOOR-EQUALITY-LOW-WORD-SIGNED64-SIGN-FIXED64-XOR",
+   "cap_seconds": 14400,
+   "tests": [
+    {
+     "id": "test_supply_zero_inputs",
+     "expect": "pass"
+    },
+    {
+     "id": "test_supply_zero_inputs_wrong",
+     "expect": "fail"
+    },
+    {
+     "id": "test_compound_zero_delta",
+     "expect": "pass"
+    },
+    {
+     "id": "test_compound_zero_delta_wrong",
+     "expect": "fail"
+    },
+    {
+     "id": "test_wad_try_mul_negative",
+     "expect": "pass"
+    },
+    {
+     "id": "test_wad_try_mul_negative_wrong",
+     "expect": "fail"
+    }
+   ]
+  },
+  {
+   "name": "rescale-up",
+   "crate": "komet/pool-math",
+   "feature": "rescale-up",
+   "wasm_sha256": "0b2b134641b59ed174a8ea15c2af50f6e53511da5f1c5536ce79e58b0b0cfa9f",
+   "module": "komet/pool-math/proofs/borrow-double/double-cli.k:SIGNED-DISTRIBUTE-COMPLEMENT-NEGATIVE-PACK64-DOUBLE-RAY-SIGNED-DECODER-FLOOR-EQUALITY-LOW-WORD-SIGNED64-SIGN-FIXED64-XOR",
+   "cap_seconds": 14400,
+   "tests": [
+    {
+     "id": "test_from_asset_7_exact",
+     "expect": "pass"
+    },
+    {
+     "id": "test_from_asset_7_wrong",
+     "expect": "fail"
+    }
+   ]
+  },
+  {
+   "name": "ray-mul-rounding",
+   "crate": "komet/pool-math",
+   "feature": "ray-mul-rounding",
+   "wasm_sha256": "bd0912a702d6a0275966a71c940f64a1543ecb77f577bff441d868cdf2ae5543",
+   "module": "komet/pool-math/proofs/borrow-double/double-cli.k:SIGNED-DISTRIBUTE-COMPLEMENT-NEGATIVE-PACK64-DOUBLE-RAY-SIGNED-DECODER-FLOOR-EQUALITY-LOW-WORD-SIGNED64-SIGN-FIXED64-XOR",
+   "cap_seconds": 14400,
+   "tests": [
+    {
+     "id": "test_ray_mul_floor",
+     "expect": "pass"
+    },
+    {
+     "id": "test_ray_mul_floor_wrong",
+     "expect": "fail"
+    },
+    {
+     "id": "test_ray_mul_ceil",
+     "expect": "pass"
+    },
+    {
+     "id": "test_ray_mul_ceil_wrong",
+     "expect": "fail"
+    }
+   ]
+  },
+  {
+   "name": "ray-div-rounding",
+   "crate": "komet/pool-math",
+   "feature": "ray-div-rounding",
+   "wasm_sha256": "367c9d80a1b1d41065eb42b04eb76ec42e1923f6b046b00f77dde4ad69f6de19",
+   "module": "komet/pool-math/proofs/borrow-double/double-cli.k:SIGNED-DISTRIBUTE-COMPLEMENT-NEGATIVE-PACK64-DOUBLE-RAY-SIGNED-DECODER-FLOOR-EQUALITY-LOW-WORD-SIGNED64-SIGN-FIXED64-XOR",
+   "cap_seconds": 14400,
+   "tests": [
+    {
+     "id": "test_ray_div_floor",
+     "expect": "pass"
+    },
+    {
+     "id": "test_ray_div_floor_wrong",
+     "expect": "fail"
+    },
+    {
+     "id": "test_ray_div_ceil",
+     "expect": "pass"
+    },
+    {
+     "id": "test_ray_div_ceil_wrong",
+     "expect": "fail"
+    }
+   ]
+  },
+  {
+   "name": "borrow-index",
+   "crate": "komet/pool-math",
+   "feature": "borrow-index",
+   "wasm_sha256": "cd707240f94d578d23b6cf6ed10fe04c773a28c2be1056668c739dd5940301b3",
+   "module": "komet/pool-math/proofs/borrow-double/double-cli.k:SIGNED-DISTRIBUTE-COMPLEMENT-NEGATIVE-PACK64-DOUBLE-RAY-SIGNED-DECODER-FLOOR-EQUALITY-LOW-WORD-SIGNED64-SIGN-FIXED64-XOR",
+   "cap_seconds": 14400,
+   "tests": [
+    {
+     "id": "test_borrow_index_bounds",
+     "expect": "pass"
+    }
+   ]
+  },
+  {
+   "name": "index-exact",
+   "crate": "komet/pool-math",
+   "feature": "index-exact",
+   "wasm_sha256": "67a355a89d17aecb52f7773ffb3598e2f4ffa808411d85f03dca4ff6fd452a1a",
+   "module": "komet/pool-math/proofs/borrow-double/double-cli.k:SIGNED-DISTRIBUTE-COMPLEMENT-NEGATIVE-PACK64-DOUBLE-RAY-SIGNED-DECODER-FLOOR-EQUALITY-LOW-WORD-SIGNED64-SIGN-FIXED64-XOR",
+   "cap_seconds": 14400,
+   "tests": [
+    {
+     "id": "test_borrow_index_exact",
+     "expect": "pass"
+    }
+   ]
+  },
+  {
+   "name": "controls",
+   "crate": "komet/pool-math",
+   "feature": "controls",
+   "wasm_sha256": "f1b2987ea827bac5dc78c8d283006a6cb4f4736def1f7378a3828b9b1968ac4b",
+   "module": "komet/pool-math/proofs/borrow-double/double-cli.k:SIGNED-DISTRIBUTE-COMPLEMENT-NEGATIVE-PACK64-DOUBLE-RAY-SIGNED-DECODER-FLOOR-EQUALITY-LOW-WORD-SIGNED64-SIGN-FIXED64-XOR",
+   "cap_seconds": 14400,
+   "tests": [
+    {
+     "id": "test_util_zero_supply",
+     "expect": "pass"
+    },
+    {
+     "id": "test_full_utilization",
+     "expect": "pass"
+    },
+    {
+     "id": "test_full_utilization_wrong",
+     "expect": "fail"
+    },
+    {
+     "id": "test_utilization_wrong",
+     "expect": "fail"
+    },
+    {
+     "id": "test_widened_ceil",
+     "expect": "pass"
+    }
+   ]
+  },
+  {
+   "name": "utilization",
+   "crate": "komet/pool-math",
+   "feature": "utilization",
+   "wasm_sha256": "efd9339221e6e71e51b2d8ee209d1845dd2ed2947d619ce18ff752bdff49ff83",
+   "module": "komet/pool-math/proofs/utilization/arithmetic.k:UTILIZATION-COMPLEMENT-LEMMAS",
+   "cap_seconds": 14400,
+   "tests": [
+    {
+     "id": "test_utilization_exact",
+     "expect": "pass"
+    },
+    {
+     "id": "test_utilization_round_wrong",
+     "expect": "fail"
+    },
+    {
+     "id": "test_utilization_bounds",
+     "expect": "pass"
+    }
+   ]
+  },
+  {
+   "name": "half-two",
+   "crate": "komet/pool-math",
+   "feature": "half-two",
+   "wasm_sha256": "2fa6f61bd5f6df457dceba36f0b047c2b0881eb8012ed2d746ffabc975d19f29",
+   "module": "komet/pool-math/proofs/borrow-double/double-cli.k:SIGNED-DISTRIBUTE-COMPLEMENT-NEGATIVE-PACK64-DOUBLE-RAY-SIGNED-DECODER-FLOOR-EQUALITY-LOW-WORD-SIGNED64-SIGN-FIXED64-XOR",
+   "cap_seconds": 14400,
+   "tests": [
+    {
+     "id": "test_half_two",
+     "expect": "pass"
+    },
+    {
+     "id": "test_half_two_wrong",
+     "expect": "fail"
+    }
+   ]
+  },
+  {
+   "name": "fee-shares",
+   "crate": "komet/pool-math",
+   "feature": "fee-shares",
+   "wasm_sha256": "e4c74d4f4078ba21371f0e53e21d8c4e0635763b3a81485ebc9c59a241c47c75",
+   "module": "komet/pool-math/proofs/borrow-double/double-cli.k:SIGNED-DISTRIBUTE-COMPLEMENT-NEGATIVE-PACK64-DOUBLE-RAY-SIGNED-DECODER-FLOOR-EQUALITY-LOW-WORD-SIGNED64-SIGN-FIXED64-XOR",
+   "cap_seconds": 14400,
+   "tests": [
+    {
+     "id": "test_fee_shares",
+     "expect": "pass"
+    }
+   ]
+  },
+  {
+   "name": "supply-index",
+   "crate": "komet/pool-math",
+   "feature": "supply-index",
+   "wasm_sha256": "55a47b6ffc941060e39286cfceeb118b9186aa7e075f1b16a2e5e1f2507bc7e6",
+   "module": "komet/pool-math/proofs/borrow-double/double-cli.k:SIGNED-DISTRIBUTE-COMPLEMENT-NEGATIVE-PACK64-DOUBLE-RAY-SIGNED-DECODER-FLOOR-EQUALITY-LOW-WORD-SIGNED64-SIGN-FIXED64-XOR",
+   "cap_seconds": 14400,
+   "tests": [
+    {
+     "id": "test_supply_index_exact",
+     "expect": "pass"
+    }
+   ]
+  },
+  {
+   "name": "flash-fee",
+   "crate": "komet/pool-math",
+   "feature": "flash-fee",
+   "wasm_sha256": "818e7e3221631abb8e092c734a7341ba78e979b6d745939ffca542014abb8a65",
+   "module": "komet/pool-math/proofs/borrow-double/double-cli.k:SIGNED-DISTRIBUTE-COMPLEMENT-NEGATIVE-PACK64-DOUBLE-RAY-SIGNED-DECODER-FLOOR-EQUALITY-LOW-WORD-SIGNED64-SIGN-FIXED64-XOR",
+   "cap_seconds": 14400,
+   "tests": [
+    {
+     "id": "test_flash_fee",
+     "expect": "pass"
+    }
+   ]
+  },
+  {
+   "name": "half-up",
+   "crate": "komet/pool-math",
+   "feature": "half-up",
+   "wasm_sha256": "d405e7c491b326722e5215bfc1e1688e0f969443c3feb8b628cd2b010a99f8c2",
+   "module": "komet/pool-math/proofs/borrow-double/double-cli.k:SIGNED-DISTRIBUTE-COMPLEMENT-NEGATIVE-PACK64-DOUBLE-RAY-SIGNED-DECODER-FLOOR-EQUALITY-LOW-WORD-SIGNED64-SIGN-FIXED64-XOR",
+   "cap_seconds": 14400,
+   "tests": [
+    {
+     "id": "test_half_up_exact",
+     "expect": "pass"
+    }
+   ]
+  },
+  {
+   "name": "signed-floor",
+   "crate": "komet/pool-math",
+   "feature": "signed-floor",
+   "wasm_sha256": "3ce9e68b041d92318037e926be37b254cd3d06bd7fd32af6301cb98ba7fc2266",
+   "module": "komet/pool-math/proofs/borrow-double/double-cli.k:SIGNED-DISTRIBUTE-COMPLEMENT-NEGATIVE-PACK64-DOUBLE-RAY-SIGNED-DECODER-FLOOR-EQUALITY-LOW-WORD-SIGNED64-SIGN-FIXED64-XOR",
+   "cap_seconds": 14400,
+   "tests": [
+    {
+     "id": "test_floor_exact",
+     "expect": "pass"
+    }
+   ]
+  },
+  {
+   "name": "signed-ceil",
+   "crate": "komet/pool-math",
+   "feature": "signed-ceil",
+   "wasm_sha256": "ac00b3efc4b828632be162776d8803bbd9c40dac1dfe817020cf19427aa1efeb",
+   "module": "komet/pool-math/proofs/borrow-double/double-cli.k:SIGNED-DISTRIBUTE-COMPLEMENT-NEGATIVE-PACK64-DOUBLE-RAY-SIGNED-DECODER-FLOOR-EQUALITY-LOW-WORD-SIGNED64-SIGN-FIXED64-XOR",
+   "cap_seconds": 14400,
+   "tests": [
+    {
+     "id": "test_ceil_exact",
+     "expect": "pass"
+    }
+   ]
+  },
+  {
+   "name": "signed-saturation",
+   "crate": "komet/pool-math",
+   "feature": "signed-saturation",
+   "wasm_sha256": "7823a320bbe50ea2736b25ba9f456c53834f0b3fdda6e1e4d734f3341db89c0b",
+   "module": "komet/pool-math/proofs/borrow-double/double-cli.k:SIGNED-DISTRIBUTE-COMPLEMENT-NEGATIVE-PACK64-DOUBLE-RAY-SIGNED-DECODER-FLOOR-EQUALITY-LOW-WORD-SIGNED64-SIGN-FIXED64-XOR",
+   "cap_seconds": 14400,
+   "tests": [
+    {
+     "id": "test_saturating_floor",
+     "expect": "pass"
+    }
+   ]
+  },
+  {
+   "name": "scaled-supply",
+   "crate": "komet/pool-math",
+   "feature": "scaled-supply",
+   "wasm_sha256": "e5a05a9b7c3bbee463a0ded67a87b34327ce8fb0c43ab4b9315977843f34b77d",
+   "module": "komet/pool-math/proofs/borrow-double/double-cli.k:SIGNED-DISTRIBUTE-COMPLEMENT-NEGATIVE-PACK64-DOUBLE-RAY-SIGNED-DECODER-FLOOR-EQUALITY-LOW-WORD-SIGNED64-SIGN-FIXED64-XOR",
+   "cap_seconds": 14400,
+   "tests": [
+    {
+     "id": "test_scaled_supply",
+     "expect": "pass"
+    }
+   ]
+  },
+  {
+   "name": "scaled-borrow",
+   "crate": "komet/pool-math",
+   "feature": "scaled-borrow",
+   "wasm_sha256": "1c6c486cde6e5a6c02c879d06ecdd70e84c1c1f9d00067aa0abdc4da71e7786b",
+   "module": "komet/pool-math/proofs/borrow-double/double-cli.k:SIGNED-DISTRIBUTE-COMPLEMENT-NEGATIVE-PACK64-DOUBLE-RAY-SIGNED-DECODER-FLOOR-EQUALITY-LOW-WORD-SIGNED64-SIGN-FIXED64-XOR",
+   "cap_seconds": 14400,
+   "tests": [
+    {
+     "id": "test_scaled_borrow",
+     "expect": "pass"
+    }
+   ]
+  },
+  {
+   "name": "reward-conservation",
+   "crate": "komet/pool-math",
+   "feature": "reward-conservation",
+   "wasm_sha256": "2d68e0aa8390fe2922838739dc729effb4d3ed4e5089322c90e407e4a0f1925f",
+   "module": "komet/pool-math/proofs/borrow-double/double-cli.k:SIGNED-DISTRIBUTE-COMPLEMENT-NEGATIVE-PACK64-DOUBLE-RAY-SIGNED-DECODER-FLOOR-EQUALITY-LOW-WORD-SIGNED64-SIGN-FIXED64-XOR",
+   "cap_seconds": 14400,
+   "tests": [
+    {
+     "id": "test_supply_rewards",
+     "expect": "pass"
+    }
+   ]
+  },
+  {
+   "name": "interest-split",
+   "crate": "komet/pool-math",
+   "feature": "interest-split",
+   "wasm_sha256": "ef5a1ddc74dfa5f81817ad48ca72dbe9803360368318c9a0d431a4e69d57e26a",
+   "module": "komet/pool-math/proofs/borrow-double/double-cli.k:SIGNED-DISTRIBUTE-COMPLEMENT-NEGATIVE-PACK64-DOUBLE-RAY-SIGNED-DECODER-FLOOR-EQUALITY-LOW-WORD-SIGNED64-SIGN-FIXED64-XOR",
+   "cap_seconds": 14400,
+   "tests": [
+    {
+     "id": "test_interest_split",
+     "expect": "pass"
+    }
+   ]
+  },
+  {
+   "name": "repay",
+   "crate": "komet/pool-math",
+   "feature": "repay",
+   "wasm_sha256": "96da27f08ac302d88543c7a14827b091cfe24fa6d348fa80a0b814ce33bd55cf",
+   "module": "komet/pool-math/proofs/borrow-double/double-cli.k:SIGNED-DISTRIBUTE-COMPLEMENT-NEGATIVE-PACK64-DOUBLE-RAY-SIGNED-DECODER-FLOOR-EQUALITY-LOW-WORD-SIGNED64-SIGN-FIXED64-XOR",
+   "cap_seconds": 14400,
+   "tests": [
+    {
+     "id": "test_repay",
+     "expect": "pass"
+    }
+   ]
+  },
+  {
+   "name": "withdrawal",
+   "crate": "komet/pool-math",
+   "feature": "withdrawal",
+   "wasm_sha256": "907642dabef2a8279616b6cbd2ff20452100c2fac412b087e501bbda69d2c78b",
+   "module": "komet/pool-math/proofs/borrow-double/double-cli.k:SIGNED-DISTRIBUTE-COMPLEMENT-NEGATIVE-PACK64-DOUBLE-RAY-SIGNED-DECODER-FLOOR-EQUALITY-LOW-WORD-SIGNED64-SIGN-FIXED64-XOR",
+   "cap_seconds": 14400,
+   "tests": [
+    {
+     "id": "test_withdrawal",
+     "expect": "pass"
+    }
+   ]
+  },
+  {
+   "name": "net-settle",
+   "crate": "komet/pool-math",
+   "feature": "net-settle",
+   "wasm_sha256": "2fa814bc546719c0c98956e09cf7d6e6174da1685a6a38258bef82be509d39a9",
+   "module": "komet/pool-math/proofs/borrow-double/double-cli.k:SIGNED-DISTRIBUTE-COMPLEMENT-NEGATIVE-PACK64-DOUBLE-RAY-SIGNED-DECODER-FLOOR-EQUALITY-LOW-WORD-SIGNED64-SIGN-FIXED64-XOR",
+   "cap_seconds": 14400,
+   "tests": [
+    {
+     "id": "test_net_settle",
+     "expect": "pass"
+    }
+   ]
+  },
+  {
+   "name": "pool-state",
+   "crate": "komet/pool-state",
+   "feature": "",
+   "wasm_sha256": "b67e81907d822923750777abf16e9022501ba190aec6366c008ac613bd813c30",
+   "cap_seconds": 14400,
+   "tests": [
+    {
+     "id": "test_supply_exact",
+     "expect": "pass"
+    },
+    {
+     "id": "test_supply_one_unit",
+     "expect": "pass"
+    }
    ]
   }
  ]

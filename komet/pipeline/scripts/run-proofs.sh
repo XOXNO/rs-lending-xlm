@@ -66,6 +66,8 @@ PY
   wasm=$(ls "$dir"/wasm/*.wasm)
   for t in "${tests[@]}"; do
     id=${t%%:*} expect=${t#*:}
+    # At most KOMET_JOBS concurrent proofs (each runs a backend and Z3).
+    while [ "$(jobs -rp | wc -l)" -ge "${KOMET_JOBS:-4}" ]; do sleep 5; done
     ( "$here/scripts/prove.sh" "$wasm" "$id" "$expect" "$dir/$id" "$module" "$cap" \
         > "$dir/$id.prove.log" 2>&1 \
       || echo "$name/$id: expectation '$expect' not met" >> "$ev/errors.txt" ) &
