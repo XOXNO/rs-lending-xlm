@@ -10,9 +10,9 @@ use common::types::{
     PositionLimits, PriceKey, PriceSource, ProviderRef, ReflectorFeedRef,
 };
 use soroban_sdk::testutils::storage::Instance as _;
-use soroban_sdk::testutils::{Address as _, Ledger as _, MockAuth, MockAuthInvoke};
-use soroban_sdk::{vec, Address, BytesN, Env, IntoVal, String, Symbol};
-use stellar_access::ownable;
+use soroban_sdk::testutils::{Address as _, Events as _, Ledger as _, MockAuth, MockAuthInvoke};
+use soroban_sdk::{vec, Address, BytesN, Env, Event as _, IntoVal, String, Symbol};
+use stellar_access::{access_control, ownable};
 
 use crate::access::EXECUTOR_ROLE;
 use crate::test_support::{
@@ -806,6 +806,16 @@ fn revoke_role_immediate_strips_only_the_named_incident_role() {
     assert!(gov.has_role(&key, &Symbol::new(&env, ORACLE_ROLE)));
 
     gov.revoke_role_immediate(&key, &Symbol::new(&env, ORACLE_ROLE));
+    // The owner calls this entrypoint, so the event names the owner.
+    let revoked = access_control::RoleRevoked {
+        role: Symbol::new(&env, ORACLE_ROLE),
+        account: key.clone(),
+        caller: admin,
+    };
+    let events = env.events().all();
+    assert!(events
+        .events()
+        .contains(&revoked.to_xdr(&env, &gov.address)));
     assert!(!gov.has_role(&key, &Symbol::new(&env, ORACLE_ROLE)));
 }
 

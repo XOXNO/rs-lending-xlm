@@ -357,11 +357,15 @@ pub(crate) fn resolve_op(env: &Env, op: &AdminOperation) -> ResolvedOperation {
                 vec![env, hash.clone().into_val(env)],
             )
         }
-        AdminOperation::SetPositionManager(manager, is_active) => sensitive_controller_operation(
-            env,
-            "set_position_manager",
-            vec![env, manager.clone().into_val(env), is_active.into_val(env)],
-        ),
+        AdminOperation::SetPositionManager(manager, is_active) => {
+            let args = vec![env, manager.clone().into_val(env), is_active.into_val(env)];
+            // Deactivation only withdraws authority, so it waits the Standard delay.
+            if *is_active {
+                sensitive_controller_operation(env, "set_position_manager", args)
+            } else {
+                controller_operation(env, "set_position_manager", args)
+            }
+        }
         AdminOperation::UpgradeController(hash) => {
             validate::require_nonzero_wasm_hash(env, hash);
             sensitive_controller_operation(env, "upgrade", vec![env, hash.clone().into_val(env)])
@@ -442,9 +446,12 @@ pub(crate) fn apply_self_op(env: &Env, op: &AdminOperation) {
         AdminOperation::GrantGovRole(args) => {
             access::apply_grant_role(env, &args.account, &args.role)
         }
-        AdminOperation::RevokeGovRole(args) => {
-            access::apply_revoke_role(env, &args.account, &args.role)
-        }
+        AdminOperation::RevokeGovRole(args) => access::apply_revoke_role(
+            env,
+            &args.account,
+            &args.role,
+            &env.current_contract_address(),
+        ),
         AdminOperation::TransferGovOwnership(args) => {
             access::apply_transfer_ownership(env, &args.new_owner, args.live_until_ledger)
         }

@@ -31,8 +31,9 @@ are in its rustdoc.
 - An op executes once ready and before it expires. `execute` runs ops that
   target another contract; `execute_self` runs ops that target governance.
 - The owner must be the proposer for: ownership, upgrade, migration, delay
-  (`UpdateGovDelay`), oracle, swap-aggregator, Blend approval, accumulator and
-  role-grant ops.
+  (`UpdateGovDelay`), oracle, swap-aggregator, Blend approval, accumulator,
+  role-grant and position-manager activation ops. Any proposer can schedule a
+  position-manager deactivation, which uses the Standard delay.
 
 ## Entrypoints
 

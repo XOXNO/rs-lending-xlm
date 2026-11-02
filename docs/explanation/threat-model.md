@@ -55,10 +55,11 @@ position NFT, price aggregator and governance upgrades do not pause lending.
 
 A PROPOSER that is not the owner can schedule listing, cap, curve and limit
 changes. Ownership transfers, code upgrades and migration, the timelock
-minimum delay, price and swap sources, Blend approvals, the revenue accumulator
-and role grants need the owner as proposer. A stolen non-owner PROPOSER key can
-therefore schedule disruptive changes, such as listing flags, risk parameters,
-role revocations or an unpause, but cannot replace code or prices. It cannot
+minimum delay, price and swap sources, Blend approvals, the revenue accumulator,
+role grants and position-manager activation need the owner as proposer. A
+stolen non-owner PROPOSER key can therefore schedule disruptive changes, such
+as listing flags, risk parameters, role revocations, a position-manager
+deactivation or an unpause, but cannot replace code or prices. It cannot
 change the minimum delay either. `UpdateGovDelay` can only raise the minimum,
 so no later delay update can lower it. An owner `UpgradeGov` can still replace
 the governance code and its delay rules
