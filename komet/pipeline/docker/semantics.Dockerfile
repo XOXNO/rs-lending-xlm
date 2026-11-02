@@ -1,6 +1,6 @@
 # Komet fork at a pinned commit, its locked Python environment (with the
-# vendored pyk patch) and the compiled Soroban semantics. Inputs are pinned by
-# ../pins.env; the build context is the repository's komet/ directory.
+# branch's vendored pyk overlay) and the compiled Soroban semantics. Inputs
+# are pinned by ../pins.env.
 
 ARG K_IMAGE
 FROM ${K_IMAGE}
@@ -10,6 +10,8 @@ ARG STELLAR_VERSION
 ARG STELLAR_SHA256
 ARG KOMET_REPO
 ARG KOMET_COMMIT
+ARG KOMET_LEMMAS_SHA256
+ARG KOMET_PROOF_PY_SHA256
 USER root
 ENV DEBIAN_FRONTEND=noninteractive LANG=C.UTF-8 KPROFILE_TELEMETRY_DISABLED=true
 
@@ -38,9 +40,27 @@ RUN git clone --filter=blob:none "${KOMET_REPO}" /opt/komet \
  && uv sync --locked --python /usr/bin/python3.10 --no-dev \
  && rm -rf /tmp/uv-cache
 
-# pyk patch (komet/vendor/pyk-7.1.337): checks stock and patched file hashes.
-COPY vendor/pyk-7.1.337 /opt/komet-vendor/pyk-7.1.337
-RUN /opt/komet-vendor/pyk-7.1.337/apply.sh /opt/komet/.venv/lib/python3.10/site-packages/pyk
+# Source identity of the proof-selected semantics lemmas and runner.
+RUN cd /opt/komet \
+ && echo "${KOMET_LEMMAS_SHA256}  src/komet/kdist/soroban-semantics/komet-lemmas.md" | sha256sum -c - \
+ && echo "${KOMET_PROOF_PY_SHA256}  src/komet/proof.py" | sha256sum -c -
+
+# pyk overlay (vendor/pyk-overlay in the Komet branch): replace the two
+# changed files of the installed kframework 7.1.337 package in place, checking
+# the stock hashes before and the selected hashes after.
+RUN P=/opt/komet/.venv/lib/python3.10/site-packages/pyk \
+ && O=/opt/komet/vendor/pyk-overlay/pyk \
+ && printf '%s  %s\n' \
+      ddc9aa9abff1b180cf8276375647469b83cfd3cba5f385cbd899e0529431d47f "$P/konvert/_kast_to_kore.py" \
+      dfc1f86ef0e8cae44c5833efd4b0d613ee90ff4d7747e0663d3c575b0191fd30 "$P/proof/reachability.py" \
+    | sha256sum -c - \
+ && cp "$O/konvert/_kast_to_kore.py" "$P/konvert/_kast_to_kore.py" \
+ && cp "$O/proof/reachability.py" "$P/proof/reachability.py" \
+ && printf '%s  %s\n' \
+      fdd855b4d4280f8739ffb5963f3d4997756ec44585f4b23ae94cd85f5a75463a "$P/konvert/_kast_to_kore.py" \
+      057fcc12b91f8f7ce355c74626e79df83b6f6623ba8772c2e9813588fd3ef3dd "$P/proof/reachability.py" \
+    | sha256sum -c - \
+ && find "$P" -name __pycache__ -prune -exec rm -r {} +
 ENV PATH=/opt/komet/.venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
     PYTHONDONTWRITEBYTECODE=1
 

@@ -20,10 +20,9 @@ df_text() { cat "$docker_dir/$1.Dockerfile"; }
 
 BACKEND_IMAGE="komet-backend:$(hash_of "$K_IMAGE" "$HASKELL_BACKEND_REPO" "$HASKELL_BACKEND_DEPS_COMMIT" \
   "$HASKELL_BACKEND_COMMIT" "$STACK_VERSION" "$STACK_SHA256" "$(df_text backend)")"
-vendor_dir="$here/../vendor"
 SEMANTICS_IMAGE="komet-semantics:$(hash_of "$K_IMAGE" "$UV_VERSION" "$UV_SHA256" "$STELLAR_VERSION" \
-  "$STELLAR_SHA256" "$KOMET_REPO" "$KOMET_COMMIT" "$(df_text semantics)" \
-  "$(cd "$vendor_dir" && find pyk-7.1.337 -type f | sort | xargs sha256sum)")"
+  "$STELLAR_SHA256" "$KOMET_REPO" "$KOMET_COMMIT" "$KOMET_LEMMAS_SHA256" "$KOMET_PROOF_PY_SHA256" \
+  "$(df_text semantics)")"
 PROVER_IMAGE="komet-prover:$(hash_of "$BACKEND_IMAGE" "$SEMANTICS_IMAGE" "$Z3_VERSION" "$Z3_ZIP_SHA256" \
   "$Z3_BIN_SHA256" "$BOOSTER_FLAGS" "$(df_text prover)")"
 WASM_IMAGE="komet-wasm:$(hash_of "$RUST_IMAGE" "$STELLAR_VERSION" "$STELLAR_SHA256" "$(df_text wasm)")"
@@ -51,9 +50,8 @@ build_backend() {
     HASKELL_BACKEND_COMMIT STACK_VERSION STACK_SHA256
 }
 build_semantics() {
-  # Context: komet/ (for vendor/pyk-7.1.337); komet/.dockerignore keeps it small.
-  build semantics "$SEMANTICS_IMAGE" "$here/.." K_IMAGE UV_VERSION UV_SHA256 STELLAR_VERSION STELLAR_SHA256 \
-    KOMET_REPO KOMET_COMMIT
+  build semantics "$SEMANTICS_IMAGE" "$docker_dir" K_IMAGE UV_VERSION UV_SHA256 STELLAR_VERSION STELLAR_SHA256 \
+    KOMET_REPO KOMET_COMMIT KOMET_LEMMAS_SHA256 KOMET_PROOF_PY_SHA256
 }
 build_prover() {
   have "$BACKEND_IMAGE" || build_backend

@@ -20,7 +20,7 @@ identified by its SHA-256.
 | Kore/Booster backend | `XOXNO/haskell-backend` commit, built with Stack 2.15.7 (GHC from Stack's verified setup-info, Hackage pinned by `stack.yaml.lock`) |
 | Backend flags | `--equation-max-local-steps 32 --no-fallback-simplify --no-post-exec-simplify --smt-retry-limit 3` |
 | Z3 | 4.13.4 official `x64-glibc-2.35` release, zip and binary SHA-256 |
-| Komet (semantics, runner, pyk overlay) | `XOXNO/komet` commit; Python deps from its `uv.lock` |
+| Komet (semantics, runner, pyk overlay) | `XOXNO/komet` commit and SHA-256 of `komet-lemmas.md` and `proof.py`; Python deps from its `uv.lock`; the two `vendor/pyk-overlay` files are hash-checked when applied |
 | uv, Stellar CLI | release tarball SHA-256 (Stellar CLI pin matches `.github/scripts/install-stellar-cli.sh`) |
 | Harness builder | `rust:1.95.0-slim-bookworm` image digest, `wasm32v1-none`, Stellar CLI 28.0.0 |
 | Lean | 4.22.0 release tarball and `bin/lean` SHA-256 |

@@ -10,13 +10,13 @@ custom simplification rule is justified. Pins are in [`pins.env`](pins.env).
 | Component | Version / pin | Role |
 |---|---|---|
 | K frontend (`kompile`, `kprove` parsing) | 7.1.337 (K image digest) | Compiles the semantics and parses the extra module |
-| Kore/Booster backend | `XOXNO/haskell-backend` `130d6edb` (base `v0.1.155` `38afc81f`) | Symbolic execution, simplification, implication checks |
+| Kore/Booster backend | `XOXNO/haskell-backend` `818a5e4c` (branch `proof/booster-v6-compact-rpc`, base `v0.1.155` `38afc81f`) | Symbolic execution, simplification, implication checks |
 | LLVM backend | 7.1.337 | Concrete deployment step and Booster's simplification library |
 | Z3 | 4.13.4 official release | Decides path conditions and side conditions |
-| pyk | `kframework` 7.1.337 + [`../vendor/pyk-7.1.337`](../vendor/pyk-7.1.337/README.md) patch | Proof driver (APR prover, KCFG) |
-| Komet runner | `XOXNO/komet` `0593a68` `src/komet/proof.py` (SHA-256 `ac43e6ca…`) | Builds the claim; prunes a branch only on an explicit `UNSAT` |
+| pyk | `kframework` 7.1.337 with the two files of Komet's `vendor/pyk-overlay` (SHA-256 `fdd855b4…`, `057fcc12…`) | Proof driver (APR prover, KCFG) |
+| Komet runner | `XOXNO/komet` `7e74d11` `src/komet/proof.py` (SHA-256 `ac43e6ca…`) | Builds the claim; prunes a branch only on an explicit `UNSAT` |
 | KWasm semantics | `pykwasm` 0.1.155 (from Komet's `uv.lock`) | Wasm execution model; the optional `KWASM-LEMMAS` module is excluded by the fork |
-| Komet host model | `XOXNO/komet` `0593a68` (SDK 28 host functions, see its `docs/sdk28-support.md`) | Soroban host functions (`I256`, `i128` objects, …) |
+| Komet host model | `XOXNO/komet` `7e74d11` (SDK 28 host functions, see its `docs/sdk28-support.md`) | Soroban host functions (`I256`, `i128` objects, …) |
 
 Not trusted for the Wasm-level claim: `rustc` and the Stellar CLI. They link
 the claim to Rust source only through the reproducible build: the pipeline
@@ -24,7 +24,12 @@ rebuilds each harness and compares its SHA-256 with the proved Wasm.
 
 ### Backend changes over `v0.1.155`
 
-Reviewed for soundness; each only refuses or exactly evaluates.
+`818a5e4c` is the source snapshot of the original proof's Booster
+(`hs-backend-booster-0.1.155-v6-compact-rpc`). Its `booster/`, `kore/` and
+`kore-rpc-types/` trees are identical to `130d6edb` (branch
+`proof/borrow-double-repro-2026-11`); the two differ only in README and Nix
+recipe files. Reviewed for soundness; each change only refuses or exactly
+evaluates.
 
 * `ApplyEquations.hs`: after a simplification rule matches, if it would erase a
   matched operand that is not syntactically defined (a variable, a domain
@@ -42,12 +47,15 @@ Decision on the stock K 7.1.337 Booster: not used for accepted results, since
 it lacks the erased-operand guard that the `integer-self-subtraction` rule
 needs. Comparison runs are recorded in the proof READMEs when available.
 
-### pyk patch
+### pyk overlay
 
-See [`../vendor/pyk-7.1.337/README.md`](../vendor/pyk-7.1.337/README.md): emit
-`preserves-definedness` to Kore; do not reject an empty-substitution match in
-the fast subsumption pre-check; treat an SMT `unknown` during a cover check as
-no cover. None of these can close an obligation.
+The semantics image replaces two files of the installed `kframework` 7.1.337
+package with Komet's `vendor/pyk-overlay` copies, checking the stock hashes
+(`ddc9aa9a…`, `dfc1f86e…`) before and the selected hashes after. Changes: emit
+`preserves-definedness` to Kore (stock pyk rejects the attribute in an extra
+module); do not reject an empty-substitution match in the fast subsumption
+pre-check; treat the SMT `retry limit is 0` error during a cover check as no
+cover (other errors still propagate). None of these can close an obligation.
 
 ## 2. Modelling assumptions used by the Lean proofs
 
@@ -74,7 +82,7 @@ Lean 4.22.0, every file checked with `--trust=0`; the checker rejects `sorry`,
 Every rule below is a `[simplification]` rule outside upstream KWasm/Komet.
 All are proved in Lean; the column gives file and theorem.
 
-### Komet fork `komet-lemmas.md` (commit `0593a68`)
+### Komet fork `komet-lemmas.md` (commit `7e74d11`, SHA-256 `2ddebe51…`)
 
 Files under [`proofs/komet-lemmas/lean/`](proofs/komet-lemmas/lean/).
 
