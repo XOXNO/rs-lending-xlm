@@ -2,8 +2,10 @@
 //! Curve LP collateral against the production price-aggregator and router WASMs
 //! and the real Curve pool executables. Mainnet per-invocation resource limits
 //! stay enforced, and `Scene::metered` runs a call under the default Soroban
-//! budget. The controller is native, so its own instructions are not metered;
-//! every oracle, lending pool, Curve pool, router and token call is.
+//! budget. The controller and the leaf price feed are native, so their own
+//! instructions are not metered. The figures are a lower bound: SAC coins,
+//! single-source coin oracles and one debt leg. Custom-WASM coins or feeds need
+//! re-measuring.
 
 #[path = "../../../contracts/swap-aggregator/tests/fixtures/curve/factory.rs"]
 mod curve;
@@ -318,6 +320,7 @@ fn curve_three_coin_collateral_lifecycle() {
 
 /// CURVE-6: liquidating an account whose `POSITION_LIMIT_MAX` collateral legs
 /// are all three-coin Curve LP, over fifteen distinct coins, fits one invocation.
+/// One debt leg only, so this is a lower bound on the worst case.
 #[test]
 fn curve_lp_liquidation_at_position_limit_fits_default_budget() {
     let s = Scene::new();

@@ -25,7 +25,8 @@ use crate::validation;
 
 /// Attests every price source configured on `oracle`, dispatching feed, scaled-feed,
 /// Aquarius LP, and Aquarius stable-LP sources to their respective provider
-/// attestation routines.
+/// attestation routines. A Curve LP source is a no-op here: the hard probe in
+/// `set_oracle` enforces its pool binding.
 fn attest_sources(env: &Env, key: &PriceKey, oracle: &AssetOracle) {
     for source in oracle.sources.iter() {
         match &source {
@@ -75,7 +76,7 @@ fn attest_feed(env: &Env, feed: &FeedSource, quote: Option<&PriceKey>) {
 }
 
 /// Validates `oracle` and attests its sources, then probes it: a hard probe
-/// for Aquarius LP oracles that panics on any unusable outcome, or a soft
+/// for LP (Aquarius or Curve) oracles that panics on any unusable outcome, or a soft
 /// probe otherwise that panics only on configuration-level failures. Stores
 /// the oracle, revalidates dependents, and emits the registry event.
 ///
@@ -229,10 +230,10 @@ pub(crate) fn set_sanity_band(env: &Env, key: PriceKey, min_wad: i128, max_wad: 
     registry::commit(env, &key, &oracle);
 }
 
-/// Updates the tolerance of the oracle registered under `key`. Rejects Aquarius LP
-/// oracles, validates the new tolerance, re-probes the oracle, and commits the
-/// result to the registry. Panics if the oracle is not configured, has an
-/// Aquarius LP source, or the tolerance fails validation.
+/// Updates the tolerance of the oracle registered under `key`. Rejects LP
+/// (Aquarius or Curve) oracles, validates the new tolerance, re-probes the
+/// oracle, and commits the result to the registry. Panics if the oracle is not
+/// configured, has an LP source, or the tolerance fails validation.
 pub(crate) fn set_tolerance(env: &Env, key: PriceKey, tolerance: OracleTolerance) {
     let mut oracle = registry::get_oracle(env, &key)
         .unwrap_or_else(|| panic_with_error!(env, OracleError::OracleNotConfigured));

@@ -152,10 +152,12 @@ price. The virtual price depends on the amplification coefficient A whenever the
 pool is imbalanced, and the pool factory's admin can ramp A within the pool's
 own rate limits. The aggregator pins the pool executable, not its factory, so
 governance must review the factory and its admin as trusted parties, as it does
-an Aquarius stable pool's admin. A ramp cannot overvalue the LP: the invariant
-never exceeds the sum of normalized balances and every coin is valued at the
-lowest coin price, so a ramp only marks the LP down. Each coin's issuer carries
-the same trust as a directly listed token's.
+an Aquarius stable pool's admin. On an imbalanced pool a ramp can move the mark
+either way, but never above the sum of normalized balances times the lowest
+coin price, because the invariant never exceeds that sum. Each coin's issuer
+carries the same trust as a directly listed token's. The lowest-coin price
+understates an LP held as debt, so LP sources are collateral-only and LP
+markets must not be borrowable.
 
 ## Routes, callbacks, and external integrations
 
@@ -390,7 +392,9 @@ Soroban budget with mainnet per-invocation limits, the
 measured a liquidation of `POSITION_LIMIT_MAX` (5) 3-coin LP legs at 54.87M CPU
 and 11.19M memory, a multiply into LP at 25.6M CPU, and a repay out of LP at
 29.0M CPU. The controller runs natively there, so its own instructions are not
-counted. Larger pools need new code and new measurements.
+counted. These figures are a lower bound: native controller and feed, SAC coins,
+single-source coin oracles and one debt leg (the limit is 5). Custom-WASM coins
+or feeds need new measurements; larger pools need new code as well.
 
 ## STRIDE register
 

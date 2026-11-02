@@ -70,6 +70,11 @@ and exactly one `CurveStableLp` source. Its fields are `pool`, `coins` (exact
 pool order), `wasm_hash` (64 hexadecimal characters in CLI JSON), and
 `min_pool_value_wad`. The pool address is also the LP token address. Create the
 18-decimal lending market and enable collateral in the desired spoke normally.
+LP sources (Aquarius or Curve) are collateral-only: keep LP markets at
+`can_be_borrowed: false`; Curve's lowest-coin price understates an LP debt.
+Set the LP's `min_sanity_price_wad` below the lowest coin's
+`min_sanity_price_wad` times the virtual price, so the LP band never trips
+before the coin bands.
 
 Governance must review the pinned executable and underlying tokens for plain
 pool semantics. Each read rechecks its hash, ordered coins, live decimals and
@@ -80,14 +85,17 @@ An executable change makes the source unpriceable until reviewed and reconfigure
 LP value depends on the amplification coefficient A whenever the pool is
 imbalanced, and the pool factory's admin can ramp A. The source pins the
 executable, not the factory, so governance must treat the factory admin as
-trusted, as it does an Aquarius stable pool's admin. A ramp can only undervalue
-the LP: the virtual price never exceeds the normalized reserves per share, and
-every coin is valued at the lowest coin price. Each coin's issuer is trusted as
+trusted, as it does an Aquarius stable pool's admin. On an imbalanced pool a
+ramp can move the mark either way, but never above the normalized reserves per
+share times the lowest coin price. Each coin's issuer is trusted as
 for a directly listed token (clawback, freeze, upgrade, decimals change).
 
 `MAX_CURVE_COINS` is 3. Real-WASM fixtures cover 2 and 3 coins, and the harness
 liquidates `POSITION_LIMIT_MAX` 3-coin LP legs within the default Soroban budget
 (about 55M CPU; see the [threat model](../../docs/explanation/threat-model.md#numeric-and-resource-limits)).
+That figure is a lower bound: native controller and feed, SAC coins,
+single-source coin oracles and one debt leg. Custom-WASM coins or feeds need
+re-measuring.
 Larger pools require their own code and transaction-resource validation.
 The generic production-fixture runner rejects Curve sources; Curve tests use
 the real pool WASMs.

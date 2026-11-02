@@ -1,6 +1,6 @@
 //! Core price-resolution engine: reads an oracle's configured sources, blends them
 //! into a single price with staleness and deviation flags, and enforces cycle and
-//! depth limits while resolving nested (scaled and Aquarius LP) compositions.
+//! depth limits while resolving nested (scaled and LP) compositions.
 
 use common::errors::OracleError;
 use common::math::fp::Wad;
@@ -243,7 +243,7 @@ pub(crate) fn resolve_status(session: &mut Session, key: &PriceKey, depth: u32) 
 /// Resolves `oracle` for `key` at depth 0 and panics with the applicable
 /// `OracleError` if it produces any unusable outcome, including market-condition
 /// failures such as staleness or sanity-bound violations. `admin::set_oracle`
-/// calls it for an oracle whose first source is an Aquarius LP.
+/// calls it for an oracle whose first source is an LP (Aquarius or Curve).
 pub(crate) fn probe_priceable(session: &mut Session, key: &PriceKey, oracle: &AssetOracle) {
     let env = session.env().clone();
     let (outcome, resolved) = resolve_outcome(session, key, 0, Some(oracle));
@@ -558,8 +558,8 @@ fn read_source(
 
 /// Returns the feed nature of `source`: the provider's nature for a plain
 /// feed, the factor feed's provider nature for a scaled source (the quote
-/// leg's nature is not considered), and always `Market` for an Aquarius LP
-/// or Aquarius stable-LP source.
+/// leg's nature is not considered), and always `Market` for an LP (Aquarius or
+/// Curve) source.
 fn source_nature(source: &PriceSource) -> FeedNature {
     match source {
         PriceSource::Feed(feed) => feed.provider.nature(),
@@ -570,8 +570,8 @@ fn source_nature(source: &PriceSource) -> FeedNature {
     }
 }
 
-/// Dispatches `source` to its evaluation routine (feed, scaled, Aquarius LP, or
-/// Aquarius stable LP), returning the resulting observation and its
+/// Dispatches `source` to its evaluation routine (feed, scaled, or LP
+/// (Aquarius or Curve)), returning the resulting observation and its
 /// component-level staleness flag, if any.
 fn evaluate_source(
     session: &mut Session,
