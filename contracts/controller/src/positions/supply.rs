@@ -1,3 +1,4 @@
+use common::collections::unique_hub_tokens;
 use common::errors::GenericError;
 use common::math::fp::Ray;
 use common::types::{
@@ -111,6 +112,20 @@ pub(crate) fn process_deposit(
         cache,
         AccountPositionType::Deposit,
     );
+    // A new leg on an indebted account needs a live price and matching pool
+    // decimals, so a borrower cannot plant a dust leg that blocks liquidation.
+    if !account.debt_free() {
+        let mut new_legs: Vec<HubAssetKey> = Vec::new(env);
+        for (hub_asset, _) in aggregated.iter() {
+            if !account.supply_positions.contains_key(hub_asset.clone()) {
+                new_legs.push_back(hub_asset);
+            }
+        }
+        cache.fetch_prices(&unique_hub_tokens(env, &new_legs));
+        for hub_asset in new_legs.iter() {
+            cache.require_feed_matches_pool(&hub_asset);
+        }
+    }
     let pool_addr = cache.cached_pool_address();
     let mut entries: Vec<PoolSupplyEntry> = Vec::new(env);
     for (hub_asset, amount_in) in aggregated.iter() {

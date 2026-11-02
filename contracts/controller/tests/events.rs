@@ -313,8 +313,9 @@ use common::math::fp::Ray;
 use common::rates::resolve_withdrawal;
 use common::types::{
     AccountMeta, AccountPositionRaw, DebtPositionRaw, HubAssetKey, HubConfig, MarketIndexRaw,
-    PoolAction, PoolPositionMutation, PoolSeizeEntry, PoolWithdrawEntry, PriceFeedRaw, PriceKey,
-    ScaledPositionRaw, SeizeMode, SpokeConfig, SpokeUsageRaw,
+    PoolAction, PoolPositionMutation, PoolSeizeEntry, PoolStateRaw, PoolSyncData,
+    PoolWithdrawEntry, PriceFeedRaw, PriceKey, ScaledPositionRaw, SeizeMode, SpokeConfig,
+    SpokeUsageRaw,
 };
 use soroban_sdk::testutils::Events as _;
 use soroban_sdk::{contractimpl, symbol_short, token, Map, Symbol, TryFromVal, Val};
@@ -404,6 +405,22 @@ impl MockPool {
             out.push_back(unit_index());
         }
         out
+    }
+
+    /// Lists every market at `sample_market_params`' 7 decimals, matching the seeded feeds.
+    pub fn get_sync_data(_env: Env, hub_asset: HubAssetKey) -> PoolSyncData {
+        PoolSyncData {
+            params: sample_market_params(&hub_asset.asset),
+            state: PoolStateRaw {
+                supplied: 0,
+                borrowed: 0,
+                revenue: 0,
+                borrow_index: RAY,
+                supply_index: RAY,
+                last_timestamp: 0,
+                cash: 0,
+            },
+        }
     }
 
     pub fn repay(env: Env, _payer: Address, actions: Vec<PoolAction>) -> Vec<PoolPositionMutation> {

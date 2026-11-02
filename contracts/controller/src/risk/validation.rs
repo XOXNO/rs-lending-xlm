@@ -148,11 +148,15 @@ pub(crate) fn require_whole_unit_isolation(
 }
 
 /// Requires `MIN_WHOLE_UNIT_COLLATERAL` whole units in every supply leg below
-/// `MIN_BORROWABLE_ASSET_DECIMALS`. Reads prices and indexes the solvency
-/// check already loaded.
+/// `MIN_BORROWABLE_ASSET_DECIMALS`. Isolation keeps such a leg alone, so only a
+/// single-leg account is read. Reads the pool's listed decimals, as isolation
+/// does, and requires the feed to agree.
 fn require_whole_unit_collateral_floor(env: &Env, cache: &mut Context, account: &Account) {
+    if account.supply_positions.len() != 1 {
+        return;
+    }
     for (hub_asset, position) in iter_typed_positions(&account.supply_positions) {
-        let decimals = cache.cached_price(&hub_asset.asset).asset_decimals;
+        let decimals = cache.require_feed_matches_pool(&hub_asset);
         if decimals >= MIN_BORROWABLE_ASSET_DECIMALS {
             continue;
         }

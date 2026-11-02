@@ -15,7 +15,7 @@ use std::{format, panic, println, thread};
 use crate::config::config;
 use common::math::fp::{Bps, Ray, Wad};
 use common::math::fp_core::{mul_div_ceil, mul_div_floor};
-use common::rates::unscale_borrow_ceil;
+use common::rates::{position_value_floor, unscale_borrow_ceil};
 use common::types::{HubAssetKey, LiquidationEstimate, PriceKey, SeizeMode};
 use common::validation::max_cap_for_decimals;
 use controller::constants::{BPS, RAY, WAD};
@@ -596,6 +596,23 @@ impl World {
         )
     }
 
+    /// The floor WAD USD value of the leg's debt, which a payment at its
+    /// ceiling is credited.
+    fn debt_floor_usd(&self, leg: &Leg) -> i128 {
+        let (_, debts) = self.t.ctrl_client().get_account_positions(&self.account);
+        let Some(position) = debts.get(leg.key.clone()) else {
+            return 0;
+        };
+        let index = self.t.ctrl_client().get_market_index(&leg.key).borrow_index;
+        position_value_floor(
+            &self.t.env,
+            Ray::from(position.scaled_amount),
+            Ray::from(index),
+            Wad::from(leg.price),
+        )
+        .raw()
+    }
+
     fn unit_usd(&self) -> Wad {
         let env = &self.t.env;
         Wad::from_token(env, 1, self.decimals).mul(env, Wad::from(self.liq_price))
@@ -741,6 +758,7 @@ fn liquidate_step(
     let bonus_m = mirror_bonus(&env, totals, w.listed_bonus, &w.curve);
     let legs = w.legs.clone();
     let debts: Vec<i128> = legs.iter().map(|leg| w.debt_ceil(leg)).collect();
+    let debt_floors: Vec<i128> = legs.iter().map(|leg| w.debt_floor_usd(leg)).collect();
     let per_leg_unit = legs
         .iter()
         .zip(&debts)
@@ -947,9 +965,13 @@ fn liquidate_step(
     for (i, leg) in legs.iter().enumerate() {
         let planned = offers[i] - refunded(&estimate, &leg.key.asset);
         prop_assert_eq!(paid[i], planned, "P7: paid leg {}; {}", leg.name, &ctx);
-        paid_usd_wad += Wad::from_token(&env, paid[i], leg.decimals)
-            .mul(&env, Wad::from(leg.price))
-            .raw();
+        paid_usd_wad += if paid[i] > 0 && paid[i] == debts[i] {
+            debt_floors[i]
+        } else {
+            Wad::from_token(&env, paid[i], leg.decimals)
+                .mul(&env, Wad::from(leg.price))
+                .raw()
+        };
     }
     prop_assert_eq!(
         estimate.max_payment_wad,

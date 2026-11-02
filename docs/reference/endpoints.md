@@ -21,7 +21,7 @@ Every user mutation below requires the named caller, payer or liquidator to auth
 
 | Endpoint (parameters → return) | Additional authority | Pause | Effect |
 | --- | --- | --- | --- |
-| `supply(caller: Address, account_id: u64, spoke_id: u32, assets: Vec<(HubAssetKey, i128)>) -> u64` | Existing assets only for third parties | gated | Supply measured deposits; id 0 creates Normal account. |
+| `supply(caller: Address, account_id: u64, spoke_id: u32, assets: Vec<(HubAssetKey, i128)>) -> u64` | Existing assets only for third parties | gated | Supply measured deposits; id 0 creates Normal account. Opening a new leg on an indebted account reads that leg's price and requires its feed and pool decimals to match. |
 | `borrow(caller: Address, account_id: u64, borrows: Vec<(HubAssetKey, i128)>, to: Option<Address>)` | NFT owner/delegate | gated | Debt booked to account; recipient defaults to caller. |
 | `withdraw(caller: Address, account_id: u64, withdrawals: Vec<(HubAssetKey, i128)>, to: Option<Address>) -> Vec<(HubAssetKey, i128)>` | NFT owner/delegate | open | Zero means full withdrawal; returns the amounts paid. |
 | `repay(caller: Address, account_id: u64, payments: Vec<(HubAssetKey, i128)>)` | None | open | Anyone can repay; excess returns to caller. |
@@ -64,7 +64,7 @@ Seizure checks only `no_seize`. Liquidators cannot choose a different collateral
 
 ### Liquidation results
 
-Credit liquidation transfers supply shares without moving collateral tokens. The receiver must differ from the target, share its spoke and use Normal mode. `Credit(0)` can create a receiver in a deprecated spoke. Position limits apply; collateral permissions and supply caps do not gate this credit.
+Credit liquidation transfers supply shares without moving collateral tokens. The receiver must differ from the target, share its spoke and use Normal mode. `Credit(0)` can create a receiver in a deprecated spoke. Position limits apply to an existing receiver; a `Credit(0)` receiver is exempt, so a lowered limit cannot block the seizure. Collateral permissions and supply caps do not gate this credit.
 
 Liquidation estimates report gross seizure before protocol fees. Transfer-mode seizure and fees use token units; Credit-mode seizure and fees use RAY shares. `refunds` use debt-token units. Execution can differ from an estimate because prices, indexes and measured token delivery can change.
 

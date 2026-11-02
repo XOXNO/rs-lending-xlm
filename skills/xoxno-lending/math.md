@@ -351,7 +351,7 @@ Example (account above): `1_548.89e18 ≥ 275.22e18`, `HF 5.89 ≥ 1`, `1_548.89
 p       = C == 0 ? 0 : half_up(W × WAD / C)                      // proportion_seized
 t       = clamp(ceil(p × BPS / WAD), 1, BPS)
 max_bps = p ≤ 0 ? 0 : floor(BPS × (BPS − t) / t)                 // max_bonus_for_threshold
-base_bps = min(Σ half_up(half_up(value_i × WAD / C) × bonus_i / WAD), max_bps)   // USD-weighted stamped bonuses; 0 when C == 0
+base_bps = min(half_up(Σ (value_i × bonus_i) / C), max_bps)   // USD-weighted stamped bonuses, one rounding; 0 when C == 0
 ```
 
 ### Bonus curve (`SpokeConfig`: `liquidation_target_hf_wad`, `hf_for_max_bonus_wad`, `liquidation_bonus_factor_bps`)
@@ -391,7 +391,9 @@ For a full-debt quote:
 
 - The controller pulls each merged offer in full.
 - The pool refunds the offer above each leg's ceiled debt.
-- `max_payment_wad` can exceed `D` because each debt leg is rounded up.
+- Each debt leg is pulled at its rounded-up ceiling, but credited only the
+  floor value of the debt it clears, so the closing fraction of a unit buys no
+  collateral and `max_payment_wad` does not exceed `D`.
 
 For another quote, the planner trims payments from the last leg backward.
 On a solvent account, it floors the refund. A kept leg can therefore round up
@@ -428,7 +430,7 @@ fee_ray           = half_up(bonus_ray × liquidation_fees_bps / BPS)
 | `SeizeMode::Transfer` | tokens: `capped_ray` rescaled **floor** (partial) or **half-up** (full, pool still pays the floor claim) minus the fee | `max(1, floor(fee_ray / 10^(27−d)))` when `fee_ray > 0`, capped at the base units the pool pays above the principal (`floor((paid_ray − base_ray) / 10^(27−d))`, 0 when the payout does not exceed it); withheld from the transfer |
 | `SeizeMode::Credit(account_id)` | shares: `seized_scaled − fee_scaled` credited to the receiver account | `fee_scaled = ceil(bonus_scaled × fees_bps / BPS)` where `seized_scaled = floor(capped_ray × RAY / supply_index)` (exact held shares on full close), `bonus_scaled = min(floor(bonus_ray × RAY / supply_index), seized_scaled)` |
 
-Under-delivery (measured repayment USD below plan) floors every seizure field by `received / planned`; credit fees are recomputed from the scaled bonus. Planning drops legs that round to zero tokens or zero shares. A collateral market below 3 decimals is the account's only supplied market.
+Under-delivery (measured repayment USD below plan) floors every seizure field by `received / planned` and caps each transfer amount at the floor asset value of its scaled shares; credit fees are recomputed from the scaled bonus. Under-delivery reverts with `InvalidPayments` when a seized leg is below 3 decimals. Planning drops legs that round to zero tokens or zero shares. A collateral market below 3 decimals is the account's only supplied market.
 Liquidation rounds its seizure to token base units. A full-debt repayment rounds
 the seizure up; a partial repayment rounds down and is trimmed to the backed
 value. A low-decimal plan with no seizure fails with `InvalidPayments`.

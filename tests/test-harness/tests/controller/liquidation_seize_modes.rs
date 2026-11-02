@@ -456,30 +456,47 @@ fn a_spoke_at_its_supply_cap_can_still_be_credited() {
 
 // --- position limits -----------------------------------------------------
 
+/// Governance lowers the supply limit below the liquidated account's two legs.
+/// An existing receiver keeps the limit, in the estimate and at execution; a
+/// receiver the liquidation creates is exempt and takes both legs.
 #[test]
 fn a_receiver_at_the_supply_position_limit_reverts() {
-    let mut t = LendingTest::new()
-        .standard_two_asset()
-        .with_position_limits(1, 4)
-        .build();
+    let mut t = LendingTest::new().three_asset_usdc_eth_wbtc().build();
 
     t.supply(ALICE, "USDC", 10_000.0);
+    t.supply(ALICE, "WBTC", 0.01);
     t.borrow(ALICE, "ETH", 3.0);
-    // The liquidator's account already holds its one permitted supply position, in a different
-    // asset than the one about to be seized.
+    // The liquidator's account already holds a supply position, in a different
+    // asset than the ones about to be seized.
     t.supply(LIQUIDATOR, "ETH", 5.0);
     let receiver = t.resolve_account_id(LIQUIDATOR);
+    t.set_position_limits(1, 4);
 
     t.set_price("USDC", usd_cents(50));
     t.assert_liquidatable(ALICE);
+
+    let alice_id = t.resolve_account_id(ALICE);
+    let eth = amount_raw(1.0, t.resolve_market("ETH").decimals);
+    let payments = asset_payment_vec(&t.env, t.resolve_asset("ETH"), eth);
+    let estimate = |mode| {
+        t.ctrl_client()
+            .try_get_liquidation_estimate(&alice_id, &payments, &mode)
+    };
+    assert_eq!(
+        estimate(SeizeMode::Credit(receiver)).unwrap_err(),
+        Ok(soroban_sdk::Error::from_contract_error(
+            errors::POSITION_LIMIT_EXCEEDED
+        ))
+    );
+    assert!(matches!(estimate(SeizeMode::Credit(0)), Ok(Ok(_))));
 
     let result =
         t.try_liquidate_with_mode(LIQUIDATOR, ALICE, "ETH", 1.0, SeizeMode::Credit(receiver));
     assert_contract_error(result, errors::POSITION_LIMIT_EXCEEDED);
 
-    // The revert is actionable: a fresh account has room.
     let fresh = t.liquidate_with_mode(LIQUIDATOR, ALICE, "ETH", 1.0, SeizeMode::Credit(0));
     assert!(scaled_supply(&t, fresh, "USDC") > 0);
+    assert!(scaled_supply(&t, fresh, "WBTC") > 0);
 }
 
 // --- events --------------------------------------------------------------

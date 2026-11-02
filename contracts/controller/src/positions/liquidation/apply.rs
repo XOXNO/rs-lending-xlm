@@ -1,4 +1,5 @@
 use crate::account;
+use common::constants::POSITION_LIMIT_MAX;
 use common::math::fp::{Ray, Wad};
 use common::math::fp_core::mul_div_floor;
 use common::types::{
@@ -24,7 +25,7 @@ use crate::positions::{
 use crate::risk::validation;
 use crate::risk::AccountRiskTotals;
 use crate::spoke_usage::UsageSide;
-use common::errors::{GenericError, SpokeError};
+use common::errors::{CollateralError, GenericError, SpokeError};
 
 /// Repays from measured pool receipts. Returns WAD USD receipt value, capped
 /// per planned leg and floor-scaled when a token under-delivers.
@@ -264,11 +265,16 @@ pub(crate) fn record_share_credit_updates(
 }
 
 /// Enforces receiver position limits to preserve the liquidation resource bound.
-/// The liquidator can choose `Credit(0)` if the existing receiver has no room.
+/// A `fresh` receiver, created by this liquidation (`Credit(0)`), is held only
+/// to `POSITION_LIMIT_MAX`, not the governed limit: its legs are a subset of
+/// the liquidated account's, so a lowered limit cannot block the seizure. An
+/// existing receiver keeps the governed limit; whole-unit isolation applies to
+/// both.
 pub(crate) fn require_credit_position_limit(
     env: &Env,
     receiver: &Account,
     seized: &Vec<SeizeEntry>,
+    fresh: bool,
     cache: &mut Context,
 ) {
     let mut aggregated: AggregatedPayments = Vec::new(env);
@@ -277,12 +283,20 @@ pub(crate) fn require_credit_position_limit(
             aggregated.push_back((entry.hub_asset.clone(), entry.amount));
         }
     }
-    validation::validate_bulk_position_limits(
-        env,
-        receiver,
-        AccountPositionType::Deposit,
-        &aggregated,
-    );
+    if fresh {
+        assert_with_error!(
+            env,
+            aggregated.len() <= POSITION_LIMIT_MAX,
+            CollateralError::PositionLimitExceeded
+        );
+    } else {
+        validation::validate_bulk_position_limits(
+            env,
+            receiver,
+            AccountPositionType::Deposit,
+            &aggregated,
+        );
+    }
     validation::require_whole_unit_isolation(env, cache, receiver, &aggregated);
 }
 
