@@ -167,7 +167,7 @@ A seized deposit is already in `supplied`; interest creates new claims.
 Backing shortfall (`guards::backing_shortfall`):
 
 ```text
-supplied_claim(floor) − (cash + outstanding_debt(ceil)), clamped ≥ 0
+floor_to_units(supplied_claim(floor) − outstanding_debt(ceil)) − cash, clamped ≥ 0
 ```
 
 ## Rounding

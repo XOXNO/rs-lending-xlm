@@ -187,7 +187,9 @@ fn test_all_decimal_roundtrips_never_favor_user() {
                     );
 
                     let debt = cache.calculate_scaled_borrow(a);
-                    let owed = cache.unscale_borrow_ceil(debt);
+                    let owed = cache
+                        .unscale_borrow_ceil_ray(debt)
+                        .to_asset_ceil(&t.env, decimals);
                     assert!(
                         owed >= a,
                         "borrow roundtrip favored the user: dec={decimals} \

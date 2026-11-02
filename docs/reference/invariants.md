@@ -128,8 +128,8 @@ incoming collateral tokens.
 ### INV-ACCT-04 — Backing shortfall blocks new supply
 
 New token-funded supply rejects a positive backing shortfall. The check compares
-floored supplied claims against tracked cash plus ceiled debt value in native
-token units, using saturating arithmetic.
+floored supplied claims less ceiled debt value, rounded down to native token
+units once, against tracked cash, using saturating arithmetic.
 
 Recapitalization fills at most that shortfall, refunds excess and mints no
 shares. It cannot restore a written-down index. The non-zero supply-index floor

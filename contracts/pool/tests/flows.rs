@@ -19,8 +19,8 @@ use soroban_sdk::testutils::storage::{Instance as _, Persistent as _};
 use soroban_sdk::testutils::{Address as _, ContractEvents, Events, Ledger, LedgerInfo};
 use soroban_sdk::xdr::{ContractEventBody, ScVal, SorobanAuthorizationEntry};
 use soroban_sdk::{
-    contract, contractimpl, panic_with_error, token, vec, Address, Bytes, Env, Error, InvokeError,
-    Vec,
+    contract, contractimpl, panic_with_error, token, vec, Address, Bytes, Env, Error, IntoVal,
+    InvokeError, TryFromVal, Val, Vec,
 };
 
 const WAD_PER_RAW: i128 = 100_000_000_000_000_000_000;
@@ -1578,16 +1578,28 @@ fn test_net_settle_rejects_burn_that_strands_revenue_above_supply() {
 }
 
 #[test]
-fn test_seize_positions_rejects_negative_scaled_amount() {
+fn test_negative_scaled_position_is_rejected_on_every_leg() {
     let t = TestSetup::new();
     let client = t.client();
     client.supply(&t.sup(0, 100_0000000i128));
+    let who = Address::generate(&t.env);
+    let code = GenericError::AmountMustBePositive as u32;
 
     let negative = ScaledPositionRaw { scaled_amount: -1 };
     for side in [AccountPositionType::Deposit, AccountPositionType::Borrow] {
         let result = flatten_contract_result(client.try_seize_positions(&t.sez(side, &negative)));
-        assert_contract_error(result, GenericError::AmountMustBePositive as u32);
+        assert_contract_error(result, code);
     }
+    let supply = client.try_supply(&t.sup(-5, 1));
+    assert_contract_error(flatten_contract_result(supply), code);
+    let borrow = client.try_borrow(&who, &t.bor(-5, 1));
+    assert_contract_error(flatten_contract_result(borrow), code);
+    let strategy = client.try_create_strategy(&who, &t.action(-5, 1), &false);
+    assert_contract_error(flatten_contract_result(strategy), code);
+    let withdraw = client.try_withdraw(&who, &false, &t.wdr(-1, 1, 0));
+    assert_contract_error(flatten_contract_result(withdraw), code);
+    let repay = client.try_repay(&who, &t.ract(-1, 1));
+    assert_contract_error(flatten_contract_result(repay), code);
 }
 
 #[test]
@@ -2827,7 +2839,9 @@ fn test_bulk_repay_overpayment_refunds_second_entry_surplus() {
     let t = TestSetup::new();
     let client = t.client();
 
+    let asset_b = t.add_funded_market();
     client.supply(&t.sup(0, 50_000_000_000i128));
+    client.supply(&t.sup_for(&asset_b, 0, 50_000_000_000i128));
 
     let borrower = Address::generate(&t.env);
     let debt_one = 100_0000000i128;
@@ -2835,18 +2849,25 @@ fn test_bulk_repay_overpayment_refunds_second_entry_surplus() {
     let first_borrow = client
         .borrow(&borrower, &t.bor(0, debt_one))
         .get_unchecked(0);
+    let second_entry = PoolBorrowEntry {
+        action: t.action_for(&asset_b, 0, debt_two),
+    };
     let second_borrow = client
-        .borrow(&borrower, &t.bor(0, debt_two))
+        .borrow(&borrower, &vec![&t.env, second_entry])
         .get_unchecked(0);
 
     let overpayment = 5_0000000i128;
-    let tok = token::Client::new(&t.env, &t.asset);
+    let tok = token::Client::new(&t.env, &asset_b);
     let payer_before = tok.balance(&borrower);
 
     let actions = vec![
         &t.env,
         t.action(first_borrow.position.scaled_amount, debt_one),
-        t.action(second_borrow.position.scaled_amount, debt_two + overpayment),
+        t.action_for(
+            &asset_b,
+            second_borrow.position.scaled_amount,
+            debt_two + overpayment,
+        ),
     ];
     let results = client.repay(&borrower, &actions);
     assert_eq!(results.len(), 2, "one mutation per entry");
@@ -2870,45 +2891,35 @@ fn test_bulk_repay_overpayment_refunds_second_entry_surplus() {
     );
 }
 
+fn twice<T: IntoVal<Env, Val> + TryFromVal<Env, Val>>(mut batch: Vec<T>) -> Vec<T> {
+    batch.append(&batch.clone());
+    batch
+}
+
+/// Each leg carries a position read before the batch, so a batch that repeats
+/// a market is rejected (RV-I-03). `seize_positions` is exempt: bad-debt
+/// cleanup seizes both sides of one market.
 #[test]
-fn test_bulk_supply_duplicate_asset_applies_sequentially() {
+fn test_batches_reject_a_repeated_market() {
     let t = TestSetup::new();
     let client = t.client();
+    let held = client.supply(&t.sup(0, 100_0000000i128)).get_unchecked(0);
+    let who = Address::generate(&t.env);
+    let owed = client
+        .borrow(&who, &t.bor(0, 1_0000000i128))
+        .get_unchecked(0);
+    let code = GenericError::InvalidPayments as u32;
 
-    let amount_one = 10_000_000_000i128;
-    let amount_two = 25_000_000_000i128;
-    let state_before = t.state_snapshot();
-
-    let entries = vec![
-        &t.env,
-        t.sup_entry(&t.asset, 0, amount_one),
-        t.sup_entry(&t.asset, 0, amount_two),
-    ];
-    let results = client.supply(&entries);
-    assert_eq!(results.len(), 2);
-
-    let first = results.get_unchecked(0);
-    let second = results.get_unchecked(1);
-
-    assert_eq!(
-        first.actual_amount, amount_one,
-        "entry 1 applied the first input"
-    );
-    assert_eq!(
-        second.actual_amount, amount_two,
-        "entry 2 applied the second input"
-    );
-
-    let state_after = t.state_snapshot();
-    assert_eq!(
-        state_after.supplied,
-        state_before.supplied + first.position.scaled_amount + second.position.scaled_amount,
-        "total supplied is the sum of both entries"
-    );
-    assert_eq!(
-        state_after.cash,
-        state_before.cash + amount_one + amount_two
-    );
+    let supply = client.try_supply(&twice(t.sup(0, 1_0000000i128)));
+    assert_contract_error(flatten_contract_result(supply), code);
+    let borrow = client.try_borrow(&who, &twice(t.bor(0, 1_0000000i128)));
+    assert_contract_error(flatten_contract_result(borrow), code);
+    let held = held.position.scaled_amount;
+    let withdraw = client.try_withdraw(&who, &false, &twice(t.wdr(held, 1_0000000i128, 0)));
+    assert_contract_error(flatten_contract_result(withdraw), code);
+    let owed = owed.position.scaled_amount;
+    let repay = client.try_repay(&who, &twice(t.ract(owed, 1_000000i128)));
+    assert_contract_error(flatten_contract_result(repay), code);
 }
 
 fn set_max_utilization(t: &TestSetup, max_utilization: i128) {

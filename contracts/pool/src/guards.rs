@@ -58,11 +58,20 @@ pub(crate) fn require_backed_market(env: &Env, cache: &Cache) {
 }
 
 /// Asset units by which supplier claims exceed cash + debt (0 if solvent).
+///
+/// Floored claims minus ceiled debt, at RAY precision, floor to asset units
+/// once before cash is subtracted, so the shortfall is never over-reported.
 pub(crate) fn backing_shortfall(cache: &Cache) -> i128 {
-    let supplied_claim = cache.unscale_supply_floor(cache.supplied());
-    let outstanding_debt = cache.unscale_borrow_ceil(cache.borrowed());
-    let backing = cache.cash().saturating_add(outstanding_debt);
-    supplied_claim.saturating_sub(backing).max(0)
+    let env = cache.env();
+    let claims = cache.supplied().mul_floor(env, cache.supply_index());
+    let debt = cache.unscale_borrow_ceil_ray(cache.borrowed());
+    if claims <= debt {
+        return 0;
+    }
+    let uncovered = claims
+        .checked_sub(env, debt)
+        .to_asset_floor(env, cache.params().asset_decimals);
+    uncovered.saturating_sub(cache.cash()).max(0)
 }
 
 /// Panics with `PoolInsolvent` if supplied is zero while borrowed debt is non-zero.
