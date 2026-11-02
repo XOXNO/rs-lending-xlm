@@ -239,7 +239,12 @@ key. A provider that serves both the collateral key and a debt key moves both
 at once, so lenders are safe from it only while
 `LT * reach(collateral) * reach(debt) < 1`. A two-source key whose legs have
 different provider sets is exempt from the 10% single-source band cap, so
-its band does not bound that reach to 11/9.
+its band does not bound that reach to 11/9. `make ops-script-check` runs
+`scripts/check_lender_envelope.py`, which applies this condition with a 1%
+margin to every enabled listing in `configs/mainnet`. A pair that still breaks
+it must be declared, with its finding id and the largest product it accepts,
+in `scripts/lender_envelope_exceptions.txt`; the check also fails when a
+declared pair rises above that product, or sits more than 0.001 below it.
 
 The borrower has less protection. The bonus `b` is the curve bonus at the
 reported HF, capped at `HF / LT - 1`. It is not the base bonus. On the default

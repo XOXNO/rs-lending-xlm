@@ -2232,7 +2232,7 @@ const LISTED_COLLATERALS: [ListedCollateral; 7] = [
         label: "USST (spoke 5)",
         decimals: 18,
         price_wad: 1_089_700_000_000_000_000,
-        max_price_wad: 1_124_000_000_000_000_000,
+        max_price_wad: 1_089_700_000_000_000_000,
         bonus_bps: 500,
         fees_bps: 1_000,
     },

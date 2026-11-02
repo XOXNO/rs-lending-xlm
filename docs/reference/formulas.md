@@ -487,7 +487,7 @@ These are arithmetic limits, not recommended market sizes or deployment proofs.
 These $5 repayment fixtures use ample collateral, selected USD prices and the
 decimals, bonus and fee of one mainnet listing each. They illustrate native
 arithmetic, excluding network fees and slippage. The prices are not live
-quotes; four rows sit at their listing's `max_sanity_price_wad`. The results
+quotes; five rows sit at their listing's `max_sanity_price_wad`. The results
 do not guarantee profitability. The fixture tests also run each row at its
 listing's `max_sanity_price_wad`. The fixture models at most two token-unit
 rounding costs per collateral leg; that is not a universal execution bound.
