@@ -105,8 +105,9 @@ for a directly listed token (clawback, freeze, upgrade, decimals change).
 liquidates `POSITION_LIMIT_MAX` 3-coin LP legs within the default Soroban budget
 (about 55M CPU; see the [threat model](../../docs/explanation/threat-model.md#numeric-and-resource-limits)).
 That figure is a lower bound: native controller and feed, SAC coins,
-single-source coin oracles and one debt leg. Custom-WASM coins or feeds need
-re-measuring.
+single-source coin oracles and one debt leg. With every contract on the path as
+WASM, custom-WASM coins, two-source coin oracles and 5 debt legs, the worst case
+measured 107.7M CPU and 15.1M memory (`curve_lp_liquidation_worst_case_all_wasm`).
 Larger pools require their own code and transaction-resource validation.
 The generic production-fixture runner rejects Curve sources; Curve tests use
 the real pool WASMs.

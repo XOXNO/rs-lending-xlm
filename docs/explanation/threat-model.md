@@ -393,8 +393,13 @@ measured a liquidation of `POSITION_LIMIT_MAX` (5) 3-coin LP legs at 54.87M CPU
 and 11.19M memory, a multiply into LP at 25.6M CPU, and a repay out of LP at
 29.0M CPU. The controller runs natively there, so its own instructions are not
 counted. These figures are a lower bound: native controller and feed, SAC coins,
-single-source coin oracles and one debt leg (the limit is 5). Custom-WASM coins
-or feeds need new measurements; larger pools need new code as well.
+single-source coin oracles and one debt leg (the limit is 5). The WASM replay
+`curve_lp_liquidation_worst_case_all_wasm` removes those gaps: every contract on
+the path runs as WASM, coins are custom-WASM tokens with two-source WASM feeds,
+and the account holds 5 LP legs and 5 debt legs. Its heaviest case (`Transfer`
+seizure, 5 seconds after the last accrual) used 107.7M of 400M CPU, 15.1M of
+41.9M memory, 212 of 400 footprint entries and 42 of 200 writes. Larger pools
+need new code and new measurements.
 
 ## STRIDE register
 
