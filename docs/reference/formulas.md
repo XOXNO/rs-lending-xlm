@@ -379,14 +379,6 @@ Seizure is proportional to collateral value and capped at held value. The bonus
 is the capped seizure minus the floor-divided uncapped principal, bounded below
 by zero. A collateral cap below principal leaves no bonus to charge.
 
-The cap applies after each leg's seizure converts from WAD tokens to RAY,
-which overflows above about 1.7e11 whole tokens (`i128::MAX / 10^27`).
-With `p == 0` the bonus is zero and a debt below $5 is quoted in full, so the
-uncapped seizure is the repayment divided by the price. For collateral priced
-below about `D / 1.7e11` USD per token, an offer near the whole debt then
-reverts with `MathOverflow` (33) in `liquidate` and in the estimate. A smaller
-offer still executes, and `clean_bad_debt` admits such an account.
-
 Partial seizure floors the token amount and seized shares. Full seizure uses
 the half-up token amount to request a full pool withdrawal and takes the exact
 held shares for Credit mode; the pool payout still floors the supply claim.

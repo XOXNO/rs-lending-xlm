@@ -184,8 +184,7 @@ value and rounds the ratio up, so rounding cannot admit utilization above the
 ceiling. It skips zero total supply, zero debt value and ceilings at least one
 RAY. Debt against a zero floored supply value fails the gate.
 
-Liquidation withdrawal skips the gate, but not the
-[INV-ACCT-09](#inv-acct-09) check. Accrual and bad-debt writeoff can exceed
+Liquidation withdrawal skips the gate. Accrual and bad-debt writeoff can exceed
 the ceiling; it is not a market-wide bound maintained by every operation.
 
 <a id="inv-acct-09"></a>
@@ -415,10 +414,7 @@ self-liquidate.
 A Credit receiver must be a different account in the same spoke, in Normal
 mode, and controlled by the liquidator as owner or active delegate. `Credit(0)`
 can create a receiver in a deprecated spoke. Ownership and position limits
-still apply, and so does whole-unit isolation ([INV-RISK-04](#inv-risk-04)).
-The 2-whole-unit floor on a leg below 3 decimals is not checked at credit,
-because credit only adds shares. It binds at the receiver's next borrow,
-withdrawal or account strategy that leaves debt.
+still apply.
 
 <a id="inv-liq-02"></a>
 
@@ -445,10 +441,7 @@ whole debt-token units. Thus such an account stays liquidatable below `HF = 1`, 
 sale or by a full close. The exception is a debt in the narrow band where
 neither change applies: if the curve quote backs less than one unit, every
 offer reverts until accrual or a price move ends that state. See
-[whole-unit legs](formulas.md#bonus-and-target-repayment). Under-delivered
-repayment is a second exception: the whole-unit and proportional seizure
-rules above hold for the planned seizure, not for its scaled form
-([INV-LIQ-03](#inv-liq-03)).
+[whole-unit legs](formulas.md#bonus-and-target-repayment).
 
 Transfer mode burns shares and pays underlying after fees. The planned transfer
 fee never exceeds the whole token units paid above the leg's principal. Credit
@@ -473,18 +466,8 @@ Receipt below planned repayment floor-scales seizure amounts, transfer fees,
 seized shares and bonus shares by measured/planned USD. Credit fees are
 recomputed from the scaled bonus shares.
 
-Scaling runs after the whole-unit rounding of a leg below 3 decimals. Credit
-mode moves the scaled shares, so the liquidated account and the receiver can
-each end with a fraction of a unit. A holding below one unit withdraws as zero
-tokens. A liquidated account left with less than one unit, debt, health below
-one and collateral at least its debt has no paying offer: every offer seizes
-nothing and reverts with `InvalidPayments` (16), and neither cleanup path
-admits it. In Transfer mode, a full-close leg requests the half-up held amount;
-scaled, that request falls below the half-up balance and the pool pays it as a
-partial withdrawal, which can exceed the scaled share of the holding by less
-than one token unit. Scaling does not re-cap the transfer fee at the scaled
-payout above principal, so a leg can pay the liquidator up to one token unit
-below its scaled principal.
+Scaling does not re-cap the transfer fee at the scaled payout above principal,
+so a leg can pay the liquidator up to one token unit below its scaled principal.
 
 Repayment USD is capped per leg at its planned value. It does not exactly equal
 every rounded debt-share reduction or refund.

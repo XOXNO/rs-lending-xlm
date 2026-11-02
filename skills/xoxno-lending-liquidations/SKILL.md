@@ -81,9 +81,10 @@ write for every mode.
 Use Credit when Transfer cannot draw pool cash. A liquidation that leaves at
 most $5 of collateral below the remaining debt socializes that debt in the
 same call. A Credit receiver credited in a market written down there shares
-that write-down pro rata, and the estimate does not show it. In a shallow
-market a seize-all Credit liquidation can therefore lose money. Use Transfer
-there, or a partial size that leaves more than $5 of collateral.
+that write-down pro rata, and the estimate does not show it. When the account
+also owes a seized asset, a seize-all Credit liquidation can lose money in
+that shallow market. Use Transfer there, or a partial size that leaves more
+than $5 of collateral.
 
 Convert Credit estimate shares to token units with the matching market supply
 index and asset decimals before valuation:

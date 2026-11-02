@@ -210,8 +210,7 @@ applies from that report. A liquidation does not decrease the units held for
 each unit of debt, so the result also applies after a liquidation. Thus
 lenders cannot lose while `LT < 1 / u`. The band ratio `u` is the threshold,
 not the price deviation. The Liqvid hub has LT 60% or 53% and `u` at most
-11/9, so it has a large margin. That margin statement covers the Liqvid hub
-only.
+11/9, so it has a large margin.
 
 This result has limits. It applies to one collateral leg. It prices the debt
 at its true value. If the debt feed can also move in its own band, the
@@ -400,7 +399,7 @@ these rows do not assign severity or establish exploitability.
 | Info.2 | Liquidation competition and MEV; the bonus curve bounds terms, not ordering or liquidator profit. |
 | Info.3 | Visible pending governance changes allow anticipatory positioning; observability is intentional. |
 | Info.4 | Invalid quotes may contain prices; use validity flags or strict reads. |
-| DoS.1 | Price outage blocks valuation-dependent actions, including liquidation; fail-closed availability cost. A new supply leg needs no price, so an indebted borrower can add a dust leg of any listed collateral and choose which feed outage shields the account. A supply into an existing leg prices every leg of the account when the live listing favours liquidators over that leg's stored terms and the account has debt ([listing refresh gate](../reference/runbooks/liqvid-listing-params.md#10-existing-positions-keep-their-stamped-terms)). For an Aquarius LP leg, liquidity providers can cause that outage by withdrawing pool value below `min_pool_value_wad`. The same leg blocks bad-debt cleanup and force-socialization. A dust debt leg of the outage asset shields the same way, but borrowing prices every leg, so it must be opened while the feed is live. `repay` is permissionless and reads no price, so anyone can repay that leg during the outage and remove the shield before liquidating, unless the listing is paused. |
+| DoS.1 | Price outage blocks valuation-dependent actions, including liquidation; fail-closed availability cost. Supply needs no price, so an indebted borrower can add a dust leg of any listed collateral and choose which feed outage shields the account. For an Aquarius LP leg, liquidity providers can cause that outage by withdrawing pool value below `min_pool_value_wad`. The same leg blocks bad-debt cleanup and force-socialization. |
 | DoS.2 | Selected paused debt or no_seize collateral blocks liquidation; distinct flag policies matter. |
 | DoS.3 | False-alarm pause needs delayed reopening; emergency response is asymmetric. |
 | DoS.4 | Lost governance keys; proposer safeguards and owner-dependent canceller recovery do not restore a lost owner. |
