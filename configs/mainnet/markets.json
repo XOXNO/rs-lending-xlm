@@ -42,8 +42,8 @@
           }
         ],
         "tolerance": {
-          "upper_ratio_bps": 11000,
-          "lower_ratio_bps": 9091
+          "upper_ratio_bps": 10400,
+          "lower_ratio_bps": 9615
         },
         "independence": "RequireDisjoint",
         "min_sanity_price_wad": "20000000000000000000000",
@@ -1011,7 +1011,7 @@
                 "Ref": "BTC"
               },
               "min_factor_wad": "1000000000000000000",
-              "max_factor_wad": "1050000000000000000"
+              "max_factor_wad": "1030000000000000000"
             }
           },
           {
@@ -1079,7 +1079,7 @@
                 "Ref": "BTC"
               },
               "min_factor_wad": "1000000000000000000",
-              "max_factor_wad": "1050000000000000000"
+              "max_factor_wad": "1030000000000000000"
             }
           },
           {

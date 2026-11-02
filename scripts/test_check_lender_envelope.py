@@ -133,6 +133,25 @@ class ReachMathTest(unittest.TestCase):
         self.assertEqual(round(0.75 * u_c * u_d, 6), 1.000657)
         self.assertEqual(round(0.78 * u_c * u_d, 4), 1.0407)
 
+    def test_tighter_btc_tolerance_and_factor_cap_close_spoke_1(self):
+        # The S3-CR-1 fix: Ref BTC tolerance +-4% (10400) and a 1.03 factor cap
+        # bring SolvBTC under RedStone to 1.03 x 1.04005 x 1.05005 = 1.124868,
+        # so the binding spoke-1 pair, PYUSD (LT 0.79) -> SolvBTC, is 0.982187.
+        btc = {**BTC_REF, "oracle": oracle([reflector("BTC"), redstone("BTC")], 20000, 300000, 10400)}
+        scaled = dict(SOLVBTC["sources"][0]["Scaled"], max_factor_wad=str(103 * WAD // 100))
+        solvbtc = dict(SOLVBTC, sources=[{"Scaled": scaled}, SOLVBTC["sources"][1]])
+        markets = {
+            "references": [btc],
+            "markets": [m for m in MARKETS["markets"] if m["name"] != "SolvBTC"]
+            + [market("SolvBTC", solvbtc)],
+        }
+        oracles = le.Oracles(markets)
+        u_d = oracles.reach(REDSTONE, key("SolvBTC"))
+        self.assertAlmostEqual(u_d, 1.03 * 1.04005 * 1.05005, places=12)
+        u_c = oracles.reach(REDSTONE, key("PYUSD"))
+        self.assertEqual(round(0.79 * u_c * u_d, 6), 0.982187)
+        self.assertLess(0.79 * u_c * u_d, le.LIMIT)
+
     def test_control_usdc_debt(self):
         u_c = self.oracles.reach(REDSTONE, key("XLM"))
         u_d = self.oracles.reach(REDSTONE, key("USDC"))
