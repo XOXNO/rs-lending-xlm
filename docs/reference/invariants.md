@@ -197,6 +197,12 @@ zero total supplied-share balance with non-zero debt shares. This prevents an
 empty-supply state, without establishing full backing or a liquidation cash
 reserve.
 
+Liquidation withdrawal has no exemption. A Transfer seizure that burns a
+market's last supply shares while that market has debt reverts with
+`PoolInsolvent` (123), unless the leg's protocol fee books revenue shares
+first. `get_liquidation_estimate` does not detect it. `Credit` mode, a smaller
+Transfer seizure, or a repayment of that debt avoids it.
+
 <a id="inv-acct-10"></a>
 
 ### INV-ACCT-10 — Account books reconcile with pool totals
@@ -388,9 +394,10 @@ configuration; they do not guarantee a profitable liquidation after rounding.
 
 New supply and borrow slots must fit their configured counts. Existing-asset
 top-ups remain allowed if a count limit falls below the account's existing
-count. Credit-mode receivers obey the same new-slot limit, and an account can
-have at most 16 delegates. A supply leg below 3 decimals is its account's only
-supply position: a new slot beside it, by deposit or credit, is rejected.
+count. An existing Credit receiver obeys the same new-slot limit; a `Credit(0)`
+receiver skips it. An account can have at most 16 delegates. A supply leg below
+3 decimals is its account's only supply position: a new slot beside it, by
+deposit or credit, is rejected.
 
 These bounds limit state size without proving worst-case transaction-budget
 sufficiency.
@@ -408,7 +415,11 @@ self-liquidate.
 A Credit receiver must be a different account in the same spoke, in Normal
 mode, and controlled by the liquidator as owner or active delegate. `Credit(0)`
 can create a receiver in a deprecated spoke. Ownership and position limits
-still apply.
+still apply, except that a `Credit(0)` receiver skips the governed position
+limit. Whole-unit isolation ([INV-RISK-04](#inv-risk-04)) applies to every
+receiver. The 2-whole-unit floor on a leg below 3 decimals is not checked at
+credit, because credit only adds shares. It binds at the receiver's next
+borrow, withdrawal or account strategy that leaves debt.
 
 <a id="inv-liq-02"></a>
 
@@ -442,7 +453,11 @@ fee never exceeds the whole token units paid above the leg's principal. Credit
 mode splits seized shares exactly between receiver credit and a
 ceiling-rounded fee on bonus shares. The fee reclassifies existing supply as
 revenue, requires no collateral cash and reduces same-spoke usage only by the
-fee.
+fee. When the same call socializes the account's remaining debt
+([INV-LIQ-04](#inv-liq-04)) in a market where the receiver was just credited,
+the receiver's shares bear their pro-rata part of that write-down.
+`get_liquidation_estimate` and `LiquidationEvent.bonus_bps` show the plan
+before it.
 
 New receiver assets require a current listing. Existing receiver risk snapshots
 stay unchanged. See [liquidation arithmetic](formulas.md#liquidation-sizing-and-fees)
@@ -453,8 +468,14 @@ for bonus selection, sizing and rounding.
 ### INV-LIQ-03 — Under-delivery reduces seizure
 
 Receipt below planned repayment floor-scales seizure amounts, transfer fees,
-seized shares and bonus shares by measured/planned USD. Credit fees are
-recomputed from the scaled bonus shares.
+seized shares and bonus shares by measured/planned USD, and caps each transfer
+amount at the floor asset value of its scaled shares. Credit fees are
+recomputed from the scaled bonus shares. A short receipt reverts with
+`InvalidPayments` when a seized leg is below 3 decimals, so whole-unit
+collateral is never scaled into a fraction.
+
+Scaling does not re-cap the transfer fee at the scaled payout above principal,
+so a leg can pay the liquidator up to one token unit below its scaled principal.
 
 Repayment USD is capped per leg at its planned value. It does not exactly equal
 every rounded debt-share reduction or refund.

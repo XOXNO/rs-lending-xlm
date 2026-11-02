@@ -182,6 +182,24 @@ fn run_seizure(env: &Env, fees_bps: u32, repay_usd_raw: i128, bonus_bps: i128) -
     })
 }
 
+/// One raw unit at about 1e-11 USD per token against a $5 whole-debt quote:
+/// the requested token amount upscales past i128, so the seizure saturates to
+/// the held balance with no bonus instead of overflowing.
+#[test]
+fn a_dust_priced_leg_saturates_the_seizure_to_the_held_balance() {
+    let env = Env::default();
+    let leg = LegSpec {
+        amount: 1,
+        price_wad: 10_000_000,
+        ..LegSpec::mainnet_xlm(1)
+    };
+    let e = single_leg(&env, leg, 5 * WAD, 500).get_unchecked(0);
+    assert_eq!(
+        (e.amount, e.scaled_amount, e.bonus_scaled, e.protocol_fee),
+        (1, Ray::from_asset(&env, 1, 7).raw(), 0, 0)
+    );
+}
+
 fn stroops(tokens: i128) -> i128 {
     tokens * 10_000_000
 }
@@ -663,10 +681,10 @@ fn racing_insolvent_liquidations_never_repay_more_than_the_collateral_backs() {
 
 /// Two 3-decimal legs at $1 per unit, each owing 100 400.4 units: the ceilings
 /// (100 401 each) exceed the debt by 1.2 units. The full-close plan keeps both
-/// legs at their ceilings, refunds only the offer above them, and credits
-/// every ceiling unit instead of trimming one unit it would still pull.
+/// legs at their ceilings and refunds only the offer above them, but credits
+/// only the debt the legs clear.
 #[test]
-fn a_full_close_plan_credits_every_legs_ceiling_without_a_trim_refund() {
+fn a_full_close_plan_keeps_every_legs_ceiling_without_a_trim_refund() {
     let env = Env::default();
     let contract = env.register(Controller, (Address::generate(&env),));
     let (d1, d2) = (hub_key(&env), hub_key(&env));
@@ -728,11 +746,7 @@ fn a_full_close_plan_credits_every_legs_ceiling_without_a_trim_refund() {
         for entry in plan.repaid.iter() {
             assert_eq!(entry.amount, 100_401, "each leg stays at its ceiling");
         }
-        assert_eq!(
-            plan.repay_usd.raw(),
-            200_802 * WAD,
-            "every ceiling unit is credited"
-        );
+        assert_eq!(plan.repay_usd.raw(), debt, "the credit is the debt cleared");
     });
 }
 
@@ -938,20 +952,40 @@ fn a_band_plan_is_a_full_close_plan_even_for_a_partial_payment() {
     });
 }
 
+/// Three equal legs at 500, 500 and 501 bps average to 500.33 bps. Rounding
+/// each leg's weighted share first would give 167 + 167 + 167 = 501.
 #[test]
 fn account_bonus_params_weights_bonus_by_collateral_share() {
     let env = Env::default();
-    let (contract, hub_asset, account) = seize_fixture(&env, 0);
+    let contract = env.register(Controller, (Address::generate(&env),));
+    let mut prices = Map::new(&env);
+    let mut supply_positions = Map::new(&env);
+    for liquidation_bonus in [500, 500, 501] {
+        let key = hub_key(&env);
+        prices.set(key.asset.clone(), feed_raw());
+        supply_positions.set(
+            key,
+            AccountPositionRaw {
+                scaled_amount: Ray::from_asset(&env, stroops(100), 7).raw(),
+                liquidation_threshold: 8_000,
+                liquidation_bonus,
+                loan_to_value: 7_500,
+                liquidation_fees: 0,
+            },
+        );
+    }
     env.as_contract(&contract, || {
         let mut cache = Context::new_view(&env);
-        cache.set_prices(single_price(&env, &hub_asset.asset));
-        cache.put_market_index(&hub_asset, &index_raw());
+        cache.set_prices(prices);
+        for key in supply_positions.keys() {
+            cache.put_market_index(&key, &index_raw());
+        }
 
         let bounds = get_account_bonus_params(
             &env,
             &mut cache,
-            &account.supply_positions,
-            Wad::from(1_000 * WAD),
+            &supply_positions,
+            Wad::from(300 * WAD),
             Wad::from(WAD / 2),
         );
 
@@ -1152,8 +1186,8 @@ fn seize(asset: &Address, amount: i128, protocol_fee: i128) -> SeizeEntry {
         },
         amount,
         protocol_fee,
-        // Credit-mode fields; these fixtures exercise the asset-unit pair.
-        scaled_amount: amount,
+        // Shares that back exactly `amount` at 7 decimals and a unit index.
+        scaled_amount: amount * 10i128.pow(20),
         bonus_scaled: 0,
         liquidation_fees: 0,
         feed: feed_raw(),
@@ -1197,6 +1231,40 @@ fn scaling_rounds_down_so_the_residue_stays_with_the_liquidated_account() {
 
     assert_eq!(out.get_unchecked(0).amount, 2);
     assert_eq!(out.get_unchecked(0).protocol_fee, 2);
+}
+
+/// A full close requests the half-up amount, 19 units for 18.549999 held. At a
+/// 95% receipt the ratio alone gives 18, but the scaled shares back only
+/// 17.62..., so the liquidator gets 17 and the residue stays with the account.
+#[test]
+fn scaling_caps_a_full_close_amount_at_the_scaled_shares() {
+    let env = Env::default();
+    let asset = Address::generate(&env);
+    let mut entry = seize(&asset, 19, 19);
+    entry.scaled_amount = 18_549_999 * 10i128.pow(14);
+    let seized = vec![&env, entry];
+
+    let out = scale_seizures_to_received(&env, &seized, Wad::from(95), Wad::from(100));
+
+    assert_eq!(out.get_unchecked(0).amount, 17);
+    assert_eq!(
+        out.get_unchecked(0).protocol_fee,
+        17,
+        "the fee stays within the amount"
+    );
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #16)")]
+fn a_short_receipt_cannot_seize_a_whole_unit_leg() {
+    let env = Env::default();
+    let contract = env.register(Controller, (Address::generate(&env),));
+    let mut entry = seize(&Address::generate(&env), 2, 0);
+    entry.feed.asset_decimals = MIN_BORROWABLE_ASSET_DECIMALS - 1;
+
+    env.as_contract(&contract, || {
+        let _ = scale_seizures_to_received(&env, &vec![&env, entry], Wad::from(9), Wad::from(10));
+    });
 }
 
 #[test]
@@ -2011,28 +2079,26 @@ fn an_exactly_covered_account_quotes_the_full_debt_at_zero_bonus_not_the_insolve
 // `V < L_round / (b * (1 - f))`, where `L_round` bounds the summed rounding loss,
 // `b` the bonus and `f` the protocol's cut of the bonus.
 //
-// The debt leg adds no rounding loss. Its asset-unit ceiling
-// (`unscale_borrow_ceil` in `calculate_repayment_amounts`) is priced into
-// `RepayEntry::usd_wad`, which `calculate_seized_collateral` multiplies by
-// `(1 + bonus)`, so the liquidator is credited for every unit it rounds up.
-// Both rounding sites are on the collateral leg, per seized position:
+// A debt leg paid at its asset-unit ceiling (`unscale_borrow_ceil` in
+// `calculate_repayment_amounts`) is credited only the floor value of the debt
+// it clears, so the liquidator absorbs under one debt unit per such leg. On the
+// collateral leg, per seized position:
 //
 //   1. `capped_ray.to_asset_floor(&env, decimals)` on a partial seizure  -> <= 1 unit
 //   2. the dust fee bump, `protocol_fee_ray > 0 && fee_asset == 0` -> <= 1 unit
 //
-// So `L_round = 2 units of collateral` per leg is a worst-case bound, not a
-// guaranteed loss. Seizure is pro-rata across every collateral the account holds,
+// So `L_round = 2 units of collateral` per leg, plus one debt unit per leg
+// paid at its ceiling, is a worst-case bound, not a guaranteed loss. Seizure is pro-rata across every collateral the account holds,
 // so `L_round` scales with the leg count.
 //
 // See `docs/reference/formulas.md#liquidation-sizing-and-fees`
 
 /// The debt-leg half of that claim: a full close pays `ceil(debt)` asset units,
-/// and `RepayEntry::usd_wad` is the price of what was transferred, not of the
-/// exact debt. `calculate_seized_collateral` then sizes the seizure from
-/// `repay_usd * (1 + bonus)`, so the ceiling returns to the liquidator with the
-/// bonus on top instead of being a loss.
+/// but `RepayEntry::usd_wad` is the floor value of the debt cleared, so the
+/// rounded-up fraction buys no collateral. A later sub-unit trim keeps the
+/// amount at the ceiling and the credit at that floor value.
 #[test]
-fn the_debt_legs_asset_unit_ceiling_is_priced_into_the_repayment_credit() {
+fn the_debt_legs_asset_unit_ceiling_is_not_credited() {
     let env = Env::default();
     let contract = env.register(Controller, (Address::generate(&env),));
     let asset = Address::generate(&env);
@@ -2081,13 +2147,21 @@ fn the_debt_legs_asset_unit_ceiling_is_priced_into_the_repayment_credit() {
         assert_eq!(repaid.get_unchecked(0).amount, 2);
         assert_eq!(
             total.raw(),
-            2 * WAD,
-            "the credit is the price of the ceiling, not of the 1.5-token debt",
+            3 * WAD / 2,
+            "the credit is the 1.5-token debt, not the price of the ceiling",
         );
-        assert!(
-            total.raw() > 3 * WAD / 2,
-            "and it strictly exceeds the exact debt value",
-        );
+
+        let mut plan = NormalizedRepaymentPlan {
+            repaid,
+            refunds,
+            full_close: true,
+            repays_all_debt: true,
+            ..plan_for_seizure(&env, total.raw(), 0)
+        };
+        // A quarter-token excess floors to no removed unit.
+        release_unbacked_repayment(&env, &mut plan, Wad::from(WAD / 4));
+        let kept = plan.repaid.get_unchecked(0);
+        assert_eq!((kept.amount, kept.usd_wad), (2, 3 * WAD / 2));
     });
 }
 

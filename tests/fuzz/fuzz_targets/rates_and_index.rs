@@ -1,8 +1,8 @@
 #![no_main]
 use arbitrary::Arbitrary;
 use common::constants::{
-    BPS, MAX_BORROW_RATE_RAY, MAX_SUPPLY_INDEX_RAY, MILLISECONDS_PER_YEAR, RAY,
-    SUPPLY_INDEX_FLOOR_RAW,
+    BPS, MAX_BORROW_INDEX_RAY, MAX_BORROW_RATE_RAY, MAX_SUPPLY_INDEX_RAY, MILLISECONDS_PER_YEAR,
+    RAY, SUPPLY_INDEX_FLOOR_RAW,
 };
 use common::math::fp::Ray;
 use common::rates::{
@@ -14,12 +14,15 @@ use common::rates::{
 use common::types::{MarketParams, MarketParamsRaw, PoolStateRaw, PoolSyncData};
 use libfuzzer_sys::fuzz_target;
 use soroban_sdk::{Address, Env};
+use stellar_fuzz::edge_biased_amount;
 
 const MS_PER_YEAR: u64 = MILLISECONDS_PER_YEAR;
 
 const MAX_ACCRUAL_MS: u64 = 10 * MS_PER_YEAR;
 
-const AMOUNT_CAP_RAW: i128 = 100_000_000_000_000_000;
+/// Half of the largest amount whose `Ray::mul` by `MAX_BORROW_INDEX_RAY` fits in `i128`.
+/// Two of these sum below that bound, so borrowed plus supplied stay in range at the index ceiling.
+const AMOUNT_CAP_RAW: i128 = i128::MAX / (2 * (MAX_BORROW_INDEX_RAY / RAY));
 
 const START_BORROW_INDEX_GROWTH: i128 = 9 * RAY;
 const BI_SCALE: i128 = START_BORROW_INDEX_GROWTH / (u64::MAX as i128);
@@ -552,7 +555,7 @@ fuzz_target!(|i: In| {
     let factor = compound_interest(&env, rate, chunk_ms);
     assert_compound_invariants(&env, rate, chunk_ms, factor);
 
-    let borrowed_raw = (i.borrowed_units as i128 % AMOUNT_CAP_RAW) + 1;
+    let borrowed_raw = edge_biased_amount(i.borrowed_units, 1, AMOUNT_CAP_RAW);
     assert_interest_split(&env, &params, Ray::from(borrowed_raw), factor, Ray::ONE);
 
     let deposit_rate = calculate_deposit_rate(&env, util, rate, params.reserve_factor);
@@ -581,7 +584,8 @@ fuzz_target!(|i: In| {
         );
     }
 
-    let supplied_raw = borrowed_raw + 1 + (i.supplied_units as i128 % AMOUNT_CAP_RAW);
+    let supplied_raw =
+        borrowed_raw + 1 + edge_biased_amount(i.supplied_units, 0, AMOUNT_CAP_RAW - 1);
     let total_delta_ms = i.delta_ms % (MAX_ACCRUAL_MS + 1);
 
     let start_borrow_index = RAY + i.borrow_index_units as i128 * BI_SCALE;

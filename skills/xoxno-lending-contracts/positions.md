@@ -218,9 +218,14 @@ Before owner/delegate or owner-only work on a stored ID:
 
 These checks are preconditions and completion checks for your contract. They
 do not replace controller authorization. An NFT transfer moves the account,
-collateral, and debt. A grant from the previous owner is inactive after the
-transfer. It can become active again if NFT ownership returns to that owner
-and the manager registration and grant remain active.
+collateral, and debt, but it does not revoke delegates. A grant from the
+previous owner is only suspended: it becomes active again if NFT ownership
+returns to that owner while the manager registration is active and no later
+holder changed the delegate list. To revoke delegates, call `remove_delegate`
+for each one before transferring the NFT. A holder that wants a clean account
+can delete a previous holder's dormant grant with `remove_delegate`; that call
+emits no event. The controller has no view that lists an account's delegates,
+so track them from `AccountDelegateEvent` and the current NFT owner.
 
 An owner may call `add_delegate` only for a governance-activated position
 manager. Delegates may borrow or withdraw to arbitrary recipients, so grant
