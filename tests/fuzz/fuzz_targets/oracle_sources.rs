@@ -1,8 +1,8 @@
 #![no_main]
 //! Drives the price aggregator through every provider (Reflector spot and TWAP,
 //! RedStone, Xoxno, Chainlink) and every source shape (feed, scaled, Aquarius
-//! constant-product and stable LP, dual blends), through both the validating
-//! `set_oracle` path and the unvalidated `seed_oracle` path.
+//! constant-product and stable LP, Curve stable LP, dual blends), through both
+//! the validating `set_oracle` path and the unvalidated `seed_oracle` path.
 
 use core::mem::swap;
 use std::vec::Vec as StdVec;
@@ -15,21 +15,23 @@ use common::oracle::observation::{
     MIN_ORACLE_RESOLUTION_SECONDS, MIN_PRICE_STALE_SECONDS,
 };
 use common::oracle::providers::chainlink::{ChainlinkRound, CHAINLINK_DECIMALS};
+use common::oracle::providers::curve::{CurvePoolInfo, CurvePoolScales};
 use common::oracle::providers::redstone::{RedStonePriceData, REDSTONE_DECIMALS};
 use common::oracle::providers::reflector::{ReflectorAsset, ReflectorPriceData};
 use common::types::{
-    AquariusLpSource, AssetOracle, ChainlinkFeedRef, FeedNature, FeedSource, IndependencePolicy,
-    MultiFeedRef, OracleAssetRef, OracleReadMode, OracleTolerance, PriceFeedRaw, PriceKey,
-    PriceSource, PriceStatus, ProviderRef, ReflectorFeedRef, ScaledSource,
+    AquariusLpSource, AssetOracle, ChainlinkFeedRef, CurveStableLpSource, FeedNature, FeedSource,
+    IndependencePolicy, MultiFeedRef, OracleAssetRef, OracleReadMode, OracleTolerance,
+    PriceFeedRaw, PriceKey, PriceSource, PriceStatus, ProviderRef, ReflectorFeedRef, ScaledSource,
 };
 use libfuzzer_sys::fuzz_target;
 use price_aggregator::{PriceAggregator, PriceAggregatorClient};
 use soroban_sdk::testutils::{Address as _, Ledger as _};
-use soroban_sdk::{vec, Address, BytesN, Env, String, Symbol, Vec, I256, U256};
+use soroban_sdk::{vec, Address, BytesN, Env, Executable, String, Symbol, Vec, I256, U256};
 use stellar_fuzz::edge_biased_amount;
 use stellar_fuzz::oracle_mocks::{
-    FuzzAquarius, FuzzAquariusClient, FuzzChainlink, FuzzChainlinkClient, FuzzMultiFeed,
-    FuzzMultiFeedClient, FuzzReflector, FuzzReflectorClient, FuzzToken, FuzzTokenClient,
+    FuzzAquarius, FuzzAquariusClient, FuzzChainlink, FuzzChainlinkClient, FuzzCurve,
+    FuzzCurveClient, FuzzMultiFeed, FuzzMultiFeedClient, FuzzReflector, FuzzReflectorClient,
+    FuzzToken, FuzzTokenClient,
 };
 
 const NOW: u64 = 1_000_000;
@@ -406,7 +408,7 @@ fn build_feed(
 
 struct LpBuilt {
     key: PriceKey,
-    source: AquariusLpSource,
+    source: PriceSource,
     share_decimals: u32,
     estimate_wad: i128,
 }
@@ -419,6 +421,15 @@ fn fuzz_token(env: &Env, decimals: u32) -> Address {
 
 fn lp_decimals(raw: u8) -> u32 {
     u32::from(raw) % 19
+}
+
+fn min_pool_value(raw: u8) -> i128 {
+    match raw % 4 {
+        0 => MAX_REASONABLE_PRICE_WAD.saturating_mul(1_000_000),
+        1 => WAD,
+        2 => 1,
+        _ => 0,
+    }
 }
 
 fn build_lp(
@@ -492,26 +503,94 @@ fn build_lp(
     } else {
         1
     };
-    let min_pool_value_wad = match lp.min_value % 4 {
-        0 => MAX_REASONABLE_PRICE_WAD.saturating_mul(1_000_000),
-        1 => WAD,
-        2 => 1,
-        _ => 0,
+    let source = AquariusLpSource {
+        pool,
+        token_a,
+        token_b,
+        key_a: legs.0.clone(),
+        key_b: legs.1.clone(),
+        reserve_a_decimals: src_dec_a,
+        reserve_b_decimals: dec_b,
+        min_pool_value_wad: min_pool_value(lp.min_value),
     };
     LpBuilt {
         key: PriceKey::Token(share),
-        source: AquariusLpSource {
-            pool,
-            token_a,
-            token_b,
-            key_a: legs.0.clone(),
-            key_b: legs.1.clone(),
-            reserve_a_decimals: src_dec_a,
-            reserve_b_decimals: dec_b,
-            min_pool_value_wad,
+        source: if stable {
+            PriceSource::AquariusStableLp(source)
+        } else {
+            PriceSource::AquariusLp(source)
         },
         share_decimals: dec_share,
         estimate_wad,
+    }
+}
+
+/// A two-coin Curve pool whose views match its pinned executable unless `corrupt` breaks one.
+fn build_curve(
+    env: &Env,
+    reg: &mut Registry,
+    lp: &LpIn,
+    coins: [&Address; 2],
+    wads: [i128; 2],
+) -> LpBuilt {
+    let corrupt = lp.corrupt % 16;
+    let decimals = [lp_decimals(lp.dec_a), lp_decimals(lp.dec_b)];
+    let coins = Vec::from_array(env, coins.map(Address::clone));
+    let virtual_price = edge_biased_amount(u64::from(lp.amp), WAD / 2, 2 * WAD);
+    let supply = edge_biased_amount(lp.shares, 1, pow10(30));
+    let pool = env.register(FuzzCurve, ());
+    reg.all.push(pool.clone());
+    let Some(Executable::Wasm(mut wasm_hash)) = pool.executable() else {
+        unreachable!("a registered contract has a Wasm executable")
+    };
+    let mut info = CurvePoolInfo {
+        coin_count: 2,
+        coin_decimals: Vec::from_array(env, decimals),
+        coins: coins.clone(),
+        factory: Address::generate(env),
+        min_locked_liquidity: 0,
+        rates: Vec::from_array(env, decimals.map(|d| pow10(36 - d))),
+        scales: CurvePoolScales {
+            amplification_scale: 100,
+            fee_denominator: 10_000_000_000,
+            precision: WAD,
+        },
+    };
+    let (mut vp_out, mut supply_out, mut pool_decimals) = (virtual_price, supply, 18);
+    match corrupt {
+        7 => wasm_hash = BytesN::from_array(env, &[7; 32]),
+        8 => info.coins = vec![env, coins.get_unchecked(1), coins.get_unchecked(0)],
+        9 => pool_decimals = 17,
+        10 => info.coin_decimals.set(0, (decimals[0] + 1) % 19),
+        11 => info.rates.set(1, 0),
+        12 => {
+            if lp.amp & 1 == 0 {
+                vp_out = 0;
+            } else {
+                supply_out = 0;
+            }
+        }
+        13 => info.scales.precision = 1,
+        14 => vp_out = i128::MAX,
+        _ => {}
+    }
+    FuzzCurveClient::new(env, &pool).setup(
+        &info,
+        &vp_out,
+        &supply_out,
+        &pool_decimals,
+        &(corrupt == 15),
+    );
+    LpBuilt {
+        key: PriceKey::Token(pool.clone()),
+        source: PriceSource::CurveStableLp(CurveStableLpSource {
+            pool,
+            coins,
+            wasm_hash,
+            min_pool_value_wad: min_pool_value(lp.min_value),
+        }),
+        share_decimals: 18,
+        estimate_wad: mul_div_half_up(env, virtual_price, wads[0].min(wads[1]), WAD).max(1),
     }
 }
 
@@ -701,7 +780,7 @@ fuzz_target!(|i: In| {
     install(&agg, &k0, &base_oracle(&env, &k0, f0.clone(), wads[0]));
     install(&agg, &k1, &base_oracle(&env, &k1, f1.clone(), wads[1]));
 
-    let shape = i.shape % 8;
+    let shape = i.shape % 9;
     let scaled = |reg: &mut Registry, quote_addr: &Address, quote_key: &PriceKey| {
         let factor = build_feed(&env, reg, 2, &i.feeds[2], wads[2], Some(quote_addr));
         let fb = i128::from(i.factor_band_bps % 5_000);
@@ -757,25 +836,29 @@ fuzz_target!(|i: In| {
                 3_000,
             )
         }
-        4 | 5 | 7 => {
-            let stable = shape == 5;
-            let lp = build_lp(
-                &env,
-                &mut reg,
-                &i.lp,
-                stable,
-                (&k0, &k1),
-                (wads[0], wads[1]),
-                (&k0_addr, &k1_addr),
-            );
+        4 | 5 | 7 | 8 => {
+            let lp = if shape == 8 {
+                build_curve(
+                    &env,
+                    &mut reg,
+                    &i.lp,
+                    [&k0_addr, &k1_addr],
+                    [wads[0], wads[1]],
+                )
+            } else {
+                build_lp(
+                    &env,
+                    &mut reg,
+                    &i.lp,
+                    shape == 5,
+                    (&k0, &k1),
+                    (wads[0], wads[1]),
+                    (&k0_addr, &k1_addr),
+                )
+            };
             key = lp.key.clone();
             asset_decimals = lp.share_decimals;
-            let source = if stable {
-                PriceSource::AquariusStableLp(lp.source.clone())
-            } else {
-                PriceSource::AquariusLp(lp.source.clone())
-            };
-            let mut sources = vec![&env, source];
+            let mut sources = vec![&env, lp.source];
             if shape == 7 {
                 let wad = jitter(lp.estimate_wad, i.feeds[3].jitter_bps / 8);
                 let second = build_feed(&env, &mut reg, 3, &i.feeds[3], wad, None);

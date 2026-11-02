@@ -147,6 +147,16 @@ unbooked donation. Gauge rewards need the pool's authorization and therefore
 cannot be claimed at all. Suppliers of LP collateral should expect no venue
 rewards; this is forgone yield, not a loss of principal.
 
+Curve LP collateral is priced at the pool's virtual price times the lowest coin
+price. The virtual price depends on the amplification coefficient A whenever the
+pool is imbalanced, and the pool factory's admin can ramp A within the pool's
+own rate limits. The aggregator pins the pool executable, not its factory, so
+governance must review the factory and its admin as trusted parties, as it does
+an Aquarius stable pool's admin. A ramp cannot overvalue the LP: the invariant
+never exceeds the sum of normalized balances and every coin is valued at the
+lowest coin price, so a ramp only marks the LP down. Each coin's issuer carries
+the same trust as a directly listed token's.
+
 ## Routes, callbacks, and external integrations
 
 Router swaps settle measured input/output changes. The controller grants
@@ -374,6 +384,14 @@ batch if an included account's final health factor is below 1.05. Isolate and
 investigate that account; no earlier updates from the failed batch persist.
 An LTV-only refresh has no such final gate.
 
+Curve LP sources accept at most 3 coins (`MAX_CURVE_COINS`). Under the default
+Soroban budget with mainnet per-invocation limits, the
+[Curve collateral tests](../../tests/test-harness/tests/curve_collateral.rs)
+measured a liquidation of `POSITION_LIMIT_MAX` (5) 3-coin LP legs at 54.87M CPU
+and 11.19M memory, a multiply into LP at 25.6M CPU, and a repay out of LP at
+29.0M CPU. The controller runs natively there, so its own instructions are not
+counted. Larger pools need new code and new measurements.
+
 ## STRIDE register
 
 STRIDE groups threats into spoofing, tampering, repudiation, information
@@ -405,7 +423,7 @@ these rows do not assign severity or establish exploitability.
 | Info.2 | Liquidation competition and MEV; the bonus curve bounds terms, not ordering or liquidator profit. |
 | Info.3 | Visible pending governance changes allow anticipatory positioning; observability is intentional. |
 | Info.4 | Invalid quotes may contain prices; use validity flags or strict reads. |
-| DoS.1 | Price outage blocks valuation-dependent actions, including liquidation; fail-closed availability cost. Supply into a debt-free account needs no price. On an indebted account, a new collateral leg needs its price within the feed's staleness limit (a halted feed that is not yet stale still reads), and a supply into an existing leg prices every leg when the live listing favours liquidators over that leg's stored terms ([listing refresh gate](../reference/runbooks/liqvid-listing-params.md#10-existing-positions-keep-their-stamped-terms)). An indebted borrower can still add a dust leg of any listed collateral before an outage and so choose which feed outage shields the account. For an Aquarius LP leg, liquidity providers can cause that outage by withdrawing pool value below `min_pool_value_wad`. The same leg blocks bad-debt cleanup and force-socialization. A dust debt leg of the outage asset shields the same way, and borrowing prices every leg, so it too must be opened while the feed is live. `repay` is permissionless and reads no price, so anyone can repay that leg during the outage and remove the shield before liquidating, unless the listing is paused. |
+| DoS.1 | Price outage blocks valuation-dependent actions, including liquidation; fail-closed availability cost. Supply into a debt-free account needs no price. On an indebted account, a new collateral leg needs its price within the feed's staleness limit (a halted feed that is not yet stale still reads), and a supply into an existing leg prices every leg when the live listing favours liquidators over that leg's stored terms ([listing refresh gate](../reference/runbooks/liqvid-listing-params.md#10-existing-positions-keep-their-stamped-terms)). An indebted borrower can still add a dust leg of any listed collateral before an outage and so choose which feed outage shields the account. For an LP leg (Aquarius or Curve), liquidity providers can cause that outage by withdrawing pool value below `min_pool_value_wad`, so set the floor well below pool TVL. A Curve leg also fails when any one of its coins cannot be priced, when a coin's `decimals()` read fails or changes, or when an A ramp lowers pool value below the floor. The same leg blocks bad-debt cleanup and force-socialization. A dust debt leg of the outage asset shields the same way, and borrowing prices every leg, so it too must be opened while the feed is live. `repay` is permissionless and reads no price, so anyone can repay that leg during the outage and remove the shield before liquidating, unless the listing is paused. |
 | DoS.2 | Selected paused debt or no_seize collateral blocks liquidation; distinct flag policies matter. |
 | DoS.3 | False-alarm pause needs delayed reopening; emergency response is asymmetric. |
 | DoS.4 | Lost governance keys; proposer safeguards and owner-dependent canceller recovery do not restore a lost owner. |

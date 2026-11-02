@@ -76,8 +76,19 @@ pool semantics. Each read rechecks its hash, ordered coins, live decimals and
 fixed rates `10^(36 - coin_decimals)`. Rate-bearing/rebasing pools and metapools
 are outside this admission policy; metadata alone cannot establish their safety.
 An executable change makes the source unpriceable until reviewed and reconfigured.
-Actual WASM fixtures cover 2/3 coins; 3 is the resource ceiling, and larger
-pools require their own code and transaction-resource validation.
+
+LP value depends on the amplification coefficient A whenever the pool is
+imbalanced, and the pool factory's admin can ramp A. The source pins the
+executable, not the factory, so governance must treat the factory admin as
+trusted, as it does an Aquarius stable pool's admin. A ramp can only undervalue
+the LP: the virtual price never exceeds the normalized reserves per share, and
+every coin is valued at the lowest coin price. Each coin's issuer is trusted as
+for a directly listed token (clawback, freeze, upgrade, decimals change).
+
+`MAX_CURVE_COINS` is 3. Real-WASM fixtures cover 2 and 3 coins, and the harness
+liquidates `POSITION_LIMIT_MAX` 3-coin LP legs within the default Soroban budget
+(about 55M CPU; see the [threat model](../../docs/explanation/threat-model.md#numeric-and-resource-limits)).
+Larger pools require their own code and transaction-resource validation.
 The generic production-fixture runner rejects Curve sources; Curve tests use
 the real pool WASMs.
 
