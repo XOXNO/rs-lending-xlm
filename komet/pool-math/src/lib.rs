@@ -1,6 +1,12 @@
 #![no_std]
 
 #[cfg(any(
+    feature = "index-identity",
+    feature = "noop-guards",
+    feature = "rescale-up"
+))]
+pub mod identity_specs;
+#[cfg(any(
     feature = "index-exact",
     feature = "supply-index",
     feature = "reward-conservation",
@@ -262,6 +268,83 @@ impl PoolMathProof {
             borrow_index,
             decimals,
         )
+    }
+
+    /// RAY <= old <= 10^36: growth by exactly RAY leaves the borrow index unchanged.
+    #[cfg(feature = "index-identity")]
+    pub fn test_borrow_index_identity(env: Env, old: i128) -> bool {
+        identity_specs::borrow_index_identity(&env, old)
+    }
+
+    /// Deliberately false: identity growth of RAY+1 is not RAY.
+    #[cfg(feature = "index-identity")]
+    pub fn test_borrow_index_identity_wrong(env: Env) -> bool {
+        identity_specs::borrow_index_identity_wrong(&env)
+    }
+
+    /// RAY < factor <= 100*RAY: an index at the cap stays at the cap.
+    #[cfg(feature = "index-identity")]
+    pub fn test_borrow_cap_sticky(env: Env, factor: i128) -> bool {
+        identity_specs::borrow_index_cap_sticky(&env, factor)
+    }
+
+    /// Deliberately false: doubling at the cap does not exceed the cap.
+    #[cfg(feature = "index-identity")]
+    pub fn test_borrow_cap_sticky_wrong(env: Env) -> bool {
+        identity_specs::borrow_index_cap_sticky_wrong(&env)
+    }
+
+    /// Every i128 triple: zero supply or zero rewards returns the old supply index.
+    #[cfg(feature = "noop-guards")]
+    pub fn test_supply_zero_inputs(
+        env: Env,
+        supplied: i128,
+        old: i128,
+        rewards: i128,
+    ) -> bool {
+        identity_specs::supply_index_zero_inputs(&env, supplied, old, rewards)
+    }
+
+    /// Deliberately false: zero supply does not grow the index.
+    #[cfg(feature = "noop-guards")]
+    pub fn test_supply_zero_inputs_wrong(env: Env) -> bool {
+        identity_specs::supply_index_zero_inputs_wrong(&env)
+    }
+
+    /// Every i128 rate: zero elapsed time gives exactly the unit growth factor.
+    #[cfg(feature = "noop-guards")]
+    pub fn test_compound_zero_delta(env: Env, rate: i128) -> bool {
+        identity_specs::compound_zero_delta(&env, rate)
+    }
+
+    /// Deliberately false: zero elapsed time does not add the rate.
+    #[cfg(feature = "noop-guards")]
+    pub fn test_compound_zero_delta_wrong(env: Env) -> bool {
+        identity_specs::compound_zero_delta_wrong(&env)
+    }
+
+    /// Every i128 pair with a negative operand: Wad::try_mul returns None.
+    #[cfg(feature = "noop-guards")]
+    pub fn test_wad_try_mul_negative(env: Env, a: i128, b: i128) -> bool {
+        identity_specs::wad_try_mul_negative(&env, a, b)
+    }
+
+    /// Deliberately false: a negative operand is not multiplied.
+    #[cfg(feature = "noop-guards")]
+    pub fn test_wad_try_mul_negative_wrong(env: Env) -> bool {
+        identity_specs::wad_try_mul_negative_wrong(&env)
+    }
+
+    /// Every signed amount whose product fits i128: Ray::from_asset(amount, 7) is amount * 10^20.
+    #[cfg(feature = "rescale-up")]
+    pub fn test_from_asset_7_exact(env: Env, amount: i128) -> bool {
+        identity_specs::from_asset_7_exact(&env, amount)
+    }
+
+    /// Deliberately false: one 7-decimal unit is 10^20 Ray, not 10^19.
+    #[cfg(feature = "rescale-up")]
+    pub fn test_from_asset_7_wrong(env: Env) -> bool {
+        identity_specs::from_asset_7_wrong(&env)
     }
 
     /// x, y >= 2^64, representable: Ray::mul_floor is exactly floor(x*y/RAY).

@@ -3,7 +3,7 @@ import IntBitwiseLemmas
 
 /-!
 Module U64-BITWISE-SMT and the U64 rules of INT-BITWISE-LEMMAS (Komet fork
-commit 0593a68, `komet-lemmas.md`).
+commit 7e74d11, `komet-lemmas.md` SHA-256 2ddebe51...).
 
 `#u64Or(X, Y)` / `#u64Xor(X, Y)` (symbols `u64Or` / `u64Xor`) are total functions
 whose concrete evaluation rules are `(X |Int Y) modInt 2^64` and
