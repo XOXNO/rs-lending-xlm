@@ -153,8 +153,8 @@ pool is imbalanced, and the pool factory's admin can ramp A within the pool's
 own rate limits. The aggregator pins the pool executable, not its factory, so
 governance must review the factory and its admin as trusted parties, as it does
 an Aquarius stable pool's admin. On an imbalanced pool a ramp can move the mark
-either way, but never above the sum of normalized balances times the lowest
-coin price, because the invariant never exceeds that sum. Each coin's issuer
+either way, but never above the normalized balances per share times the
+lowest coin price, because the invariant never exceeds their sum. Each coin's issuer
 carries the same trust as a directly listed token's. The lowest-coin price
 understates an LP held as debt, so LP sources are collateral-only and LP
 markets must not be borrowable.

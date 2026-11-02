@@ -1,5 +1,5 @@
 //! Groups the price-source integrations that the aggregator engine dispatches
-//! to: Aquarius LP pools, Chainlink, RedStone-format multi-feed contracts
+//! to: Aquarius and Curve LP pools, Chainlink, RedStone-format multi-feed contracts
 //! (RedStone and Xoxno), and Reflector.
 
 pub(crate) mod aquarius;

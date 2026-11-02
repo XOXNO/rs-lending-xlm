@@ -72,9 +72,9 @@ pool order), `wasm_hash` (64 hexadecimal characters in CLI JSON), and
 18-decimal lending market and enable collateral in the desired spoke normally.
 LP sources (Aquarius or Curve) are collateral-only: keep LP markets at
 `can_be_borrowed: false`; Curve's lowest-coin price understates an LP debt.
-Set the LP's `min_sanity_price_wad` below the lowest coin's
-`min_sanity_price_wad` times the virtual price, so the LP band never trips
-before the coin bands.
+Set the LP's `min_sanity_price_wad` at or below the smallest coin
+`min_sanity_price_wad` times the lowest expected virtual price / WAD, so the
+LP band never trips before the coin bands.
 
 Governance must review the pinned executable and underlying tokens for plain
 pool semantics. Each read rechecks its hash, ordered coins, live decimals and

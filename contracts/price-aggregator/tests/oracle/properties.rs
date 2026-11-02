@@ -2,8 +2,9 @@ use super::*;
 use crate::registry;
 use crate::session::Session;
 use common::types::{
-    AssetOracle, CurveStableLpSource, FeedNature, FeedSource, IndependencePolicy, MultiFeedRef,
-    OracleAssetRef, OracleReadMode, OracleTolerance, ProviderRef, ReflectorFeedRef, ScaledSource,
+    AquariusLpSource, AssetOracle, CurveStableLpSource, FeedNature, FeedSource, IndependencePolicy,
+    MultiFeedRef, OracleAssetRef, OracleReadMode, OracleTolerance, ProviderRef, ReflectorFeedRef,
+    ScaledSource,
 };
 use soroban_sdk::testutils::Address as _;
 use soroban_sdk::{vec, Address, BytesN, String, Symbol};
@@ -449,7 +450,7 @@ fn test_an_lp_source_is_an_unsmoothed_market_leg_naming_both_underlyings() {
     with_contract(&env, || {
         let key_a = PriceKey::Ref(Symbol::new(&env, "A"));
         let key_b = PriceKey::Ref(Symbol::new(&env, "B"));
-        let source = PriceSource::AquariusLp(common::types::AquariusLpSource {
+        let source = PriceSource::AquariusLp(AquariusLpSource {
             pool: Address::generate(&env),
             token_a: Address::generate(&env),
             token_b: Address::generate(&env),
@@ -476,7 +477,7 @@ fn test_an_lp_source_paired_with_a_clean_one_is_still_refused() {
     let reflector = Address::generate(&env);
     with_contract(&env, || {
         let mut sources = one(&env, PriceSource::Feed(twap_feed(&env, &reflector)));
-        sources.push_back(PriceSource::AquariusLp(common::types::AquariusLpSource {
+        sources.push_back(PriceSource::AquariusLp(AquariusLpSource {
             pool: Address::generate(&env),
             token_a: Address::generate(&env),
             token_b: Address::generate(&env),
