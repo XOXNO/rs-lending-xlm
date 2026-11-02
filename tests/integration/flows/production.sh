@@ -154,8 +154,10 @@ prod_ops() {
 prod_deploy_protocol() {
     local plan="$RUN_DIR/fixture-plan.json" mapping="$RUN_DIR/address-map.json" original got id row n=0
     python3 "$INTEG_DIR/production_config.py" plan "$REPO_ROOT/configs/mainnet" ${PROD_CONFIG_ONLY:+--only "$PROD_CONFIG_ONLY"} > "$plan" || return 1
-    group_begin production_deploy "$(( $(jq length "$plan") + 1 ))" || return 1
-    while read -r row; do group_spawn prod_fixture_job "$row"; done < <(jq -c 'to_entries | to_entries[] | .value + {n: (.key + 1)}' "$plan")
+    # Curve pools take their coins' fixture addresses, so they deploy after the rest.
+    local first='with_entries(select(.value.kind != "curve_pool"))'
+    group_begin production_deploy "$(( $(jq "$first | length" "$plan") + 1 ))" || return 1
+    while read -r row; do group_spawn prod_fixture_job "$row"; done < <(jq -c "$first"' | to_entries | to_entries[] | .value + {n: (.key + 1)}' "$plan")
     group_spawn deploy_protocol
     group_end || return 1
     printf '{}\n' > "$mapping"
@@ -165,7 +167,35 @@ prod_deploy_protocol() {
         [ "$got" = "$original" ] && is_contract_id "$id" \
             || { _assert_fail "production_fixture_$n" "fixture job output '$got $id' does not map $original"; return 1; }
         jq --arg o "$original" --arg i "$id" '.[$o]=$i' "$mapping" > "$mapping.tmp" && mv "$mapping.tmp" "$mapping" || return 1
-    done < <(jq -r 'keys_unsorted[]' "$plan")
+    done < <(jq -r "$first"' | keys_unsorted[]' "$plan")
+    while read -r row; do
+        n=$((n+1))
+        original=$(jq -r '.key' <<<"$row")
+        read -r got id <<<"$(prod_curve_pool_job "$row" "$mapping" "$n" | tail -n1)"
+        [ "$got" = "$original" ] && is_contract_id "$id" \
+            || { _assert_fail "production_fixture_$n" "Curve fixture job output '$got $id' does not map $original"; return 1; }
+        jq --arg o "$original" --arg i "$id" '.[$o]=$i' "$mapping" > "$mapping.tmp" && mv "$mapping.tmp" "$mapping" || return 1
+    done < <(jq -c 'to_entries[] | select(.value.kind == "curve_pool")' "$plan")
+}
+
+# Deploys the pinned Curve pool executable over the mapped coin fixtures. The
+# admin account stands in for the factory: it authorizes the constructor and
+# is never called by deposits or the price reads.
+prod_curve_pool_job() {
+    local row="$1" mapping="$2" n="$3" original coins args base id
+    original=$(jq -r '.key' <<<"$row")
+    coins=$(jq -c --slurpfile m "$mapping" '[.value.coins[] | $m[0][.] // error("unmapped Curve coin \(.)")]' <<<"$row") || return 1
+    args=$(jq -nc --argjson coins "$coins" --arg factory "$ADMIN_ADDR" --arg name "$(jq -r '.value.name' <<<"$row")" \
+        '{admin_fee: "5000000000", amplification: "100", asset_types: [$coins[] | 0], factory: $factory,
+          fee: "30000000", methods: [], min_locked_liquidity: "1000", name: $name,
+          offpeg_fee_multiplier: "20000000000", oracles: [], symbol: "LP", tokens: $coins}') || return 1
+    base=$(job_log "fixture_$n")
+    run_deploy "$base.out" "$base.err" -- stellar contract deploy --source "$ADMIN" "${NET_ARGS[@]}" \
+        --wasm "$CURVE_FIXTURE_DIR/$(jq -r '.value.wasm' <<<"$row")" -- --args "$args" || return 1
+    id=$(sanitize_output "$base.out")
+    is_contract_id "$id" || return 1
+    record "production_fixture_$n" ok deploy "$(extract_signing_hash "$base.err")" "$RES_INSTR" "$RES_READ" "$RES_WRITE" "$RES_FEE" "curve_pool $original -> $id (fixture)" deployment "$id"
+    printf '%s %s\n' "$original" "$id"
 }
 
 flow_production_fixtures() {
@@ -189,6 +219,20 @@ flow_production_fixtures() {
     while read -r row; do
         inv prod_lp_fixture "$ADMIN" "$(jq -r '.contract' <<<"$row")" -- configure_pool --snapshot "$(jq -c '.snapshot' <<<"$row")" >/dev/null || return 1
     done < <(jq -c '.pools[]' "$fixtures")
+    while read -r row; do prod_curve_seed "$row" || return 1; done < <(jq -c '.curve_pools[]?' "$fixtures")
+}
+
+# One balanced first deposit; production_config.py prices the LP from it.
+prod_curve_seed() {
+    local pool i=0 coin
+    pool=$(jq -r '.contract' <<<"$1")
+    while read -r coin; do
+        inv "prod_curve_mint_${pool:0:8}_$i" "$ADMIN" "$coin" -- mint --to "$ADMIN_ADDR" \
+            --amount "$(jq -r --argjson i "$i" '.amounts[$i]' <<<"$1")" >/dev/null || return 1
+        i=$((i+1))
+    done < <(jq -r '.coins[]' <<<"$1")
+    inv "prod_curve_deposit_${pool:0:8}" "$ADMIN" "$pool" -- add_liquidity --caller "$ADMIN_ADDR" \
+        --amounts "$(jq -c '.amounts' <<<"$1")" --min_mint 0 --receiver "$ADMIN_ADDR" >/dev/null
 }
 
 prod_fixture_job() {

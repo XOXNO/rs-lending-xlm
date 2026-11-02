@@ -16,6 +16,11 @@ The upstream repository and commit are unknown: both executables carry
 soroban-sdk 26.1.1). These are testnet hashes. No config in `configs/` lists a Curve
 pool yet, so whether mainnet pools run these executables is unverified.
 
+The mainnet replay (`tests/integration/production_config.py`) deploys one of these
+files for each `CurveStableLp` source whose `wasm_hash` matches it, with the admin
+account as factory, then seeds one balanced deposit. A source with any other hash
+fails `plan` until its reviewed executable is added here.
+
 Both expose the same pool ABI. [`factory.rs`](factory.rs), shared by the router,
 price-aggregator and harness tests, imports the two-coin spec once and deploys
 the executable matching the coin count through a small native factory. Router
