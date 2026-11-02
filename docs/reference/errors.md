@@ -32,7 +32,7 @@ SDK `try_` calls distinguish contract errors from host, authorization, storage, 
 | 34 `InternalError` | An internal invariant fails: an expected value is absent, liquidation math is inconsistent, a timelock target is wrong, or a migration version does not increase. | Report it; the inputs are inconsistent. |
 | 36 `InvalidPositionLimits` | A supply or borrow position limit is zero or above `POSITION_LIMIT_MAX`. | Use limits inside the allowed range. |
 | 38 `SpotOnlyNotProductionSafe` | Both available source paths contain an unsmoothed market leg, or the only source does. | Configure a permitted smoothed or fundamental source composition. |
-| 39 `InvalidTimelockDelay` | Constructor delay is zero; a delay update is zero, below the current minimum, or above `TIMELOCK_MAX_DELAY_LEDGERS`. | Use a nonzero constructor delay and an allowed update. |
+| 39 `InvalidTimelockDelay` | Constructor delay is zero; a delay update is zero, above `TIMELOCK_MAX_DELAY_LEDGERS`, or below both the current minimum and `TIMELOCK_MIN_DELAY_LEDGERS`. | Use a nonzero constructor delay and an allowed update. |
 | 40 `TimelockOperationExpired` | The scheduled operation's grace period has already elapsed. | Propose the operation again. |
 | 41 `InvalidRole` | The role symbol is not a known governance role, a non-owner grant would combine executor and canceller, the role is not held on revoke, or an immediate revoke names a role other than guardian or oracle. | Use a valid role assignment. |
 | 42 `BlendPoolNotApproved` | The target Blend pool is not on the controller's approved list. | Ask governance to approve the pool. |

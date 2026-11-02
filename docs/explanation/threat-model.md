@@ -60,8 +60,9 @@ role grants and position-manager activation need the owner as proposer. A
 stolen non-owner PROPOSER key can therefore schedule disruptive changes, such
 as listing flags, risk parameters, role revocations, a position-manager
 deactivation or an unpause, but cannot replace code or prices. It cannot
-change the minimum delay either. `UpdateGovDelay` can only raise the minimum,
-so no later delay update can lower it. An owner `UpgradeGov` can still replace
+change the minimum delay either. `UpdateGovDelay` is owner-proposed and
+waits out the current delay; it can raise the minimum, or lower it no further
+than `TIMELOCK_MIN_DELAY_LEDGERS` (about 2 days). An owner `UpgradeGov` can still replace
 the governance code and its delay rules
 ([INV-AUTH-05](../reference/invariants.md#inv-auth-05)).
 

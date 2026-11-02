@@ -1,9 +1,9 @@
 use soroban_sdk::testutils::{Address as _, Ledger as _};
-use soroban_sdk::{Address, BytesN, Env, Symbol};
+use soroban_sdk::{Address, BytesN, Env, Error, Symbol};
 use stellar_governance::timelock::OperationState;
 
 use crate::access::EXECUTOR_ROLE;
-use crate::constants::TIMELOCK_SENSITIVE_MIN_DELAY_LEDGERS;
+use crate::constants::{TIMELOCK_MIN_DELAY_LEDGERS, TIMELOCK_SENSITIVE_MIN_DELAY_LEDGERS};
 use crate::op::{AdminOperation, RoleArgs};
 use crate::test_support::{register, upload_controller_wasm, zero_salt, ZERO_SALT};
 
@@ -21,7 +21,7 @@ fn propose_update_delay_schedules_waiting_operation() {
 
 #[test]
 #[should_panic(expected = "Error(Contract, #39)")]
-fn propose_update_delay_rejects_shortening() {
+fn propose_update_delay_rejects_shortening_below_the_floor() {
     let env = Env::default();
     env.mock_all_auths();
     let (admin, _gov_id, gov) = register(&env, 10);
@@ -109,6 +109,29 @@ fn execute_update_delay_applies_after_delay() {
     );
     assert_eq!(gov.get_min_delay(), 15u32);
     assert_eq!(gov.get_operation_state(&id), OperationState::Unset);
+}
+
+#[test]
+fn update_delay_shortens_to_the_floor_through_the_timelock_but_not_below() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let delay = TIMELOCK_MIN_DELAY_LEDGERS * 2;
+    let (admin, _gov_id, gov) = register(&env, delay);
+
+    let below = AdminOperation::UpdateGovDelay(TIMELOCK_MIN_DELAY_LEDGERS - 1);
+    assert_eq!(
+        gov.try_propose(&admin, &below, &zero_salt(&env)),
+        Err(Ok(Error::from_contract_error(39)))
+    );
+
+    let salt = zero_salt(&env);
+    let floor = AdminOperation::UpdateGovDelay(TIMELOCK_MIN_DELAY_LEDGERS);
+    let id = gov.propose(&admin, &floor, &salt);
+    env.ledger().with_mut(|l| l.sequence_number += delay - 1);
+    assert_eq!(gov.get_operation_state(&id), OperationState::Waiting);
+    env.ledger().with_mut(|l| l.sequence_number += 1);
+    gov.execute_self(&Some(admin.clone()), &floor, &salt);
+    assert_eq!(gov.get_min_delay(), TIMELOCK_MIN_DELAY_LEDGERS);
 }
 
 #[test]

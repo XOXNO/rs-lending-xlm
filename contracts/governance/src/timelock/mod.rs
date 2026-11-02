@@ -53,15 +53,18 @@ pub(crate) fn require_nonzero_delay(env: &Env, delay: u32) {
     assert_with_error!(env, delay != 0, GenericError::InvalidTimelockDelay);
 }
 
-/// Validates that `new_delay` is nonzero, at least the current minimum delay, and
-/// at most `constants::TIMELOCK_MAX_DELAY_LEDGERS`. Panics with
+/// Validates that `new_delay` is nonzero, at most
+/// `constants::TIMELOCK_MAX_DELAY_LEDGERS`, and either at least the current
+/// minimum delay (an increase) or at least `constants::TIMELOCK_MIN_DELAY_LEDGERS`
+/// (a decrease never goes below that floor). Panics with
 /// `GenericError::InvalidTimelockDelay` otherwise.
 pub(crate) fn validate_delay_update(env: &Env, new_delay: u32) {
     require_nonzero_delay(env, new_delay);
     let current = get_min_delay(env);
     assert_with_error!(
         env,
-        new_delay >= current && new_delay <= constants::TIMELOCK_MAX_DELAY_LEDGERS,
+        new_delay <= constants::TIMELOCK_MAX_DELAY_LEDGERS
+            && (new_delay >= current || new_delay >= constants::TIMELOCK_MIN_DELAY_LEDGERS),
         GenericError::InvalidTimelockDelay
     );
 }
