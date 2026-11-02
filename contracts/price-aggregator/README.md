@@ -49,7 +49,7 @@ sanity gates used by every other provider still apply.
 
 ## Curve LP collateral
 
-`CurveStableLp` values plain Curve StableSwap LP shares with 2–8 coins:
+`CurveStableLp` values plain Curve StableSwap LP shares with 2–3 coins:
 
 ```text
 price_wad = floor(get_virtual_price() * min(all coin prices_wad) / 1e18)
@@ -76,8 +76,8 @@ pool semantics. Each read rechecks its hash, ordered coins, live decimals and
 fixed rates `10^(36 - coin_decimals)`. Rate-bearing/rebasing pools and metapools
 are outside this admission policy; metadata alone cannot establish their safety.
 An executable change makes the source unpriceable until reviewed and reconfigured.
-Actual WASM fixtures cover 2/3 coins; 8 is a structural resource ceiling, and
-larger deployments require their own code and transaction-resource validation.
+Actual WASM fixtures cover 2/3 coins; 3 is the resource ceiling, and larger
+pools require their own code and transaction-resource validation.
 The generic production-fixture runner rejects Curve sources; Curve tests use
 the real pool WASMs.
 

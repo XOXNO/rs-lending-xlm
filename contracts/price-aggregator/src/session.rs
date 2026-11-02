@@ -13,7 +13,7 @@ use soroban_sdk::{panic_with_error, Address, Env, Map, String, Vec};
 use common::types::{PriceSource, ProviderRef, MAX_RESOLUTION_DEPTH};
 
 #[cfg(not(feature = "certora"))]
-use crate::registry;
+use crate::{properties, registry};
 
 /// Per-invocation resolution state for the price aggregator.
 ///
@@ -196,19 +196,13 @@ fn collect_key(
         match &source {
             PriceSource::Feed(feed) => collect_provider(env, by_adapter, &feed.provider),
             PriceSource::Scaled(scaled) => {
-                collect_provider(env, by_adapter, &scaled.factor.provider);
-                collect_key(env, by_adapter, visited, &scaled.quote, depth + 1);
+                collect_provider(env, by_adapter, &scaled.factor.provider)
             }
-
-            PriceSource::AquariusLp(lp) | PriceSource::AquariusStableLp(lp) => {
-                collect_key(env, by_adapter, visited, &lp.key_a, depth + 1);
-                collect_key(env, by_adapter, visited, &lp.key_b, depth + 1);
-            }
-            PriceSource::CurveStableLp(lp) => {
-                for coin in lp.coins.iter() {
-                    collect_key(env, by_adapter, visited, &PriceKey::Token(coin), depth + 1);
-                }
-            }
+            _ => {}
+        }
+        let local = properties::local_properties(env, &source);
+        for dependency in local.dependencies.iter() {
+            collect_key(env, by_adapter, visited, &dependency, depth + 1);
         }
     }
 }

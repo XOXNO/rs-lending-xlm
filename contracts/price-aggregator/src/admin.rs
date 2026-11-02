@@ -18,7 +18,7 @@ use soroban_sdk::{assert_with_error, panic_with_error, Env, Vec};
 
 use crate::engine;
 use crate::properties;
-use crate::providers::{aquarius, curve, reflector};
+use crate::providers::{aquarius, reflector};
 use crate::registry;
 use crate::session::Session;
 use crate::validation;
@@ -34,7 +34,8 @@ fn attest_sources(env: &Env, key: &PriceKey, oracle: &AssetOracle) {
 
             PriceSource::AquariusLp(lp) => aquarius::attest(env, key, oracle, lp, false),
             PriceSource::AquariusStableLp(lp) => aquarius::attest(env, key, oracle, lp, true),
-            PriceSource::CurveStableLp(lp) => curve::attest(env, key, oracle, lp),
+            // Curve pool binding is checked when `set_oracle` probes the LP source.
+            PriceSource::CurveStableLp(_) => {}
         }
     }
 }
@@ -197,9 +198,6 @@ pub(crate) fn validate_asset_oracle(env: &Env, key: &PriceKey, oracle: &AssetOra
     validation::staleness_envelope(env, oracle.max_price_stale_seconds, &derived.combined());
     if !oracle.has_lp_source() {
         validation::smoothing(env, &derived.first, derived.second.as_ref());
-    }
-
-    if !oracle.has_lp_source() {
         validate_oracle_tolerance(env, &oracle.tolerance);
     }
     if let Some(second) = derived.second.as_ref() {

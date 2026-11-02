@@ -1409,12 +1409,12 @@ validate_configs() {
                     $oracle.asset_decimals == 18 and ($oracle.sources | length) == 1 and
                     ($lp.wasm_hash | test("^[0-9a-fA-F]{64}$")) and
                     ($lp.coins | type == "array") and
-                    ($lp.coins | length >= 2 and length <= 8) and
+                    ($lp.coins | length >= 2 and length <= 3) and
                     ($lp.coins | unique | length) == ($lp.coins | length) and
                     all($lp.coins[]; test("^C[A-Z2-7]{55}$") and . != $lp.pool) and
                     ($lp.min_pool_value_wad | tonumber) > 0
                 ' >/dev/null; then
-                    vc_err "market ${m}: sources[$i] Curve LP needs the pool LP token, 18 decimals, a reviewed WASM hash, 2..8 distinct ordered coins, and a positive liquidity floor"
+                    vc_err "market ${m}: sources[$i] Curve LP needs the pool LP token, 18 decimals, a reviewed WASM hash, 2..3 distinct ordered coins, and a positive liquidity floor"
                 fi
                 i=$((i + 1))
                 continue

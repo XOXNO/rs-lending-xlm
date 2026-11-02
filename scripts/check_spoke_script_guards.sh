@@ -538,6 +538,7 @@ for mutation in \
     '.markets[0].oracle.sources[0].CurveStableLp.wasm_hash = "bad"' \
     '.markets[0].oracle.sources[0].CurveStableLp.pool = "wrong"' \
     '.markets[0].oracle.sources[0].CurveStableLp.coins |= .[:1]' \
+    '.markets[0].oracle.sources[0].CurveStableLp.coins += ["C" + ("F" * 55)]' \
     '.markets[0].oracle.sources[0].CurveStableLp.coins[2] = .markets[0].oracle.sources[0].CurveStableLp.coins[0]' \
     '.markets[0].oracle.sources[0].CurveStableLp.min_pool_value_wad = "0"' \
     '.markets[0].oracle.sources += .markets[0].oracle.sources'; do

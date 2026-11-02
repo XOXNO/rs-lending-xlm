@@ -89,9 +89,9 @@ pub(crate) struct LocalProperties {
 
 /// Computes the local `SourceProperties` and dependency keys of `source`
 /// without recursing into those dependencies: a plain feed has no
-/// dependencies; a scaled source depends on its quote key; an Aquarius LP
-/// source (standard or stable) is marked as an unsmoothed market leg and
-/// depends on both of its paired keys.
+/// dependencies; a scaled source depends on its quote key; an LP source
+/// (Aquarius or Curve) is marked as an unsmoothed market leg and depends on
+/// every constituent key.
 pub(crate) fn local_properties(env: &Env, source: &PriceSource) -> LocalProperties {
     match source {
         PriceSource::Feed(feed) => LocalProperties {
@@ -112,7 +112,6 @@ pub(crate) fn local_properties(env: &Env, source: &PriceSource) -> LocalProperti
         PriceSource::CurveStableLp(lp) => LocalProperties {
             local: SourceProperties {
                 has_unsmoothed_market_leg: true,
-                trust: Vec::from_array(env, [lp.pool.clone()]),
                 ..SourceProperties::empty(env)
             },
             dependencies: Vec::from_iter(env, lp.coins.iter().map(PriceKey::Token)),

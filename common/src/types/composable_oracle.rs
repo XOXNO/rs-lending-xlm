@@ -166,7 +166,7 @@ pub struct CurveStableLpSource {
 }
 
 /// Structural resource ceiling; each pool executable still requires governance review.
-pub const MAX_CURVE_COINS: u32 = 8;
+pub const MAX_CURVE_COINS: u32 = 3;
 
 /// One input used to price an asset: a direct feed, a factor-scaled feed, or an LP
 /// share valuation for a constant-product or stable-swap pool.

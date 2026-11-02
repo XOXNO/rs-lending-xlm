@@ -70,7 +70,7 @@ fn chainlink_is_an_unsmoothed_market_leg() {
 }
 
 #[test]
-fn asset_oracle_identifies_aquarius_lp() {
+fn asset_oracle_identifies_lp_sources() {
     let env = Env::default();
     let source = PriceSource::AquariusLp(AquariusLpSource {
         pool: Address::generate(&env),
@@ -114,10 +114,18 @@ fn asset_oracle_identifies_aquarius_lp() {
         ..oracle
     };
     assert!(stable_oracle.has_lp_source());
+
+    let curve = PriceSource::CurveStableLp(CurveStableLpSource {
+        pool: Address::generate(&env),
+        coins: Vec::from_array(&env, [Address::generate(&env), Address::generate(&env)]),
+        wasm_hash: BytesN::from_array(&env, &[1; 32]),
+        min_pool_value_wad: 1,
+    });
+    assert!(curve.is_lp());
 }
 
 #[test]
-fn feed_source_is_not_aquarius_and_two_sources_are_dual() {
+fn feed_source_is_not_lp_and_two_sources_are_dual() {
     let env = Env::default();
     let feed = PriceSource::Feed(multi_feed(&env, &Address::generate(&env), false));
     assert!(!feed.is_lp());
