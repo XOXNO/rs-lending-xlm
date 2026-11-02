@@ -1,7 +1,7 @@
 use super::*;
 use crate::test_support::in_contract;
 use common::constants::{MAX_REASONABLE_PRICE_WAD, WAD};
-use common::types::{FeedNature, MultiFeedRef};
+use common::types::{FeedNature, MultiFeedRef, ReflectorFeedRef};
 use soroban_sdk::testutils::Address as _;
 use soroban_sdk::{String, Symbol};
 
@@ -66,6 +66,18 @@ fn scaled(env: &Env, min_factor_wad: i128, max_factor_wad: i128) -> ScaledSource
     }
 }
 
+fn string_asset_feed(env: &Env) -> FeedSource {
+    FeedSource {
+        provider: ProviderRef::Reflector(ReflectorFeedRef {
+            contract: Address::generate(env),
+            asset: OracleAssetRef::String(String::from_str(env, "XLM")),
+            read_mode: OracleReadMode::Spot,
+        }),
+        decimals: 8,
+        max_stale_seconds: 3_600,
+    }
+}
+
 #[test]
 fn test_a_chain_sitting_exactly_at_the_cap_is_admitted() {
     let env = Env::default();
@@ -121,6 +133,7 @@ fn test_an_empty_allow_shared_declaration_is_refused_even_when_nothing_is_shared
             &first,
             &second,
             &IndependencePolicy::AllowShared(Vec::new(&env)),
+            true,
         );
     });
 }
@@ -137,6 +150,7 @@ fn test_a_declaration_naming_a_different_contract_does_not_cover_the_overlap() {
             &legs,
             &legs,
             &IndependencePolicy::AllowShared(Vec::from_array(&env, [Address::generate(&env)])),
+            true,
         );
     });
 }
@@ -156,6 +170,7 @@ fn test_a_declaration_wider_than_the_overlap_is_refused() {
                 &env,
                 [shared, Address::generate(&env)],
             )),
+            true,
         );
     });
 }
@@ -171,6 +186,7 @@ fn test_a_declaration_matching_the_overlap_exactly_is_accepted() {
             &legs,
             &legs,
             &IndependencePolicy::AllowShared(Vec::from_array(&env, [shared])),
+            true,
         );
     });
 }
@@ -272,5 +288,27 @@ fn test_a_factor_ceiling_exactly_at_the_reasonable_price_cap_is_accepted() {
     let env = Env::default();
     in_contract(&env, || {
         factor_bounds(&env, &scaled(&env, WAD, MAX_REASONABLE_PRICE_WAD))
+    });
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #204)")]
+fn test_a_reflector_feed_naming_its_asset_by_string_is_refused() {
+    let env = Env::default();
+    in_contract(&env, || {
+        source_shape(&env, &PriceSource::Feed(string_asset_feed(&env)))
+    });
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #204)")]
+fn test_a_scaled_factor_naming_its_asset_by_string_is_refused() {
+    let env = Env::default();
+    in_contract(&env, || {
+        let source = ScaledSource {
+            factor: string_asset_feed(&env),
+            ..scaled(&env, WAD, WAD)
+        };
+        source_shape(&env, &PriceSource::Scaled(source));
     });
 }
