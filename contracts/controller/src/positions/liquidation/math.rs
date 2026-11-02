@@ -409,10 +409,7 @@ pub(crate) fn calculate_seized_collateral(
         let seizure_amount_wad = seizure_for_asset_usd.div(env, feed.price);
         // Exact WAD-to-RAY upscale. A dust price can push it past i128; the
         // saturated request then caps at the held balance.
-        let mut seizure_ray = seizure_amount_wad
-            .raw()
-            .checked_mul(RAY / WAD)
-            .map_or(Ray::from(i128::MAX), Ray::from);
+        let mut seizure_ray = Ray::from(seizure_amount_wad.raw().saturating_mul(RAY / WAD));
 
         if !repayment.seize_all
             && feed.asset_decimals < MIN_BORROWABLE_ASSET_DECIMALS

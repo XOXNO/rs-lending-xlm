@@ -500,29 +500,23 @@ fn test_multi_debt_liquidation_reduces_both() {
     );
 }
 
-fn ceil_debt(t: &LendingTest, account_id: u64, name: &str, decimals: u32) -> i128 {
+/// The leg's ceiling-rounded debt in asset units, and the floor-rounded WAD USD
+/// value of the debt that a full repayment of the leg clears.
+fn debt_leg(t: &LendingTest, account_id: u64, name: &str, decimals: u32) -> (i128, i128) {
     let hub = hub_asset(t.resolve_asset(name));
     let (_, borrows) = t.ctrl_client().get_account_positions(&account_id);
-    let scaled = borrows.get(hub.clone()).expect("debt leg").scaled_amount;
-    let index = LiquidityPoolClient::new(&t.env, &t.resolve_market(name).pool)
-        .get_sync_data(&hub)
-        .state
-        .borrow_index;
-    unscale_borrow_ceil(&t.env, Ray::from(scaled), Ray::from(index), decimals)
-}
-
-/// The floor-rounded WAD USD value of the leg's debt, which a full repayment of
-/// the leg clears.
-fn cleared_debt_usd(t: &LendingTest, account_id: u64, name: &str) -> i128 {
-    let hub = hub_asset(t.resolve_asset(name));
-    let (_, borrows) = t.ctrl_client().get_account_positions(&account_id);
-    let scaled = borrows.get(hub.clone()).expect("debt leg").scaled_amount;
-    let index = LiquidityPoolClient::new(&t.env, &t.resolve_market(name).pool)
-        .get_sync_data(&hub)
-        .state
-        .borrow_index;
+    let scaled = Ray::from(borrows.get(hub.clone()).expect("debt leg").scaled_amount);
+    let index = Ray::from(
+        LiquidityPoolClient::new(&t.env, &t.resolve_market(name).pool)
+            .get_sync_data(&hub)
+            .state
+            .borrow_index,
+    );
     let price = Wad::from(t.resolve_market(name).price_wad);
-    position_value_floor(&t.env, Ray::from(scaled), Ray::from(index), price).raw()
+    (
+        unscale_borrow_ceil(&t.env, scaled, index, decimals),
+        position_value_floor(&t.env, scaled, index, price).raw(),
+    )
 }
 
 /// Two 3-decimal debt legs at $1 per unit whose ceiling-rounded balances
@@ -547,7 +541,7 @@ fn test_full_close_of_ceiling_rounded_legs_credits_the_debt_cleared() {
     let mut rounding = 0;
     for _ in 0..48 {
         t.advance_and_sync(3_600);
-        let ceilings = ceil_debt(&t, account_id, "D1", 3) + ceil_debt(&t, account_id, "D2", 3);
+        let ceilings = debt_leg(&t, account_id, "D1", 3).0 + debt_leg(&t, account_id, "D2", 3).0;
         rounding = ceilings * unit_usd - t.total_debt_raw(ALICE);
         if rounding >= unit_usd {
             break;
@@ -562,9 +556,9 @@ fn test_full_close_of_ceiling_rounded_legs_credits_the_debt_cleared() {
     t.set_price("COL", col_price);
     t.assert_liquidatable(ALICE);
 
-    let (d1, d2) = (
-        ceil_debt(&t, account_id, "D1", 3),
-        ceil_debt(&t, account_id, "D2", 3),
+    let ((d1, cleared_d1), (d2, cleared_d2)) = (
+        debt_leg(&t, account_id, "D1", 3),
+        debt_leg(&t, account_id, "D2", 3),
     );
     let payments = vec![
         &t.env,
@@ -587,9 +581,9 @@ fn test_full_close_of_ceiling_rounded_legs_credits_the_debt_cleared() {
             "only the offer above each ceiling is refunded"
         );
     }
-    let cleared = cleared_debt_usd(&t, account_id, "D1") + cleared_debt_usd(&t, account_id, "D2");
     assert_eq!(
-        estimate.max_payment_wad, cleared,
+        estimate.max_payment_wad,
+        cleared_d1 + cleared_d2,
         "the credit is the debt cleared"
     );
 

@@ -388,9 +388,10 @@ configuration; they do not guarantee a profitable liquidation after rounding.
 
 New supply and borrow slots must fit their configured counts. Existing-asset
 top-ups remain allowed if a count limit falls below the account's existing
-count. Credit-mode receivers obey the same new-slot limit, and an account can
-have at most 16 delegates. A supply leg below 3 decimals is its account's only
-supply position: a new slot beside it, by deposit or credit, is rejected.
+count. An existing Credit receiver obeys the same new-slot limit; a `Credit(0)`
+receiver skips it. An account can have at most 16 delegates. A supply leg below
+3 decimals is its account's only supply position: a new slot beside it, by
+deposit or credit, is rejected.
 
 These bounds limit state size without proving worst-case transaction-budget
 sufficiency.
@@ -409,7 +410,10 @@ A Credit receiver must be a different account in the same spoke, in Normal
 mode, and controlled by the liquidator as owner or active delegate. `Credit(0)`
 can create a receiver in a deprecated spoke. Ownership and position limits
 still apply, except that a `Credit(0)` receiver skips the governed position
-limit.
+limit. Whole-unit isolation ([INV-RISK-04](#inv-risk-04)) applies to every
+receiver. The 2-whole-unit floor on a leg below 3 decimals is not checked at
+credit, because credit only adds shares. It binds at the receiver's next
+borrow, withdrawal or account strategy that leaves debt.
 
 <a id="inv-liq-02"></a>
 

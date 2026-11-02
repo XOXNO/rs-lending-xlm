@@ -481,14 +481,14 @@ fn a_receiver_at_the_supply_position_limit_reverts() {
     let estimate = |mode| {
         t.ctrl_client()
             .try_get_liquidation_estimate(&alice_id, &payments, &mode)
+            .map(Result::unwrap)
+            .map_err(Result::unwrap)
     };
-    assert_eq!(
-        estimate(SeizeMode::Credit(receiver)).unwrap_err(),
-        Ok(soroban_sdk::Error::from_contract_error(
-            errors::POSITION_LIMIT_EXCEEDED
-        ))
+    assert_contract_error(
+        estimate(SeizeMode::Credit(receiver)),
+        errors::POSITION_LIMIT_EXCEEDED,
     );
-    assert!(matches!(estimate(SeizeMode::Credit(0)), Ok(Ok(_))));
+    assert!(estimate(SeizeMode::Credit(0)).is_ok());
 
     let result =
         t.try_liquidate_with_mode(LIQUIDATOR, ALICE, "ETH", 1.0, SeizeMode::Credit(receiver));

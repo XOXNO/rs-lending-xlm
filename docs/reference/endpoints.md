@@ -102,7 +102,7 @@ Undeclared callback assets receive neither credit nor refunds. There is no contr
 | `get_account_positions(account_id: u64) -> ( Map<HubAssetKey, AccountPositionRaw>, Map<HubAssetKey, DebtPositionRaw>, )` | Supply/debt maps; empty if missing |
 | `get_account_attributes(account_id: u64) -> AccountAttributes` | Stored spoke and mode |
 | `account_exists(account_id: u64) -> bool` | Metadata existence |
-| `get_liquidation_estimate(account_id: u64, debt_payments: Vec<(HubAssetKey, i128)>, seize_mode: SeizeMode) -> LiquidationEstimate` | Shared liquidation plan; max 256 payment inputs |
+| `get_liquidation_estimate(account_id: u64, debt_payments: Vec<(HubAssetKey, i128)>, seize_mode: SeizeMode) -> LiquidationEstimate` | Shared liquidation plan; max 256 payment inputs; a `Credit(id)` receiver must pass execution's spoke, mode, position-limit and isolation gates (no auth check) |
 | `get_liquidation_collateral(account_id: u64) -> i128` | Threshold-weighted USD WAD; not a seizure ceiling |
 | `get_ltv_collateral_usd(account_id: u64) -> i128` | LTV-weighted USD WAD |
 | `get_pool_address() -> Address` | Configured pool |

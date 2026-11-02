@@ -537,7 +537,7 @@ impl World {
         let liquidator = self.t.get_or_create_user(LIQUIDATOR);
         let mut payments = vec![&self.t.env];
         for leg in self.legs.clone() {
-            let debt = self.debt_ceil(&leg);
+            let debt = self.debt(&leg).0;
             if debt > 0 {
                 self.t
                     .resolve_market(leg.name)
@@ -582,35 +582,20 @@ impl World {
             .unwrap_or(0)
     }
 
-    fn debt_ceil(&self, leg: &Leg) -> i128 {
+    /// The leg's ceiling debt in asset units, and the floor WAD USD value of
+    /// that debt, which a payment at the ceiling is credited.
+    fn debt(&self, leg: &Leg) -> (i128, i128) {
         let (_, debts) = self.t.ctrl_client().get_account_positions(&self.account);
         let Some(position) = debts.get(leg.key.clone()) else {
-            return 0;
+            return (0, 0);
         };
-        let index = self.t.ctrl_client().get_market_index(&leg.key).borrow_index;
-        unscale_borrow_ceil(
-            &self.t.env,
-            Ray::from(position.scaled_amount),
-            Ray::from(index),
-            leg.decimals,
+        let scaled = Ray::from(position.scaled_amount);
+        let index = Ray::from(self.t.ctrl_client().get_market_index(&leg.key).borrow_index);
+        let env = &self.t.env;
+        (
+            unscale_borrow_ceil(env, scaled, index, leg.decimals),
+            position_value_floor(env, scaled, index, Wad::from(leg.price)).raw(),
         )
-    }
-
-    /// The floor WAD USD value of the leg's debt, which a payment at its
-    /// ceiling is credited.
-    fn debt_floor_usd(&self, leg: &Leg) -> i128 {
-        let (_, debts) = self.t.ctrl_client().get_account_positions(&self.account);
-        let Some(position) = debts.get(leg.key.clone()) else {
-            return 0;
-        };
-        let index = self.t.ctrl_client().get_market_index(&leg.key).borrow_index;
-        position_value_floor(
-            &self.t.env,
-            Ray::from(position.scaled_amount),
-            Ray::from(index),
-            Wad::from(leg.price),
-        )
-        .raw()
     }
 
     fn unit_usd(&self) -> Wad {
@@ -757,8 +742,7 @@ fn liquidate_step(
     let unit = w.unit_usd();
     let bonus_m = mirror_bonus(&env, totals, w.listed_bonus, &w.curve);
     let legs = w.legs.clone();
-    let debts: Vec<i128> = legs.iter().map(|leg| w.debt_ceil(leg)).collect();
-    let debt_floors: Vec<i128> = legs.iter().map(|leg| w.debt_floor_usd(leg)).collect();
+    let (debts, debt_floors): (Vec<i128>, Vec<i128>) = legs.iter().map(|leg| w.debt(leg)).unzip();
     let per_leg_unit = legs
         .iter()
         .zip(&debts)

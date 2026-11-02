@@ -3,8 +3,9 @@ use test_harness::{
 };
 
 /// An indebted account cannot open a leg on a stale feed; a debt-free account
-/// and a top-up of an existing leg need no price. A leg planted before the
-/// outage still shields the account until the feed recovers.
+/// and a top-up of an existing leg need no price, unless the listing refresh
+/// gate applies. A leg planted before the outage still shields the account
+/// until the feed recovers.
 #[test]
 fn audit_supply_setup_blocks_liquidation_via_stale_dust_leg() {
     let mut t = LendingTest::new()
@@ -43,7 +44,7 @@ fn audit_supply_setup_blocks_liquidation_via_stale_dust_leg() {
     go_stale(&mut t);
     assert!(
         t.try_supply(ALICE, "WBTC", 0.0001).is_ok(),
-        "a top-up of an existing leg needs no price"
+        "a top-up of an existing leg needs no price unless the listing refresh gate applies"
     );
     t.assert_position_exists(ALICE, "WBTC", PositionType::Supply);
     assert!(

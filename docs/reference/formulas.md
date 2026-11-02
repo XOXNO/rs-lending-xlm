@@ -394,8 +394,8 @@ let credited_shares = seized_shares - credit_fee_shares;
 Under-delivery floor-scales seizure amounts, transfer fees, seized shares and
 bonus shares by measured/planned repayment USD. The transfer amount is also
 capped at the floor asset value of the scaled shares, and the fee at that
-amount. Under-delivery reverts with `InvalidPayments` when a seized leg is
-below 3 decimals. Credit fees are recomputed from the scaled bonus shares.
+amount; a leg below 3 decimals reverts ([INV-LIQ-03](invariants.md#inv-liq-03)).
+Credit fees are recomputed from the scaled bonus shares.
 
 Bad-debt cleanup has separate eligibility: ceil risk debt must exceed half-up
 unweighted collateral, and permissionless cleanup requires collateral at or

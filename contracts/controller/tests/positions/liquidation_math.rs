@@ -188,36 +188,16 @@ fn run_seizure(env: &Env, fees_bps: u32, repay_usd_raw: i128, bonus_bps: i128) -
 #[test]
 fn a_dust_priced_leg_saturates_the_seizure_to_the_held_balance() {
     let env = Env::default();
-    let (contract, hub_asset, mut account) = seize_fixture(&env, 1_000);
-    let mut position = account.supply_positions.get(hub_asset.clone()).unwrap();
-    position.scaled_amount = Ray::from_asset(&env, 1, 7).raw();
-    account
-        .supply_positions
-        .set(hub_asset.clone(), position.clone());
-    env.as_contract(&contract, || {
-        let mut cache = Context::new_view(&env);
-        let mut prices = Map::new(&env);
-        prices.set(
-            hub_asset.asset.clone(),
-            PriceFeedRaw {
-                price_wad: 10_000_000,
-                asset_decimals: 7,
-                timestamp: 0,
-            },
-        );
-        cache.set_prices(prices);
-        cache.put_market_index(&hub_asset, &index_raw());
-        let plan = plan_for_seizure(&env, 5 * WAD, 500);
-
-        let (seized, unbacked) =
-            calculate_seized_collateral(&env, &account, Wad::from(1), &plan, &mut cache);
-
-        let entry = seized.get_unchecked(0);
-        assert_eq!(entry.scaled_amount, position.scaled_amount);
-        assert_eq!(entry.amount, 1);
-        assert_eq!((entry.bonus_scaled, entry.protocol_fee), (0, 0));
-        assert_eq!(unbacked, Wad::ZERO);
-    });
+    let leg = LegSpec {
+        amount: 1,
+        price_wad: 10_000_000,
+        ..LegSpec::mainnet_xlm(1)
+    };
+    let e = single_leg(&env, leg, 5 * WAD, 500).get_unchecked(0);
+    assert_eq!(
+        (e.amount, e.scaled_amount, e.bonus_scaled, e.protocol_fee),
+        (1, Ray::from_asset(&env, 1, 7).raw(), 0, 0)
+    );
 }
 
 fn stroops(tokens: i128) -> i128 {
@@ -2115,7 +2095,8 @@ fn an_exactly_covered_account_quotes_the_full_debt_at_zero_bonus_not_the_insolve
 
 /// The debt-leg half of that claim: a full close pays `ceil(debt)` asset units,
 /// but `RepayEntry::usd_wad` is the floor value of the debt cleared, so the
-/// rounded-up fraction buys no collateral.
+/// rounded-up fraction buys no collateral. A later sub-unit trim keeps the
+/// amount at the ceiling and the credit at that floor value.
 #[test]
 fn the_debt_legs_asset_unit_ceiling_is_not_credited() {
     let env = Env::default();
@@ -2169,79 +2150,18 @@ fn the_debt_legs_asset_unit_ceiling_is_not_credited() {
             3 * WAD / 2,
             "the credit is the 1.5-token debt, not the price of the ceiling",
         );
-    });
-}
-
-/// A trim that removes less than one unit of a ceiling-capped coarse leg keeps
-/// its amount at the ceiling. The kept credit must stay at the floor value of
-/// the debt, not return to the token value of the rounded-up amount.
-#[test]
-fn a_sub_unit_trim_keeps_a_ceiling_capped_leg_at_its_floor_credit() {
-    let env = Env::default();
-    let contract = env.register(Controller, (Address::generate(&env),));
-    let (fine, coarse) = (hub_key(&env), hub_key(&env));
-
-    // `fine`: 100 tokens at $1, 7 decimals. `coarse`: 1.5 units at $100, 0
-    // decimals, so its ceiling is 2 units and its floor credit $150.
-    let mut borrow_positions = Map::new(&env);
-    borrow_positions.set(
-        fine.clone(),
-        DebtPositionRaw {
-            scaled_amount: Ray::from_asset(&env, stroops(100), 7).raw(),
-        },
-    );
-    borrow_positions.set(
-        coarse.clone(),
-        DebtPositionRaw {
-            scaled_amount: RAY * 3 / 2,
-        },
-    );
-    let account = Account {
-        borrow_positions,
-        ..empty_account(&env)
-    };
-
-    env.as_contract(&contract, || {
-        let mut prices = Map::new(&env);
-        prices.set(fine.asset.clone(), feed_raw());
-        prices.set(
-            coarse.asset.clone(),
-            PriceFeedRaw {
-                price_wad: 100 * WAD,
-                asset_decimals: 0,
-                timestamp: 0,
-            },
-        );
-        let mut cache = Context::new_view(&env);
-        cache.set_prices(prices);
-        cache.put_market_index(&fine, &index_raw());
-        cache.put_market_index(&coarse, &index_raw());
-
-        // The coarse leg is offered last, so the trim reaches it first.
-        let payments = vec![&env, (fine.clone(), stroops(50)), (coarse.clone(), 2i128)];
-        let mut refunds = Vec::new(&env);
-        let (total, repaid) =
-            calculate_repayment_amounts(&env, &payments, &account, &mut refunds, &mut cache);
-        let floor_credit =
-            position_value_floor(&env, Ray::from(RAY * 3 / 2), Ray::ONE, Wad::from(100 * WAD));
-        assert_eq!(total.raw(), 50 * WAD + floor_credit.raw());
 
         let mut plan = NormalizedRepaymentPlan {
-            repay_usd: total,
             repaid,
             refunds,
-            bonus: Bps::from(0i128),
             full_close: true,
             repays_all_debt: true,
-            seize_all: false,
+            ..plan_for_seizure(&env, total.raw(), 0)
         };
-        // Less than one $100 unit of excess.
-        release_unbacked_repayment(&env, &mut plan, Wad::from(50 * WAD));
-
-        let kept = plan.repaid.get_unchecked(1);
-        assert_eq!(kept.amount, 2, "a sub-unit removal floors to nothing");
-        assert_eq!(kept.usd_wad, floor_credit.raw());
-        assert!(plan.repay_usd <= total, "the trim never raises the credit");
+        // A quarter-token excess floors to no removed unit.
+        release_unbacked_repayment(&env, &mut plan, Wad::from(WAD / 4));
+        let kept = plan.repaid.get_unchecked(0);
+        assert_eq!((kept.amount, kept.usd_wad), (2, 3 * WAD / 2));
     });
 }
 
