@@ -86,10 +86,19 @@ contracts and quote-server revision. This includes Aquarius CLMM/stable,
 Phoenix stable, Sushi concentrated, and Comet weighted pools.
 
 Curve requires a router build with opcode `7` and a matching quote-server encoder.
-Its adapter reads `pool_info().coins`, then calls
-`exchange(router, i, j, amount_in: i128, 0_i128, router)`; the plain router address
-is accepted as a `MuxedAddress` receiver. Metadata reads precede transfer
-authorization. Final minimum output and measured balance checks remain unchanged.
+Its adapter reads `pool_info().coins`, then picks the pool call from the hop's tokens:
+
+| Hop | Pool call | Nested auth |
+|---|---|---|
+| `token_in` and `token_out` are both coins | `exchange(router, i, j, amount_in, 0, router)` | Exact transfer of `amount_in` to the pool |
+| `token_out` is the pool (LP mint) | `add_liquidity(router, amounts, 0, router)`, with `amount_in` at coin `i` and `0` elsewhere | Exact transfer of `amount_in` to the pool |
+| `token_in` is the pool (one-coin LP burn) | `remove_liquidity_one_coin(router, amount_in, j, 0, router)` | None: the pool burns its own LP |
+
+The plain router address is accepted as a `MuxedAddress` receiver. Metadata reads
+precede transfer authorization. The coin list must hold 2 to 256 distinct
+addresses, none of them the pool, or the hop fails with `BrokenTokenChain`.
+Every Curve call passes `0` as its own minimum, so the payload `min_out` is the
+only floor. Measured balance checks are unchanged.
 
 Mode byte → input sizing (`Mode::from_u8` in `program.rs`, `resolve_amount` in `execute/mod.rs`):
 
@@ -159,7 +168,8 @@ The router authorizes venue calls itself:
 
 | Venue | Router authorization |
 | --- | --- |
-| Phoenix, Sushi, Aquarius, Curve | Exact nested token transfer from router to pool |
+| Phoenix, Sushi, Aquarius, Curve (exchange and LP mint) | Exact nested token transfer from router to pool |
+| Curve one-coin LP burn | None; the pool burns the router's LP itself |
 | Comet | Approve input, authorize `transfer_from`, then clear the allowance |
 | Soroswap | Transfer input directly to the pool |
 

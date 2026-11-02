@@ -120,7 +120,7 @@ src/
   math.rs         checked arithmetic
   types.rs        StrategyPayload, venues, storage keys
   vault.rs        invocation-local balance ledger
-  venues/         per-DEX hop adapters (aquarius/ has LP mint/burn)
+  venues/         per-DEX hop adapters (aquarius/ and curve.rs have LP mint/burn)
   errors.rs       error codes
 tests/unit/       unit tests, mounted by #[path] from lib.rs
 ```

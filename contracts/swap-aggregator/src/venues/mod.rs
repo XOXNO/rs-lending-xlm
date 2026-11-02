@@ -13,7 +13,46 @@ pub(crate) use auth::{auth_entry, authorize_token_approve, authorize_token_trans
 use soroban_sdk::{panic_with_error, token, Address, Env, Map, Vec};
 
 use crate::errors::Error;
+use crate::program::MAX_ASSETS;
 use crate::types::{SwapHop, SwapVenue};
+
+/// Returns the pool's constituent tokens, cached per invocation in `cache`. On a miss, `fetch`
+/// reads the list from the pool. Panics with `BrokenTokenChain` unless the list holds 2 to
+/// `MAX_ASSETS` distinct tokens, none of them the pool itself.
+///
+/// Every venue that caches constituents goes through this one check, so a pool address that
+/// an earlier hop cached for another venue cannot skip it.
+pub(crate) fn pool_tokens(
+    env: &Env,
+    cache: &mut Map<Address, Vec<Address>>,
+    pool: &Address,
+    fetch: fn(&Env, &Address) -> Vec<Address>,
+) -> Vec<Address> {
+    if let Some(tokens) = cache.get(pool.clone()) {
+        return tokens;
+    }
+    let tokens = fetch(env, pool);
+    if tokens.len() < 2 || tokens.len() > MAX_ASSETS {
+        panic_with_error!(env, Error::BrokenTokenChain);
+    }
+    let mut seen: Map<Address, bool> = Map::new(env);
+    for token in tokens.iter() {
+        if token == *pool || seen.contains_key(token.clone()) {
+            panic_with_error!(env, Error::BrokenTokenChain);
+        }
+        seen.set(token, true);
+    }
+    cache.set(pool.clone(), tokens.clone());
+    tokens
+}
+
+/// Returns the index of `target` in `tokens`. Panics with `BrokenTokenChain` if `target` is
+/// not present.
+pub(crate) fn find_index(env: &Env, tokens: &Vec<Address>, target: &Address) -> u32 {
+    tokens
+        .first_index_of(target)
+        .unwrap_or_else(|| panic_with_error!(env, Error::BrokenTokenChain))
+}
 
 /// Dispatches the hop to its venue-specific swap function and returns the measured increase in
 /// the router's `token_out` balance. Panics with `Error::ZeroOutput` if the output balance does

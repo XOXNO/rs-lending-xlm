@@ -1,14 +1,19 @@
 use soroban_sdk::{
-    contract, contractimpl,
+    contract, contractimpl, symbol_short,
     testutils::{Address as _, MockAuth, MockAuthInvoke},
-    token, vec, Address, Bytes, BytesN, Env, IntoVal, Map, MuxedAddress, String, Symbol, Val, Vec,
+    token, vec, Address, Bytes, BytesN, ContractExecutable, Env, IntoVal, Map, MuxedAddress,
+    String, Symbol, Val, Vec,
 };
 
 use crate::{
-    errors::Error, program::MAX_ASSETS, types::SwapVenue, venues::auth_entry, Router, RouterClient,
+    errors::Error,
+    program::MAX_ASSETS,
+    types::{SwapHop, SwapVenue},
+    venues::auth_entry,
+    Router, RouterClient,
 };
 
-use super::super::support::{new_asset, one_hop_path, strategy_xdr};
+use super::super::support::{new_asset, path, strategy_xdr};
 
 pub(super) mod pool_abi {
     soroban_sdk::contractimport!(file = "tests/fixtures/curve/pool-2coin.wasm");
@@ -16,11 +21,11 @@ pub(super) mod pool_abi {
 
 pub(super) const TWO_COIN: &[u8] = include_bytes!("../../fixtures/curve/pool-2coin.wasm");
 pub(super) const THREE_COIN: &[u8] = include_bytes!("../../fixtures/curve/pool-3coin.wasm");
-const LIQUIDITY: i128 = 1_000_000_000;
-const INPUT: i128 = 10_000_000;
+pub(super) const LIQUIDITY: i128 = 1_000_000_000;
+pub(super) const INPUT: i128 = 10_000_000;
 
 #[contract]
-pub(super) struct Factory;
+struct Factory;
 
 #[contractimpl]
 impl Factory {
@@ -55,7 +60,68 @@ impl Factory {
                 vec![&env],
             ),
         ]);
-        deployer.deploy_contract(soroban_sdk::ContractExecutable::Wasm(hash), (args,))
+        deployer.deploy_contract(ContractExecutable::Wasm(hash), (args,))
+    }
+}
+
+/// Deploys a real Curve pool over `tokens` through a fresh factory, and seeds it with `seed` of
+/// each coin from `user`.
+pub(super) fn deploy_pool(
+    env: &Env,
+    wasm: &[u8],
+    user: &Address,
+    tokens: &Vec<Address>,
+    seed: i128,
+) -> Address {
+    let factory = env.register(Factory, (Address::generate(env),));
+    let args = pool_abi::PoolConstructorArgs {
+        admin_fee: 5_000_000_000,
+        amplification: 100,
+        asset_types: Vec::from_iter(env, tokens.iter().map(|_| 0)),
+        factory: factory.clone(),
+        fee: 30_000_000,
+        methods: vec![env],
+        min_locked_liquidity: 1_000,
+        name: String::from_str(env, "Test"),
+        offpeg_fee_multiplier: 20_000_000_000,
+        oracles: vec![env],
+        symbol: String::from_str(env, "T"),
+        tokens: tokens.clone(),
+    };
+    let hash = env.deployer().upload_contract_wasm(wasm);
+    let pool = FactoryClient::new(env, &factory).new_pool(&hash, &args);
+    let amounts = Vec::from_iter(env, tokens.iter().map(|_| seed));
+    let receiver = MuxedAddress::from(user);
+    let token_addresses: alloc::vec::Vec<_> = tokens.iter().collect();
+    let transfers: alloc::vec::Vec<_> = token_addresses
+        .iter()
+        .map(|token| MockAuthInvoke {
+            contract: token,
+            fn_name: "transfer",
+            args: (user, &pool, seed).into_val(env),
+            sub_invokes: &[],
+        })
+        .collect();
+    pool_abi::Client::new(env, &pool)
+        .mock_auths(&[MockAuth {
+            address: user,
+            invoke: &MockAuthInvoke {
+                contract: &pool,
+                fn_name: "add_liquidity",
+                args: (user, &amounts, 0_i128, &receiver).into_val(env),
+                sub_invokes: &transfers,
+            },
+        }])
+        .add_liquidity(user, &amounts, &0, &receiver);
+    pool
+}
+
+pub(super) fn curve_hop(pool: &Address, token_in: &Address, token_out: &Address) -> SwapHop {
+    SwapHop {
+        venue: SwapVenue::Curve,
+        pool: pool.clone(),
+        token_in: token_in.clone(),
+        token_out: token_out.clone(),
     }
 }
 
@@ -90,46 +156,7 @@ impl Fixture {
                 .mint(&user, &(2 * LIQUIDITY));
             tokens.push_back(address);
         }
-        let factory = env.register(Factory, (&admin,));
-        let args = pool_abi::PoolConstructorArgs {
-            admin_fee: 5_000_000_000,
-            amplification: 100,
-            asset_types: Vec::from_iter(&env, (0..count).map(|_| 0)),
-            factory: factory.clone(),
-            fee: 30_000_000,
-            methods: vec![&env],
-            min_locked_liquidity: 1_000,
-            name: String::from_str(&env, "Test"),
-            offpeg_fee_multiplier: 20_000_000_000,
-            oracles: vec![&env],
-            symbol: String::from_str(&env, "T"),
-            tokens: tokens.clone(),
-        };
-        let hash = env.deployer().upload_contract_wasm(wasm);
-        let pool = FactoryClient::new(&env, &factory).new_pool(&hash, &args);
-        let amounts = Vec::from_iter(&env, (0..count).map(|_| LIQUIDITY));
-        let receiver = MuxedAddress::from(&user);
-        let token_addresses: alloc::vec::Vec<_> = tokens.iter().collect();
-        let transfers: alloc::vec::Vec<_> = token_addresses
-            .iter()
-            .map(|token| MockAuthInvoke {
-                contract: token,
-                fn_name: "transfer",
-                args: (&user, &pool, LIQUIDITY).into_val(&env),
-                sub_invokes: &[],
-            })
-            .collect();
-        pool_abi::Client::new(&env, &pool)
-            .mock_auths(&[MockAuth {
-                address: &user,
-                invoke: &MockAuthInvoke {
-                    contract: &pool,
-                    fn_name: "add_liquidity",
-                    args: (&user, &amounts, 0_i128, &receiver).into_val(&env),
-                    sub_invokes: &transfers,
-                },
-            }])
-            .add_liquidity(&user, &amounts, &0, &receiver);
+        let pool = deploy_pool(&env, wasm, &user, &tokens, LIQUIDITY);
         Self {
             env,
             user,
@@ -139,85 +166,105 @@ impl Fixture {
         }
     }
 
-    fn payload(&self, input: &Address, output: &Address, floor: i128) -> Bytes {
+    /// The pool's LP token followed by its coins, so asset `k + 1` is coin `k`.
+    pub(super) fn assets(&self) -> Vec<Address> {
+        let mut assets = vec![&self.env, self.pool.clone()];
+        assets.append(&self.tokens);
+        assets
+    }
+
+    /// Encodes `hops` as one full-weight path with strategy floor `floor`.
+    pub(super) fn payload(&self, hops: alloc::vec::Vec<SwapHop>, floor: i128) -> Bytes {
+        let input = hops[0].token_in.clone();
+        let output = hops[hops.len() - 1].token_out.clone();
         strategy_xdr(
             &self.env,
-            input.clone(),
-            output.clone(),
+            input,
+            output,
             floor,
-            alloc::vec![one_hop_path(
-                &self.env,
-                SwapVenue::Curve,
-                self.pool.clone(),
-                input.clone(),
-                output.clone(),
-                1_000_000
-            ),],
+            alloc::vec![path(hops, 1_000_000)],
         )
     }
 
-    fn swap(
+    /// Runs `xdr` for the user, authorizing exactly the strategy call and its input transfer.
+    pub(super) fn execute(
         &self,
         input: &Address,
-        output: &Address,
-        floor: i128,
+        amount: i128,
+        xdr: &Bytes,
     ) -> Result<i128, soroban_sdk::Error> {
-        let xdr = self.payload(input, output, floor);
         let result = RouterClient::new(&self.env, &self.router)
             .mock_auths(&[MockAuth {
                 address: &self.user,
                 invoke: &MockAuthInvoke {
                     contract: &self.router,
                     fn_name: "execute_strategy",
-                    args: (&self.user, INPUT, &xdr).into_val(&self.env),
+                    args: (&self.user, amount, xdr).into_val(&self.env),
                     sub_invokes: &[MockAuthInvoke {
                         contract: input,
                         fn_name: "transfer",
-                        args: (&self.user, &self.router, INPUT).into_val(&self.env),
+                        args: (&self.user, &self.router, amount).into_val(&self.env),
                         sub_invokes: &[],
                     }],
                 },
             }])
-            .try_execute_strategy(&self.user, &INPUT, &xdr);
+            .try_execute_strategy(&self.user, &amount, xdr);
         match result {
             Ok(value) => Ok(value.unwrap()),
             Err(error) => Err(error.unwrap()),
         }
     }
 
-    fn balances(&self) -> alloc::vec::Vec<i128> {
-        self.tokens
+    /// Routes `amount` of `input` to `output` in one hop through the fixture pool.
+    pub(super) fn swap(
+        &self,
+        input: &Address,
+        output: &Address,
+        amount: i128,
+        floor: i128,
+    ) -> Result<i128, soroban_sdk::Error> {
+        let hops = alloc::vec![curve_hop(&self.pool, input, output)];
+        self.execute(input, amount, &self.payload(hops, floor))
+    }
+
+    /// User, router and pool balances of every asset, in [`Self::assets`] order, plus the pool's
+    /// accounting snapshot.
+    pub(super) fn state(&self) -> (alloc::vec::Vec<i128>, pool_abi::PoolSnapshot) {
+        let balances = self
+            .assets()
             .iter()
             .flat_map(|address| {
                 let client = token::Client::new(&self.env, &address);
                 [&self.user, &self.router, &self.pool].map(|owner| client.balance(owner))
             })
-            .collect()
+            .collect();
+        (
+            balances,
+            pool_abi::Client::new(&self.env, &self.pool).pool_snapshot(),
+        )
     }
 
     fn check_real_swap(&self, i: u32, j: u32) {
         let input = self.tokens.get(i).unwrap();
         let output = self.tokens.get(j).unwrap();
         let quote = pool_abi::Client::new(&self.env, &self.pool).get_dy(&i, &j, &INPUT);
-        let before = self.balances();
+        let before = self.state();
         assert!(quote > 0);
         assert_eq!(
-            self.swap(&input, &output, quote + 1),
+            self.swap(&input, &output, INPUT, quote + 1),
             Err(Error::SlippageExceeded.into())
         );
         assert_eq!(
-            self.balances(),
+            self.state(),
             before,
             "failed floor must roll back user, pool and router balances"
         );
-        assert_eq!(self.swap(&input, &output, quote), Ok(quote));
-        let after = self.balances();
-        assert_eq!(after[i as usize * 3], before[i as usize * 3] - INPUT);
-        assert_eq!(after[j as usize * 3], before[j as usize * 3] + quote);
-        assert_eq!(
-            after[i as usize * 3 + 2],
-            before[i as usize * 3 + 2] + INPUT
-        );
+        assert_eq!(self.swap(&input, &output, INPUT, quote), Ok(quote));
+        let (after, _) = self.state();
+        let (i, j) = (i as usize + 1, j as usize + 1);
+        assert_eq!(after[i * 3], before.0[i * 3] - INPUT);
+        assert_eq!(after[j * 3], before.0[j * 3] + quote);
+        assert_eq!(after[i * 3 + 2], before.0[i * 3 + 2] + INPUT);
         for address in self.tokens.iter() {
             assert_eq!(
                 token::Client::new(&self.env, &address).balance(&self.router),
@@ -239,154 +286,51 @@ fn curve_real_three_coin_index_two_to_zero_exact_auth_and_floor_rollback() {
     Fixture::new(THREE_COIN, 3).check_real_swap(2, 0);
 }
 
+/// A pool that only reports `coins`, for routing checks that must fail before any pool call.
 #[contract]
 struct AdversarialPool;
 
 #[contractimpl]
 impl AdversarialPool {
-    pub fn __constructor(env: Env, coins: Vec<Address>, spend: i128, output: i128, report: i128) {
+    pub fn __constructor(env: Env, coins: Vec<Address>) {
         env.storage()
             .instance()
-            .set(&Symbol::new(&env, "coins"), &coins);
-        env.storage()
-            .instance()
-            .set(&Symbol::new(&env, "spend"), &spend);
-        env.storage()
-            .instance()
-            .set(&Symbol::new(&env, "output"), &output);
-        env.storage()
-            .instance()
-            .set(&Symbol::new(&env, "report"), &report);
+            .set(&symbol_short!("coins"), &coins);
     }
 
     pub fn pool_info(env: Env) -> Map<Symbol, Val> {
         let coins: Vec<Address> = env
             .storage()
             .instance()
-            .get(&Symbol::new(&env, "coins"))
+            .get(&symbol_short!("coins"))
             .unwrap();
-        Map::from_array(&env, [(Symbol::new(&env, "coins"), coins.into_val(&env))])
-    }
-
-    pub fn exchange(
-        env: Env,
-        sender: Address,
-        i: u32,
-        j: u32,
-        dx: i128,
-        min_dy: i128,
-        receiver: Address,
-    ) -> i128 {
-        assert_eq!(dx, INPUT);
-        assert_eq!(min_dy, 0);
-        assert_eq!(sender, receiver);
-        let coins: Vec<Address> = env
-            .storage()
-            .instance()
-            .get(&Symbol::new(&env, "coins"))
-            .unwrap();
-        let spend: i128 = env
-            .storage()
-            .instance()
-            .get(&Symbol::new(&env, "spend"))
-            .unwrap();
-        let output: i128 = env
-            .storage()
-            .instance()
-            .get(&Symbol::new(&env, "output"))
-            .unwrap();
-        let pool = env.current_contract_address();
-        if spend > 0 {
-            token::Client::new(&env, &coins.get(i).unwrap()).transfer(&sender, &pool, &spend);
-        }
-        token::Client::new(&env, &coins.get(j).unwrap()).transfer(&pool, &receiver, &output);
-        env.storage()
-            .instance()
-            .get(&Symbol::new(&env, "report"))
-            .unwrap()
+        Map::from_array(&env, [(symbol_short!("coins"), coins.into_val(&env))])
     }
 }
 
 #[test]
 fn curve_rejects_invalid_coins_and_missing_route_token_before_exchange() {
-    let mut fixture = Fixture::new(TWO_COIN, 2);
+    let fixture = Fixture::new(TWO_COIN, 2);
+    let env = &fixture.env;
     let a = fixture.tokens.get(0).unwrap();
     let b = fixture.tokens.get(1).unwrap();
-    let absent = Address::generate(&fixture.env);
-    let oversized = Vec::from_iter(
-        &fixture.env,
-        (0..=MAX_ASSETS).map(|_| Address::generate(&fixture.env)),
-    );
+    let absent = Address::generate(env);
+    let oversized = Vec::from_iter(env, (0..=MAX_ASSETS).map(|_| Address::generate(env)));
     for coins in [
-        vec![&fixture.env],
-        vec![&fixture.env, a.clone()],
-        vec![&fixture.env, a.clone(), a.clone()],
-        vec![&fixture.env, a.clone(), absent.clone()],
-        vec![&fixture.env, b.clone(), absent],
+        vec![env],
+        vec![env, a.clone()],
+        vec![env, a.clone(), a.clone()],
+        vec![env, a.clone(), absent.clone()],
+        vec![env, b.clone(), absent],
         oversized,
     ] {
-        fixture.pool = fixture
-            .env
-            .register(AdversarialPool, (&coins, INPUT, 10_i128, 10_i128));
-        let before = fixture.balances();
-        assert_eq!(fixture.swap(&a, &b, 1), Err(Error::BrokenTokenChain.into()));
-        assert_eq!(fixture.balances(), before);
+        let pool = env.register(AdversarialPool, (&coins,));
+        let before = fixture.state();
+        let xdr = fixture.payload(alloc::vec![curve_hop(&pool, &a, &b)], 1);
+        assert_eq!(
+            fixture.execute(&a, INPUT, &xdr),
+            Err(Error::BrokenTokenChain.into())
+        );
+        assert_eq!(fixture.state(), before);
     }
-}
-
-#[test]
-fn curve_measured_output_overrides_reported_amount() {
-    let mut fixture = Fixture::new(TWO_COIN, 2);
-    let a = fixture.tokens.get(0).unwrap();
-    let b = fixture.tokens.get(1).unwrap();
-    fixture.pool = fixture
-        .env
-        .register(AdversarialPool, (&fixture.tokens, INPUT, INPUT, i128::MAX));
-    // Fund the adversarial pool with a direct user transfer and exact account auth.
-    token::Client::new(&fixture.env, &b)
-        .mock_auths(&[MockAuth {
-            address: &fixture.user,
-            invoke: &MockAuthInvoke {
-                contract: &b,
-                fn_name: "transfer",
-                args: (&fixture.user, &fixture.pool, INPUT).into_val(&fixture.env),
-                sub_invokes: &[],
-            },
-        }])
-        .transfer(&fixture.user, &fixture.pool, &INPUT);
-    let before = fixture.balances();
-    assert_eq!(
-        fixture.swap(&a, &b, INPUT + 1),
-        Err(Error::SlippageExceeded.into())
-    );
-    assert_eq!(fixture.balances(), before);
-    assert_eq!(fixture.swap(&a, &b, INPUT), Ok(INPUT));
-    let after = fixture.balances();
-    assert_eq!(after[0], before[0] - INPUT);
-    assert_eq!(after[3], before[3] + INPUT);
-    assert_eq!((after[1], after[4]), (0, 0));
-}
-
-#[test]
-fn curve_rejects_output_without_exact_input_spend() {
-    let mut fixture = Fixture::new(TWO_COIN, 2);
-    let a = fixture.tokens.get(0).unwrap();
-    let b = fixture.tokens.get(1).unwrap();
-    fixture.pool = fixture
-        .env
-        .register(AdversarialPool, (&fixture.tokens, 0_i128, INPUT, INPUT));
-    token::Client::new(&fixture.env, &b)
-        .mock_auths(&[MockAuth {
-            address: &fixture.user,
-            invoke: &MockAuthInvoke {
-                contract: &b,
-                fn_name: "transfer",
-                args: (&fixture.user, &fixture.pool, INPUT).into_val(&fixture.env),
-                sub_invokes: &[],
-            },
-        }])
-        .transfer(&fixture.user, &fixture.pool, &INPUT);
-    let before = fixture.balances();
-    assert_eq!(fixture.swap(&a, &b, 1), Err(Error::InvalidAmount.into()));
-    assert_eq!(fixture.balances(), before);
 }

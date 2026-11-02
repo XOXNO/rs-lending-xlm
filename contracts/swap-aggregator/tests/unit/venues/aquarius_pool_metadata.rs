@@ -1,9 +1,10 @@
 use soroban_sdk::testutils::Address as _;
 use soroban_sdk::{contract, contractimpl, symbol_short, vec, Address, Env, Map, Vec};
 
-use super::pool_tokens;
+use super::get_tokens;
 use crate::errors::Error;
 use crate::program::MAX_ASSETS;
+use crate::venues::pool_tokens;
 
 #[contract]
 struct MetadataPool;
@@ -31,21 +32,21 @@ struct MetadataReader;
 impl MetadataReader {
     pub fn read(env: Env, pool: Address) -> Vec<Address> {
         let mut cache = Map::new(&env);
-        let tokens = pool_tokens(&env, &mut cache, &pool);
-        assert_eq!(pool_tokens(&env, &mut cache, &pool), tokens);
+        let tokens = pool_tokens(&env, &mut cache, &pool, get_tokens);
+        assert_eq!(pool_tokens(&env, &mut cache, &pool, get_tokens), tokens);
         tokens
     }
 }
 
 #[test]
-fn constituent_metadata_is_bounded_and_unique_before_caching() {
+fn constituent_metadata_is_bounded_unique_and_excludes_pool_before_caching() {
     let env = Env::default();
     let reader_address = env.register(MetadataReader, ());
     let reader = MetadataReaderClient::new(&env, &reader_address);
 
     for (count, accepted) in [
         (0, false),
-        (1, true),
+        (1, false),
         (2, true),
         (MAX_ASSETS, true),
         (MAX_ASSETS + 1, false),
@@ -80,4 +81,11 @@ fn constituent_metadata_is_bounded_and_unique_before_caching() {
             Error::BrokenTokenChain.into()
         );
     }
+
+    let pool = Address::generate(&env);
+    env.register_at(&pool, MetadataPool, (vec![&env, a, pool.clone()],));
+    assert_eq!(
+        reader.try_read(&pool).unwrap_err().unwrap(),
+        Error::BrokenTokenChain.into()
+    );
 }
