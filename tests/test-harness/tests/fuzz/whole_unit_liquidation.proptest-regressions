@@ -5,3 +5,4 @@
 # It is recommended to check this file in to source control so that
 # everyone who runs the test benefits from these saved cases.
 cc 0096a69ec3cc2726369fb28e30e7b5605a6c89592f73f1f52b97c3d43d273b9e # shrinks to Case { decimals: 0, unit_cents: 50, units: 2, lt: 2500, ltv: 1000, bonus: 0, target_hf_bps: 11000, knee_bps: 8000, factor_bps: 10000, second_leg: Some(18), second_share_pct: 10, borrow_pct: 50, accrue_days: 1, band: NearOne, band_pick: 958, offer_bps: 813, offer_all_legs: true, credit: false }
+cc c160fd775f539016dd892e3696b3c77631b5735834cea5461fbe0b2bb24dc2eb # shrinks to Case { decimals: 0, unit_cents: 50, units: 2, lt: 3000, ltv: 1200, bonus: 0, target_hf_bps: 11000, knee_bps: 8000, factor_bps: 1001, second_leg: None, second_share_pct: 10, borrow_pct: 50, accrue_days: 1, band: UnitEdge, band_pick: 1932, offer_bps: 10100, offer_all_legs: true, credit: false }

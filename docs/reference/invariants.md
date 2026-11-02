@@ -408,7 +408,8 @@ self-liquidate.
 A Credit receiver must be a different account in the same spoke, in Normal
 mode, and controlled by the liquidator as owner or active delegate. `Credit(0)`
 can create a receiver in a deprecated spoke. Ownership and position limits
-still apply.
+still apply, except that a `Credit(0)` receiver skips the governed position
+limit.
 
 <a id="inv-liq-02"></a>
 
@@ -453,8 +454,11 @@ for bonus selection, sizing and rounding.
 ### INV-LIQ-03 — Under-delivery reduces seizure
 
 Receipt below planned repayment floor-scales seizure amounts, transfer fees,
-seized shares and bonus shares by measured/planned USD. Credit fees are
-recomputed from the scaled bonus shares.
+seized shares and bonus shares by measured/planned USD, and caps each transfer
+amount at the floor asset value of its scaled shares. Credit fees are
+recomputed from the scaled bonus shares. A short receipt reverts with
+`InvalidPayments` when a seized leg is below 3 decimals, so whole-unit
+collateral is never scaled into a fraction.
 
 Repayment USD is capped per leg at its planned value. It does not exactly equal
 every rounded debt-share reduction or refund.

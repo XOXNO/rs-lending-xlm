@@ -1,5 +1,10 @@
-use test_harness::{errors, usd, usd_cents, LendingTest, PositionType, ALICE, BOB, LIQUIDATOR};
+use test_harness::{
+    errors, usd, usd_cents, LendingTest, PositionType, ALICE, BOB, CAROL, LIQUIDATOR,
+};
 
+/// An indebted account cannot open a leg on a stale feed; a debt-free account
+/// and a top-up of an existing leg need no price. A leg planted before the
+/// outage still shields the account until the feed recovers.
 #[test]
 fn audit_supply_setup_blocks_liquidation_via_stale_dust_leg() {
     let mut t = LendingTest::new()
@@ -18,15 +23,27 @@ fn audit_supply_setup_blocks_liquidation_via_stale_dust_leg() {
     test_harness::assert_contract_error(pre, errors::HEALTH_FACTOR_TOO_HIGH);
 
     t.advance_time(5_000);
-    let now = t.env.ledger().timestamp();
     let wbtc = t.resolve_asset("WBTC");
-    t.mock_reflector_client()
-        .set_price_at(&wbtc, &usd(60_000), &(now - 3_600));
+    let go_stale = |t: &mut LendingTest| {
+        let now = t.env.ledger().timestamp();
+        t.mock_reflector_client()
+            .set_price_at(&wbtc, &usd(60_000), &(now - 3_600));
+    };
+    go_stale(&mut t);
 
     let plant = t.try_supply(ALICE, "WBTC", 0.001);
+    test_harness::assert_contract_error(plant, errors::PRICE_FEED_STALE);
     assert!(
-        plant.is_ok(),
-        "supply must accept the leg even though WBTC's feed is stale: {plant:?}"
+        t.try_supply(CAROL, "WBTC", 0.001).is_ok(),
+        "a debt-free account supplies without a price"
+    );
+
+    t.set_price("WBTC", usd(60_000));
+    t.supply(ALICE, "WBTC", 0.001);
+    go_stale(&mut t);
+    assert!(
+        t.try_supply(ALICE, "WBTC", 0.0001).is_ok(),
+        "a top-up of an existing leg needs no price"
     );
     t.assert_position_exists(ALICE, "WBTC", PositionType::Supply);
     assert!(

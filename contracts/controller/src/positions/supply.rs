@@ -111,6 +111,18 @@ pub(crate) fn process_deposit(
         cache,
         AccountPositionType::Deposit,
     );
+    // A new leg on an indebted account needs a live price, so a borrower
+    // cannot plant a dust leg on a feed that is already down to shield the
+    // account from liquidation.
+    if !account.debt_free() {
+        let mut new_legs: Vec<Address> = Vec::new(env);
+        for (hub_asset, _) in aggregated.iter() {
+            if !account.supply_positions.contains_key(hub_asset.clone()) {
+                new_legs.push_back(hub_asset.asset);
+            }
+        }
+        cache.fetch_prices(&new_legs);
+    }
     let pool_addr = cache.cached_pool_address();
     let mut entries: Vec<PoolSupplyEntry> = Vec::new(env);
     for (hub_asset, amount_in) in aggregated.iter() {

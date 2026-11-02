@@ -126,6 +126,11 @@ operation. After a mismatch executes, only an aggregator Wasm upgrade can
 correct the stored unit: `set_oracle` rejects a decimals change, and
 `remove_oracle` exists only in testing builds.
 
+Never list a receipt-tax or otherwise under-delivering token as borrowable in a
+spoke that holds collateral below `MIN_BORROWABLE_ASSET_DECIMALS`. A short
+receipt against such collateral reverts, so a borrower in that pairing can only
+be fully closed with a fully delivered offer, never partially liquidated.
+
 One token listed in several hubs shares physical pool custody even though
 market books are separate. Direct donations do not rewrite those books.
 Cash flash loans impose exact balance transitions and allowance repayment;
@@ -281,7 +286,8 @@ minimum-collateral floor. Expensive low-decimal collateral can yield zero
 seizure even for a $5 repayment; assess that precision risk before listing.
 The [seizure fixture tests](../../contracts/controller/tests/positions/liquidation_math.rs) reproduce this limit.
 Share credit avoids collateral cash payout but still requires an authorized
-same-spoke receiver in Normal mode, position capacity, and a listing for a
+same-spoke receiver in Normal mode, position capacity in an existing receiver
+(a `Credit(0)` receiver is exempt from the governed limit), and a listing for a
 newly credited asset.
 
 On a solvent account whose only leg is below 3 decimals, the quote can rise to
@@ -361,7 +367,7 @@ these rows do not assign severity or establish exploitability.
 | Info.2 | Liquidation competition and MEV; the bonus curve bounds terms, not ordering or liquidator profit. |
 | Info.3 | Visible pending governance changes allow anticipatory positioning; observability is intentional. |
 | Info.4 | Invalid quotes may contain prices; use validity flags or strict reads. |
-| DoS.1 | Price outage blocks valuation-dependent actions, including liquidation; fail-closed availability cost. Supply needs no price, so an indebted borrower can add a dust leg of any listed collateral and choose which feed outage shields the account. For an Aquarius LP leg, liquidity providers can cause that outage by withdrawing pool value below `min_pool_value_wad`. The same leg blocks bad-debt cleanup and force-socialization. |
+| DoS.1 | Price outage blocks valuation-dependent actions, including liquidation; fail-closed availability cost. Supply into a debt-free account, or a top-up of an existing leg, needs no price, but an indebted account opening a new collateral leg needs a price for it within the feed's staleness limit; a halted feed that is not yet stale still reads. An indebted borrower can still add a dust leg of any listed collateral before an outage and so choose which feed outage shields the account. For an Aquarius LP leg, liquidity providers can cause that outage by withdrawing pool value below `min_pool_value_wad`. The same leg blocks bad-debt cleanup and force-socialization. |
 | DoS.2 | Selected paused debt or no_seize collateral blocks liquidation; distinct flag policies matter. |
 | DoS.3 | False-alarm pause needs delayed reopening; emergency response is asymmetric. |
 | DoS.4 | Lost governance keys; proposer safeguards and owner-dependent canceller recovery do not restore a lost owner. |
@@ -371,6 +377,7 @@ these rows do not assign severity or establish exploitability.
 | DoS.8 | Cash/utilization/cap limits reject otherwise desired actions; zero caps admit no new exposure. |
 | DoS.9 | Dust and zero-share movements; rejection/floors reduce griefing but do not guarantee liquidation profitability. |
 | DoS.10 | Router/oracle owner loss disables administration; existing oracle signers may continue, but future repair powers are lost. The source ABIs export no `renounce_ownership`; verify that the deployed artifacts match. |
+| DoS.11 | A receipt-tax debt token against collateral below 3 decimals: a short receipt reverts liquidation, so only a fully delivered full close settles. The listing rule under [Token assumptions](#token-assumptions) forbids the pairing. |
 | Elevation.1 | Governance-owner compromise; actual configured delay and approved replacement code determine exposure. |
 | Elevation.2 | Guardian attempts reopening; immediate flag ratchets reject it. Listing edits cannot clear flags either; only a delayed relaxation bound to the listing's flags epoch can, so one proposed before a later guardian action reverts. |
 | Elevation.3 | Role overlap/cancellation abuse; separation exempts owner and recovery has its own rules. |

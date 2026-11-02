@@ -232,7 +232,8 @@ let ideal = if H <= weighted_seizure || target_debt <= W { backed_max }
 ```
 
 The base bonus averages the stored collateral bonuses by half-up-valued USD
-weight, using half-up division and multiplication. It is bounded by
+weight: it sums each leg's `value * bonus_bps` exactly and divides by total
+collateral once, rounding half-up. It is bounded by
 `floor(BPS * (BPS - t) / t)`, where
 `t = clamp(ceil(p * BPS / WAD), 1, BPS)`. Zero `p` gives a zero threshold bonus
 bound; zero collateral also gives a zero base bonus.
@@ -350,7 +351,8 @@ also trims the inputs above the quote from the last leg backward before tokens
 are pulled, and execution pulls the trimmed amount. On a solvent account the
 trim floors the refund, so the kept amount can round up by one token unit. A
 full-debt quote trims nothing: the per-leg ceilings can exceed `D` by unit
-rounding, and the repayment credits every unit of them. Execution then pulls
+rounding, but a leg paid at its ceiling is credited only the floor value of
+the debt it clears, so the rounded-up fraction buys no collateral. Execution then pulls
 each merged offered amount and the pool refunds what exceeds each leg's debt,
 which is exactly the listed refund. Neither a full-debt quote nor the target
 health factor guarantees an executed full close after rounding or
@@ -390,8 +392,10 @@ let credited_shares = seized_shares - credit_fee_shares;
 ```
 
 Under-delivery floor-scales seizure amounts, transfer fees, seized shares and
-bonus shares by measured/planned repayment USD. Credit fees are recomputed
-from the scaled bonus shares.
+bonus shares by measured/planned repayment USD. The transfer amount is also
+capped at the floor asset value of the scaled shares, and the fee at that
+amount. Under-delivery reverts with `InvalidPayments` when a seized leg is
+below 3 decimals. Credit fees are recomputed from the scaled bonus shares.
 
 Bad-debt cleanup has separate eligibility: ceil risk debt must exceed half-up
 unweighted collateral, and permissionless cleanup requires collateral at or

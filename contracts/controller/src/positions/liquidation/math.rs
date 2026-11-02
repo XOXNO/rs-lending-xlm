@@ -1,13 +1,13 @@
-use common::constants::{BPS, MIN_BORROWABLE_ASSET_DECIMALS};
+use common::constants::{BPS, MIN_BORROWABLE_ASSET_DECIMALS, RAY, WAD};
 use common::errors::{CollateralError, GenericError};
 use common::math::fp::{Bps, Ray, Wad};
-use common::math::fp_core::{mul_div_ceil, mul_div_floor};
-use common::rates::{resolve_withdrawal, unscale_borrow_ceil};
+use common::math::fp_core::{div_by_int_half_up, mul_div_ceil, mul_div_floor};
+use common::rates::{position_value_floor, resolve_withdrawal, unscale_borrow_ceil};
 use common::types::{
     Account, AccountPositionRaw, DebtPosition, HubAssetKey, HubPayment, LiquidationResult,
     PaymentTuple, RepayEntry, SeizeEntry,
 };
-use soroban_sdk::{panic_with_error, Env, Map, Vec};
+use soroban_sdk::{assert_with_error, panic_with_error, Env, Map, Vec};
 
 use super::curve::{
     estimate_liquidation_amount, max_bonus_for_threshold, BonusBounds, LiquidationCurve,
@@ -105,8 +105,10 @@ pub(crate) fn calculate_seizure_proportions(
 }
 
 /// Merges positive payments and caps each at its ceiling-rounded debt balance.
-/// Requires an existing debt position. Returns planned WAD USD repayments and
-/// records unused inputs in `refunds`; this planning step moves no tokens.
+/// A leg paid at that cap is credited the floor value of the debt it clears,
+/// not the rounded-up token amount. Requires an existing debt position.
+/// Returns planned WAD USD repayments and records unused inputs in `refunds`;
+/// this planning step moves no tokens.
 pub(crate) fn calculate_repayment_amounts(
     env: &Env,
     raw_payments: &Vec<HubPayment>,
@@ -146,7 +148,16 @@ pub(crate) fn calculate_repayment_amounts(
             payment_amount = actual_debt;
         }
 
-        let payment_usd = feed.usd_value_wad(env, payment_amount);
+        let payment_usd = if payment_amount == actual_debt {
+            position_value_floor(
+                env,
+                position.scaled_amount,
+                market_index.borrow_index,
+                feed.price,
+            )
+        } else {
+            feed.usd_value_wad(env, payment_amount)
+        };
 
         total_repaid_usd = total_repaid_usd.checked_add(env, payment_usd);
         repaid_tokens.push_back(RepayEntry {
@@ -163,8 +174,8 @@ pub(crate) fn calculate_repayment_amounts(
 
 /// Trims planned repayments above the ideal WAD USD amount and records unused
 /// inputs. A payment below the ideal is accepted as offered. A full-close plan
-/// is not trimmed: each leg stays at its own ceiling-rounded debt cap, so
-/// `repay_usd` can exceed the total debt by per-leg unit rounding. On an
+/// is not trimmed: each leg stays at its own ceiling-rounded debt cap, which
+/// is credited at the floor value of the debt it clears. On an
 /// insolvent account the trim rounds kept amounts down, so `repay_usd` never
 /// exceeds the collateral-backed quote. On a solvent partial plan whose only
 /// collateral leg is below `MIN_BORROWABLE_ASSET_DECIMALS`, the ideal rises to
@@ -396,7 +407,12 @@ pub(crate) fn calculate_seized_collateral(
         let seizure_for_asset_usd = total_seizure_usd.mul(env, share);
 
         let seizure_amount_wad = seizure_for_asset_usd.div(env, feed.price);
-        let mut seizure_ray = seizure_amount_wad.to_ray(env);
+        // Exact WAD-to-RAY upscale. A dust price can push it past i128; the
+        // saturated request then caps at the held balance.
+        let mut seizure_ray = seizure_amount_wad
+            .raw()
+            .checked_mul(RAY / WAD)
+            .map_or(Ray::from(i128::MAX), Ray::from);
 
         if !repayment.seize_all
             && feed.asset_decimals < MIN_BORROWABLE_ASSET_DECIMALS
@@ -575,6 +591,8 @@ pub(crate) fn get_account_bonus_params(
         };
     }
 
+    // WAD USD * BPS, summed exactly and divided once so no per-leg rounding
+    // accumulates.
     let mut weighted_bonus_sum: i128 = 0;
     for (hub_asset, position) in iter_typed_positions(supply_positions) {
         let feed = cache.cached_price(&hub_asset.asset);
@@ -587,17 +605,15 @@ pub(crate) fn get_account_bonus_params(
             feed.price,
         );
 
-        let weight = value.div(env, total_collateral);
-        weighted_bonus_sum = weighted_bonus_sum
-            .checked_add(
-                weight
-                    .mul(env, Wad::from(position.liquidation_bonus.raw()))
-                    .raw(),
-            )
+        weighted_bonus_sum = value
+            .raw()
+            .checked_mul(position.liquidation_bonus.raw())
+            .and_then(|product| weighted_bonus_sum.checked_add(product))
             .unwrap_or_else(|| panic_with_error!(env, GenericError::MathOverflow));
     }
 
-    let base = Bps::from(weighted_bonus_sum.min(max.raw()));
+    let weighted_bonus_bps = div_by_int_half_up(env, weighted_bonus_sum, total_collateral.raw());
+    let base = Bps::from(weighted_bonus_bps.min(max.raw()));
     BonusBounds { base, max }
 }
 
@@ -606,7 +622,10 @@ pub(crate) fn get_account_bonus_params(
 mod tests;
 
 /// Floors both transfer and credit representations by `received_usd / planned_usd`
-/// when receipts fall short; otherwise returns them unchanged.
+/// when receipts fall short; otherwise returns them unchanged. The transfer
+/// amount is also capped at the floor asset value of the scaled shares, and a
+/// short receipt fails with `InvalidPayments` on a leg below
+/// `MIN_BORROWABLE_ASSET_DECIMALS`, whose seizure must stay in whole units.
 ///
 /// Credit fees are re-derived from the scaled bonus base to conserve shares.
 /// Flooring both share fields by the same ratio preserves `bonus_scaled <= scaled_amount`.
@@ -624,10 +643,21 @@ pub(crate) fn scale_seizures_to_received(
     let den = planned_usd.raw();
     let mut scaled: Vec<SeizeEntry> = Vec::new(env);
     for entry in seized.iter() {
+        assert_with_error!(
+            env,
+            entry.feed.asset_decimals >= MIN_BORROWABLE_ASSET_DECIMALS,
+            GenericError::InvalidPayments
+        );
+        let scaled_amount = mul_div_floor(env, entry.scaled_amount, num, den);
+        // A full close's half-up amount can exceed `ratio * held`; the shares cannot.
+        let shares_amount = Ray::from(scaled_amount)
+            .mul_floor(env, Ray::from(entry.market_index.supply_index))
+            .to_asset_floor(env, entry.feed.asset_decimals);
+        let amount = mul_div_floor(env, entry.amount, num, den).min(shares_amount);
         scaled.push_back(SeizeEntry {
-            amount: mul_div_floor(env, entry.amount, num, den),
-            protocol_fee: mul_div_floor(env, entry.protocol_fee, num, den),
-            scaled_amount: mul_div_floor(env, entry.scaled_amount, num, den),
+            amount,
+            protocol_fee: mul_div_floor(env, entry.protocol_fee, num, den).min(amount),
+            scaled_amount,
             bonus_scaled: mul_div_floor(env, entry.bonus_scaled, num, den),
             liquidation_fees: entry.liquidation_fees,
             hub_asset: entry.hub_asset,
@@ -677,7 +707,10 @@ fn process_excess_payment(
                         .mul_floor(env, ratio)
                         .to_token_floor(env, decimals)
             };
-            let new_usd = Wad::from_token(env, new_amount, decimals).mul(env, price);
+            // Never above the stored credit, which is floor-valued for a ceiling-capped leg.
+            let new_usd = Wad::from_token(env, new_amount, decimals)
+                .mul(env, price)
+                .min(usd);
             refunds.push_back(PaymentTuple {
                 asset: entry.hub_asset.asset.clone(),
                 amount: entry.amount - new_amount,

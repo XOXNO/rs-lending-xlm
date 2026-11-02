@@ -17,17 +17,14 @@ fn audit_liquidate_and_clean_bricked_by_unpriceable_dust_leg() {
     let fresh = t.try_liquidate(LIQUIDATOR, borrower, "ETH", 1.0);
     test_harness::assert_contract_error(fresh, errors::HEALTH_FACTOR_TOO_HIGH);
 
+    // An indebted account needs a live price to open a leg, so the fragile
+    // leg is planted before the outage.
+    t.supply(borrower, "WBTC", 0.001);
     t.advance_time(5_000);
     let now = t.env.ledger().timestamp();
     let wbtc = t.resolve_asset("WBTC");
     t.mock_reflector_client()
         .set_price_at(&wbtc, &usd(60_000), &(now - 3_600));
-
-    let plant = t.try_supply(borrower, "WBTC", 0.001);
-    assert!(
-        plant.is_ok(),
-        "supply must accept the fragile leg with a stale feed: {plant:?}"
-    );
 
     t.set_price("USDC", usd_cents(50));
 
