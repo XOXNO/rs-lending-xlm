@@ -56,17 +56,19 @@ skipped: both prices come from the same inputs, so their ratio cannot move.
 Accepted violations are listed in `scripts/lender_envelope_exceptions.txt`,
 each with the largest product it accepts. A violation that is not listed fails
 the check, and so does a listed line that no longer violates (stale) or names
-nothing, and a listed pair whose product rose above its declared maximum
-(worse). A line for a network that is not being checked is still parsed, and
-its network, spoke and listings must exist in `configs/<network>`.
+nothing, a listed pair whose product rose above its declared maximum
+(worse), and a listed pair whose declared maximum sits more than LOOSE_SLACK
+above its current product (loose: the headroom would silently accept a
+worsening). Every line's network, spoke and listings must exist in
+`configs/<network>`, whether or not that network is being checked.
 
     python3 scripts/check_lender_envelope.py                  # mainnet
     python3 scripts/check_lender_envelope.py mainnet testnet  # both
     python3 scripts/check_lender_envelope.py --top 40 --include-disabled testnet
 
-Exit 0 = every pair is inside the envelope or declared within its maximum;
-1 = an undeclared violation, a stale declaration or a declared pair above its
-maximum; 2 = a config or declaration-file error.
+Exit 0 = every pair is inside the envelope or declared at its maximum;
+1 = an undeclared violation, a stale declaration, or a declared pair above its
+maximum or loosely below it; 2 = a config or declaration-file error.
 Deterministic, stdlib only, no network, no build.
 """
 
@@ -93,6 +95,12 @@ DEFAULT_NETWORKS = ("mainnet",)
 FINDING_ID = re.compile(r"^S\d+-[A-Z0-9]+-\d+$")
 # A declared pair fails as worse when its product exceeds max_product + this.
 PRODUCT_SLACK = 1e-6
+# A declared pair fails as loose when max_product exceeds its product by more
+# than this. Products sit near 1, so 1e-3 absolute is about 0.1% relative: wide
+# enough for a hand-rounded max-product (1.0144 or 1.015 for 1.014397), and a
+# tenth of MARGIN, so the headroom a declaration can hide stays well inside
+# the safety margin. A typo such as 1.5 for 1.0144 fails.
+LOOSE_SLACK = 1e-3
 
 
 class ConfigError(Exception):
@@ -386,18 +394,18 @@ def parse_exceptions(text: str, origin: str = "exceptions") -> list[Exception_]:
 
 
 def check_declared_networks(
-    config_dir: str, exceptions: list[Exception_], networks, origin: str = "exceptions"
+    config_dir: str, exceptions: list[Exception_], origin: str = "exceptions"
 ):
-    """Every declaration names an existing network; on a network that is not
-    being checked, its spoke and both listings must also exist. Lines for
-    checked networks are judged against the evaluated pairs instead."""
+    """Every declaration names an existing network, spoke and both listings in
+    `configs/<network>/spokes.json`, whether or not the network is being
+    checked, so a misspelt name is a precise error rather than a stale line
+    plus an undeclared violation. Lines for checked networks are then judged
+    against the evaluated pairs."""
     spokes_by_network: dict[str, dict] = {}
     for e in exceptions:
         base = os.path.join(config_dir, e.network)
         if not os.path.isdir(base):
             raise ConfigError(f"{origin}:{e.line}: no configs/{e.network} directory for {e.network!r}")
-        if e.network in networks:
-            continue
         if e.network not in spokes_by_network:
             spokes_by_network[e.network] = load_json(os.path.join(base, "spokes.json"))
         assets = spokes_by_network[e.network].get(e.spoke, {}).get("assets")
@@ -411,8 +419,10 @@ def check_declared_networks(
 
 
 def judge(pairs: list[Pair], exceptions: list[Exception_], networks):
-    """Split into undeclared violations, declared violations, stale lines and
-    declared pairs whose product rose above the declared maximum."""
+    """Split into undeclared violations, declared violations, stale lines,
+    declared pairs whose product rose above the declared maximum (worse) and
+    declared pairs whose maximum sits more than LOOSE_SLACK above the current
+    product (loose)."""
     declared = {e.ident: e for e in exceptions if e.network in networks}
     violating = {p.ident: p for p in pairs if p.violates}
     undeclared = [p for ident, p in violating.items() if ident not in declared]
@@ -423,7 +433,12 @@ def judge(pairs: list[Pair], exceptions: list[Exception_], networks):
         for p in accepted
         if p.product > declared[p.ident].max_product + PRODUCT_SLACK
     ]
-    return undeclared, accepted, stale, worse
+    loose = [
+        (p, declared[p.ident])
+        for p in accepted
+        if declared[p.ident].max_product > p.product + LOOSE_SLACK
+    ]
+    return undeclared, accepted, stale, worse, loose
 
 
 def fmt_ratio(value: float) -> str:
@@ -469,7 +484,7 @@ def main(argv=None) -> int:
         origin = os.path.relpath(args.exceptions, ROOT)
         with open(args.exceptions) as handle:
             exceptions = parse_exceptions(handle.read(), origin)
-        check_declared_networks(args.config_dir, exceptions, set(args.networks), origin)
+        check_declared_networks(args.config_dir, exceptions, origin)
         pairs = []
         for network in args.networks:
             pairs += evaluate_network(args.config_dir, network, args.include_disabled)
@@ -477,7 +492,7 @@ def main(argv=None) -> int:
         print(f"lender-envelope: error: {err}", file=sys.stderr)
         return 2
 
-    undeclared, accepted, stale, worse = judge(pairs, exceptions, set(args.networks))
+    undeclared, accepted, stale, worse, loose = judge(pairs, exceptions, set(args.networks))
     declared = {p.ident for p in accepted}
     print(
         f"lender envelope: LT * u_P(c) * u_P(d) < 1/(1+{MARGIN:g}) = {LIMIT:.6f}; "
@@ -503,11 +518,12 @@ def main(argv=None) -> int:
             "    fix: drop the stale declaration."
         )
     worse_ids = {p.ident for p, _ in worse}
+    loose_ids = {p.ident for p, _ in loose}
     if accepted:
         print("\ndeclared pairs (current product vs declared max-product):")
         for p in sorted(accepted, key=lambda p: p.product, reverse=True):
             e = next(x for x in exceptions if x.ident == p.ident)
-            mark = "WORSE" if p.ident in worse_ids else "ok"
+            mark = "WORSE" if p.ident in worse_ids else "LOOSE" if p.ident in loose_ids else "ok"
             print(
                 f"  {origin}:{e.line} {' '.join(p.ident[:4])} {p.provider_label}:{p.provider[:6]} "
                 f"current {p.product:.6f} declared {e.max_product:.6f}  {mark}"
@@ -519,11 +535,20 @@ def main(argv=None) -> int:
             "    fix: undo the change that widened the pair, or re-declare it with the "
             "new product if the increase is accepted."
         )
-    failed = bool(undeclared or stale or worse)
+    for p, e in sorted(loose, key=lambda pe: pe[0].product, reverse=True):
+        print(
+            f"\nLOOSE {origin}:{e.line} {' '.join(p.ident)} ({e.finding}): "
+            f"declared max-product {e.max_product:.6f} > current {p.product:.6f} "
+            f"+ {LOOSE_SLACK:g}\n"
+            "    fix: set max-product to the current product; the headroom would "
+            "accept a worsening unseen."
+        )
+    failed = bool(undeclared or stale or worse or loose)
     print(
         f"\n{'FAIL' if failed else 'OK'}: {len(undeclared)} undeclared violation(s), "
         f"{len(accepted)} declared, {len(stale)} stale declaration(s), "
-        f"{len(worse)} declared pair(s) above max-product."
+        f"{len(worse)} declared pair(s) above max-product, "
+        f"{len(loose)} declared pair(s) loosely below max-product."
     )
     return 1 if failed else 0
 

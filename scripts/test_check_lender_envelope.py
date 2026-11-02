@@ -1,7 +1,9 @@
 """Checks for the lender-envelope gate: the reach rules reproduce Specula run 3's
 published figures (S3-MC-1, S3-CR-1), and the declaration file is judged in
-both directions (undeclared and stale)."""
+every direction (undeclared, stale, worse and loose)."""
 
+import contextlib
+import io
 import json
 import math
 import os
@@ -270,15 +272,16 @@ class DeclarationTest(unittest.TestCase):
     def test_undeclared_and_stale_both_fail(self):
         declared = le.parse_exceptions(
             self.text(
-                f"mainnet 5 USDY USDC {REDSTONE} S3-MC-1 1.2 pending config fix",
+                f"mainnet 5 USDY USDC {REDSTONE} S3-MC-1 1.090885 pending config fix",
                 f"mainnet 5 USDY USDC {REFLECTOR} S3-MC-1 1.2 never violated",
             )
         )
-        undeclared, accepted, stale, worse = le.judge(self.pairs, declared, {"mainnet"})
+        undeclared, accepted, stale, worse, loose = le.judge(self.pairs, declared, {"mainnet"})
         self.assertEqual([p.ident[1:4] for p in accepted], [("5", "USDY", "USDC")])
         self.assertIn(("5", "USDY", "EURC", REDSTONE), {p.ident[1:] for p in undeclared})
         self.assertEqual([e.provider for e in stale], [REFLECTOR])
         self.assertEqual(worse, [])
+        self.assertEqual(loose, [])
 
     def test_declared_pair_above_its_max_product_fails(self):
         # USDY -> USDC under RedStone: 0.85 x 11/9 x 1.05005 = 1.090885.
@@ -292,14 +295,49 @@ class DeclarationTest(unittest.TestCase):
             declared = le.parse_exceptions(
                 self.text(f"mainnet 5 USDY USDC {REDSTONE} S3-MC-1 {max_product!r} r")
             )
-            _, accepted, stale, worse = le.judge(self.pairs, declared, {"mainnet"})
+            _, accepted, stale, worse, loose = le.judge(self.pairs, declared, {"mainnet"})
             self.assertEqual(len(accepted), 1)
             self.assertEqual(stale, [])
+            self.assertEqual(loose, [])
             self.assertEqual(bool(worse), is_worse, msg=max_product)
             if is_worse:
                 ((pair, entry),) = worse
                 self.assertAlmostEqual(pair.product, product, places=12)
                 self.assertEqual(entry.max_product, max_product)
+
+    def test_declared_max_product_far_above_the_product_is_loose(self):
+        # A max-product is only an upper limit: a loose or mistyped value (1.5
+        # for 1.090885) would accept a worsening unseen, so it fails as loose.
+        product = 0.85 * 11 / 9 * 1.05005
+        for max_product, is_loose in (
+            (round(product, 3), False),
+            (product + 0.9e-3, False),
+            (product + 1.1e-3, True),
+            (1.5, True),
+        ):
+            declared = le.parse_exceptions(
+                self.text(f"mainnet 5 USDY USDC {REDSTONE} S3-MC-1 {max_product!r} r")
+            )
+            _, accepted, stale, worse, loose = le.judge(self.pairs, declared, {"mainnet"})
+            self.assertEqual(len(accepted), 1)
+            self.assertEqual((stale, worse), ([], []))
+            self.assertEqual(bool(loose), is_loose, msg=max_product)
+            if is_loose:
+                ((pair, entry),) = loose
+                self.assertAlmostEqual(pair.product, product, places=12)
+                self.assertEqual(entry.max_product, max_product)
+
+    def test_spoke_5_declarations_at_1_014397_are_exact(self):
+        # The live S3-CR-1 lines: 0.92 x 1.05005^2 = 1.014397, neither worse nor loose.
+        declared = le.parse_exceptions(
+            self.text(
+                f"mainnet 5 USDC EURC {REDSTONE} S3-CR-1 1.014397 r",
+                f"mainnet 5 USDC EURC {REFLECTOR} S3-CR-1 1.014397 r",
+            )
+        )
+        undeclared, accepted, stale, worse, loose = le.judge(self.pairs, declared, {"mainnet"})
+        self.assertEqual(len(accepted), 2)
+        self.assertEqual((stale, worse, loose), ([], [], []))
 
     def test_malformed_lines_are_errors(self):
         for line in (
@@ -323,8 +361,8 @@ class DeclarationTest(unittest.TestCase):
 
 
 class DeclaredNetworkTest(unittest.TestCase):
-    """A line names an existing configs/<network>; a line for a network the run
-    does not check must also name an existing spoke and listings there."""
+    """A line names an existing configs/<network>, and an existing spoke and
+    listings there, whether or not the run checks that network."""
 
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
@@ -334,9 +372,9 @@ class DeclaredNetworkTest(unittest.TestCase):
             with open(os.path.join(self.tmp.name, network, "spokes.json"), "w") as handle:
                 json.dump({"5": SPOKES["5"]}, handle)
 
-    def check(self, line, networks=("mainnet",)):
+    def check(self, line):
         declared = le.parse_exceptions(line + "\n")
-        le.check_declared_networks(self.tmp.name, declared, set(networks))
+        le.check_declared_networks(self.tmp.name, declared)
 
     def test_unknown_network_is_an_error(self):
         with self.assertRaisesRegex(le.ConfigError, "no configs/mainet"):
@@ -349,18 +387,74 @@ class DeclaredNetworkTest(unittest.TestCase):
         with self.assertRaisesRegex(le.ConfigError, "does not list NOPE"):
             self.check(f"testnet 5 USDY NOPE {REDSTONE} S3-MC-1 1.1 x")
 
-    def test_checked_network_lines_are_left_to_judge(self):
-        # A missing pair on a checked network is reported as stale by judge().
-        self.check(f"mainnet 7 USDY NOPE {REDSTONE} S3-MC-1 1.1 x")
+    def test_checked_network_line_must_name_existing_spoke_and_listings(self):
+        # A misspelt name on a checked network is a precise error, not a stale
+        # line plus an undeclared violation.
+        self.check(f"mainnet 5 USDY USDC {REDSTONE} S3-MC-1 1.1 ok")
+        with self.assertRaisesRegex(le.ConfigError, "mainnet has no spoke 7"):
+            self.check(f"mainnet 7 USDY USDC {REDSTONE} S3-MC-1 1.1 x")
+        with self.assertRaisesRegex(le.ConfigError, "mainnet spoke 5 does not list USDYY"):
+            self.check(f"mainnet 5 USDYY USDC {REDSTONE} S3-MC-1 1.1 x")
+        with self.assertRaisesRegex(le.ConfigError, "mainnet spoke 5 does not list USCD"):
+            self.check(f"mainnet 5 USDY USCD {REDSTONE} S3-MC-1 1.1 x")
+
+    def test_existing_but_non_violating_pair_on_checked_network_is_stale(self):
         pairs = le.evaluate("mainnet", MARKETS, {"5": SPOKES["5"]})
-        declared = le.parse_exceptions(f"mainnet 7 USDY NOPE {REDSTONE} S3-MC-1 1.1 x\n")
-        _, _, stale, _ = le.judge(pairs, declared, {"mainnet"})
+        line = f"mainnet 5 USDY USDC {REFLECTOR} S3-MC-1 1.1 x"
+        self.check(line)
+        _, _, stale, _, _ = le.judge(pairs, le.parse_exceptions(line + "\n"), {"mainnet"})
         self.assertEqual(len(stale), 1)
 
     def test_unchecked_network_lines_are_not_judged(self):
         pairs = le.evaluate("mainnet", MARKETS, {"5": SPOKES["5"]})
         declared = le.parse_exceptions(f"testnet 5 USDY USDC {REDSTONE} S3-MC-1 1.1 x\n")
         self.assertEqual(le.judge(pairs, declared, {"mainnet"})[2], [])
+
+
+class MainExitTest(unittest.TestCase):
+    """End to end through main(): exit 1 for a loose declaration, exit 2 for a
+    misspelt listing on a checked network, exit 0 for exact declarations."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        base = os.path.join(self.tmp.name, "mainnet")
+        os.makedirs(base)
+        with open(os.path.join(base, "markets.json"), "w") as handle:
+            json.dump(MARKETS, handle)
+        with open(os.path.join(base, "spokes.json"), "w") as handle:
+            json.dump({"5": SPOKES["5"]}, handle)
+        self.exact = [
+            f"mainnet 5 USDC EURC {provider} S3-CR-1 1.014397 r" for provider in (REDSTONE, REFLECTOR)
+        ] + [f"mainnet 5 USDY {debt} {REDSTONE} S3-MC-1 {mp} r" for debt, mp in
+             (("USDC", "1.090885"), ("EURC", "1.090885"))]
+
+    def run_main(self, lines):
+        path = os.path.join(self.tmp.name, "exceptions.txt")
+        with open(path, "w") as handle:
+            handle.write("\n".join(lines) + "\n")
+        out, err = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            code = le.main(["mainnet", "--config-dir", self.tmp.name, "--exceptions", path])
+        return code, out.getvalue(), err.getvalue()
+
+    def test_exact_declarations_pass(self):
+        code, out, _ = self.run_main(self.exact)
+        self.assertEqual(code, 0, out)
+
+    def test_loose_declaration_exits_1(self):
+        lines = [self.exact[0].replace("1.014397", "1.5")] + self.exact[1:]
+        code, out, _ = self.run_main(lines)
+        self.assertEqual(code, 1, out)
+        self.assertIn("LOOSE", out)
+        self.assertIn("declared max-product 1.500000 > current 1.014397", out)
+
+    def test_misspelt_listing_on_checked_network_exits_2(self):
+        lines = self.exact + [f"mainnet 5 USDC EURCC {REDSTONE} S3-CR-1 1.014397 typo"]
+        code, out, err = self.run_main(lines)
+        self.assertEqual(code, 2, out)
+        self.assertIn("mainnet spoke 5 does not list EURCC", err)
+        self.assertNotIn("STALE", out)
 
 
 if __name__ == "__main__":
