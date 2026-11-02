@@ -118,14 +118,15 @@ refuse_borrowable_lp() {
 curve_reviewed_schema_hint() {
     local hint='need {"pools": [...]} with unique lowercase 64-hex wasm_hash and non-empty source_repo, source_commit, review, expected_factory'
     if [ "$NETWORK" = "mainnet" ]; then
-        hint="${hint}; on mainnet source_commit must be a 40-hex git commit and source_repo/expected_factory must not be unknown"
+        hint="${hint}; on mainnet source_commit must be a 40-hex git commit, source_repo must not be unknown, ?, or contain TODO, TBD or n/a, and expected_factory must be a C... contract address"
     fi
     printf '%s' "$hint"
 }
 
 # Prints the governance-reviewed Curve pool hashes of $NETWORK as a JSON array.
 # A missing file lists nothing; a malformed file fails. Mainnet entries must
-# name their provenance: a pinned commit, a repository and the factory.
+# name their provenance: a pinned commit, a repository (not a placeholder such
+# as unknown, TODO, TBD, n/a or ?) and the factory contract address.
 curve_reviewed_hashes() {
     if [ ! -f "$CURVE_REVIEWED_POOLS_FILE" ]; then
         printf '[]'
@@ -133,6 +134,7 @@ curve_reviewed_hashes() {
     fi
     jq -ce --arg net "$NETWORK" '
         def known: type == "string" and length > 0 and (ascii_downcase | startswith("unknown") | not);
+        def named: known and (test("todo|tbd|n/a"; "i") | not) and (test("^\\s*\\?\\s*$") | not);
         if (.pools | type) == "array" and
             all(.pools[];
                 (.wasm_hash | type == "string" and test("^[0-9a-f]{64}$")) and
@@ -140,7 +142,8 @@ curve_reviewed_hashes() {
                     type == "string" and length > 0) and
                 ($net != "mainnet" or (
                     (.source_commit | test("^[0-9a-f]{40}$")) and
-                    (.source_repo | known) and (.expected_factory | known)))) and
+                    (.source_repo | named) and
+                    (.expected_factory | test("^C[A-Z2-7]{55}$"))))) and
             ([.pools[].wasm_hash] | unique | length) == (.pools | length)
         then [.pools[].wasm_hash] else false end
     ' "$CURVE_REVIEWED_POOLS_FILE" 2>/dev/null

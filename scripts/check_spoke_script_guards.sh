@@ -619,8 +619,9 @@ for mutation in \
     fi
 done
 cp "$tmp/curve-pools-valid.json" "$tmp/curve-pools.json"
-# Mainnet entries must pin their provenance: a 40-hex commit, a known
-# repository and a known factory. Testnet fixtures may say unknown.
+# Mainnet entries must pin their provenance: a 40-hex commit, a repository that
+# is not a placeholder (unknown, TODO, TBD, n/a, ?) and a C... factory contract
+# address. Testnet fixtures may say unknown.
 sha40=$(printf 'a%.0s' $(seq 40))
 jq --arg c "$sha40" '.pools[0] |= (.source_commit = $c | .source_repo = "github:org/pool" | .expected_factory = ("C" + ("F" * 55)))' \
     "$tmp/curve-pools-valid.json" > "$tmp/curve-pools-mainnet.json"
@@ -632,7 +633,22 @@ for mutation in \
     '.pools[0].source_commit |= .[:39]' \
     '.pools[0].source_repo = "unknown (contract metadata: github:TODO)"' \
     '.pools[0].source_repo = "Unknown"' \
-    '.pools[0].expected_factory = "unknown"'; do
+    '.pools[0].source_repo = "github:org/TODO"' \
+    '.pools[0].source_repo = "todo"' \
+    '.pools[0].source_repo = "TBD"' \
+    '.pools[0].source_repo = "github:org/pool@tbd"' \
+    '.pools[0].source_repo = "N/A"' \
+    '.pools[0].source_repo = "n/a"' \
+    '.pools[0].source_repo = "?"' \
+    '.pools[0].source_repo = " ? "' \
+    '.pools[0].expected_factory = "unknown"' \
+    '.pools[0].expected_factory = "f"' \
+    '.pools[0].expected_factory = ("G" + ("F" * 55))' \
+    '.pools[0].expected_factory = ("C" + ("f" * 55))' \
+    '.pools[0].expected_factory = ("C" + ("F" * 54))' \
+    '.pools[0].expected_factory = ("C" + ("F" * 56))' \
+    '.pools[0].expected_factory = ("C" + ("1" * 55))' \
+    '.pools[0].expected_factory += " "'; do
     jq "$mutation" "$tmp/curve-pools-mainnet.json" > "$tmp/curve-pools.json"
     NET=testnet bash "$tmp/curve-validate.sh" >/dev/null 2>&1 \
         || fail "testnet reviewed-pool entry rejected for provenance: $mutation"

@@ -90,9 +90,10 @@ An executable change makes the source unpriceable until reviewed and reconfigure
 Record each reviewed executable in `configs/<network>/curve_reviewed_pools.json`
 as `{"pools": [{wasm_hash, source_repo, source_commit, review, expected_factory}]}`
 (lowercase 64-hex hash, every field non-empty; write `unknown` rather than guess).
-On mainnet, `unknown` is refused: `source_commit` must be a 40-hex git commit
-and `source_repo` and `expected_factory` must name the reviewed source and
-factory. `validateConfigs` and the direct `configureMarketOracle` proposal both
+On mainnet, `unknown` is refused: `source_commit` must be a 40-hex git commit,
+`source_repo` must name the reviewed source (a value that is `?` or contains
+`TODO`, `TBD` or `n/a`, in any case, is refused), and `expected_factory` must
+be the factory's contract address (`^C[A-Z2-7]{55}$`). `validateConfigs` and the direct `configureMarketOracle` proposal both
 reject a `CurveStableLp` source whose `wasm_hash` is not listed for that
 network. The mainnet list is empty: no Curve pool executable
 has been reviewed for mainnet. The testnet list holds the two fixture
