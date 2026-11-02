@@ -9,6 +9,8 @@
     feature = "flash-fee"
 ))]
 pub mod index_specs;
+#[cfg(any(feature = "ray-mul-rounding", feature = "ray-div-rounding"))]
+pub mod rounding_specs;
 #[cfg(any(feature = "repay", feature = "withdrawal", feature = "net-settle"))]
 pub mod settlement_specs;
 #[cfg(any(
@@ -260,6 +262,54 @@ impl PoolMathProof {
             borrow_index,
             decimals,
         )
+    }
+
+    /// x, y >= 2^64, representable: Ray::mul_floor is exactly floor(x*y/RAY).
+    #[cfg(feature = "ray-mul-rounding")]
+    pub fn test_ray_mul_floor(env: Env, x: i128, y: i128) -> bool {
+        rounding_specs::mul_rounding(&env, x, y, false)
+    }
+
+    /// x, y >= 2^64, representable: Ray::mul_ceil is exactly ceil(x*y/RAY).
+    #[cfg(feature = "ray-mul-rounding")]
+    pub fn test_ray_mul_ceil(env: Env, x: i128, y: i128) -> bool {
+        rounding_specs::mul_rounding(&env, x, y, true)
+    }
+
+    /// Deliberately false: (RAY+1)^2/RAY rounded down is RAY+2, not RAY+3.
+    #[cfg(feature = "ray-mul-rounding")]
+    pub fn test_ray_mul_floor_wrong(env: Env) -> bool {
+        rounding_specs::mul_floor_wrong(&env)
+    }
+
+    /// Deliberately false: (RAY+1)^2/RAY rounded up is RAY+3, not RAY+2.
+    #[cfg(feature = "ray-mul-rounding")]
+    pub fn test_ray_mul_ceil_wrong(env: Env) -> bool {
+        rounding_specs::mul_ceil_wrong(&env)
+    }
+
+    /// x >= 2^64, d > 0, representable: Ray::div_floor is exactly floor(x*RAY/d).
+    #[cfg(feature = "ray-div-rounding")]
+    pub fn test_ray_div_floor(env: Env, x: i128, d: i128) -> bool {
+        rounding_specs::div_rounding(&env, x, d, false)
+    }
+
+    /// x >= 2^64, d > 0, representable: Ray::div_ceil is exactly ceil(x*RAY/d).
+    #[cfg(feature = "ray-div-rounding")]
+    pub fn test_ray_div_ceil(env: Env, x: i128, d: i128) -> bool {
+        rounding_specs::div_rounding(&env, x, d, true)
+    }
+
+    /// Deliberately false: floor(2^64*RAY/(3*RAY)) is 2^64/3, not one more.
+    #[cfg(feature = "ray-div-rounding")]
+    pub fn test_ray_div_floor_wrong(env: Env) -> bool {
+        rounding_specs::div_floor_wrong(&env)
+    }
+
+    /// Deliberately false: ceil(2^64*RAY/(3*RAY)) is 2^64/3 + 1, not 2^64/3.
+    #[cfg(feature = "ray-div-rounding")]
+    pub fn test_ray_div_ceil_wrong(env: Env) -> bool {
+        rounding_specs::div_ceil_wrong(&env)
     }
 
     /// Exact half-up result and rejection domain, specified without division.

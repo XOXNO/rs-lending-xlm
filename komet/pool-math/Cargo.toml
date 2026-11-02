@@ -32,6 +32,8 @@ flash-fee = []
 repay = []
 withdrawal = []
 net-settle = []
+ray-mul-rounding = []
+ray-div-rounding = []
 
 [dependencies]
 common = { path = "../../common" }
