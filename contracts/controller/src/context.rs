@@ -159,18 +159,6 @@ impl Context {
         (&raw).into()
     }
 
-    /// Returns the pool's listed decimals for `hub_asset`, requiring the loaded
-    /// feed to report the same decimals.
-    pub(crate) fn require_feed_matches_pool(&mut self, hub_asset: &HubAssetKey) -> u32 {
-        let decimals = self.cached_pool_sync_data(hub_asset).params.asset_decimals;
-        assert_with_error!(
-            &self.env,
-            self.cached_price(&hub_asset.asset).asset_decimals == decimals,
-            OracleError::InvalidOracleDecimals
-        );
-        decimals
-    }
-
     /// Binds usage to one spoke; rejects another spoke until the context is reset.
     fn ensure_spoke_context(&mut self, spoke_id: u32) {
         if let Some(ctx) = &self.spoke_usage {

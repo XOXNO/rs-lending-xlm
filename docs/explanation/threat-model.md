@@ -124,9 +124,7 @@ pending listing and oracle operation for that token with each other and with
 the existing pools of that token. On any mismatch, the operator cancels the
 operation. After a mismatch executes, only an aggregator Wasm upgrade can
 correct the stored unit: `set_oracle` rejects a decimals change, and
-`remove_oracle` exists only in testing builds. Until then the controller fails
-liquidation of the leg, a new supply leg of it on an indebted account, and the
-single-leg whole-unit floor with `InvalidOracleDecimals` (221).
+`remove_oracle` exists only in testing builds.
 
 Never list a receipt-tax or otherwise under-delivering token as borrowable in a
 spoke that holds collateral below `MIN_BORROWABLE_ASSET_DECIMALS`. A short

@@ -25,10 +25,9 @@ use crate::{storage, Controller, ControllerClient};
 use common::math::fp::Ray;
 use common::rates::{resolve_repay, resolve_withdrawal};
 use common::types::{
-    AccountMeta, AccountPositionRaw, DebtPositionRaw, HubAssetKey, MarketIndexRaw, MarketParamsRaw,
-    PoolAction, PoolPositionMutation, PoolSeizeEntry, PoolStateRaw, PoolSyncData,
-    PoolWithdrawEntry, PositionLimits, PositionMode, PriceFeedRaw, PriceKey, ScaledPositionRaw,
-    SeizeMode, SpokeAssetConfig, SpokeConfig,
+    AccountMeta, AccountPositionRaw, DebtPositionRaw, HubAssetKey, MarketIndexRaw, PoolAction,
+    PoolPositionMutation, PoolSeizeEntry, PoolWithdrawEntry, PositionLimits, PositionMode,
+    PriceFeedRaw, PriceKey, ScaledPositionRaw, SeizeMode, SpokeAssetConfig, SpokeConfig,
 };
 use soroban_sdk::testutils::Address as _;
 use soroban_sdk::{contract, contractimpl, symbol_short, token, Address, Env, Map, Vec};
@@ -56,42 +55,6 @@ impl StubPool {
             out.push_back(unit_index());
         }
         out
-    }
-
-    /// Lists every market at `DECIMALS`, matching the stub oracle, unless a
-    /// test overrides the listed decimals.
-    pub fn get_sync_data(env: Env, hub_asset: HubAssetKey) -> PoolSyncData {
-        let asset_decimals = env
-            .storage()
-            .instance()
-            .get(&symbol_short!("decimals"))
-            .unwrap_or(DECIMALS);
-        PoolSyncData {
-            params: MarketParamsRaw {
-                max_borrow_rate: 0,
-                base_borrow_rate: 0,
-                slope1: 0,
-                slope2: 0,
-                slope3: 0,
-                mid_utilization: 0,
-                optimal_utilization: 0,
-                max_utilization: 0,
-                reserve_factor: 0,
-                is_flashloanable: false,
-                flashloan_fee: 0,
-                asset_id: hub_asset.asset,
-                asset_decimals,
-            },
-            state: PoolStateRaw {
-                supplied: 0,
-                borrowed: 0,
-                revenue: 0,
-                borrow_index: RAY,
-                supply_index: RAY,
-                last_timestamp: 0,
-                cash: 0,
-            },
-        }
     }
 
     pub fn repay(env: Env, _payer: Address, actions: Vec<PoolAction>) -> Vec<PoolPositionMutation> {
@@ -143,12 +106,6 @@ impl StubPool {
         env.storage()
             .instance()
             .set(&key, &(seen + entries.len().max(1)));
-    }
-
-    pub fn set_listed_decimals(env: Env, decimals: u32) {
-        env.storage()
-            .instance()
-            .set(&symbol_short!("decimals"), &decimals);
     }
 
     pub fn seize_calls(env: Env) -> u32 {
@@ -371,34 +328,6 @@ fn seed(zeroed_scaled: i128, normal_scaled: i128, debt_scaled: i128) -> Fixture 
 
 fn payment(fx: &Fixture, tokens: i128) -> Vec<(HubAssetKey, i128)> {
     soroban_sdk::vec![&fx.env, (fx.debt.clone(), tokens * ONE_TOKEN)]
-}
-
-// --- the feed and the pool must agree on decimals ------------------------
-
-#[test]
-fn a_feed_whose_decimals_differ_from_the_pool_blocks_estimate_and_liquidation() {
-    let fx = seed(100 * RAY, 0, 90 * RAY);
-    StubPoolClient::new(&fx.env, &fx.pool).set_listed_decimals(&(DECIMALS - 1));
-    let client = fx.client();
-    let mismatch = Err(Ok(soroban_sdk::Error::from_contract_error(221)));
-
-    assert_eq!(
-        client
-            .try_get_liquidation_estimate(&VICTIM, &payment(&fx, 30), &SeizeMode::Transfer)
-            .map(|_| ()),
-        mismatch
-    );
-    assert_eq!(
-        client
-            .try_liquidate(
-                &fx.liquidator,
-                &VICTIM,
-                &payment(&fx, 30),
-                &SeizeMode::Transfer
-            )
-            .map(|_| ()),
-        mismatch
-    );
 }
 
 // --- the account is liquidatable at all ----------------------------------

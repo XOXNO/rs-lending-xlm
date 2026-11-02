@@ -11,7 +11,6 @@ use crate::positions::{enforce_spoke_asset_flags, FreezePolicy};
 
 /// Builds a normalized repayment and pro-rata seizure plan for debt with HF < 1 WAD.
 /// Repayment rejects `paused` but permits `frozen`; seizure rejects only `no_seize`.
-/// Every repaid and seized leg's feed decimals must equal the pool's.
 pub(crate) fn build_liquidation_plan(
     env: &Env,
     account: &Account,
@@ -79,11 +78,7 @@ pub(crate) fn build_liquidation_plan(
         release_unbacked_repayment(env, &mut repayment, repay_usd);
     }
 
-    for entry in repayment.repaid.iter() {
-        cache.require_feed_matches_pool(&entry.hub_asset);
-    }
     for entry in seized_collaterals.iter() {
-        cache.require_feed_matches_pool(&entry.hub_asset);
         enforce_spoke_asset_flags(
             env,
             cache,
