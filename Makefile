@@ -619,6 +619,8 @@ ops-script-check:
 	@bash scripts/check_spoke_script_guards.sh
 	@bash scripts/check_setup_wave.sh
 	@bash scripts/check_script_verbs.sh "$(ALL_ACTIONS)" "$(MAKEFILE_ACTIONS)"
+	@python3 scripts/test_check_lender_envelope.py
+	@python3 scripts/check_lender_envelope.py mainnet
 
 
 

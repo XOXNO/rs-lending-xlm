@@ -1,0 +1,58 @@
+# Accepted lender-envelope violations -- the declared exception list for
+# scripts/check_lender_envelope.py.
+#
+# WHAT THIS FILE IS
+#
+# Every (spoke, collateral, debt, provider) pair whose LT * u_P(c) * u_P(d) is
+# at or above 1 / (1 + MARGIN) must either be fixed in configs/<network> or be
+# declared here with the audit finding that tracks it. The checker fails on an
+# undeclared violation, and also on a line here that no longer violates
+# (stale): drop the line in the change that fixes the pair.
+#
+# FORMAT (whitespace separated; the reason runs to the end of the line)
+#
+#   <network> <spoke id> <collateral> <debt> <provider contract> <finding id> <reason>
+#
+# spoke id      the key in configs/<network>/spokes.json
+# collateral    a listing name in that spoke (a market name in markets.json)
+# debt          a borrowable listing name in that spoke
+# provider      the full provider contract address the pair is evaluated for
+# finding id    the audit id, for example S3-MC-1
+#
+# S3-MC-1: one RedStone adapter (CA526...) moves a single-source collateral or
+#          debt (USDY, USST, PYUSD) across its whole band on spokes 5 and 7.
+# S3-CR-1: SolvBTC/xSolvBTC debt on spoke 1 (RedStone reaches both legs), and
+#          the spoke 5 USDC dual-leg tolerance lever (Reflector CAFJZ... or
+#          RedStone CA526...).
+
+mainnet 1 EURC SolvBTC CA526Y2NQWGWVVQ7RFFPGAZMU66PSYJ3UC2MTVAV4ZU7OM5BOPHDXUSG S3-CR-1 pending config fix (LT*u_c*u_d 1.0061)
+mainnet 1 EURC xSolvBTC CA526Y2NQWGWVVQ7RFFPGAZMU66PSYJ3UC2MTVAV4ZU7OM5BOPHDXUSG S3-CR-1 pending config fix (LT*u_c*u_d 1.0061)
+mainnet 1 PYUSD SolvBTC CA526Y2NQWGWVVQ7RFFPGAZMU66PSYJ3UC2MTVAV4ZU7OM5BOPHDXUSG S3-CR-1 pending config fix (LT*u_c*u_d 1.0590)
+mainnet 1 PYUSD xSolvBTC CA526Y2NQWGWVVQ7RFFPGAZMU66PSYJ3UC2MTVAV4ZU7OM5BOPHDXUSG S3-CR-1 pending config fix (LT*u_c*u_d 1.0590)
+mainnet 1 USDC SolvBTC CA526Y2NQWGWVVQ7RFFPGAZMU66PSYJ3UC2MTVAV4ZU7OM5BOPHDXUSG S3-CR-1 pending config fix (LT*u_c*u_d 1.0189)
+mainnet 1 USDC xSolvBTC CA526Y2NQWGWVVQ7RFFPGAZMU66PSYJ3UC2MTVAV4ZU7OM5BOPHDXUSG S3-CR-1 pending config fix (LT*u_c*u_d 1.0189)
+mainnet 1 USDT0 SolvBTC CA526Y2NQWGWVVQ7RFFPGAZMU66PSYJ3UC2MTVAV4ZU7OM5BOPHDXUSG S3-CR-1 pending config fix (LT*u_c*u_d 1.0061)
+mainnet 1 USDT0 xSolvBTC CA526Y2NQWGWVVQ7RFFPGAZMU66PSYJ3UC2MTVAV4ZU7OM5BOPHDXUSG S3-CR-1 pending config fix (LT*u_c*u_d 1.0061)
+mainnet 1 XLM SolvBTC CA526Y2NQWGWVVQ7RFFPGAZMU66PSYJ3UC2MTVAV4ZU7OM5BOPHDXUSG S3-CR-1 pending config fix (LT*u_c*u_d 1.0407)
+mainnet 1 XLM xSolvBTC CA526Y2NQWGWVVQ7RFFPGAZMU66PSYJ3UC2MTVAV4ZU7OM5BOPHDXUSG S3-CR-1 pending config fix (LT*u_c*u_d 1.0407)
+mainnet 5 EURC PYUSD CA526Y2NQWGWVVQ7RFFPGAZMU66PSYJ3UC2MTVAV4ZU7OM5BOPHDXUSG S3-MC-1 pending config fix (LT*u_c*u_d 1.0213)
+mainnet 5 PYUSD EURC CA526Y2NQWGWVVQ7RFFPGAZMU66PSYJ3UC2MTVAV4ZU7OM5BOPHDXUSG S3-MC-1 pending config fix (LT*u_c*u_d 1.0445)
+mainnet 5 PYUSD USDC CA526Y2NQWGWVVQ7RFFPGAZMU66PSYJ3UC2MTVAV4ZU7OM5BOPHDXUSG S3-MC-1 pending config fix (LT*u_c*u_d 1.0445)
+mainnet 5 PYUSD USDT0 CA526Y2NQWGWVVQ7RFFPGAZMU66PSYJ3UC2MTVAV4ZU7OM5BOPHDXUSG S3-MC-1 pending config fix (LT*u_c*u_d 1.0445)
+mainnet 5 USDC EURC CA526Y2NQWGWVVQ7RFFPGAZMU66PSYJ3UC2MTVAV4ZU7OM5BOPHDXUSG S3-CR-1 pending config fix (LT*u_c*u_d 1.0144)
+mainnet 5 USDC EURC CAFJZQWSED6YAWZU3GWRTOCNPPCGBN32L7QV43XX5LZLFTK6JLN34DLN S3-CR-1 pending config fix (LT*u_c*u_d 1.0144)
+mainnet 5 USDC PYUSD CA526Y2NQWGWVVQ7RFFPGAZMU66PSYJ3UC2MTVAV4ZU7OM5BOPHDXUSG S3-MC-1 pending config fix (LT*u_c*u_d 1.0677)
+mainnet 5 USDC USDT0 CA526Y2NQWGWVVQ7RFFPGAZMU66PSYJ3UC2MTVAV4ZU7OM5BOPHDXUSG S3-CR-1 pending config fix (LT*u_c*u_d 1.0144)
+mainnet 5 USDT0 PYUSD CA526Y2NQWGWVVQ7RFFPGAZMU66PSYJ3UC2MTVAV4ZU7OM5BOPHDXUSG S3-MC-1 pending config fix (LT*u_c*u_d 1.0213)
+mainnet 5 USDY EURC CA526Y2NQWGWVVQ7RFFPGAZMU66PSYJ3UC2MTVAV4ZU7OM5BOPHDXUSG S3-MC-1 pending config fix (LT*u_c*u_d 1.0909)
+mainnet 5 USDY PYUSD CA526Y2NQWGWVVQ7RFFPGAZMU66PSYJ3UC2MTVAV4ZU7OM5BOPHDXUSG S3-MC-1 pending config fix (LT*u_c*u_d 1.1482)
+mainnet 5 USDY USDC CA526Y2NQWGWVVQ7RFFPGAZMU66PSYJ3UC2MTVAV4ZU7OM5BOPHDXUSG S3-MC-1 pending config fix (LT*u_c*u_d 1.0909)
+mainnet 5 USDY USDT0 CA526Y2NQWGWVVQ7RFFPGAZMU66PSYJ3UC2MTVAV4ZU7OM5BOPHDXUSG S3-MC-1 pending config fix (LT*u_c*u_d 1.0909)
+mainnet 5 USST EURC CA526Y2NQWGWVVQ7RFFPGAZMU66PSYJ3UC2MTVAV4ZU7OM5BOPHDXUSG S3-MC-1 pending config fix (LT*u_c*u_d 1.0905)
+mainnet 5 USST PYUSD CA526Y2NQWGWVVQ7RFFPGAZMU66PSYJ3UC2MTVAV4ZU7OM5BOPHDXUSG S3-MC-1 pending config fix (LT*u_c*u_d 1.1478)
+mainnet 5 USST USDC CA526Y2NQWGWVVQ7RFFPGAZMU66PSYJ3UC2MTVAV4ZU7OM5BOPHDXUSG S3-MC-1 pending config fix (LT*u_c*u_d 1.0905)
+mainnet 5 USST USDT0 CA526Y2NQWGWVVQ7RFFPGAZMU66PSYJ3UC2MTVAV4ZU7OM5BOPHDXUSG S3-MC-1 pending config fix (LT*u_c*u_d 1.0905)
+mainnet 7 USDY EURC CA526Y2NQWGWVVQ7RFFPGAZMU66PSYJ3UC2MTVAV4ZU7OM5BOPHDXUSG S3-MC-1 pending config fix (LT*u_c*u_d 1.0909)
+mainnet 7 USDY PYUSD CA526Y2NQWGWVVQ7RFFPGAZMU66PSYJ3UC2MTVAV4ZU7OM5BOPHDXUSG S3-MC-1 pending config fix (LT*u_c*u_d 1.1482)
+mainnet 7 USDY USDC CA526Y2NQWGWVVQ7RFFPGAZMU66PSYJ3UC2MTVAV4ZU7OM5BOPHDXUSG S3-MC-1 pending config fix (LT*u_c*u_d 1.0909)
+mainnet 7 USDY XLM CA526Y2NQWGWVVQ7RFFPGAZMU66PSYJ3UC2MTVAV4ZU7OM5BOPHDXUSG S3-MC-1 pending config fix (LT*u_c*u_d 1.1428)
