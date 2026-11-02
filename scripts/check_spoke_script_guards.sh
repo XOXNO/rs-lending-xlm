@@ -566,7 +566,7 @@ jq -n '{pools:[{wasm_hash:("ab" * 32), source_repo:"r", source_commit:"c", revie
     > "$tmp/curve-pools-valid.json"
 cp "$tmp/curve-pools-valid.json" "$tmp/curve-pools.json"
 jq '.markets[0] as $coin |
-    {markets:[$coin] + [("B", "D", "E") as $c | $coin | .name = $c | .asset_address = ("C" + ($c * 55))]} |
+    {markets:([$coin] + [("B", "D", "E") as $c | $coin | .name = $c | .asset_address = ("C" + ($c * 55))])} |
     .markets[0].asset_address = ("C" + ("A" * 55)) |
     .markets[0].oracle |= (.asset_decimals = 18 |
         .tolerance = {upper_ratio_bps:0,lower_ratio_bps:0} |
