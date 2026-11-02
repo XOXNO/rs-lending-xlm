@@ -41,25 +41,32 @@ the price-aggregator read path:
         `[a / t, a * t]`, so the midpoint moves by at most `min(t, leg reach)`.
       - P reaches both legs: the leg with the smaller reach `r` anchors the
         pair and the other stays within `t` of it, so the midpoint moves by at
-        most `min(r * t, max leg reach)`. Two plain feeds from P are unbounded
-        below the band. This is PR #196's range-bounded rule; such a pair is
-        exempt from the 10% single-source band cap (admin.rs:171-177).
+        most `min(r * t, max leg reach)` (PR #196's range-bounded rule). Two
+        plain feeds from P reach only the band; such a key has one trust set
+        and keeps the 10% single-source band cap. A key whose two legs have
+        different trust sets (SolvBTC: Scaled(factor x Ref BTC) + Feed) is
+        exempt from that cap (admin.rs:171-177), so its band may not bound
+        the reach.
     Either way the sanity band caps the result.
 
 A key with several market configs for one token address (testnet hubs share
 USDC) takes the largest reach. A pair whose two keys read identical sources is
 skipped: both prices come from the same inputs, so their ratio cannot move.
 
-Accepted violations are listed in `scripts/lender_envelope_exceptions.txt`. A
-violation that is not listed fails the check, and so does a listed line that no
-longer violates (stale) or names nothing.
+Accepted violations are listed in `scripts/lender_envelope_exceptions.txt`,
+each with the largest product it accepts. A violation that is not listed fails
+the check, and so does a listed line that no longer violates (stale) or names
+nothing, and a listed pair whose product rose above its declared maximum
+(worse). A line for a network that is not being checked is still parsed, and
+its network, spoke and listings must exist in `configs/<network>`.
 
     python3 scripts/check_lender_envelope.py                  # mainnet
     python3 scripts/check_lender_envelope.py mainnet testnet  # both
     python3 scripts/check_lender_envelope.py --top 40 --include-disabled testnet
 
-Exit 0 = every pair is inside the envelope or declared; 1 = an undeclared
-violation or a stale declaration; 2 = a config or declaration-file error.
+Exit 0 = every pair is inside the envelope or declared within its maximum;
+1 = an undeclared violation, a stale declaration or a declared pair above its
+maximum; 2 = a config or declaration-file error.
 Deterministic, stdlib only, no network, no build.
 """
 
@@ -84,6 +91,8 @@ BPS = 10_000
 UNBOUNDED = math.inf
 DEFAULT_NETWORKS = ("mainnet",)
 FINDING_ID = re.compile(r"^S\d+-[A-Z0-9]+-\d+$")
+# A declared pair fails as worse when its product exceeds max_product + this.
+PRODUCT_SLACK = 1e-6
 
 
 class ConfigError(Exception):
@@ -335,12 +344,16 @@ class Exception_:
     debt: str
     provider: str
     finding: str
+    max_product: float
     reason: str
     line: int
 
     @property
     def ident(self) -> tuple:
         return (self.network, self.spoke, self.collateral, self.debt, self.provider)
+
+
+FORMAT = "`network spoke collateral debt provider finding-id max-product reason`"
 
 
 def parse_exceptions(text: str, origin: str = "exceptions") -> list[Exception_]:
@@ -350,13 +363,19 @@ def parse_exceptions(text: str, origin: str = "exceptions") -> list[Exception_]:
         line = raw.strip()
         if not line or line.startswith("#"):
             continue
-        fields = line.split(None, 6)
-        if len(fields) < 7:
+        fields = line.split(None, 7)
+        if len(fields) < 8:
+            raise ConfigError(f"{origin}:{number}: expected {FORMAT}")
+        *head, raw_max, reason = fields
+        try:
+            max_product = float(raw_max)
+        except ValueError:
+            max_product = math.nan
+        if not math.isfinite(max_product) or max_product <= 0:
             raise ConfigError(
-                f"{origin}:{number}: expected "
-                "`network spoke collateral debt provider finding-id reason`"
+                f"{origin}:{number}: max-product {raw_max!r} is not a positive number"
             )
-        entry = Exception_(*fields, line=number)
+        entry = Exception_(*head, max_product=max_product, reason=reason, line=number)
         if not FINDING_ID.match(entry.finding):
             raise ConfigError(f"{origin}:{number}: finding id {entry.finding!r} is not like S3-MC-1")
         if entry.ident in seen:
@@ -366,14 +385,45 @@ def parse_exceptions(text: str, origin: str = "exceptions") -> list[Exception_]:
     return out
 
 
+def check_declared_networks(
+    config_dir: str, exceptions: list[Exception_], networks, origin: str = "exceptions"
+):
+    """Every declaration names an existing network; on a network that is not
+    being checked, its spoke and both listings must also exist. Lines for
+    checked networks are judged against the evaluated pairs instead."""
+    spokes_by_network: dict[str, dict] = {}
+    for e in exceptions:
+        base = os.path.join(config_dir, e.network)
+        if not os.path.isdir(base):
+            raise ConfigError(f"{origin}:{e.line}: no configs/{e.network} directory for {e.network!r}")
+        if e.network in networks:
+            continue
+        if e.network not in spokes_by_network:
+            spokes_by_network[e.network] = load_json(os.path.join(base, "spokes.json"))
+        assets = spokes_by_network[e.network].get(e.spoke, {}).get("assets")
+        if assets is None:
+            raise ConfigError(f"{origin}:{e.line}: {e.network} has no spoke {e.spoke}")
+        for name in (e.collateral, e.debt):
+            if name not in assets:
+                raise ConfigError(
+                    f"{origin}:{e.line}: {e.network} spoke {e.spoke} does not list {name}"
+                )
+
+
 def judge(pairs: list[Pair], exceptions: list[Exception_], networks):
-    """Split into undeclared violations, declared violations and stale lines."""
+    """Split into undeclared violations, declared violations, stale lines and
+    declared pairs whose product rose above the declared maximum."""
     declared = {e.ident: e for e in exceptions if e.network in networks}
     violating = {p.ident: p for p in pairs if p.violates}
     undeclared = [p for ident, p in violating.items() if ident not in declared]
     accepted = [p for ident, p in violating.items() if ident in declared]
     stale = [e for ident, e in declared.items() if ident not in violating]
-    return undeclared, accepted, stale
+    worse = [
+        (p, declared[p.ident])
+        for p in accepted
+        if p.product > declared[p.ident].max_product + PRODUCT_SLACK
+    ]
+    return undeclared, accepted, stale, worse
 
 
 def fmt_ratio(value: float) -> str:
@@ -416,8 +466,10 @@ def main(argv=None) -> int:
     args = parser.parse_args(argv)
 
     try:
+        origin = os.path.relpath(args.exceptions, ROOT)
         with open(args.exceptions) as handle:
-            exceptions = parse_exceptions(handle.read(), os.path.relpath(args.exceptions, ROOT))
+            exceptions = parse_exceptions(handle.read(), origin)
+        check_declared_networks(args.config_dir, exceptions, set(args.networks), origin)
         pairs = []
         for network in args.networks:
             pairs += evaluate_network(args.config_dir, network, args.include_disabled)
@@ -425,7 +477,7 @@ def main(argv=None) -> int:
         print(f"lender-envelope: error: {err}", file=sys.stderr)
         return 2
 
-    undeclared, accepted, stale = judge(pairs, exceptions, set(args.networks))
+    undeclared, accepted, stale, worse = judge(pairs, exceptions, set(args.networks))
     declared = {p.ident for p in accepted}
     print(
         f"lender envelope: LT * u_P(c) * u_P(d) < 1/(1+{MARGIN:g}) = {LIMIT:.6f}; "
@@ -442,20 +494,38 @@ def main(argv=None) -> int:
             f"\nVIOLATION {' '.join(p.ident)}: LT {p.lt:.4f} * u_c {fmt_ratio(p.u_c)} "
             f"* u_d {fmt_ratio(p.u_d)} = {p.product:.6f} >= {LIMIT:.6f}\n"
             "    fix: tighten the listing or oracle config, or declare the pair in "
-            "scripts/lender_envelope_exceptions.txt with its finding id."
+            "scripts/lender_envelope_exceptions.txt with its finding id and max-product."
         )
     for e in stale:
         print(
-            f"\nSTALE {os.path.relpath(args.exceptions, ROOT)}:{e.line} "
+            f"\nSTALE {origin}:{e.line} "
             f"{' '.join(e.ident)} ({e.finding}) no longer violates the envelope\n"
             "    fix: drop the stale declaration."
         )
-    verdict = "FAIL" if undeclared or stale else "OK"
+    worse_ids = {p.ident for p, _ in worse}
+    if accepted:
+        print("\ndeclared pairs (current product vs declared max-product):")
+        for p in sorted(accepted, key=lambda p: p.product, reverse=True):
+            e = next(x for x in exceptions if x.ident == p.ident)
+            mark = "WORSE" if p.ident in worse_ids else "ok"
+            print(
+                f"  {origin}:{e.line} {' '.join(p.ident[:4])} {p.provider_label}:{p.provider[:6]} "
+                f"current {p.product:.6f} declared {e.max_product:.6f}  {mark}"
+            )
+    for p, e in sorted(worse, key=lambda pe: pe[0].product, reverse=True):
+        print(
+            f"\nWORSE {origin}:{e.line} {' '.join(p.ident)} ({e.finding}): "
+            f"current {p.product:.6f} > declared max-product {e.max_product:.6f}\n"
+            "    fix: undo the change that widened the pair, or re-declare it with the "
+            "new product if the increase is accepted."
+        )
+    failed = bool(undeclared or stale or worse)
     print(
-        f"\n{verdict}: {len(undeclared)} undeclared violation(s), {len(accepted)} declared, "
-        f"{len(stale)} stale declaration(s)."
+        f"\n{'FAIL' if failed else 'OK'}: {len(undeclared)} undeclared violation(s), "
+        f"{len(accepted)} declared, {len(stale)} stale declaration(s), "
+        f"{len(worse)} declared pair(s) above max-product."
     )
-    return 1 if undeclared or stale else 0
+    return 1 if failed else 0
 
 
 if __name__ == "__main__":
