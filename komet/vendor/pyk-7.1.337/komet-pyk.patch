@@ -1,0 +1,57 @@
+diff -ru a/konvert/_kast_to_kore.py b/konvert/_kast_to_kore.py
+--- a/konvert/_kast_to_kore.py
++++ b/konvert/_kast_to_kore.py
+@@ -347,6 +347,8 @@
+             return App(symbol=att_entry.key.name, sorts=(), args=tuple(kore_vars))
+         case Atts.SMTLEMMA:
+             return App(symbol=att_entry.key.name, sorts=(), args=())
++        case _ if att_entry.key.name == 'preserves-definedness' and att_entry.value == '':
++            return App(symbol=att_entry.key.name, sorts=(), args=())
+         case _:
+             raise ValueError(f'Do not know how to convert AttEntry to Kore: {att_entry}')
+ 
+diff -ru a/proof/reachability.py b/proof/reachability.py
+--- a/proof/reachability.py
++++ b/proof/reachability.py
+@@ -7,13 +7,14 @@
+ from typing import TYPE_CHECKING
+ 
+ from ..cterm.cterm import remove_useless_constraints
++from ..cterm.symbolic import CTermSMTError
+ from ..kast.inner import KInner, Subst
+ from ..kast.manip import flatten_label, free_vars, ml_pred_to_bool
+ from ..kast.outer import KClaim, KFlatModule, KImport, KRule
+ from ..kast.prelude.ml import mlAnd, mlTop
+ from ..kcfg import KCFG, KCFGStore
+ from ..kcfg.exploration import KCFGExploration
+-from ..kore.rpc import LogEntry, client_label
++from ..kore.rpc import LogEntry, SmtSolverError, client_label
+ from ..ktool.claim_index import ClaimIndex
+ from ..utils import FrozenDict, ensure_dir_path, hash_str, shorten_hashes, single
+ from .implies import ProofSummary, Prover, RefutationProof
+@@ -809,7 +810,7 @@
+     def _may_subsume(self, node: KCFG.Node, target_node: KCFG.Node) -> bool:
+         node_k_cell = node.cterm.try_cell('K_CELL')
+         target_k_cell = target_node.cterm.try_cell('K_CELL')
+-        if node_k_cell and target_k_cell and not target_k_cell.match(node_k_cell):
++        if node_k_cell is not None and target_k_cell is not None and target_k_cell.match(node_k_cell) is None:
+             return False
+         return True
+ 
+@@ -819,7 +820,15 @@
+         if self.fast_check_subsumption and not self._may_subsume(node, target_node):
+             _LOGGER.info(f'Skipping full subsumption check because of fast may subsume check {proof_id}: {node.id}')
+             return None
+-        _csubst = self.kcfg_explore.cterm_symbolic.implies(node.cterm, target_cterm, assume_defined=self.assume_defined)
++        try:
++            _csubst = self.kcfg_explore.cterm_symbolic.implies(node.cterm, target_cterm, assume_defined=self.assume_defined)
++        except CTermSMTError as err:
++            cause = err.__cause__
++            if not isinstance(cause, SmtSolverError) or cause.error != 'retry limit is 0':
++                raise
++            # Unknown establishes no cover; continue with the original node and its constraints.
++            _LOGGER.warning(f'SMT unknown checking target subsumption {proof_id}: {node.id}; continuing without cover')
++            return None
+         csubst = _csubst.csubst
+         if csubst is not None:
+             _LOGGER.info(f'Subsumed into target node {proof_id}: {shorten_hashes((node.id, target_node.id))}')
