@@ -263,7 +263,10 @@ Use `position_value` for half-up display and liquidation proportions.
 Use `position_value_floor` for collateral in risk checks.
 Use `position_value_ceil` for debt in risk checks.
 `price_wad` is USD per whole token from `MarketIndexView.price_wad`.
-Its maximum is `MAX_REASONABLE_PRICE_WAD = 10^9 × WAD`.
+Use it only when `valid` is true; a valid price is at most
+`MAX_REASONABLE_PRICE_WAD = 10^9 × WAD`. Otherwise it is a refused diagnostic
+value and can exceed that maximum. Use the strict views
+(`get_health_factor`, `get_total_collateral_usd`) for risk numbers.
 Source: `common/src/rates/value.rs`.
 
 ## Health factor and LTV weighting

@@ -20,8 +20,14 @@ are in its rustdoc.
   sidecar and a canceller reset writes a `RecoveryOp` sidecar. Execute and
   cancel remove the entry and its sidecars.
 - The operation id is `hash_operation(target, function, args, predecessor,
-  salt)`. `predecessor` is always 32 zero bytes; a new `salt` gives a
-  re-proposed op a new id.
+  salt)`. `predecessor` is always 32 zero bytes. The salt only separates
+  operations that are pending at the same time: a new `salt` gives a
+  re-proposed op a new id while the earlier one is still queued. It does not
+  mark an id as used. Execute and cancel remove the entry, and nothing records
+  that an id ran, so the same op with the same salt can be proposed and
+  executed again once its delay passes. As with any new proposal, the
+  timelock delay and the cancellers are what stop a repeat of an executed
+  change.
 - An op executes once ready and before it expires. `execute` runs ops that
   target another contract; `execute_self` runs ops that target governance.
 - The owner must be the proposer for: ownership, upgrade, migration, delay

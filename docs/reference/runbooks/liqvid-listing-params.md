@@ -104,6 +104,12 @@ below HF 1 at `R`. That needs a ceiling below `LT / LTV = 1.06`:
     ceiling = 1.03 R
     HF at R of a borrow made at the ceiling = 1.06 / 1.03 = 1.029
 
+This bound holds only while the true NAV `p` is at least
+`LTV / LT × ceiling = 0.9434 × 1.03 R = 0.9717 R`. A borrow at the ceiling
+opens at HF `1.06 × p / (1.03 R)`, which is below 1 for a lower `p`. After a
+lower NAV post, the band stays centred on the old `R` until the re-band
+executes (section 3).
+
 The band width is inside both on-chain limits:
 
     (1.03 - 0.849) / (1.03 + 0.849) = 0.181 / 1.879 = 9.633 %
@@ -124,8 +130,12 @@ except when it runs the refresh gate of section 10.
 `ConfigureAssetOracle` moves the band. Only the owner can propose it, and it
 waits for the standard timelock delay. `configs/networks.json` sets 12
 ledgers today; `TIMELOCK_MIN_DELAY_LEDGERS` suggests about 2 days. The ORACLE
-role can only make the band narrower (`set_sanity_band`). It cannot move the
-band.
+role can only make the band narrower (`set_sanity_band`), at once and without
+the timelock. It cannot move either edge outward, but it can raise the floor
+or lower the ceiling anywhere inside the band, down to the 50 bps minimum
+width. A floor at or above `0.9434 R` refuses every NAV that makes an account
+at the LTV limit liquidatable (section 1). Keep the ORACLE key in custody and
+monitor its calls.
 
 For each posted NAV `p`, do the step in the row that matches:
 
@@ -133,14 +143,18 @@ For each posted NAV `p`, do the step in the row that matches:
 |---|---|
 | `0.99 R <= p <= 1.015 R` | No step. |
 | `1.015 R < p <= 1.03 R` | Propose a band around `p`: `R = p`. |
-| `0.95 R <= p < 0.99 R` | Propose a band around `p`: `R = p`. |
-| `0.849 R <= p < 0.95 R` | Freeze the listing (`tightenAssetFlags`, `frozen`). Propose a band around `p`. Clear the freeze (`relaxAssetFlags`) after the new band is live. |
-| `p < 0.849 R` or `p > 1.03 R` | Prices fail closed. Freeze the listing. Make sure that the NAV is correct. Then propose a band around `p`. |
+| `0.95 R <= p < 0.99 R` | Propose a band around `p`: `R = p`. Below `0.9717 R`, first lower the ceiling to `1.03 p` with the ORACLE role's `set_sanity_band`, which applies at once. |
+| `0.849 R <= p < 0.95 R` | Freeze the share listing and the spoke's debt listings (`tightenAssetFlags`, `frozen`). Lower the ceiling to `1.03 p` as in the row above. Propose a band around `p`. Clear the freezes (`relaxAssetFlags`) after the new band is live. |
+| `p < 0.849 R` or `p > 1.03 R` | Prices fail closed. Freeze the share listing and the spoke's debt listings. Make sure that the NAV is correct. Then propose a band around `p`. |
 
 When you propose a new band, also set the supply cap again for the new
 ceiling (section 7).
 
-The freeze stops new borrows at a low NAV. A borrow at the LTV limit at `p`
+A frozen listing blocks only entry into that listing. Freezing the share
+listing stops new share supply, not new borrows against shares already
+supplied. The debt-listing freeze stops new borrows at a low NAV. The lower
+ceiling makes a bad ceiling report fail closed at once, while the re-band
+waits for the timelock. A borrow at the LTV limit at `p`
 becomes liquidatable at `0.9434 p`. That point stays above the floor only
 while `p > 0.9 R`. At `p = 0.95 R` that point is `0.8962 R`, which is
 5.6 % above the floor (`0.8962 / 0.849 = 1.056`), so the freeze starts
@@ -204,6 +218,12 @@ The borrower loses the bonus on the repaid amount: `loss = b × x`.
 | 0.99 | 14.2 % | 0.55 % | 1.06 |
 | 0.95 | 22.7 % | 1.07 % | 1.06 |
 | 0.90 | 33.5 % | 1.98 % | 1.06 |
+| 0.53 to 0.583 (cap) | 100 % | `1 - 0.53 / HF`, the whole equity | no debt |
+
+The cap row is outside the band. Below HF 0.583 the HF-preserving cap
+(section 4) is below the curve bonus, so the quote is the whole debt and the
+loss is the whole equity `C - D`. That needs a NAV below about `0.55 R` for
+an account opened at `R`.
 
 The largest loss inside one band comes from one jump to the floor. For
 1,000 shares opened at $1 with $500 of debt, the liquidator repays $167.48
@@ -516,9 +536,13 @@ those cases the harness checks the bonus, the trigger, the seizure and
   loses about 1.68 % of its collateral value at `R` (section 5). An account
   that borrowed at `1.015 R` loses 1.84 %, and one that borrowed at the
   ceiling `1.03 R` loses 2.01 %, on the same basis. A bad signer can also
-  post the ceiling. Borrowers can then borrow 3 % more, but no account opens
-  below HF 1 at the true NAV. If the signer then posts the floor, these
-  accounts lose 2.01 %.
+  post the ceiling. Borrowers can then borrow 3 % more. While the true NAV is
+  at least `0.9717 R`, no account opens below HF 1 at the true NAV. Below it,
+  for example while a re-band after a lower NAV post waits for the timelock,
+  a ceiling report admits borrows below HF 1 at the true NAV until the ORACLE
+  role lowers the ceiling (section 3). Lenders stay whole (section 7). If the
+  signer then posts the floor, accounts that borrowed at the ceiling lose
+  2.01 %.
 - A NAV fall larger than 15.1 % fails closed until a new band is live. On
   mainnet this can take the full timelock delay. Accounts can become
   insolvent in that time.
