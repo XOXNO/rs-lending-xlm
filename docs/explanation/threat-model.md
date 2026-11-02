@@ -243,7 +243,7 @@ its band does not bound that reach to 11/9. `make ops-script-check` runs
 margin to every enabled listing in `configs/mainnet`. A pair that still breaks
 it must be declared, with its finding id and the largest product it accepts,
 in `scripts/lender_envelope_exceptions.txt`; the check also fails when a
-declared pair rises above that product.
+declared pair rises above that product, or sits more than 0.001 below it.
 
 The borrower has less protection. The bonus `b` is the curve bonus at the
 reported HF, capped at `HF / LT - 1`. It is not the base bonus. On the default
