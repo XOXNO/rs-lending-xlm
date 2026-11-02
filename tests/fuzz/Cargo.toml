@@ -24,6 +24,7 @@ pool = { path = "../../contracts/pool" }
 price-aggregator = { path = "../../contracts/price-aggregator", features = ["testing"] }
 xoxno-oracle = { path = "../../contracts/xoxno-oracle" }
 mock-redstone = { path = "../../mock/mock-redstone" }
+flash-loan-receiver = { path = "../../mock/flash-loan-receiver" }
 test-harness = { path = "../test-harness", features = ["testing"] }
 num-bigint = "0.4"
 num-rational = "0.4"

@@ -5,14 +5,17 @@
 //! compared against the model after each operation.
 
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
+use std::fmt::Debug;
+use std::vec::Vec as StdVec;
 
 use arbitrary::Arbitrary;
 use common::constants::BPS;
 use common::oracle::observation::{MAX_FUTURE_SKEW_SECONDS, MAX_TWAP_RECORDS};
+use common::oracle::providers::redstone::RedStonePriceData;
 use common::oracle::providers::reflector::ReflectorAsset;
 use libfuzzer_sys::fuzz_target;
 use soroban_sdk::testutils::{Address as _, Ledger as _};
-use soroban_sdk::{Address, Env, String, Symbol, Vec};
+use soroban_sdk::{Address, ConversionError, Env, InvokeError, String, Symbol, Vec};
 use xoxno_oracle::{Error, XoxnoOracle, XoxnoOracleClient};
 
 const NOW: u64 = 1_000_000;
@@ -73,7 +76,7 @@ struct In {
     n_signers: u8,
     threshold: u8,
     resolution: u16,
-    ops: std::vec::Vec<Op>,
+    ops: StdVec<Op>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -85,7 +88,7 @@ struct Agg {
 
 #[derive(Default)]
 struct Model {
-    signers: std::vec::Vec<usize>,
+    signers: StdVec<usize>,
     threshold: u32,
     max_stale: u64,
     max_sub_age: u64,
@@ -106,7 +109,7 @@ impl Model {
     }
 
     fn recompute(&mut self, feed: usize, now: u64, clear_on_miss: bool) {
-        let mut kept = std::vec::Vec::new();
+        let mut kept = StdVec::new();
         let mut newest = 0u64;
         for s in &self.signers {
             let Some(&(price, ts)) = self.subs.get(&(feed, *s)) else {
@@ -123,7 +126,7 @@ impl Model {
         }
         let newest = newest.min(now.saturating_mul(MS));
         let skew_ms = self.skew().saturating_mul(MS);
-        let cluster: std::vec::Vec<(i128, u64)> = kept
+        let cluster: StdVec<(i128, u64)> = kept
             .into_iter()
             .filter(|(_, ts)| newest.saturating_sub(*ts) <= skew_ms)
             .collect();
@@ -146,7 +149,7 @@ impl Model {
         if (cluster.len() as u32) < spread_free && !within {
             return self.quorum_miss(feed, clear_on_miss);
         }
-        let mut prices: std::vec::Vec<i128> = cluster.iter().map(|c| c.0).collect();
+        let mut prices: StdVec<i128> = cluster.iter().map(|c| c.0).collect();
         prices.sort_unstable();
         let agg = Agg {
             price: prices[(prices.len() - 1) / 2],
@@ -198,7 +201,7 @@ impl Model {
         feed: usize,
         now: u64,
         limit: usize,
-    ) -> Result<std::vec::Vec<Agg>, Error> {
+    ) -> Result<StdVec<Agg>, Error> {
         self.read(feed, now)?;
         let h = self
             .history
@@ -209,19 +212,17 @@ impl Model {
     }
 
     fn require_signer(&self, signer: usize) -> Result<(), Error> {
-        if self.signers.contains(&signer) {
-            Ok(())
-        } else {
-            Err(Error::NotAuthorizedSigner)
-        }
+        self.signers
+            .contains(&signer)
+            .then_some(())
+            .ok_or(Error::NotAuthorizedSigner)
     }
 
     fn require_known(&self, feed: usize) -> Result<(), Error> {
-        if self.known.contains(&feed) {
-            Ok(())
-        } else {
-            Err(Error::FeedNotKnown)
-        }
+        self.known
+            .contains(&feed)
+            .then_some(())
+            .ok_or(Error::FeedNotKnown)
     }
 
     fn check_time(&self, ts_ms: u64, now: u64) -> Result<(), Error> {
@@ -276,27 +277,37 @@ fn package_ms(now: u64, back_s: i16) -> u64 {
     (now as i64 - back).max(0) as u64 * MS + u64::from(back_s.unsigned_abs()) % MS
 }
 
-fn expect_unit<T: std::fmt::Debug>(
-    label: &str,
-    got: Result<Result<T, soroban_sdk::ConversionError>, Result<Error, soroban_sdk::InvokeError>>,
-    want: Result<(), Error>,
-) -> bool {
-    match (got, want) {
-        (Ok(Ok(_)), Ok(())) => true,
-        (Err(Ok(e)), Err(w)) => {
-            assert_eq!(e, w, "{label}: wrong error");
-            false
-        }
-        (got, want) => panic!("{label}: contract returned {got:?}, model expected {want:?}"),
+/// A contract call's result, panicking on output-conversion or host-level failures.
+fn flat<T: Debug>(
+    got: Result<Result<T, ConversionError>, Result<Error, InvokeError>>,
+) -> Result<T, Error> {
+    match got {
+        Ok(Ok(v)) => Ok(v),
+        Err(Ok(e)) => Err(e),
+        other => panic!("contract call failed outside its error type: {other:?}"),
     }
 }
 
-fn agg_of(d: &common::oracle::providers::redstone::RedStonePriceData) -> Agg {
+fn expect_unit<T: Debug>(
+    label: &str,
+    got: Result<Result<T, ConversionError>, Result<Error, InvokeError>>,
+    want: Result<(), Error>,
+) -> bool {
+    let got = flat(got).map(|_| ());
+    assert_eq!(got, want, "{label}: contract diverged from the model");
+    got.is_ok()
+}
+
+fn agg_of(d: &RedStonePriceData) -> Agg {
     Agg {
         price: d.price.to_u128().expect("aggregate price exceeds u128") as i128,
         package_ms: d.package_timestamp,
         write_ms: d.write_timestamp,
     }
+}
+
+fn aggs_of(v: &Vec<RedStonePriceData>) -> StdVec<Agg> {
+    v.iter().map(|d| agg_of(&d)).collect()
 }
 
 fn check_reads(
@@ -308,33 +319,21 @@ fn check_reads(
 ) {
     let now = env.ledger().timestamp();
     for (f, feed_id) in feed_ids.iter().enumerate().take(FEEDS) {
-        match (c.try_read_price_data_for_feed(feed_id), m.read(f, now)) {
-            (Ok(Ok(d)), Ok(w)) => {
-                assert_eq!(
-                    agg_of(&d),
-                    w,
-                    "aggregate for feed {f} diverged from the model"
-                )
-            }
-            (Err(Ok(e)), Err(w)) => assert_eq!(e, w, "read error for feed {f}"),
-            (got, want) => panic!("feed {f}: contract read {got:?}, model expected {want:?}"),
-        }
+        assert_eq!(
+            flat(c.try_read_price_data_for_feed(feed_id)).map(|d| agg_of(&d)),
+            m.read(f, now),
+            "read for feed {f} diverged from the model"
+        );
         let limit = 1 + (f as u32 * 5) % MAX_TWAP_RECORDS;
-        match (
-            c.try_read_price_history(feed_id, &limit),
+        assert_eq!(
+            flat(c.try_read_price_history(feed_id, &limit)).map(|h| aggs_of(&h)),
             m.history_newest_first(f, now, limit as usize),
-        ) {
-            (Ok(Ok(h)), Ok(w)) => {
-                let got: std::vec::Vec<Agg> = h.iter().map(|d| agg_of(&d)).collect();
-                assert_eq!(got, w, "history for feed {f} diverged from the model");
-            }
-            (Err(Ok(e)), Err(w)) => assert_eq!(e, w, "history error for feed {f}"),
-            (got, want) => panic!("history {f}: contract {got:?}, model {want:?}"),
-        }
+            "history for feed {f} diverged from the model"
+        );
     }
     // Bulk read fails on the first feed that fails, in request order.
     let mut ids = Vec::new(env);
-    let mut want_bulk: Result<std::vec::Vec<Agg>, Error> = Ok(std::vec::Vec::new());
+    let mut want_bulk: Result<StdVec<Agg>, Error> = Ok(StdVec::new());
     for f in [2usize, 0, 1].iter().take(1 + (now as usize % 3)) {
         ids.push_back(feed_ids[*f].clone());
         if let Ok(acc) = want_bulk.as_mut() {
@@ -344,16 +343,11 @@ fn check_reads(
             }
         }
     }
-    match (c.try_read_price_data(&ids), want_bulk) {
-        (Ok(Ok(v)), Ok(w)) => {
-            let got: std::vec::Vec<Agg> = v.iter().map(|d| agg_of(&d)).collect();
-            assert_eq!(got, w, "bulk read diverged from the model");
-        }
-        (Err(Ok(e)), Err(w)) => assert_eq!(e, w, "bulk read error"),
-        (got, want) => panic!("bulk read: contract {got:?}, model {want:?}"),
-    }
-    assert_eq!(c.base(), ReflectorAsset::Other(Symbol::new(env, "USD")));
-    assert_eq!(c.decimals(), 8);
+    assert_eq!(
+        flat(c.try_read_price_data(&ids)).map(|v| aggs_of(&v)),
+        want_bulk,
+        "bulk read diverged from the model"
+    );
 
     for (a, asset) in assets.iter().enumerate() {
         let want = m
@@ -365,7 +359,7 @@ fn check_reads(
         assert_eq!(got, want, "lastprice for asset {a} diverged from the model");
 
         let records = 1 + a as u32 * 4;
-        let want_hist: Option<std::vec::Vec<(i128, u64)>> = m
+        let want_hist: Option<StdVec<(i128, u64)>> = m
             .asset_feed
             .get(&a)
             .and_then(|f| m.history_newest_first(*f, now, records as usize).ok())
@@ -374,7 +368,7 @@ fn check_reads(
         let got_hist = c.prices(asset, &records).map(|v| {
             v.iter()
                 .map(|p| (p.price, p.timestamp))
-                .collect::<std::vec::Vec<_>>()
+                .collect::<StdVec<_>>()
         });
         assert_eq!(
             got_hist, want_hist,
@@ -382,9 +376,8 @@ fn check_reads(
         );
     }
 
-    let mut want_feeds: std::vec::Vec<String> =
-        m.known.iter().map(|f| feed_ids[*f].clone()).collect();
-    let mut got_feeds: std::vec::Vec<String> = c.feeds().iter().collect();
+    let mut want_feeds: StdVec<String> = m.known.iter().map(|f| feed_ids[*f].clone()).collect();
+    let mut got_feeds: StdVec<String> = c.feeds().iter().collect();
     want_feeds.sort();
     got_feeds.sort();
     assert_eq!(got_feeds, want_feeds, "registered feed set diverged");
@@ -405,12 +398,12 @@ fuzz_target!(|i: In| {
     env.mock_all_auths();
     env.ledger().set_timestamp(NOW);
 
-    let pool: std::vec::Vec<Address> = (0..SIGNERS).map(|_| Address::generate(&env)).collect();
-    let feed_ids: std::vec::Vec<String> = ["feed0", "feed1", "feed2"]
+    let pool: StdVec<Address> = (0..SIGNERS).map(|_| Address::generate(&env)).collect();
+    let feed_ids: StdVec<String> = ["feed0", "feed1", "feed2"]
         .iter()
         .map(|s| String::from_str(&env, s))
         .collect();
-    let assets: std::vec::Vec<ReflectorAsset> = (0..ASSETS)
+    let assets: StdVec<ReflectorAsset> = (0..ASSETS)
         .map(|k| {
             if k < 2 {
                 ReflectorAsset::Stellar(Address::generate(&env))
@@ -422,10 +415,7 @@ fuzz_target!(|i: In| {
 
     let n = 1 + usize::from(i.n_signers) % (SIGNERS - 1);
     let threshold = 1 + u32::from(i.threshold) % n as u32;
-    let mut initial = Vec::new(&env);
-    for addr in &pool[..n] {
-        initial.push_back(addr.clone());
-    }
+    let initial = Vec::from_slice(&env, &pool[..n]);
     let resolution = u32::from(i.resolution % 600);
     let admin = Address::generate(&env);
     let addr = env.register(XoxnoOracle, (admin.clone(), initial, threshold, resolution));
@@ -442,6 +432,8 @@ fuzz_target!(|i: In| {
         ..Default::default()
     };
     assert_eq!(c.get_owner(), Some(admin));
+    assert_eq!(c.base(), ReflectorAsset::Other(Symbol::new(&env, "USD")));
+    assert_eq!(c.decimals(), 8);
     // Two mapped feeds from the start; feed 2 stays unregistered until an op adds it.
     for f in 0..2 {
         c.add_feed(&feed_ids[f], &assets[f]);
@@ -485,9 +477,9 @@ fuzz_target!(|i: In| {
             } => {
                 let s = usize::from(signer) % SIGNERS;
                 let k = usize::from(len % 4);
-                let fs: std::vec::Vec<usize> =
+                let fs: StdVec<usize> =
                     feeds[..k].iter().map(|f| usize::from(*f) % FEEDS).collect();
-                let mut ps: std::vec::Vec<i128> = fs
+                let mut ps: StdVec<i128> = fs
                     .iter()
                     .zip(prices.iter())
                     .map(|(f, p)| price_of(*p, *f))
@@ -512,15 +504,9 @@ fuzz_target!(|i: In| {
                 if want.is_ok() {
                     want = ps.iter().try_for_each(|p| check_price(*p));
                 }
-                let mut feed_vec = Vec::new(&env);
-                for f in &fs {
-                    feed_vec.push_back(feed_ids[*f].clone());
-                }
-                let mut price_vec = Vec::new(&env);
-                for p in &ps {
-                    price_vec.push_back(*p);
-                }
-                let got = c.try_submit_prices(&pool[s], &feed_vec, &price_vec, &ts);
+                let feed_vec = Vec::from_iter(&env, fs.iter().map(|f| feed_ids[*f].clone()));
+                let got =
+                    c.try_submit_prices(&pool[s], &feed_vec, &Vec::from_slice(&env, &ps), &ts);
                 if expect_unit("submit_prices", got, want) {
                     for (f, p) in fs.iter().zip(ps.iter()) {
                         m.subs.insert((*f, s), (*p, ts));
@@ -551,7 +537,7 @@ fuzz_target!(|i: In| {
                 };
                 if expect_unit("remove_signer", c.try_remove_signer(&pool[s]), want) {
                     m.signers.retain(|x| *x != s);
-                    let touched: std::vec::Vec<usize> = m
+                    let touched: StdVec<usize> = m
                         .subs
                         .keys()
                         .filter(|(_, signer)| *signer == s)
@@ -626,11 +612,8 @@ fuzz_target!(|i: In| {
                 }
             }
             Op::Recompute(mask) => {
-                let fs: std::vec::Vec<usize> = (0..FEEDS).filter(|f| mask >> f & 1 == 1).collect();
-                let mut ids = Vec::new(&env);
-                for f in &fs {
-                    ids.push_back(feed_ids[*f].clone());
-                }
+                let fs: StdVec<usize> = (0..FEEDS).filter(|f| mask >> f & 1 == 1).collect();
+                let ids = Vec::from_iter(&env, fs.iter().map(|f| feed_ids[*f].clone()));
                 let want = fs.iter().try_for_each(|f| m.require_known(*f));
                 if expect_unit("recompute_feeds", c.try_recompute_feeds(&ids), want) {
                     for f in fs {

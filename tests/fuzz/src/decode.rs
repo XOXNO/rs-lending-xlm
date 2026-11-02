@@ -1,7 +1,8 @@
 #[inline]
 pub fn scaled_amount(raw: u8, lo: f64, hi: f64) -> f64 {
-    debug_assert!(hi >= lo);
-    lo + (hi - lo) * (raw as f64 / u8::MAX as f64)
+    debug_assert!(lo > 0.0 && hi >= lo);
+    let t = raw as f64 / u8::MAX as f64;
+    (lo.ln() + (hi.ln() - lo.ln()) * t).exp()
 }
 
 #[inline]
@@ -19,15 +20,8 @@ pub fn asset_price_usd(asset: &str) -> f64 {
 }
 
 #[inline]
-pub fn log_scaled_amount(raw: u8, lo: f64, hi: f64) -> f64 {
-    debug_assert!(lo > 0.0 && hi >= lo);
-    let t = raw as f64 / u8::MAX as f64;
-    (lo.ln() + (hi.ln() - lo.ln()) * t).exp()
-}
-
-#[inline]
 pub fn amount_for_value(raw: u8, asset: &str, min_usd: f64, max_usd: f64) -> f64 {
-    log_scaled_amount(raw, min_usd, max_usd) / asset_price_usd(asset)
+    scaled_amount(raw, min_usd, max_usd) / asset_price_usd(asset)
 }
 
 fn splitmix64(mut x: u64) -> u64 {

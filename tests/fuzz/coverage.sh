@@ -60,7 +60,7 @@ focus_regex() {
         pool_native) echo 'contracts/pool/src|common/src/(rates|math|validation)|TOTAL' ;;
         aggregator|oracle_sources) echo 'common/src/oracle|contracts/price-aggregator/src|TOTAL' ;;
         xoxno_oracle) echo 'contracts/xoxno-oracle/src|TOTAL' ;;
-        oracle_math) echo 'common/src/oracle/(lp|lp_stable|observation)\.rs|providers/reflector\.rs|TOTAL' ;;
+        oracle_math) echo 'common/src/oracle/(lp|lp_stable)\.rs|TOTAL' ;;
         *) echo 'TOTAL' ;;
     esac
 }

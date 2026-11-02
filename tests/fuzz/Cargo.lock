@@ -1742,6 +1742,7 @@ dependencies = [
  "arbitrary",
  "common",
  "controller",
+ "flash-loan-receiver",
  "libfuzzer-sys",
  "mock-redstone",
  "num-bigint",

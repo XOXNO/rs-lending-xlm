@@ -12,12 +12,12 @@ use common::types::{
     ScaledPositionRaw,
 };
 use common::validation::max_cap_for_decimals;
+use flash_loan_receiver::{FlashLoanMode, FlashLoanRequest, FlashLoanTestReceiverClient};
 use libfuzzer_sys::fuzz_target;
 use pool::{LiquidityPool, LiquidityPoolClient};
 use soroban_sdk::xdr::ToXdr;
 use soroban_sdk::{
-    contracttype, testutils::Address as _, testutils::Ledger as _, token, vec, Address, Env,
-    IntoVal, Symbol,
+    testutils::Address as _, testutils::Ledger as _, token, vec, Address, Env, Error, InvokeError,
 };
 use stellar_fuzz::edge_biased_amount;
 
@@ -29,20 +29,7 @@ const PINNED_OPS: [u8; 4] = [2, 3, 4, 7];
 
 const OP_KINDS: u8 = 13;
 
-/// Mirrors `FlashLoanMode` in `mock/flash-loan-receiver`; only modes that need no controller.
-#[contracttype]
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-#[repr(u32)]
-enum FlashLoanMode {
-    Success = 0,
-    NoRepay = 1,
-    UnderRepay = 2,
-    ReenterPoolFlashLoan = 3,
-    Panic = 4,
-    OverRepay = 6,
-    PushToPool = 7,
-}
-
+/// The receiver modes that need no controller.
 const FLASH_MODES: [FlashLoanMode; 7] = [
     FlashLoanMode::Success,
     FlashLoanMode::NoRepay,
@@ -52,12 +39,6 @@ const FLASH_MODES: [FlashLoanMode; 7] = [
     FlashLoanMode::OverRepay,
     FlashLoanMode::PushToPool,
 ];
-
-#[contracttype]
-#[derive(Clone, Debug)]
-struct FlashLoanRequest {
-    mode: FlashLoanMode,
-}
 
 /// The pool rejects native receivers (`require_wasm_receiver`), so the mock is loaded as WASM.
 fn flash_receiver_wasm() -> &'static [u8] {
@@ -82,7 +63,7 @@ struct In {
     opt_pct: u8,
 
     /// Flash-loan fee in BPS, reduced modulo `MAX_FLASHLOAN_FEE_BPS + 1`.
-    max_pct: u16,
+    flash_fee_raw: u16,
     reserve_pct: u8,
 
     ops: [(u32, u32, u8); 8],
@@ -111,7 +92,7 @@ fn make_params(_env: &Env, asset: &Address, i: &In) -> MarketParamsRaw {
         reserve_factor: (((i.reserve_pct as i128 % 51) * 100).clamp(0, BPS - 1)) as u32,
         max_utilization: RAY,
         is_flashloanable: true,
-        flashloan_fee: (i.max_pct as i128 % (MAX_FLASHLOAN_FEE_BPS + 1)) as u32,
+        flashloan_fee: (i.flash_fee_raw as i128 % (MAX_FLASHLOAN_FEE_BPS + 1)) as u32,
         asset_id: asset.clone(),
         asset_decimals: 7,
     }
@@ -255,12 +236,10 @@ fn assert_state_eq(before: &PoolStateRaw, after: &PoolStateRaw) {
     assert_eq!(before.cash, after.cash);
 }
 
-fn flatten_contract_result<T>(
-    result: Result<
-        Result<T, soroban_sdk::ConversionError>,
-        Result<soroban_sdk::Error, soroban_sdk::InvokeError>,
-    >,
-) -> Result<T, soroban_sdk::Error> {
+/// Generic over the inner conversion error, whose type varies by generated client method.
+fn flatten_contract_result<T, C: std::fmt::Debug>(
+    result: Result<Result<T, C>, Result<Error, InvokeError>>,
+) -> Result<T, Error> {
     match result {
         Ok(Ok(value)) => Ok(value),
         Ok(Err(err)) => panic!("contract call succeeded but output conversion failed: {err:?}"),
@@ -270,23 +249,25 @@ fn flatten_contract_result<T>(
 
 /// `None` only on `MathOverflow`, the documented limit where accrued value exceeds the RAY domain.
 fn view_or_overflow<T: std::fmt::Debug>(
-    result: Result<
-        Result<T, soroban_sdk::Error>,
-        Result<soroban_sdk::Error, soroban_sdk::InvokeError>,
-    >,
+    result: Result<Result<T, Error>, Result<Error, InvokeError>>,
 ) -> Option<T> {
     match result {
         Ok(Ok(value)) => Some(value),
         Err(Ok(err)) => {
             assert_eq!(
                 err,
-                soroban_sdk::Error::from_contract_error(GenericError::MathOverflow as u32),
+                Error::from_contract_error(GenericError::MathOverflow as u32),
                 "view failed with unexpected error: {err:?}"
             );
             None
         }
         other => panic!("unexpected view result: {other:?}"),
     }
+}
+
+/// An amount view for sizing an op: the cap when it overflows, and at least 1.
+fn amount_view(result: Result<Result<i128, Error>, Result<Error, InvokeError>>, cap: i128) -> i128 {
+    view_or_overflow(result).unwrap_or(cap).max(1)
 }
 
 fn supply_entry(hub_asset: &HubAssetKey, scaled_amount: i128, amount: i128) -> PoolSupplyEntry {
@@ -426,12 +407,20 @@ fuzz_target!(|i: In| {
         cur_ts_s = cur_ts_s.saturating_add(dt_s);
         env.ledger().set_timestamp(cur_ts_s);
 
-        let before = pool_state(&pool, &market);
         let kind = if pinned && *op_kind & 0x80 != 0 {
             PINNED_OPS[((*op_kind >> 4) & 3) as usize]
         } else {
             op_kind % OP_KINDS
         };
+        // These ops act on accrued state, so they first accrue and skip the op when that fails.
+        if matches!(kind, 6 | 7 | 11 | 12)
+            && flatten_contract_result(pool.try_update_indexes(&vec![&env, market.clone()]))
+                .is_err()
+        {
+            assert_pool_invariants(&env, &pool, &pool_addr, &asset, &market);
+            continue;
+        }
+        let before = pool_state(&pool, &market);
         match kind {
             0 => {
                 let amount = amount_from_raw(*price_raw, 1_000_000, cap);
@@ -492,9 +481,7 @@ fuzz_target!(|i: In| {
             }
             2 => {
 
-                let supplied = view_or_overflow(pool.try_get_supplied_amount(&market))
-                    .unwrap_or(cap)
-                    .max(1);
+                let supplied = amount_view(pool.try_get_supplied_amount(&market), cap);
                 let amount = if op_kind & 1 == 0 {
                     amount_from_raw(*price_raw, 1_000_000, supplied.min(cap))
                 } else {
@@ -525,9 +512,7 @@ fuzz_target!(|i: In| {
             }
             3 => {
 
-                let debt = view_or_overflow(pool.try_get_borrowed_amount(&market))
-                    .unwrap_or(cap)
-                    .max(1);
+                let debt = amount_view(pool.try_get_borrowed_amount(&market), cap);
                 let amount = amount_from_raw(*price_raw, 1_000_000, debt.min(cap));
                 mint_to_pool(&env, &asset, &pool_addr, amount);
                 let result = flatten_contract_result(pool.try_repay(
@@ -588,11 +573,6 @@ fuzz_target!(|i: In| {
                 }
             }
             6 => {
-                if flatten_contract_result(pool.try_update_indexes(&vec![&env, market.clone()])).is_err() {
-                    assert_pool_invariants(&env, &pool, &pool_addr, &asset, &market);
-                    continue;
-                }
-                let before = pool_state(&pool, &market);
                 let result = flatten_contract_result(pool.try_claim_revenue(&market));
                 match result {
                     Ok(amount_mut) => {
@@ -621,12 +601,6 @@ fuzz_target!(|i: In| {
                         scaled_amount: supply_scaled,
                     }
                 };
-
-                if flatten_contract_result(pool.try_update_indexes(&vec![&env, market.clone()])).is_err() {
-                    assert_pool_invariants(&env, &pool, &pool_addr, &asset, &market);
-                    continue;
-                }
-                let before = pool_state(&pool, &market);
                 let entry = PoolSeizeEntry {
                     hub_asset: market.clone(),
                     side,
@@ -682,55 +656,30 @@ fuzz_target!(|i: In| {
                 }
             }
             9 => {
-
-                let math_overflow =
-                    soroban_sdk::Error::from_contract_error(GenericError::MathOverflow as u32);
-                let check_ratio_view = |label: &str,
-                                        res: Result<
-                    Result<i128, soroban_sdk::Error>,
-                    Result<soroban_sdk::Error, soroban_sdk::InvokeError>,
-                >| {
-                    match res {
-                        Ok(Ok(v)) => assert!(v >= 0, "negative {}: {}", label, v),
-                        Err(Ok(err)) => assert_eq!(
-                            err, math_overflow,
-                            "{} failed with unexpected error: {:?}",
-                            label, err
-                        ),
-                        other => panic!("unexpected {} result: {:?}", label, other),
+                let views = [
+                    ("utilization", pool.try_get_utilisation(&market)),
+                    ("deposit rate", pool.try_get_deposit_rate(&market)),
+                    ("borrow rate", pool.try_get_borrow_rate(&market)),
+                    ("protocol revenue", pool.try_get_revenue(&market)),
+                    ("supplied amount", pool.try_get_supplied_amount(&market)),
+                    ("borrowed amount", pool.try_get_borrowed_amount(&market)),
+                ];
+                for (label, view) in views {
+                    if let Some(v) = view_or_overflow(view) {
+                        assert!(v >= 0, "negative {label}: {v}");
                     }
-                };
-                check_ratio_view("utilization", pool.try_get_utilisation(&market));
-                check_ratio_view("deposit rate", pool.try_get_deposit_rate(&market));
-                check_ratio_view("borrow rate", pool.try_get_borrow_rate(&market));
+                }
                 let reserves = pool.get_reserves(&market);
-                let rev = view_or_overflow(pool.try_get_revenue(&market));
-                let supplied = view_or_overflow(pool.try_get_supplied_amount(&market));
-                let borrowed = view_or_overflow(pool.try_get_borrowed_amount(&market));
+                assert!(reserves >= 0, "negative reserves: {}", reserves);
                 let _dt = pool.get_delta_time(&market);
                 let _sync = pool.get_sync_data(&market);
-
-                assert!(reserves >= 0, "negative reserves: {}", reserves);
-                if let Some(rev) = rev {
-                    assert!(rev >= 0, "negative protocol revenue: {}", rev);
-                }
-                if let Some(supplied) = supplied {
-                    assert!(supplied >= 0, "negative supplied amount: {}", supplied);
-                }
-                if let Some(borrowed) = borrowed {
-                    assert!(borrowed >= 0, "negative borrowed amount: {}", borrowed);
-                }
             }
             10 => {
                 let recv = flash_receiver
                     .get_or_insert_with(|| {
                         let r = env.register(flash_receiver_wasm(), ());
                         // Reentry mode needs a plan; it points back at this pool's hub.
-                        env.invoke_contract::<()>(
-                            &r,
-                            &Symbol::new(&env, "set_plan"),
-                            (pool_addr.clone(), 1u32, 0u32, 0u64).into_val(&env),
-                        );
+                        FlashLoanTestReceiverClient::new(&env, &r).set_plan(&pool_addr, &1, &0, &0);
                         r
                     })
                     .clone();
@@ -749,13 +698,9 @@ fuzz_target!(|i: In| {
                 }
                 let balance_before = pool_balance(&env, &asset, &pool_addr);
                 let data = FlashLoanRequest { mode }.to_xdr(&env);
-                let result = match pool.try_flash_loan(&market, &payer, &recv, &amount, &data) {
-                    Ok(Ok(fee)) => Ok(fee),
-                    Ok(Err(err)) => panic!("flash loan output conversion failed: {err:?}"),
-                    Err(Ok(err)) => Err(err),
-                    Err(Err(invoke)) => panic!("flash loan host-level InvokeError: {invoke:?}"),
-                };
-                match result {
+                match flatten_contract_result(
+                    pool.try_flash_loan(&market, &payer, &recv, &amount, &data),
+                ) {
                     Ok(fee) => {
                         assert!(
                             matches!(mode, FlashLoanMode::Success | FlashLoanMode::OverRepay),
@@ -788,16 +733,7 @@ fuzz_target!(|i: In| {
                 }
             }
             11 => {
-                if flatten_contract_result(pool.try_update_indexes(&vec![&env, market.clone()]))
-                    .is_err()
-                {
-                    assert_pool_invariants(&env, &pool, &pool_addr, &asset, &market);
-                    continue;
-                }
-                let before = pool_state(&pool, &market);
-                let debt = view_or_overflow(pool.try_get_borrowed_amount(&market))
-                    .unwrap_or(cap)
-                    .max(1);
+                let debt = amount_view(pool.try_get_borrowed_amount(&market), cap);
                 let amount = if *price_raw % 29 == 0 {
                     -1
                 } else if op_kind & 1 == 1 {
@@ -846,17 +782,10 @@ fuzz_target!(|i: In| {
                 }
             }
             12 => {
-                if flatten_contract_result(pool.try_update_indexes(&vec![&env, market.clone()]))
-                    .is_err()
-                {
-                    assert_pool_invariants(&env, &pool, &pool_addr, &asset, &market);
-                    continue;
-                }
                 let amount_negative = *price_raw % 37 == 0;
-                let pre = pool_state(&pool, &market);
                 // Forging a cash deficit is the only way to reach a non-zero backing shortfall here.
-                let deficit = if !amount_negative && op_kind & 1 == 1 && pre.cash > 1 {
-                    amount_from_raw(*price_raw, 1, pre.cash)
+                let deficit = if !amount_negative && op_kind & 1 == 1 && before.cash > 1 {
+                    amount_from_raw(*price_raw, 1, before.cash)
                 } else {
                     0
                 };

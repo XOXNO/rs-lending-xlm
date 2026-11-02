@@ -6,7 +6,7 @@ use common::oracle::providers::redstone::RedStonePriceData;
 use common::oracle::providers::reflector::{ReflectorAsset, ReflectorPriceData};
 use soroban_sdk::{
     contract, contracterror, contractimpl, contracttype, panic_with_error, Address, BytesN, Env,
-    String, Symbol, Vec,
+    IntoVal, String, Symbol, TryFromVal, Val, Vec,
 };
 
 #[contracterror]
@@ -38,11 +38,11 @@ enum Key {
     Amp,
 }
 
-fn set<V: soroban_sdk::IntoVal<Env, soroban_sdk::Val>>(env: &Env, key: Key, value: &V) {
+fn set<V: IntoVal<Env, Val>>(env: &Env, key: Key, value: &V) {
     env.storage().instance().set(&key, value);
 }
 
-fn get<V: soroban_sdk::TryFromVal<Env, soroban_sdk::Val>>(env: &Env, key: Key) -> Option<V> {
+fn get<V: TryFromVal<Env, Val>>(env: &Env, key: Key) -> Option<V> {
     env.storage().instance().get(&key)
 }
 

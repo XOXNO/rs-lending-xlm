@@ -4,6 +4,9 @@
 //! constant-product and stable LP, dual blends), through both the validating
 //! `set_oracle` path and the unvalidated `seed_oracle` path.
 
+use core::mem::swap;
+use std::vec::Vec as StdVec;
+
 use arbitrary::Arbitrary;
 use common::constants::{BPS, MAX_REASONABLE_PRICE_WAD, MAX_TOLERANCE, MIN_TOLERANCE, WAD};
 use common::math::fp_core::mul_div_half_up;
@@ -120,7 +123,7 @@ impl Kind {
 struct Registry {
     shared: bool,
     reuse: [Option<Address>; 4],
-    all: std::vec::Vec<Address>,
+    all: StdVec<Address>,
 }
 
 impl Registry {
@@ -418,7 +421,6 @@ fn lp_decimals(raw: u8) -> u32 {
     u32::from(raw) % 19
 }
 
-#[allow(clippy::too_many_arguments)]
 fn build_lp(
     env: &Env,
     reg: &mut Registry,
@@ -585,29 +587,6 @@ fn price(env: &Env, agg: &PriceAggregatorClient, key: &PriceKey) -> Option<Price
         .and_then(|m| m.get(key.clone()))
 }
 
-fn assert_status_eq(a: &PriceStatus, b: &PriceStatus) {
-    assert_eq!(
-        (
-            a.final_wad,
-            a.primary_wad,
-            a.secondary_wad,
-            a.price_timestamp
-        ),
-        (
-            b.final_wad,
-            b.primary_wad,
-            b.secondary_wad,
-            b.price_timestamp
-        ),
-        "batched status differs from single-key status"
-    );
-    assert_eq!(
-        (a.stale, a.deviation, a.valid, a.error_code),
-        (b.stale, b.deviation, b.valid, b.error_code),
-        "batched status flags differ from single-key status"
-    );
-}
-
 fn check(env: &Env, agg: &PriceAggregatorClient, key: &PriceKey, batch: &[PriceKey]) {
     let q = quote(env, agg, key);
     let p = price(env, agg, key);
@@ -667,13 +646,12 @@ fn check(env: &Env, agg: &PriceAggregatorClient, key: &PriceKey, batch: &[PriceK
         );
     }
     // One session serves a batch; a key's status must not depend on what else is read with it.
-    let mut keys = Vec::new(env);
-    for k in batch {
-        keys.push_back(k.clone());
-    }
-    if let (Some(single), Ok(Ok(m))) = (&q, agg.try_quotes(&keys)) {
+    if let (Some(single), Ok(Ok(m))) = (&q, agg.try_quotes(&Vec::from_slice(env, batch))) {
         if let Some(batched) = m.get(key.clone()) {
-            assert_status_eq(single, &batched);
+            assert_eq!(
+                single, &batched,
+                "batched status differs from single-key status"
+            );
         }
     }
 }
@@ -688,7 +666,7 @@ fuzz_target!(|i: In| {
     let mut reg = Registry {
         shared: i.shared,
         reuse: Default::default(),
-        all: std::vec::Vec::new(),
+        all: StdVec::new(),
     };
 
     let anchor = if i.anchor.is_multiple_of(4) {
@@ -824,7 +802,7 @@ fuzz_target!(|i: In| {
     let half = 50 + i128::from(i.band_bps) % (half_cap - 49);
     let (mut min, mut max) = band(center, half, i128::from(i.band_shift_bps) % 500);
     if i.band_bps % 37 == 36 {
-        core::mem::swap(&mut min, &mut max);
+        swap(&mut min, &mut max);
     }
     let mut max_stale = MIN_PRICE_STALE_SECONDS;
     for s in sources.iter() {
@@ -838,13 +816,9 @@ fuzz_target!(|i: In| {
     if i.tol_extra % 13 == 12 {
         max_stale = u64::from(i.tol_extra);
     }
-    let mut shared = Vec::new(&env);
-    for addr in &reg.all {
-        shared.push_back(addr.clone());
-    }
     let independence = match i.independence % 3 {
         0 => IndependencePolicy::RequireDisjoint,
-        1 => IndependencePolicy::AllowShared(shared),
+        1 => IndependencePolicy::AllowShared(Vec::from_slice(&env, &reg.all)),
         _ => IndependencePolicy::AllowShared(Vec::new(&env)),
     };
     let cfg = AssetOracle {

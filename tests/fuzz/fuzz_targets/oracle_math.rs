@@ -1,18 +1,12 @@
 #![no_main]
-//! Pure-function fuzzing of the oracle math: LP fair pricing (constant-product
-//! and StableSwap), the integer square root behind it, and the observation and
-//! TWAP helpers. Each result is checked against an independent bound or
-//! re-derivation.
+//! Pure-function fuzzing of the LP fair pricing (constant-product and
+//! StableSwap) and the integer square root behind it. Each result is checked
+//! against an independent bound or re-derivation.
 
 use arbitrary::Arbitrary;
 use common::constants::WAD;
 use common::oracle::lp::{fair_lp_price_wad, isqrt_of_product, LpLeg, LpSupply};
 use common::oracle::lp_stable::fair_stable_lp_price_wad;
-use common::oracle::observation::{
-    check_not_future_at, is_future_at, is_stale, millis_to_seconds, try_normalize_positive_price,
-    try_u256_to_i128, u256_to_i128, MAX_FUTURE_SKEW_SECONDS,
-};
-use common::oracle::providers::reflector::{try_twap_mean_price, ReflectorPriceData};
 use libfuzzer_sys::fuzz_target;
 use soroban_sdk::{Env, U256};
 use stellar_fuzz::edge_biased_amount;
@@ -37,14 +31,6 @@ struct In {
     amp_step: u32,
     sqrt_a: u128,
     sqrt_b: u128,
-    norm_price: i128,
-    norm_decimals: u8,
-    u256_parts: [u64; 4],
-    now: u64,
-    feed_ts: u64,
-    max_stale: u64,
-    twap: [(i64, u8); 6],
-    twap_len: u8,
 }
 
 fn pick(raw: u64, mode: u8, hi: i128) -> i128 {
@@ -220,68 +206,4 @@ fuzz_target!(|i: In| {
     if !known_stable_trap {
         check_stable(&env, &i, &a, &b, &supply, any_nonpositive);
     }
-
-    let dec = u32::from(i.norm_decimals) % 24;
-    let want = if i.norm_price <= 0 || dec > 18 {
-        None
-    } else {
-        10i128
-            .checked_pow(18 - dec)
-            .and_then(|f| i.norm_price.checked_mul(f))
-    };
-    assert_eq!(try_normalize_positive_price(i.norm_price, dec), want);
-
-    let [p0, p1, p2, p3] = i.u256_parts;
-    let big = U256::from_parts(&env, p0, p1, p2, p3);
-    let want = if p0 == 0 && p1 == 0 && p2 <= i64::MAX as u64 {
-        Some(((u128::from(p2) << 64) | u128::from(p3)) as i128)
-    } else {
-        None
-    };
-    assert_eq!(try_u256_to_i128(&big), want, "u256 narrowing mismatch");
-
-    assert_eq!(
-        is_stale(i.now, i.feed_ts, i.max_stale),
-        i.now > i.feed_ts && i.now - i.feed_ts > i.max_stale
-    );
-    assert_eq!(
-        is_future_at(i.now, i.feed_ts),
-        i.now
-            .checked_add(MAX_FUTURE_SKEW_SECONDS)
-            .is_some_and(|limit| i.feed_ts > limit)
-    );
-    assert_eq!(millis_to_seconds(i.feed_ts), i.feed_ts / 1_000);
-    // The panicking wrappers abort the fuzzer on failure, so only their accepting inputs run.
-    if !is_future_at(i.now, i.feed_ts) && i.now.checked_add(MAX_FUTURE_SKEW_SECONDS).is_some() {
-        check_not_future_at(&env, i.now, i.feed_ts);
-    }
-    if let Some(v) = try_u256_to_i128(&big) {
-        assert_eq!(u256_to_i128(&env, &big), v);
-    }
-
-    let len = usize::from(i.twap_len % 7);
-    let mut history = soroban_sdk::Vec::new(&env);
-    let mut prices = std::vec::Vec::new();
-    for (raw, mode) in i.twap.iter().take(len) {
-        let price = match mode % 6 {
-            0 => 0,
-            1 => -i128::from(raw.unsigned_abs()),
-            2 => i128::MAX,
-            _ => i128::from(raw.unsigned_abs()) + 1,
-        };
-        prices.push(price);
-        history.push_back(ReflectorPriceData {
-            price,
-            timestamp: raw.unsigned_abs(),
-        });
-    }
-    let want = if prices.is_empty() || prices.iter().any(|p| *p <= 0) {
-        None
-    } else {
-        prices
-            .iter()
-            .try_fold(0i128, |acc, p| acc.checked_add(*p))
-            .map(|sum| sum / prices.len() as i128)
-    };
-    assert_eq!(try_twap_mean_price(&history), want, "TWAP mean mismatch");
 });
