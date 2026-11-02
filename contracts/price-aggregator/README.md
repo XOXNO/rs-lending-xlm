@@ -74,6 +74,9 @@ LP sources (Aquarius or Curve) are collateral-only: keep LP markets at
 `can_be_borrowed: false`; Curve's lowest-coin price understates an LP debt.
 `validateConfigs` rejects a spoke listing that makes an LP market borrowable,
 and `addAssetToSpoke` / `editAssetInSpoke` refuse one before proposing.
+Prices are keyed by asset address, so the check covers every market (any hub
+or name) sharing the LP's address, and a market whose `Scaled` quote (a Token
+or a reference) is LP-priced.
 Set the LP's `min_sanity_price_wad` at or below the smallest coin
 `min_sanity_price_wad` times the lowest expected virtual price / WAD, so the
 LP band never trips before the coin bands.
@@ -87,8 +90,11 @@ An executable change makes the source unpriceable until reviewed and reconfigure
 Record each reviewed executable in `configs/<network>/curve_reviewed_pools.json`
 as `{"pools": [{wasm_hash, source_repo, source_commit, review, expected_factory}]}`
 (lowercase 64-hex hash, every field non-empty; write `unknown` rather than guess).
-`validateConfigs` rejects a `CurveStableLp` source whose `wasm_hash` is not
-listed for that network. The mainnet list is empty: no Curve pool executable
+On mainnet, `unknown` is refused: `source_commit` must be a 40-hex git commit
+and `source_repo` and `expected_factory` must name the reviewed source and
+factory. `validateConfigs` and the direct `configureMarketOracle` proposal both
+reject a `CurveStableLp` source whose `wasm_hash` is not listed for that
+network. The mainnet list is empty: no Curve pool executable
 has been reviewed for mainnet. The testnet list holds the two fixture
 executables, whose upstream source is unknown (see the
 [fixture README](../swap-aggregator/tests/fixtures/curve/README.md)).
@@ -108,6 +114,15 @@ That figure is a lower bound: native controller and feed, SAC coins,
 single-source coin oracles and one debt leg. With every contract on the path as
 WASM, custom-WASM coins, two-source coin oracles and 5 debt legs, the worst case
 measured 107.7M CPU and 15.1M memory (`curve_lp_liquidation_worst_case_all_wasm`).
+That bench uses `mock_redstone.wasm` for both feed providers (the RedStone
+primary and the Chainlink anchor) and the minimal `production_fixture.wasm`
+token for every coin and debt asset. It prints usage and asserts no ceiling.
+Re-measure with the production RedStone adapter, Chainlink proxy and listed
+token executables before treating the figure as a production bound. Live
+mainnet limits read on 2026-11-02 (`stellar network settings`):
+`tx_max_instructions` 400,000,000, `tx_memory_limit` 41,943,040,
+`tx_max_footprint_entries` 400, `tx_max_disk_read_entries` 200,
+`tx_max_write_ledger_entries` 200.
 Larger pools require their own code and transaction-resource validation.
 The generic production-fixture runner rejects Curve sources; Curve tests use
 the real pool WASMs.

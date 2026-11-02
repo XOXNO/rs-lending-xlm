@@ -33,10 +33,20 @@ class ProductionPolicyChecks(unittest.TestCase):
             markets['markets'].insert(0, lp)
             spokes['1']['assets'] = {'CurveLP': dict(spokes['1']['assets']['USDC'], can_be_borrowed=False,
                 borrow_cap='0', supply_cap=str(10**30)), **spokes['1']['assets']}
+            reviewed = lambda *hs: (root / 'curve_reviewed_pools.json').write_text(json.dumps({'pools': [
+                dict(wasm_hash=h, source_repo='r', source_commit='c', review='v', expected_factory='f') for h in hs]}))
             def write(source_hash, coin_list=coins):
                 lp['oracle']['sources'][0]['CurveStableLp'].update(wasm_hash=source_hash, coins=coin_list)
                 (root / 'markets.json').write_text(json.dumps(markets))
                 (root / 'spokes.json').write_text(json.dumps(spokes))
+            # The source network's allowlist is checked before any fixture is chosen or deployed.
+            write(hashes[2].upper())
+            with self.assertRaisesRegex(ValueError, hashes[2] + ' is not in .*curve_reviewed_pools.json'):
+                plan(root)
+            reviewed(hashes[3])
+            with self.assertRaisesRegex(ValueError, hashes[2] + ' is not in .*curve_reviewed_pools.json'):
+                plan(root)
+            reviewed('ab' * 32, hashes[2], hashes[3])
             for bad, message in (('ab' * 32, 'ab' * 32 + ' has no fixture.*reviewed pool WASM'),
                                  (hashes[3], 'pool-3coin.wasm does not take 2 coins')):
                 write(bad)
@@ -49,7 +59,7 @@ class ProductionPolicyChecks(unittest.TestCase):
                 plan(root, ('CurveLP', 'USDC'))
             mapping = {address: f'fixture-{i}' for i, address in enumerate(definitions)}
             materialize(root, out, mapping, 'testnet')
-            self.assertEqual((out / 'curve_reviewed_pools.json').read_bytes(), (source / 'curve_reviewed_pools.json').read_bytes())
+            self.assertEqual((out / 'curve_reviewed_pools.json').read_bytes(), (root / 'curve_reviewed_pools.json').read_bytes())
             fixtures = load(out, 'fixtures.json')
             self.assertEqual(fixtures['curve_pools'], [dict(contract=mapping[pool], wasm='pool-2coin.wasm', wasm_hash=hashes[2].upper(),
                 coins=[mapping[c] for c in coins], coin_decimals=[7, 7], amounts=[str(10**15)] * 2)])

@@ -89,10 +89,22 @@ get_market_value() {
 
 # LP prices (Aquarius or Curve) are collateral-only: an LP mark is a
 # conservative lower bound, so it understates a debt denominated in the LP.
+# Prices are keyed by asset address, not market name, so every market sharing
+# the named market's address counts (another hub or alias may carry the LP
+# source). A Scaled source whose quote Token or Ref is LP-priced inherits the
+# LP mark, so the walk follows those quotes (bounded depth guards cycles).
 market_has_lp_source() {
     jq -e --arg m "$1" '
-        any(.markets[]? | select(.name == $m) | .oracle.sources[]?;
-            has("AquariusLp") or has("AquariusStableLp") or has("CurveStableLp"))
+        . as $root |
+        def lp_priced($sources; $depth):
+            $depth > 0 and any($sources[]?;
+                has("AquariusLp") or has("AquariusStableLp") or has("CurveStableLp") or
+                ((.Scaled.quote.Token? // null) as $q | $q != null and
+                    lp_priced([$root.markets[]? | select(.asset_address == $q) | .oracle.sources[]?]; $depth - 1)) or
+                ((.Scaled.quote.Ref? // null) as $r | $r != null and
+                    lp_priced([$root.references[]? | select(.name == $r or .key.Ref == $r) | .oracle.sources[]?]; $depth - 1)));
+        [.markets[]? | select(.name == $m) | .asset_address] as $addrs |
+        lp_priced([.markets[]? | select(.asset_address as $a | any($addrs[]; . == $a)) | .oracle.sources[]?]; 8)
     ' "$MARKET_CONFIG_FILE" >/dev/null
 }
 
@@ -100,6 +112,53 @@ refuse_borrowable_lp() {
     local asset_name=$1 can_borrow=$2
     if [ "$can_borrow" = "true" ] && market_has_lp_source "$asset_name"; then
         die "${asset_name} has an LP oracle source and is collateral-only; set can_be_borrowed: false in ${SPOKES_FILE}"
+    fi
+}
+
+curve_reviewed_schema_hint() {
+    local hint='need {"pools": [...]} with unique lowercase 64-hex wasm_hash and non-empty source_repo, source_commit, review, expected_factory'
+    if [ "$NETWORK" = "mainnet" ]; then
+        hint="${hint}; on mainnet source_commit must be a 40-hex git commit and source_repo/expected_factory must not be unknown"
+    fi
+    printf '%s' "$hint"
+}
+
+# Prints the governance-reviewed Curve pool hashes of $NETWORK as a JSON array.
+# A missing file lists nothing; a malformed file fails. Mainnet entries must
+# name their provenance: a pinned commit, a repository and the factory.
+curve_reviewed_hashes() {
+    if [ ! -f "$CURVE_REVIEWED_POOLS_FILE" ]; then
+        printf '[]'
+        return 0
+    fi
+    jq -ce --arg net "$NETWORK" '
+        def known: type == "string" and length > 0 and (ascii_downcase | startswith("unknown") | not);
+        if (.pools | type) == "array" and
+            all(.pools[];
+                (.wasm_hash | type == "string" and test("^[0-9a-f]{64}$")) and
+                all(.source_repo, .source_commit, .review, .expected_factory;
+                    type == "string" and length > 0) and
+                ($net != "mainnet" or (
+                    (.source_commit | test("^[0-9a-f]{40}$")) and
+                    (.source_repo | known) and (.expected_factory | known)))) and
+            ([.pools[].wasm_hash] | unique | length) == (.pools | length)
+        then [.pools[].wasm_hash] else false end
+    ' "$CURVE_REVIEWED_POOLS_FILE" 2>/dev/null
+}
+
+# Every CurveStableLp source must name a reviewed pool executable. Reads the
+# same allowlist as validate_configs, so the direct set_oracle proposal path
+# (configureMarketOracle, configureReferenceOracle) enforces it too.
+refuse_unreviewed_curve_hash() {
+    local label=$1 cfg_json=$2 reviewed
+    printf '%s' "$cfg_json" | jq -e 'any(.sources[]?; has("CurveStableLp"))' >/dev/null || return 0
+    reviewed=$(curve_reviewed_hashes) ||
+        die "${label}: ${CURVE_REVIEWED_POOLS_FILE}: $(curve_reviewed_schema_hint)"
+    if ! printf '%s' "$cfg_json" | jq -e --argjson reviewed "$reviewed" '
+        all(.sources[]? | select(has("CurveStableLp")) | .CurveStableLp.wasm_hash;
+            type == "string" and (ascii_downcase as $h | $reviewed | index($h) != null))
+    ' >/dev/null 2>&1; then
+        die "${label}: Curve wasm_hash $(printf '%s' "$cfg_json" | jq -c '[.sources[]? | .CurveStableLp.wasm_hash? // empty]') is not in ${CURVE_REVIEWED_POOLS_FILE}"
     fi
 }
 
@@ -1230,20 +1289,10 @@ validate_configs() {
 
     # Governance-reviewed Curve pool executables for this network. A missing
     # file lists nothing, so any CurveStableLp source then fails below.
-    local curve_reviewed='[]'
-    if [ -f "$CURVE_REVIEWED_POOLS_FILE" ]; then
-        if ! jq -e '
-            (.pools | type) == "array" and
-            all(.pools[];
-                (.wasm_hash | type == "string" and test("^[0-9a-f]{64}$")) and
-                all(.source_repo, .source_commit, .review, .expected_factory;
-                    type == "string" and length > 0)) and
-            ([.pools[].wasm_hash] | unique | length) == (.pools | length)
-        ' "$CURVE_REVIEWED_POOLS_FILE" >/dev/null 2>&1; then
-            vc_err "${CURVE_REVIEWED_POOLS_FILE}: need {\"pools\": [...]} with unique lowercase 64-hex wasm_hash and non-empty source_repo, source_commit, review, expected_factory"
-        else
-            curve_reviewed=$(jq -c '[.pools[].wasm_hash]' "$CURVE_REVIEWED_POOLS_FILE")
-        fi
+    local curve_reviewed
+    if ! curve_reviewed=$(curve_reviewed_hashes); then
+        vc_err "${CURVE_REVIEWED_POOLS_FILE}: $(curve_reviewed_schema_hint)"
+        curve_reviewed='[]'
     fi
 
     local cex dex fx redstone chainlink xoxno_adapter
@@ -2881,6 +2930,7 @@ schedule_configure_asset_oracle() {
         '{key:$key, oracle:$oracle}')
 
     local agg resolved_args salt_use known_id state gen requires_current_abi=false
+    refuse_unreviewed_curve_hash "configure oracle ${label}" "$cfg_json"
     if printf '%s' "$cfg_json" | jq -e '
         any(.sources[]?; has("CurveStableLp") or ((.Feed // .Scaled.factor).provider.Chainlink? != null))
     ' >/dev/null; then

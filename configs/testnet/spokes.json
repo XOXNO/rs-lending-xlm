@@ -135,7 +135,7 @@
         "liquidation_bonus": 1000,
         "liquidation_fees": 100,
         "supply_cap": "10000000000",
-        "borrow_cap": "2500000000"
+        "borrow_cap": "0"
       },
       "USDC": {
         "hub_id": 1,

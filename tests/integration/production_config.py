@@ -26,6 +26,16 @@ def curve_fixture(lp):
                      f'{CURVE_FIXTURES}; replay requires the reviewed pool WASM')
 
 
+def curve_reviewed(root, lp):
+    """Refuse a Curve source whose executable is not on the source network's allowlist."""
+    path = root / 'curve_reviewed_pools.json'
+    reviewed = {p['wasm_hash'] for p in json.loads(path.read_text())['pools']} if path.exists() else set()
+    want = lp.get('wasm_hash', '').lower()
+    if want not in reviewed:
+        raise ValueError(f'Curve pool {lp.get("pool")} wasm_hash {want or "<missing>"} is not in {path}; '
+                         'replay deploys only governance-reviewed pool executables')
+
+
 def walk(value):
     if isinstance(value, dict):
         yield value
@@ -258,6 +268,8 @@ def plan(root, only=None):
     for node in walk([enabled, markets.get('references', [])]):
         if 'CurveStableLp' in node:
             lp = node['CurveStableLp']
+            # Fails before any deploy; validate_configs repeats this on the materialized config.
+            curve_reviewed(root, lp)
             # Deployed after its coins: the constructor takes their fixture addresses.
             definitions[lp['pool']] = dict(kind='curve_pool', wasm=curve_fixture(lp), coins=lp['coins'],
                                            decimals=18, name=definitions.get(lp['pool'], {}).get('name', 'CURVELP'))

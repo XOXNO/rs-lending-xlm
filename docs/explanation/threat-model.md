@@ -398,8 +398,18 @@ single-source coin oracles and one debt leg (the limit is 5). The WASM replay
 the path runs as WASM, coins are custom-WASM tokens with two-source WASM feeds,
 and the account holds 5 LP legs and 5 debt legs. Its heaviest case (`Transfer`
 seizure, 5 seconds after the last accrual) used 107.7M of 400M CPU, 15.1M of
-41.9M memory, 212 of 400 footprint entries and 42 of 200 writes. Larger pools
-need new code and new measurements.
+41.9M memory, 212 of 400 footprint entries, 0 of 200 disk read entries and 42
+of 200 writes. The replay still is not production: both feed providers (the
+RedStone primary and the Chainlink anchor) are `mock_redstone.wasm`, every coin
+and debt asset is the minimal `production_fixture.wasm` token, and the test
+prints usage without asserting a ceiling. Re-measure with the production
+RedStone adapter, Chainlink proxy and listed token executables before treating
+107.7M as a production bound; real feed and token contracts can cost more. The
+limits compared are the live mainnet settings read on 2026-11-02 with
+`stellar network settings`: `tx_max_instructions` 400,000,000,
+`tx_memory_limit` 41,943,040, `tx_max_footprint_entries` 400,
+`tx_max_disk_read_entries` 200 and `tx_max_write_ledger_entries` 200. Larger
+pools need new code and new measurements.
 
 ## STRIDE register
 

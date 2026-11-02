@@ -462,11 +462,16 @@ fn curve_lp_liquidation_at_position_limit_fits_default_budget() {
 }
 
 /// SDK 28 `InvocationResourceLimits::mainnet()`, the same limits the harness
-/// enforces per invocation: (label, limit).
-const MAINNET_LIMITS: [(&str, u64); 7] = [
+/// enforces per invocation: (label, limit). Live mainnet settings read on
+/// 2026-11-02 (`stellar network settings`) match: tx_max_instructions,
+/// tx_memory_limit, tx_max_footprint_entries, tx_max_disk_read_entries,
+/// tx_max_write_ledger_entries, tx_max_disk_read_bytes, tx_max_write_bytes,
+/// tx_max_contract_events_size_bytes.
+const MAINNET_LIMITS: [(&str, u64); 8] = [
     ("cpu", 400_000_000),
     ("mem", 41_943_040),
     ("footprint entries", 400),
+    ("disk read entries", 200),
     ("write entries", 200),
     ("disk read bytes", 200_000),
     ("write bytes", 132_096),
@@ -619,6 +624,7 @@ fn curve_lp_liquidation_worst_case_all_wasm() {
             r.instructions as u64,
             r.mem_bytes as u64,
             u64::from(r.disk_read_entries + r.memory_read_entries + r.write_entries),
+            u64::from(r.disk_read_entries),
             u64::from(r.write_entries),
             u64::from(r.disk_read_bytes),
             u64::from(r.write_bytes),
