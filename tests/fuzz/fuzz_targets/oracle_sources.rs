@@ -1,8 +1,9 @@
 #![no_main]
 //! Drives the price aggregator through every provider (Reflector spot and TWAP,
 //! RedStone, Xoxno, Chainlink) and every source shape (feed, scaled, Aquarius
-//! constant-product and stable LP, Curve stable LP, dual blends), through both
-//! the validating `set_oracle` path and the unvalidated `seed_oracle` path.
+//! constant-product and stable LP, two- and three-coin Curve stable LP, dual
+//! blends), through both the validating `set_oracle` path and the unvalidated
+//! `seed_oracle` path.
 
 use core::mem::swap;
 use std::vec::Vec as StdVec;
@@ -525,17 +526,18 @@ fn build_lp(
     }
 }
 
-/// A two-coin Curve pool whose views match its pinned executable unless `corrupt` breaks one.
+/// A two- or three-coin Curve pool whose views match its pinned executable unless
+/// `corrupt` breaks one. Each coin is `(token, decimals, price_wad)`.
 fn build_curve(
     env: &Env,
     reg: &mut Registry,
     lp: &LpIn,
-    coins: [&Address; 2],
-    wads: [i128; 2],
+    coins: &[(Address, u32, i128)],
 ) -> LpBuilt {
     let corrupt = lp.corrupt % 16;
-    let decimals = [lp_decimals(lp.dec_a), lp_decimals(lp.dec_b)];
-    let coins = Vec::from_array(env, coins.map(Address::clone));
+    let decimals = Vec::from_iter(env, coins.iter().map(|c| c.1));
+    let min_wad = coins.iter().map(|c| c.2).min().unwrap_or(1);
+    let coins = Vec::from_iter(env, coins.iter().map(|c| c.0.clone()));
     let virtual_price = edge_biased_amount(u64::from(lp.amp), WAD / 2, 2 * WAD);
     let supply = edge_biased_amount(lp.shares, 1, pow10(30));
     let pool = env.register(FuzzCurve, ());
@@ -544,12 +546,12 @@ fn build_curve(
         unreachable!("a registered contract has a Wasm executable")
     };
     let mut info = CurvePoolInfo {
-        coin_count: 2,
-        coin_decimals: Vec::from_array(env, decimals),
+        coin_count: coins.len(),
+        coin_decimals: decimals.clone(),
         coins: coins.clone(),
         factory: Address::generate(env),
         min_locked_liquidity: 0,
-        rates: Vec::from_array(env, decimals.map(|d| pow10(36 - d))),
+        rates: Vec::from_iter(env, decimals.iter().map(|d| pow10(36 - d))),
         scales: CurvePoolScales {
             amplification_scale: 100,
             fee_denominator: 10_000_000_000,
@@ -559,9 +561,14 @@ fn build_curve(
     let (mut vp_out, mut supply_out, mut pool_decimals) = (virtual_price, supply, 18);
     match corrupt {
         7 => wasm_hash = BytesN::from_array(env, &[7; 32]),
-        8 => info.coins = vec![env, coins.get_unchecked(1), coins.get_unchecked(0)],
+        8 => {
+            info.coins.set(0, coins.get_unchecked(1));
+            info.coins.set(1, coins.get_unchecked(0));
+        }
         9 => pool_decimals = 17,
-        10 => info.coin_decimals.set(0, (decimals[0] + 1) % 19),
+        10 => info
+            .coin_decimals
+            .set(0, (decimals.get_unchecked(0) + 1) % 19),
         11 => info.rates.set(1, 0),
         12 => {
             if lp.amp & 1 == 0 {
@@ -590,7 +597,7 @@ fn build_curve(
             min_pool_value_wad: min_pool_value(lp.min_value),
         }),
         share_decimals: 18,
-        estimate_wad: mul_div_half_up(env, virtual_price, wads[0].min(wads[1]), WAD).max(1),
+        estimate_wad: mul_div_half_up(env, virtual_price, min_wad, WAD).max(1),
     }
 }
 
@@ -838,13 +845,28 @@ fuzz_target!(|i: In| {
         }
         4 | 5 | 7 | 8 => {
             let lp = if shape == 8 {
-                build_curve(
-                    &env,
-                    &mut reg,
-                    &i.lp,
-                    [&k0_addr, &k1_addr],
-                    [wads[0], wads[1]],
-                )
+                // Every coin gets a Token oracle. An odd `dec_share` adds a third
+                // coin priced by leg 1's feed.
+                let mut coins = StdVec::from([
+                    (k0_addr.clone(), lp_decimals(i.lp.dec_a), wads[0]),
+                    (k1_addr.clone(), lp_decimals(i.lp.dec_b), wads[1]),
+                ]);
+                if matches!(k1, PriceKey::Ref(_)) {
+                    let k1_token = PriceKey::Token(k1_addr.clone());
+                    install(
+                        &agg,
+                        &k1_token,
+                        &base_oracle(&env, &k1_token, f1.clone(), wads[1]),
+                    );
+                }
+                if i.lp.dec_share & 1 == 1 {
+                    let decimals = lp_decimals(i.lp.dec_share >> 1);
+                    let k2_addr = fuzz_token(&env, decimals);
+                    let k2 = PriceKey::Token(k2_addr.clone());
+                    install(&agg, &k2, &base_oracle(&env, &k2, f1.clone(), wads[1]));
+                    coins.push((k2_addr, decimals, wads[1]));
+                }
+                build_curve(&env, &mut reg, &i.lp, &coins)
             } else {
                 build_lp(
                     &env,
