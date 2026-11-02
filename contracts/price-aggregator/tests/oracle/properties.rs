@@ -2,11 +2,11 @@ use super::*;
 use crate::registry;
 use crate::session::Session;
 use common::types::{
-    AssetOracle, FeedNature, FeedSource, IndependencePolicy, MultiFeedRef, OracleAssetRef,
-    OracleReadMode, OracleTolerance, ProviderRef, ReflectorFeedRef, ScaledSource,
+    AssetOracle, CurveStableLpSource, FeedNature, FeedSource, IndependencePolicy, MultiFeedRef,
+    OracleAssetRef, OracleReadMode, OracleTolerance, ProviderRef, ReflectorFeedRef, ScaledSource,
 };
 use soroban_sdk::testutils::Address as _;
-use soroban_sdk::{Address, String, Symbol};
+use soroban_sdk::{vec, Address, BytesN, String, Symbol};
 
 use crate::PriceAggregator;
 
@@ -240,6 +240,29 @@ fn test_config_properties_carry_the_one_or_two_arity() {
             "combined properties span both opinions"
         );
     });
+}
+
+#[test]
+fn test_curve_lp_is_a_market_leg_depending_on_every_coin() {
+    let env = Env::default();
+    let [c0, c1, c2] = [0; 3].map(|_| Address::generate(&env));
+    let source = PriceSource::CurveStableLp(CurveStableLpSource {
+        pool: Address::generate(&env),
+        coins: vec![&env, c0.clone(), c1.clone(), c2.clone()],
+        wasm_hash: BytesN::from_array(&env, &[0; 32]),
+        min_pool_value_wad: 1,
+    });
+    let described = local_properties(&env, &source);
+    assert!(described.local.has_unsmoothed_market_leg);
+    assert_eq!(
+        described.dependencies,
+        vec![
+            &env,
+            PriceKey::Token(c0),
+            PriceKey::Token(c1),
+            PriceKey::Token(c2)
+        ]
+    );
 }
 
 fn solvbtc_oracle(

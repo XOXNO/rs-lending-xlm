@@ -1,95 +1,29 @@
 use soroban_sdk::{
     contract, contractimpl, symbol_short,
     testutils::{Address as _, MockAuth, MockAuthInvoke},
-    token, vec, Address, Bytes, BytesN, ContractExecutable, Env, IntoVal, Map, MuxedAddress,
-    String, Symbol, Val, Vec,
+    token, vec, Address, Bytes, Env, IntoVal, Map, MuxedAddress, Symbol, Val, Vec,
 };
 
 use crate::{
     errors::Error,
     program::MAX_ASSETS,
     types::{SwapHop, SwapVenue},
-    venues::auth_entry,
     Router, RouterClient,
 };
 
 use super::super::support::{new_asset, path, strategy_xdr};
 
-pub(super) mod pool_abi {
-    soroban_sdk::contractimport!(file = "tests/fixtures/curve/pool-2coin.wasm");
-}
+#[path = "../../fixtures/curve/factory.rs"]
+mod factory;
 
-pub(super) const TWO_COIN: &[u8] = include_bytes!("../../fixtures/curve/pool-2coin.wasm");
-pub(super) const THREE_COIN: &[u8] = include_bytes!("../../fixtures/curve/pool-3coin.wasm");
+pub(super) use factory::pool_abi;
+
 pub(super) const LIQUIDITY: i128 = 1_000_000_000;
 pub(super) const INPUT: i128 = 10_000_000;
 
-#[contract]
-struct Factory;
-
-#[contractimpl]
-impl Factory {
-    pub fn __constructor(env: Env, admin: Address) {
-        env.storage()
-            .instance()
-            .set(&Symbol::new(&env, "admin"), &admin);
-    }
-
-    pub fn admin(env: Env) -> Address {
-        env.storage()
-            .instance()
-            .get(&Symbol::new(&env, "admin"))
-            .unwrap()
-    }
-
-    pub fn fee_receiver(env: Env) -> MuxedAddress {
-        Self::admin(env).into()
-    }
-
-    pub fn new_pool(env: Env, hash: BytesN<32>, args: pool_abi::PoolConstructorArgs) -> Address {
-        let deployer = env
-            .deployer()
-            .with_current_contract(BytesN::from_array(&env, &[0; 32]));
-        env.authorize_as_current_contract(vec![
-            &env,
-            auth_entry(
-                &env,
-                &deployer.deployed_address(),
-                "__constructor",
-                (args.clone(),).into_val(&env),
-                vec![&env],
-            ),
-        ]);
-        deployer.deploy_contract(ContractExecutable::Wasm(hash), (args,))
-    }
-}
-
-/// Deploys a real Curve pool over `tokens` through a fresh factory, and seeds it with `seed` of
-/// each coin from `user`.
-pub(super) fn deploy_pool(
-    env: &Env,
-    wasm: &[u8],
-    user: &Address,
-    tokens: &Vec<Address>,
-    seed: i128,
-) -> Address {
-    let factory = env.register(Factory, (Address::generate(env),));
-    let args = pool_abi::PoolConstructorArgs {
-        admin_fee: 5_000_000_000,
-        amplification: 100,
-        asset_types: Vec::from_iter(env, tokens.iter().map(|_| 0)),
-        factory: factory.clone(),
-        fee: 30_000_000,
-        methods: vec![env],
-        min_locked_liquidity: 1_000,
-        name: String::from_str(env, "Test"),
-        offpeg_fee_multiplier: 20_000_000_000,
-        oracles: vec![env],
-        symbol: String::from_str(env, "T"),
-        tokens: tokens.clone(),
-    };
-    let hash = env.deployer().upload_contract_wasm(wasm);
-    let pool = FactoryClient::new(env, &factory).new_pool(&hash, &args);
+/// Deploys a real Curve pool over `tokens` and seeds it with `seed` of each coin from `user`.
+pub(super) fn deploy_pool(env: &Env, user: &Address, tokens: &Vec<Address>, seed: i128) -> Address {
+    let pool = factory::deploy(env, tokens);
     let amounts = Vec::from_iter(env, tokens.iter().map(|_| seed));
     let receiver = MuxedAddress::from(user);
     let token_addresses: alloc::vec::Vec<_> = tokens.iter().collect();
@@ -134,7 +68,7 @@ pub(super) struct Fixture {
 }
 
 impl Fixture {
-    pub(super) fn new(wasm: &[u8], count: u32) -> Self {
+    pub(super) fn new(count: u32) -> Self {
         let env = Env::default();
         env.cost_estimate().budget().reset_unlimited();
         let admin = Address::generate(&env);
@@ -156,7 +90,7 @@ impl Fixture {
                 .mint(&user, &(2 * LIQUIDITY));
             tokens.push_back(address);
         }
-        let pool = deploy_pool(&env, wasm, &user, &tokens, LIQUIDITY);
+        let pool = deploy_pool(&env, &user, &tokens, LIQUIDITY);
         Self {
             env,
             user,
@@ -276,14 +210,14 @@ impl Fixture {
 
 #[test]
 fn curve_real_two_coin_both_directions_exact_auth_and_floor_rollback() {
-    let fixture = Fixture::new(TWO_COIN, 2);
+    let fixture = Fixture::new(2);
     fixture.check_real_swap(0, 1);
     fixture.check_real_swap(1, 0);
 }
 
 #[test]
 fn curve_real_three_coin_index_two_to_zero_exact_auth_and_floor_rollback() {
-    Fixture::new(THREE_COIN, 3).check_real_swap(2, 0);
+    Fixture::new(3).check_real_swap(2, 0);
 }
 
 /// A pool that only reports `coins`, for routing checks that must fail before any pool call.
@@ -310,7 +244,7 @@ impl AdversarialPool {
 
 #[test]
 fn curve_rejects_invalid_coins_and_missing_route_token_before_exchange() {
-    let fixture = Fixture::new(TWO_COIN, 2);
+    let fixture = Fixture::new(2);
     let env = &fixture.env;
     let a = fixture.tokens.get(0).unwrap();
     let b = fixture.tokens.get(1).unwrap();

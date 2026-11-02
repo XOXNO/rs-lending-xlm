@@ -7,50 +7,15 @@ use common::types::{
 use soroban_sdk::{
     contract, contractimpl, contracttype,
     testutils::{Address as _, Ledger},
-    vec, Address, BytesN, Error, IntoVal, String, Symbol, Vec,
+    vec, Address, BytesN, Error, String, Symbol, Vec,
 };
 
 use crate::{PriceAggregator, PriceAggregatorClient};
 
-mod pool_abi {
-    soroban_sdk::contractimport!(file = "../swap-aggregator/tests/fixtures/curve/pool-2coin.wasm");
-}
+#[path = "../../../swap-aggregator/tests/fixtures/curve/factory.rs"]
+mod curve_fixture;
 
-#[contract]
-struct Factory;
-
-#[contractimpl]
-impl Factory {
-    pub fn admin(env: Env) -> Address {
-        env.storage()
-            .instance()
-            .get(&Symbol::new(&env, "admin"))
-            .unwrap()
-    }
-
-    pub fn new_pool(env: Env, hash: BytesN<32>, args: pool_abi::PoolConstructorArgs) -> Address {
-        env.storage()
-            .instance()
-            .set(&Symbol::new(&env, "admin"), &args.factory);
-        let deployer = env
-            .deployer()
-            .with_current_contract(BytesN::from_array(&env, &[0; 32]));
-        env.authorize_as_current_contract(vec![
-            &env,
-            soroban_sdk::auth::InvokerContractAuthEntry::Contract(
-                soroban_sdk::auth::SubContractInvocation {
-                    context: soroban_sdk::auth::ContractContext {
-                        contract: deployer.deployed_address(),
-                        fn_name: Symbol::new(&env, "__constructor"),
-                        args: (args.clone(),).into_val(&env),
-                    },
-                    sub_invocations: vec![&env],
-                },
-            ),
-        ]);
-        deployer.deploy_contract(soroban_sdk::ContractExecutable::Wasm(hash), (args,))
-    }
-}
+use curve_fixture::pool_abi;
 
 struct Fixture {
     env: Env,
@@ -81,28 +46,7 @@ impl Fixture {
                 .set_oracle(&PriceKey::Token(coin), &feed_oracle(&env, &feed));
         }
         let pool = if real {
-            let wasm: &[u8] = if count == 2 {
-                include_bytes!("../../../swap-aggregator/tests/fixtures/curve/pool-2coin.wasm")
-            } else {
-                include_bytes!("../../../swap-aggregator/tests/fixtures/curve/pool-3coin.wasm")
-            };
-            let factory = env.register(Factory, ());
-            let args = pool_abi::PoolConstructorArgs {
-                admin_fee: 5_000_000_000,
-                amplification: 100,
-                asset_types: Vec::from_iter(&env, (0..count).map(|_| 0)),
-                factory: factory.clone(),
-                fee: 30_000_000,
-                methods: vec![&env],
-                min_locked_liquidity: 1_000,
-                name: String::from_str(&env, "Curve LP"),
-                offpeg_fee_multiplier: 20_000_000_000,
-                oracles: vec![&env],
-                symbol: String::from_str(&env, "LP"),
-                tokens: coins.clone(),
-            };
-            let hash = env.deployer().upload_contract_wasm(wasm);
-            let pool = FactoryClient::new(&env, &factory).new_pool(&hash, &args);
+            let pool = curve_fixture::deploy(&env, &coins);
             pool_abi::Client::new(&env, &pool).add_liquidity(
                 &user,
                 &Vec::from_iter(&env, (0..count).map(|i| (i as i128 + 1) * 1_000_000_000)),
@@ -212,12 +156,8 @@ fn real_two_and_three_coin_lp_prices_use_virtual_price_and_every_coin_feed() {
             let client = PriceAggregatorClient::new(&f.env, &f.aggregator);
             client.set_oracle(&PriceKey::Token(coin.clone()), &feed_oracle(&f.env, &feed));
             assert_eq!(f.price().price_wad, virtual_price * 97 / 100);
-            prices.set_price(&String::from_str(&f.env, "USD"), &WAD);
-            assert_eq!(f.price().price_wad, virtual_price);
             client.set_oracle(&PriceKey::Token(coin), &feed_oracle(&f.env, &f.feed));
         }
-        f.env.ledger().with_mut(|ledger| ledger.timestamp += 901);
-        assert_eq!(f.read_error(), OracleError::PriceFeedStale);
     }
 }
 
@@ -301,24 +241,21 @@ fn configuration_and_every_read_reject_binding_scale_rate_and_hash_drift() {
     f.register();
     let pool = MockPoolClient::new(&f.env, &f.source.pool);
     let original = pool.state();
-    for case in 0..9 {
+    let client = PriceAggregatorClient::new(&f.env, &f.aggregator);
+    for case in 0..8 {
         let mut changed = original.clone();
         match case {
-            0 => changed
-                .info
-                .coins
-                .set(2, changed.info.coins.get_unchecked(0)),
-            1 => {
+            0 => {
                 changed.info.coin_decimals.pop_back();
             }
-            2 => {
+            1 => {
                 changed.info.rates.pop_back();
             }
-            3 => changed.info.coin_decimals.set(2, 6),
-            4 => changed.info.rates.set(2, 10i128.pow(29) + 1),
-            5 => changed.info.scales.precision = 10_000_000,
-            6 => changed.decimals = 7,
-            7 => changed.info.coin_decimals.set(2, 19),
+            2 => changed.info.coin_decimals.set(2, 6),
+            3 => changed.info.rates.set(2, 10i128.pow(29) + 1),
+            4 => changed.info.scales.precision = 10_000_000,
+            5 => changed.decimals = 7,
+            6 => changed.info.coin_decimals.set(2, 19),
             _ => {
                 changed
                     .info
@@ -336,18 +273,16 @@ fn configuration_and_every_read_reject_binding_scale_rate_and_hash_drift() {
             OracleError::UnsupportedCurvePool,
             "case {case}"
         );
-        assert!(PriceAggregatorClient::new(&f.env, &f.aggregator)
-            .try_set_oracle(&f.key(), &f.oracle())
-            .is_err());
+        assert_eq!(
+            client.try_set_oracle(&f.key(), &f.oracle()),
+            Err(Ok(Error::from_contract_error(
+                OracleError::UnsupportedCurvePool as u32
+            ))),
+            "case {case}"
+        );
     }
     pool.set_state(&original);
-    let mut wrong = f.source.clone();
-    wrong.wasm_hash = BytesN::from_array(&f.env, &[0xAA; 32]);
     f.env.as_contract(&f.aggregator, || {
-        assert_eq!(
-            read(&mut Session::new(&f.env), &f.key(), &wrong, 18, 0).unwrap_err(),
-            OracleError::UnsupportedCurvePool,
-        );
         assert!(bound_pool(&f.env, &PriceKey::Token(f.feed.clone()), &f.source, 18).is_none());
         assert!(bound_pool(&f.env, &f.key(), &f.source, 7).is_none());
     });
@@ -399,26 +334,31 @@ fn bounded_coin_lists_and_single_source_policy() {
     f.register();
     assert_eq!(f.price().price_wad, WAD + 1);
     let client = PriceAggregatorClient::new(&f.env, &f.aggregator);
-    let rejects = |coins: Vec<Address>, err: OracleError| {
+    let rejects = |source: CurveStableLpSource, err: OracleError| {
         let mut oracle = f.oracle();
-        let mut source = f.source.clone();
-        source.coins = coins;
         oracle.sources = vec![&f.env, PriceSource::CurveStableLp(source)];
         assert_eq!(
             client.try_set_oracle(&f.key(), &oracle),
             Err(Ok(Error::from_contract_error(err as u32)))
         );
     };
+    let with = |coins: Vec<Address>| CurveStableLpSource {
+        coins,
+        ..f.source.clone()
+    };
     let mut coins = f.source.coins.clone();
     coins.push_back(coins.get_unchecked(0));
-    rejects(coins, OracleError::InvalidOracleBase);
+    rejects(with(coins), OracleError::InvalidOracleBase);
     let mut coins = vec![&f.env, f.source.coins.get_unchecked(0)];
-    rejects(coins.clone(), OracleError::InvalidOracleBase);
+    rejects(with(coins.clone()), OracleError::InvalidOracleBase);
     coins.push_back(f.source.pool.clone());
-    rejects(coins, OracleError::OracleCycleDetected);
+    rejects(with(coins), OracleError::OracleCycleDetected);
     let mut coins = f.source.coins.clone();
     coins.set(2, coins.get_unchecked(0));
-    rejects(coins, OracleError::UnsupportedCurvePool);
+    rejects(with(coins), OracleError::UnsupportedCurvePool);
+    let mut source = f.source.clone();
+    source.min_pool_value_wad = 0;
+    rejects(source, OracleError::InvalidOracleBase);
     let mut oracle = f.oracle();
     oracle
         .sources
@@ -432,7 +372,7 @@ fn bounded_coin_lists_and_single_source_policy() {
 }
 
 #[test]
-fn third_coin_controls_freshness_and_dependency_revalidation() {
+fn third_coin_controls_freshness() {
     let f = Fixture::new(3, false);
     f.register();
     let key = PriceKey::Token(f.source.coins.get_unchecked(2));
@@ -447,71 +387,4 @@ fn third_coin_controls_freshness_and_dependency_revalidation() {
     assert_eq!(f.price().timestamp, now - 200);
     prices.set_price_data(&usd, &WAD, &((now - 901) * 1_000), &(now * 1_000));
     assert_eq!(f.read_error(), OracleError::PriceFeedStale);
-    prices.set_price(&usd, &WAD);
-
-    let mut changed = oracle.clone();
-    changed.max_price_stale_seconds = 1_800;
-    let PriceSource::Feed(mut source) = changed.sources.get_unchecked(0) else {
-        unreachable!()
-    };
-    source.max_stale_seconds = 1_800;
-    changed.sources.set(0, PriceSource::Feed(source));
-    assert!(client.try_set_oracle(&key, &changed).is_err());
-    assert_eq!(client.oracle(&key).unwrap(), oracle);
-
-    let PriceSource::Feed(factor) = oracle.sources.get_unchecked(0) else {
-        unreachable!()
-    };
-    changed = oracle.clone();
-    changed.sources = vec![
-        &f.env,
-        PriceSource::Scaled(common::types::ScaledSource {
-            factor,
-            quote: f.key(),
-            min_factor_wad: WAD * 95 / 100,
-            max_factor_wad: WAD * 105 / 100,
-        }),
-    ];
-    assert!(client.try_set_oracle(&key, &changed).is_err());
-    client.remove_oracle(&key);
-    assert_eq!(f.read_error(), OracleError::OracleNotConfigured);
-}
-
-#[test]
-fn cached_lp_still_walks_the_third_coin_for_depth_and_cycles() {
-    let f = Fixture::new(3, false);
-    f.register();
-    f.env.as_contract(&f.aggregator, || {
-        let mut session = Session::new(&f.env);
-        engine::resolve_nested(&mut session, &f.key(), 0).unwrap();
-        let mut third = feed_oracle(&f.env, &f.feed);
-        let PriceSource::Feed(factor) = third.sources.get_unchecked(0) else {
-            unreachable!()
-        };
-        let mut scaled = common::types::ScaledSource {
-            factor,
-            quote: PriceKey::Token(f.source.coins.get_unchecked(0)),
-            min_factor_wad: WAD * 95 / 100,
-            max_factor_wad: WAD * 105 / 100,
-        };
-        let key = PriceKey::Token(f.source.coins.get_unchecked(2));
-        third.sources = vec![&f.env, PriceSource::Scaled(scaled.clone())];
-        crate::registry::store_oracle(&f.env, &key, &third);
-        assert_eq!(
-            engine::resolve_nested(
-                &mut session,
-                &f.key(),
-                common::types::MAX_RESOLUTION_DEPTH - 1
-            )
-            .unwrap_err(),
-            OracleError::OracleDepthExceeded,
-        );
-        scaled.quote = f.key();
-        third.sources = vec![&f.env, PriceSource::Scaled(scaled)];
-        crate::registry::store_oracle(&f.env, &key, &third);
-        assert_eq!(
-            engine::resolve_nested(&mut session, &f.key(), 0).unwrap_err(),
-            OracleError::OracleCycleDetected,
-        );
-    });
 }

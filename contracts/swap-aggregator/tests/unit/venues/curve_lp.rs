@@ -4,9 +4,7 @@ use soroban_sdk::{
     token, Address, Env, Error as HostError, IntoVal, MuxedAddress, Vec,
 };
 
-use super::curve::{
-    curve_hop, deploy_pool, pool_abi, Fixture, INPUT, LIQUIDITY, THREE_COIN, TWO_COIN,
-};
+use super::curve::{curve_hop, deploy_pool, pool_abi, Fixture, INPUT, LIQUIDITY};
 use crate::errors::Error;
 
 const LP_INPUT: i128 = 1_000_000_000_000_000_000;
@@ -62,8 +60,8 @@ fn assert_reserves(f: &Fixture) {
 /// router's reserves untouched. The burn passes with no auth beyond the user's input transfer.
 #[test]
 fn curve_lp_real_one_sided_mint_and_one_coin_burn_each_coin_floor_rollback_and_reserve_isolation() {
-    for (wasm, count) in [(TWO_COIN, 2), (THREE_COIN, 3)] {
-        let f = Fixture::new(wasm, count);
+    for count in [2, 3] {
+        let f = Fixture::new(count);
         seed_reserves(&f);
         let assets = f.assets();
         for coin in 1..=count {
@@ -104,12 +102,12 @@ fn other_state(f: &Fixture, two: &Address) -> (pool_abi::PoolSnapshot, alloc::ve
 
 fn add_two_coin_pool(f: &Fixture) -> Address {
     let coins = f.tokens.slice(0..2);
-    deploy_pool(&f.env, TWO_COIN, &f.user, &coins, LIQUIDITY / 2)
+    deploy_pool(&f.env, &f.user, &coins, LIQUIDITY / 2)
 }
 
 #[test]
 fn curve_lp_real_two_and_three_coin_lp_routes_floor_rollback_and_reserve_isolation() {
-    let f = Fixture::new(THREE_COIN, 3);
+    let f = Fixture::new(3);
     let two = add_two_coin_pool(&f);
     let coin = f.tokens.get(0).unwrap();
     seed_reserves(&f);
@@ -147,7 +145,7 @@ fn curve_lp_real_two_and_three_coin_lp_routes_floor_rollback_and_reserve_isolati
 
 #[test]
 fn curve_lp_real_rejects_other_pool_lp_and_absent_constituent_with_complete_rollback() {
-    let f = Fixture::new(THREE_COIN, 3);
+    let f = Fixture::new(3);
     let two = add_two_coin_pool(&f);
     let before = f.state();
     let other_before = other_state(&f, &two);
@@ -167,7 +165,7 @@ fn curve_lp_real_rejects_other_pool_lp_and_absent_constituent_with_complete_roll
 
 #[test]
 fn curve_lp_real_mint_without_nested_transfer_authorization_fails_and_rolls_back() {
-    let mut f = Fixture::new(TWO_COIN, 2);
+    let mut f = Fixture::new(2);
     f.router = f.env.register(UnauthenticatedMint, ());
     let input = f.tokens.get(0).unwrap();
     transfer_to_router(&f, &input, INPUT);
