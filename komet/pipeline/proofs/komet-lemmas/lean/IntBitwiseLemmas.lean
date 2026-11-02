@@ -220,4 +220,40 @@ theorem pack_four_u64_limbs (A B C D : Int)
 #print axioms pack_bounded_low_word
 #print axioms pack_four_u64_limbs
 
+/-! Side-condition helpers (definitions in the same module; `log2Int` is the
+floor logarithm on positive integers, `1 <<Int n = 2^n`). -/
+
+-- isPowerOf2(M) for 0 < M: M ==Int 1 <<Int log2Int(M)  <=>  M is a power of two.
+theorem isPowerOf2_iff (m : Nat) (h : 0 < m) : m = 2 ^ m.log2 ↔ ∃ k, m = 2 ^ k := by
+  constructor
+  · intro e
+    exact ⟨_, e⟩
+  · rintro ⟨k, rfl⟩
+    rw [Nat.log2_two_pow]
+
+-- isFullMask(M) for 0 < M: M ==Int fullMask(log2Int(M) +Int 1) = 2^(log2 M + 1) - 1
+--   <=>  M = 2^k - 1 for some k >= 1.
+theorem isFullMask_iff (m : Nat) (h : 0 < m) :
+    m = 2 ^ (m.log2 + 1) - 1 ↔ ∃ k, 1 ≤ k ∧ m = 2 ^ k - 1 := by
+  constructor
+  · intro e
+    exact ⟨_, by omega, e⟩
+  · rintro ⟨k, hk, rfl⟩
+    have hne : 2 ^ k - 1 ≠ 0 := by omega
+    have hlo : k - 1 ≤ (2 ^ k - 1).log2 := by
+      rw [Nat.le_log2 hne]
+      have : 2 ^ k = 2 * 2 ^ (k - 1) := by
+        rw [← Nat.pow_succ']
+        congr 1
+        omega
+      omega
+    have hhi : (2 ^ k - 1).log2 < k := by
+      rw [Nat.log2_lt hne]
+      omega
+    have : (2 ^ k - 1).log2 = k - 1 := by omega
+    rw [this, Nat.sub_add_cancel hk]
+
+#print axioms isPowerOf2_iff
+#print axioms isFullMask_iff
+
 end IntBitwiseLemmas
