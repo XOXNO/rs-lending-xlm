@@ -371,7 +371,7 @@ jobs:
           src=target-mutants/wasm32v1-none/release
           dst="$RUNNER_TEMP/wasm-fixtures"
           mkdir -p "$dst"
-          for w in pool controller price_aggregator position_nft; do
+          for w in pool controller price_aggregator position_nft flash_loan_receiver; do
             cp "$src/$w.wasm" "$dst/$w.wasm"
           done
           grep -aq set_swap_aggregator "$dst/controller.wasm" \
@@ -414,6 +414,12 @@ jobs:
           - target: pool_native
             kind: contract
           - target: aggregator
+            kind: contract
+          - target: oracle_math
+            kind: function
+          - target: oracle_sources
+            kind: contract
+          - target: xoxno_oracle
             kind: contract
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -459,7 +465,7 @@ jobs:
 
       - name: Verify pool WASM fixture
         if: matrix.kind == 'contract'
-        run: test -s target/wasm32v1-none/release/pool.wasm
+        run: test -s target/wasm32v1-none/release/pool.wasm && test -s target/wasm32v1-none/release/flash_loan_receiver.wasm
 
       - name: Run fuzz target
         env:
