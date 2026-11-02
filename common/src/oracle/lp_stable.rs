@@ -46,28 +46,24 @@ fn solve_stable_d(env: &Env, xa_wad: i128, xb_wad: i128, amp: u128) -> Result<U2
     // larger reserve first lets it outgrow the exit test below and the
     // iteration cycles. Dividing by the smaller reserve first keeps it at a
     // unit or two.
-    let (smaller, larger) = if xa_wad <= xb_wad {
-        (xa_wad, xb_wad)
-    } else {
-        (xb_wad, xa_wad)
-    };
-    let x_smaller = U256::from_u128(env, smaller as u128);
-    let x_larger = U256::from_u128(env, larger as u128);
+    let x_smaller = U256::from_u128(env, xa_wad.min(xb_wad) as u128);
+    let x_larger = U256::from_u128(env, xa_wad.max(xb_wad) as u128);
 
     let sum = x_smaller.add(&x_larger);
     let ann = U256::from_u128(env, amp).mul(&n);
 
-    // Every iterate stays below 2 * sum (< 2^116), so `d * d`, `ann * sum`,
-    // `(ann - 1) * d` and, once `d_p` exists, `2 * d_p` fit; only the products
-    // and sums carrying `d_p` can exceed U256.
+    // Every iterate is at most 2 * sum (< 2^116), so `d * d`, `ann * sum` and
+    // `(ann - 1) * d` fit. A fitting `d_p * d` bounds `d_p` below 2^254 once
+    // x_larger >= 2 (x_larger = 1 keeps every value tiny), so the sums and
+    // `3 * d_p` fit: only `d_p * d` and the numerator's `* d` can exceed U256.
     let mut d = sum.clone();
     for _ in 0..MAX_D_ITERATIONS {
         let d_p = d.mul(&d).div(&x_smaller.mul(&n));
         let d_p = checked_mul(&d_p, &d)?.div(&x_larger.mul(&n));
 
         let d_prev = d.clone();
-        let numerator = checked_mul(&checked_add(&ann.mul(&sum), &n.mul(&d_p))?, &d)?;
-        let denominator = checked_add(&ann.sub(&one).mul(&d), &checked_mul(&n.add(&one), &d_p)?)?;
+        let numerator = checked_mul(&ann.mul(&sum).add(&n.mul(&d_p)), &d)?;
+        let denominator = ann.sub(&one).mul(&d).add(&n.add(&one).mul(&d_p));
         d = numerator.div(&denominator);
 
         let converged = if d >= d_prev {
@@ -85,11 +81,6 @@ fn solve_stable_d(env: &Env, xa_wad: i128, xb_wad: i128, amp: u128) -> Result<U2
 /// `a * b`, or `InvalidPrice` where `U256` would overflow and trap the host.
 fn checked_mul(a: &U256, b: &U256) -> Result<U256, OracleError> {
     a.checked_mul(b).ok_or(OracleError::InvalidPrice)
-}
-
-/// `a + b`, or `InvalidPrice` where `U256` would overflow and trap the host.
-fn checked_add(a: &U256, b: &U256) -> Result<U256, OracleError> {
-    a.checked_add(b).ok_or(OracleError::InvalidPrice)
 }
 
 /// Computes the fair-value price of one LP share, in WAD (1e18) scale, for a
@@ -137,6 +128,7 @@ pub fn fair_stable_lp_price_wad(
 mod tests {
     use super::*;
     use crate::constants::WAD;
+    use crate::oracle::lp::isqrt_of_product;
 
     fn leg(reserve: i128, decimals: u32, price_wad: i128) -> LpLeg {
         LpLeg {
@@ -259,18 +251,78 @@ mod tests {
         }
     }
 
+    /// Covers the reserve cap and, at 10^15 : 10^3 tokens, a pool whose first
+    /// Newton step overflows `U256`, which must not trap the host.
     #[test]
     fn absurd_reserve_errors_not_panics() {
         let env = Env::default();
-        let err = fair_stable_lp_price_wad(
-            &env,
-            &leg(i128::MAX, 7, WAD),
-            &leg(1_000_000_000, 7, WAD),
-            &supply(1_000_000_000),
-            1500,
-        )
-        .unwrap_err();
-        assert_eq!(err, OracleError::InvalidPrice);
+        for (reserve_a, reserve_b, amp) in [
+            (i128::MAX, 1_000_000_000, 1500),
+            (10i128.pow(22), 10i128.pow(10), 100),
+        ] {
+            let err = fair_stable_lp_price_wad(
+                &env,
+                &leg(reserve_a, 7, WAD),
+                &leg(reserve_b, 7, WAD),
+                &supply(1_000_000_000),
+                amp,
+            )
+            .unwrap_err();
+            assert_eq!(err, OracleError::InvalidPrice);
+        }
+        let (big, small) = (10i128.pow(33), 10i128.pow(21));
+        for (xa, xb) in [(big, small), (small, big)] {
+            assert_eq!(
+                solve_stable_d(&env, xa, xb, 100),
+                Err(OracleError::InvalidPrice)
+            );
+        }
+    }
+
+    /// Exact `floor(D)` of the 10^10 : 10^7 token pool at amp 2.
+    const TWO_CYCLE_ROOT: u128 = 2_362_217_299_922_534_376_201_222_040;
+
+    /// Dividing by the larger reserve first made this pool's iterates cycle
+    /// between root + 1 and root + 3 until the iteration cap.
+    #[test]
+    fn imbalanced_pool_solves_exactly_in_either_leg_order() {
+        let env = Env::default();
+        let (big, small) = (10_000_000_000 * WAD, 10_000_000 * WAD);
+        for (xa, xb) in [(big, small), (small, big)] {
+            assert_eq!(
+                solve_stable_d(&env, xa, xb, 2).map(|d| d.to_u128()),
+                Ok(Some(TWO_CYCLE_ROOT))
+            );
+        }
+    }
+
+    /// Admitted pools from 500:1 to 1,000,000:1 solve inside the invariant's
+    /// bounds `[2 sqrt(xa xb), xa + xb]`, to the same `D` in either leg order.
+    #[test]
+    fn imbalanced_pool_grid_solves_symmetrically() {
+        let env = Env::default();
+        for amp in [1u128, 2, 5, 10, 100, 1_000] {
+            for ratio in [500i128, 1_000, 10_000, 1_000_000] {
+                for exp in 3..=11u32 {
+                    let big = 10i128.pow(exp) * WAD;
+                    let small = big / ratio;
+                    // One solve per default budget, as in a real invocation.
+                    env.cost_estimate().budget().reset_default();
+                    let d = solve_stable_d(&env, big, small, amp)
+                        .unwrap_or_else(|e| panic!("{big}:{small} amp {amp}: {e:?}"));
+                    assert_eq!(solve_stable_d(&env, small, big, amp), Ok(d.clone()));
+
+                    let d = d.to_u128().unwrap();
+                    let lower = 2 * isqrt_of_product(&env, big as u128, small as u128)
+                        .to_u128()
+                        .unwrap();
+                    assert!(
+                        d + 2 >= lower && d <= (big + small) as u128,
+                        "{big}:{small} amp {amp}: D {d} out of bounds"
+                    );
+                }
+            }
+        }
     }
 
     #[test]
@@ -311,7 +363,3 @@ mod tests {
         }
     }
 }
-
-#[cfg(test)]
-#[path = "../../tests/oracle/lp_stable_new002.rs"]
-mod new002_tests;
