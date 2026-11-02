@@ -28,7 +28,7 @@ RUN mkdir -p /opt/komet-backend/wrapper \
  && printf '#!/bin/sh\nexec /opt/komet-backend/bin/kore-rpc-booster "$@" %s\n' "${BOOSTER_FLAGS}" \
       > /opt/komet-backend/wrapper/kore-rpc-booster \
  && chmod 0755 /opt/komet-backend/wrapper/kore-rpc-booster \
- && cd /opt/komet-backend && sha256sum -c kore-rpc-booster.sha256
+ && sed 's#/out/#/opt/komet-backend/#' /opt/komet-backend/kore-rpc-booster.sha256 | sha256sum -c -
 ENV PATH=/opt/komet-backend/wrapper:/opt/z3/bin:/opt/komet/.venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 
 # Record the toolchain identity inside the image.
