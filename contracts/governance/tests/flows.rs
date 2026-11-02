@@ -735,6 +735,44 @@ fn guardian_set_spoke_asset_flags_reaches_controller_listing_check() {
 }
 
 #[test]
+fn guardian_deactivates_a_manager_and_revokes_a_blend_pool_immediately() {
+    use crate::access::GUARDIAN_ROLE;
+    let env = Env::default();
+    env.mock_all_auths();
+    let (admin, gov_id, gov) = register_governance(&env);
+    let controller_id = register_native_controller(&env, &gov_id, &gov);
+    let ctrl = controller::ControllerClient::new(&env, &controller_id);
+    let guardian = Address::generate(&env);
+    grant_incident_role(&env, &admin, &gov, &guardian, GUARDIAN_ROLE);
+    let manager = Address::generate(&env);
+    let pool = gov_id.clone();
+    gov.execute_immediate(
+        &admin,
+        &AdminOperation::SetPositionManager(manager.clone(), true),
+    );
+    gov.execute_immediate(&admin, &AdminOperation::ApproveBlendPool(pool.clone()));
+    let is_manager = || {
+        env.as_contract(&controller_id, || {
+            env.storage()
+                .persistent()
+                .has(&ControllerKey::PositionManager(manager.clone()))
+        })
+    };
+    assert!(is_manager() && ctrl.is_blend_pool_approved(&pool));
+
+    let stranger = Address::generate(&env);
+    assert!(gov
+        .try_deactivate_position_manager(&stranger, &manager)
+        .is_err());
+    assert!(gov.try_revoke_blend_pool(&stranger, &pool).is_err());
+    assert!(is_manager() && ctrl.is_blend_pool_approved(&pool));
+
+    gov.deactivate_position_manager(&guardian, &manager);
+    gov.revoke_blend_pool(&guardian, &pool);
+    assert!(!is_manager() && !ctrl.is_blend_pool_approved(&pool));
+}
+
+#[test]
 #[should_panic(expected = "Error(Contract, #2000)")]
 fn set_sanity_band_requires_oracle_role() {
     let env = Env::default();

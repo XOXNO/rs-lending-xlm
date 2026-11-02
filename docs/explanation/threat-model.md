@@ -46,8 +46,8 @@ minimum to 12 ledgers on testnet and mainnet. Verify the deployed minimum and
 its review window before funding. Raising the configured minimum and changing a
 compiled tier floor are different actions.
 
-GUARDIAN can immediately pause, tighten listing flags, and create empty hubs
-or spokes. ORACLE can immediately narrow sanity bands. The owner can revoke
+GUARDIAN can immediately pause, tighten listing flags, create empty hubs
+or spokes, deactivate a position manager, and revoke a Blend pool. ORACLE can immediately narrow sanity bands. The owner can revoke
 those two hot roles immediately and perform one-time deployment bootstrap.
 Reopening, global position-manager changes, and ordinary upgrades use delayed
 operations. Controller construction and upgrade pause the controller. Pool,
@@ -85,8 +85,8 @@ it becomes inactive while someone else holds the NFT and can revive if the
 NFT returns before an intervening owner updates delegates. A transfer is
 therefore not a revocation: an owner who wants delegates gone must call
 `remove_delegate` for each one before transferring, and no view lists the
-live delegates. Owner revocation is immediate; global deactivation takes
-effect when governance executes it.
+live delegates. Owner revocation is immediate, and so is a GUARDIAN's global
+deactivation of a position manager; reactivation is timelocked.
 Delegates can borrow/withdraw to their chosen recipient within account gates.
 Those gates do not constrain them to acting in the owner's economic interest.
 

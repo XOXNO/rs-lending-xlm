@@ -539,15 +539,14 @@ fn a_non_owner_proposer_still_schedules_listing_and_limit_operations() {
     );
     assert_eq!(gov.get_operation_state(&id), OperationState::Waiting);
 
-    // Deactivating a position manager stays open to any proposer, on the Standard delay.
-    let current = env.ledger().sequence();
+    // Deactivating a position manager stays open to any proposer.
     let deactivate = AdminOperation::SetPositionManager(Address::generate(&env), false);
     let id = gov.propose(
         &proposer,
         &deactivate,
         &BytesN::<32>::from_array(&env, &[8u8; 32]),
     );
-    assert_eq!(gov.get_operation_ledger(&id), current + delay);
+    assert_eq!(gov.get_operation_state(&id), OperationState::Waiting);
 }
 
 #[test]
