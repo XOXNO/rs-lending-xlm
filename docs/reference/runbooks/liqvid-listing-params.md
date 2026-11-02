@@ -117,7 +117,8 @@ stops at 8.31 %. A lower NAV then fails closed.
 Every price below the floor or above the ceiling fails closed with
 `SanityBoundViolated`. Borrow and liquidation stop. A withdrawal from an
 account with debt also needs the price. Supply does not need the price,
-except when it runs the refresh gate of section 10.
+except when it runs the refresh gate of section 10, or when an account with
+debt opens a new leg.
 
 ## 3. How the band moves with each NAV post
 

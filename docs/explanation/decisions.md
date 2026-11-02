@@ -117,7 +117,8 @@ claim does not guarantee that the supplier can withdraw that amount.
 
 Supply, repayment, recapitalization, and supported strategy legs credit the
 amount received. Under-delivered liquidation repayment reduces the associated
-seizure. This supports specific receipt-tax behavior; it does not make rebases,
+seizure, except that a liquidation seizing collateral below 3 decimals reverts
+on a short receipt. This supports specific receipt-tax behavior; it does not make rebases,
 sender surcharges, or false balances safe. See [token assumptions](threat-model.md#token-assumptions).
 
 <a id="adr-0015"></a>
@@ -236,7 +237,8 @@ liquidator owns or is a delegate for, avoiding a collateral cash payout.
 Seized shares split into receiver credit and protocol revenue by
 reclassification; the fee does not mint unbacked shares.
 
-Receiver position limits still apply, and a newly credited asset needs a
+Position limits still apply to an existing receiver (a `Credit(0)` receiver
+is exempt), and a newly credited asset needs a
 listing. Existing positions retain their risk tuple; new positions use the
 listing's values. The receiver's supply increase is bounded by the target's
 seizure and its debt does not move. The [event reference](../reference/events.md) distinguishes

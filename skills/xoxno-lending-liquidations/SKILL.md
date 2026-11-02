@@ -54,7 +54,7 @@ contract before mapping the number.
 | Mode | Result | Estimate units | Main constraint |
 |---|---|---|---|
 | `Transfer` | Underlying collateral to the liquidator | Asset base units | Every generated Transfer seizure leg needs sufficient pool cash and the recipient may need a classic-asset trustline |
-| `Credit(0)` | New normal-mode receiving account | RAY supply shares | Position limit; no pool-cash requirement |
+| `Credit(0)` | New normal-mode receiving account | RAY supply shares | No governed position limit; no pool-cash requirement |
 | `Credit(id)` | Supply shares credited to `id` | RAY supply shares | Receiver is authorized, same spoke, normal mode, and not the liquidated account |
 
 Seizure is pro rata, but the planner drops legs that round to zero.
@@ -67,8 +67,9 @@ A missing spoke listing permits repayment and Transfer seizure. Credit needs
 a listing when it creates a new receiver supply position. An existing receiver
 position uses its stored risk parameters.
 
-The estimate does not prove receiver authorization, position capacity,
-low-decimal isolation, or pool cash availability. For `Credit(id)`, require current NFT ownership or an active registered
+The estimate checks a `Credit` receiver's spoke, mode, position capacity and
+low-decimal isolation, but not receiver authorization or pool cash
+availability. For `Credit(id)`, require current NFT ownership or an active registered
 manager delegated by that owner. Require the same spoke, `Normal` mode,
 and a receiver distinct from the target. Simulate the complete
 write for every mode.

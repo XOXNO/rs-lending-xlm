@@ -15,7 +15,7 @@ use std::{format, panic, println, thread};
 use crate::config::config;
 use common::math::fp::{Bps, Ray, Wad};
 use common::math::fp_core::{mul_div_ceil, mul_div_floor};
-use common::rates::unscale_borrow_ceil;
+use common::rates::{position_value_floor, unscale_borrow_ceil};
 use common::types::{HubAssetKey, LiquidationEstimate, PriceKey, SeizeMode};
 use common::validation::max_cap_for_decimals;
 use controller::constants::{BPS, RAY, WAD};
@@ -537,7 +537,7 @@ impl World {
         let liquidator = self.t.get_or_create_user(LIQUIDATOR);
         let mut payments = vec![&self.t.env];
         for leg in self.legs.clone() {
-            let debt = self.debt_ceil(&leg);
+            let debt = self.debt(&leg).0;
             if debt > 0 {
                 self.t
                     .resolve_market(leg.name)
@@ -582,17 +582,19 @@ impl World {
             .unwrap_or(0)
     }
 
-    fn debt_ceil(&self, leg: &Leg) -> i128 {
+    /// The leg's ceiling debt in asset units, and the floor WAD USD value of
+    /// that debt, which a payment at the ceiling is credited.
+    fn debt(&self, leg: &Leg) -> (i128, i128) {
         let (_, debts) = self.t.ctrl_client().get_account_positions(&self.account);
         let Some(position) = debts.get(leg.key.clone()) else {
-            return 0;
+            return (0, 0);
         };
-        let index = self.t.ctrl_client().get_market_index(&leg.key).borrow_index;
-        unscale_borrow_ceil(
-            &self.t.env,
-            Ray::from(position.scaled_amount),
-            Ray::from(index),
-            leg.decimals,
+        let scaled = Ray::from(position.scaled_amount);
+        let index = Ray::from(self.t.ctrl_client().get_market_index(&leg.key).borrow_index);
+        let env = &self.t.env;
+        (
+            unscale_borrow_ceil(env, scaled, index, leg.decimals),
+            position_value_floor(env, scaled, index, Wad::from(leg.price)).raw(),
         )
     }
 
@@ -740,7 +742,7 @@ fn liquidate_step(
     let unit = w.unit_usd();
     let bonus_m = mirror_bonus(&env, totals, w.listed_bonus, &w.curve);
     let legs = w.legs.clone();
-    let debts: Vec<i128> = legs.iter().map(|leg| w.debt_ceil(leg)).collect();
+    let (debts, debt_floors): (Vec<i128>, Vec<i128>) = legs.iter().map(|leg| w.debt(leg)).unzip();
     let per_leg_unit = legs
         .iter()
         .zip(&debts)
@@ -947,9 +949,13 @@ fn liquidate_step(
     for (i, leg) in legs.iter().enumerate() {
         let planned = offers[i] - refunded(&estimate, &leg.key.asset);
         prop_assert_eq!(paid[i], planned, "P7: paid leg {}; {}", leg.name, &ctx);
-        paid_usd_wad += Wad::from_token(&env, paid[i], leg.decimals)
-            .mul(&env, Wad::from(leg.price))
-            .raw();
+        paid_usd_wad += if paid[i] > 0 && paid[i] == debts[i] {
+            debt_floors[i]
+        } else {
+            Wad::from_token(&env, paid[i], leg.decimals)
+                .mul(&env, Wad::from(leg.price))
+                .raw()
+        };
     }
     prop_assert_eq!(
         estimate.max_payment_wad,
