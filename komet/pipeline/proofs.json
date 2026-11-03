@@ -664,7 +664,7 @@
    "name": "pool-entry-seize",
    "crate": "komet/pool-entry",
    "feature": "seize",
-   "wasm_sha256": "b1ad3d771b68bf925eb870025c60b36732238b7a4037549c427f542ab1a40c7d",
+   "wasm_sha256": "3bcdf8b6404d3a20d8094d57491b6435c96f98f308f853acd76948c8b0c28314",
    "module": "komet/pipeline/proofs/pool-math-lemmas.k:POOL-MATH-LEMMAS",
    "cap_seconds": 21600,
    "smt_timeout_ms": 60000,
