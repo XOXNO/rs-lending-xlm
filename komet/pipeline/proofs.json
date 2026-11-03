@@ -328,6 +328,28 @@
    ]
   },
   {
+   "name": "utilization-wide",
+   "crate": "komet/pool-math",
+   "feature": "utilization-wide",
+   "wasm_sha256": "bb3a2a9ddf6e57f32c941381914578b377e943c4d18a58d84085c64ca76c93bd",
+   "module": "komet/pipeline/proofs/pool-math-lemmas.k:POOL-MATH-LEMMAS",
+   "cap_seconds": 14400,
+   "tests": [
+    {
+     "id": "test_util_wide_exact",
+     "expect": "pass"
+    },
+    {
+     "id": "test_util_wide_bounds",
+     "expect": "pass"
+    },
+    {
+     "id": "test_util_wide_round_wrong",
+     "expect": "fail"
+    }
+   ]
+  },
+  {
    "name": "half-two",
    "crate": "komet/pool-math",
    "feature": "half-two",

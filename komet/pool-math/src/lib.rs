@@ -27,6 +27,8 @@ pub mod settlement_specs;
     feature = "scaled-borrow"
 ))]
 pub mod signed;
+#[cfg(feature = "utilization-wide")]
+pub mod utilization_specs;
 #[cfg(any(feature = "validation", feature = "oracle-time"))]
 pub mod validation_specs;
 
@@ -424,6 +426,24 @@ impl PoolMathProof {
     #[cfg(feature = "oracle-time")]
     pub fn test_future_wrong(_env: Env) -> bool {
         validation_specs::future_wrong()
+    }
+
+    /// 2^64 <= borrowed <= supplied: exact half-up utilization in [0, RAY].
+    #[cfg(feature = "utilization-wide")]
+    pub fn test_util_wide_exact(env: Env, borrowed: i128, supplied: i128) -> bool {
+        utilization_specs::wide_exact(&env, borrowed, supplied)
+    }
+
+    /// 2^64 <= borrowed <= supplied: 0 <= utilization <= RAY.
+    #[cfg(feature = "utilization-wide")]
+    pub fn test_util_wide_bounds(env: Env, borrowed: i128, supplied: i128) -> bool {
+        utilization_specs::wide_bounds(&env, borrowed, supplied)
+    }
+
+    /// Deliberately false: the tie at 2^64+1 over 2 RAY is claimed rounded down.
+    #[cfg(feature = "utilization-wide")]
+    pub fn test_util_wide_round_wrong(env: Env) -> bool {
+        utilization_specs::wide_round_wrong(&env)
     }
 
     /// x, y >= 2^64, representable: Ray::mul_floor is exactly floor(x*y/RAY).

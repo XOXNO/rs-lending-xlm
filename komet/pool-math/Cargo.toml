@@ -39,6 +39,7 @@ noop-guards = []
 rescale-up = []
 validation = []
 oracle-time = []
+utilization-wide = []
 
 [dependencies]
 common = { path = "../../common" }
