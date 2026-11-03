@@ -659,6 +659,37 @@
      "expect": "pass"
     }
    ]
+  },
+  {
+   "name": "pool-entry-seize",
+   "crate": "komet/pool-entry",
+   "feature": "seize",
+   "wasm_sha256": "f41046dd7c0d2de586bcd3855fbf6a554755cc983066e420c9e57ff27fd25adf",
+   "module": "komet/pipeline/proofs/pool-math-lemmas.k:POOL-MATH-LEMMAS",
+   "cap_seconds": 21600,
+   "smt_timeout_ms": 60000,
+   "tests": [
+    {
+     "id": "test_seize_zero_a",
+     "expect": "pass"
+    },
+    {
+     "id": "test_seize_wrong",
+     "expect": "fail"
+    },
+    {
+     "id": "test_seize_bad_debt_a",
+     "expect": "pass"
+    },
+    {
+     "id": "test_seize_bad_debt_b",
+     "expect": "pass"
+    },
+    {
+     "id": "test_seize_zero_b",
+     "expect": "pass"
+    }
+   ]
   }
  ]
 }
