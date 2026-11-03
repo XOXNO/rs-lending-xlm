@@ -130,6 +130,7 @@ simplification.
 |---|---|---|
 | [`double-cli.k`](../pool-math/proofs/borrow-double/double-cli.k) (borrow-double) | 17 | [`DoubleCliRules.lean`](../pool-math/proofs/borrow-double/lean/DoubleCliRules.lean): one theorem per rule, stated in the rule's shape, from the 13 original lemma files |
 | [`arithmetic.k`](../pool-math/proofs/utilization/arithmetic.k) (utilization) | 39 = the 17 above (byte-identical) + 22 `utilization-*` | [`UtilizationRules.lean`](../pool-math/proofs/utilization/lean/UtilizationRules.lean): one theorem per `utilization-*` rule, from the 11 utilization lemma files |
+| [`pool-math-lemmas.k`](proofs/pool-math-lemmas.k) (every other pool-math proof run by this pipeline) | 43 = the 39 of `arithmetic.k` (byte-identical) + `u64-xor-zero-right/left`, `u64-or-sign-bit`, `ray-identity-half-up` | the files above + [`PoolMathRules.lean`](proofs/komet-lemmas/lean/PoolMathRules.lean) |
 
 Definedness: a rule marked `preserves-definedness` keeps every variable of its
 left side on its right side, and every division or modulus in it has a literal
