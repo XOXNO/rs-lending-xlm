@@ -7,6 +7,8 @@
 //! Komet host model, events are no-ops, and `last_timestamp` is set to the
 //! current ledger time, so `global_sync` takes its no-accrual path.
 
+#[cfg(feature = "recap")]
+pub mod recap;
 #[cfg(feature = "seize")]
 pub mod seize;
 
@@ -97,6 +99,25 @@ impl PoolEntryProof {
         seize::zero_debt(&env, 1)
     }
 
+    /// Market a (Is = Ib = RAY): exact recapitalization for symbolic cash and
+    /// 0 <= amount <= shortfall.
+    #[cfg(feature = "recap")]
+    pub fn test_recap_exact_a(env: Env, cash: i128, amount: i128) -> bool {
+        recap::exact(&env, 0, cash, amount)
+    }
+
+    /// Market b (non-trivial indexes): same claim.
+    #[cfg(feature = "recap")]
+    pub fn test_recap_exact_b(env: Env, cash: i128, amount: i128) -> bool {
+        recap::exact(&env, 1, cash, amount)
+    }
+
+    /// Deliberately false: recapitalizing leaves cash unchanged.
+    #[cfg(feature = "recap")]
+    pub fn test_recap_wrong(env: Env) -> bool {
+        recap::wrong(&env)
+    }
+
     /// Deliberately false: seizing a real debt leaves the supply index unchanged.
     #[cfg(feature = "seize")]
     pub fn test_seize_wrong(env: Env) -> bool {
@@ -125,6 +146,36 @@ mod tests {
         let c = PoolEntryProofClient::new(env, &harness);
         c.init();
         c
+    }
+
+    #[cfg(feature = "recap")]
+    #[test]
+    fn recap_witnesses() {
+        for k in 0..2 {
+            let env0 = Env::default();
+            let u = recap::uncovered(&env0, k);
+            assert!(u > 1_000_000, "market {k} shortfall {u}");
+            for (cash, amount) in [
+                (0, 0),
+                (0, u),
+                (u / 2, u - u / 2),
+                (u - 1, 1),
+                (u, 0),
+                (u + 5, 0),
+            ] {
+                let env = Env::default();
+                let c = client(&env);
+                let ok = if k == 0 {
+                    c.test_recap_exact_a(&cash, &amount)
+                } else {
+                    c.test_recap_exact_b(&cash, &amount)
+                };
+                assert!(ok, "market {k} cash {cash} amount {amount}");
+            }
+        }
+        let env = Env::default();
+        let c = client(&env);
+        assert!(!c.test_recap_wrong());
     }
 
     #[cfg(feature = "seize")]

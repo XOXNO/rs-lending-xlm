@@ -690,6 +690,29 @@
      "expect": "pass"
     }
    ]
+  },
+  {
+   "name": "pool-entry-recap",
+   "crate": "komet/pool-entry",
+   "feature": "recap",
+   "wasm_sha256": "ef5a0aa383c1ecff565818423da37bc2d61cd38f6fec10d1b35658d462e1b178",
+   "module": "komet/pipeline/proofs/pool-math-lemmas.k:POOL-MATH-LEMMAS",
+   "cap_seconds": 21600,
+   "smt_timeout_ms": 60000,
+   "tests": [
+    {
+     "id": "test_recap_wrong",
+     "expect": "fail"
+    },
+    {
+     "id": "test_recap_exact_a",
+     "expect": "pass"
+    },
+    {
+     "id": "test_recap_exact_b",
+     "expect": "pass"
+    }
+   ]
   }
  ]
 }
