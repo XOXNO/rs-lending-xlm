@@ -40,6 +40,8 @@ rescale-up = []
 validation = []
 oracle-time = []
 utilization-wide = []
+repay-fixed = []
+withdraw-fixed = []
 
 [dependencies]
 common = { path = "../../common" }

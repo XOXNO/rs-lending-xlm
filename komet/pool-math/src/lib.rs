@@ -17,6 +17,8 @@ pub mod identity_specs;
 pub mod index_specs;
 #[cfg(any(feature = "ray-mul-rounding", feature = "ray-div-rounding"))]
 pub mod rounding_specs;
+#[cfg(any(feature = "repay-fixed", feature = "withdraw-fixed"))]
+pub mod settlement_fixed_specs;
 #[cfg(any(feature = "repay", feature = "withdrawal", feature = "net-settle"))]
 pub mod settlement_specs;
 #[cfg(any(
@@ -444,6 +446,42 @@ impl PoolMathProof {
     #[cfg(feature = "utilization-wide")]
     pub fn test_util_wide_round_wrong(env: Env) -> bool {
         utilization_specs::wide_round_wrong(&env)
+    }
+
+    /// Index RAY, 27 decimals, amount and pos >= 2^64: exact repayment resolution.
+    #[cfg(feature = "repay-fixed")]
+    pub fn test_repay_fixed_one(env: Env, amount: i128, pos: i128) -> bool {
+        settlement_fixed_specs::repay_exact(&env, amount, pos, settlement_fixed_specs::INDEX_ONE)
+    }
+
+    /// Index 1.5 RAY + 7, 27 decimals, amount and pos >= 2^64: exact repayment resolution.
+    #[cfg(feature = "repay-fixed")]
+    pub fn test_repay_fixed_mid(env: Env, amount: i128, pos: i128) -> bool {
+        settlement_fixed_specs::repay_exact(&env, amount, pos, settlement_fixed_specs::INDEX_MID)
+    }
+
+    /// Deliberately false: partial repayment burn claimed rounded up.
+    #[cfg(feature = "repay-fixed")]
+    pub fn test_repay_fixed_wrong(env: Env) -> bool {
+        settlement_fixed_specs::repay_wrong(&env)
+    }
+
+    /// Index RAY, 27 decimals, amount and pos >= 2^64: exact withdrawal resolution.
+    #[cfg(feature = "withdraw-fixed")]
+    pub fn test_withdraw_fixed_one(env: Env, amount: i128, pos: i128) -> bool {
+        settlement_fixed_specs::withdraw_exact(&env, amount, pos, settlement_fixed_specs::INDEX_ONE)
+    }
+
+    /// Index 1.5 RAY + 7, 27 decimals, amount and pos >= 2^64: exact withdrawal resolution.
+    #[cfg(feature = "withdraw-fixed")]
+    pub fn test_withdraw_fixed_mid(env: Env, amount: i128, pos: i128) -> bool {
+        settlement_fixed_specs::withdraw_exact(&env, amount, pos, settlement_fixed_specs::INDEX_MID)
+    }
+
+    /// Deliberately false: partial withdrawal burn claimed rounded down.
+    #[cfg(feature = "withdraw-fixed")]
+    pub fn test_withdraw_fixed_wrong(env: Env) -> bool {
+        settlement_fixed_specs::withdraw_wrong(&env)
     }
 
     /// x, y >= 2^64, representable: Ray::mul_floor is exactly floor(x*y/RAY).

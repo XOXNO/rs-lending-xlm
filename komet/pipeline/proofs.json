@@ -350,6 +350,50 @@
    ]
   },
   {
+   "name": "repay-fixed",
+   "crate": "komet/pool-math",
+   "feature": "repay-fixed",
+   "wasm_sha256": "d08cdf4a2fb1d7fbb733232c9da8c30accb9b688e714f3442552602d8044c435",
+   "module": "komet/pipeline/proofs/pool-math-lemmas.k:POOL-MATH-LEMMAS",
+   "cap_seconds": 14400,
+   "tests": [
+    {
+     "id": "test_repay_fixed_one",
+     "expect": "pass"
+    },
+    {
+     "id": "test_repay_fixed_mid",
+     "expect": "pass"
+    },
+    {
+     "id": "test_repay_fixed_wrong",
+     "expect": "fail"
+    }
+   ]
+  },
+  {
+   "name": "withdraw-fixed",
+   "crate": "komet/pool-math",
+   "feature": "withdraw-fixed",
+   "wasm_sha256": "98ba79bc3c831cb6a3740df1efb90fa2841760ad5a62f5ef272500a56d00f380",
+   "module": "komet/pipeline/proofs/pool-math-lemmas.k:POOL-MATH-LEMMAS",
+   "cap_seconds": 14400,
+   "tests": [
+    {
+     "id": "test_withdraw_fixed_one",
+     "expect": "pass"
+    },
+    {
+     "id": "test_withdraw_fixed_mid",
+     "expect": "pass"
+    },
+    {
+     "id": "test_withdraw_fixed_wrong",
+     "expect": "fail"
+    }
+   ]
+  },
+  {
    "name": "half-two",
    "crate": "komet/pool-math",
    "feature": "half-two",
