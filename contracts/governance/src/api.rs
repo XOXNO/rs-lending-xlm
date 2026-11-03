@@ -163,6 +163,18 @@ impl GovernanceInterface for Governance {
         immediate::add_spoke(&env, &caller)
     }
 
+    /// Deactivates a position manager on the controller. Requires the caller
+    /// to hold the guardian role; activation stays timelocked.
+    fn deactivate_position_manager(env: Env, caller: Address, manager: Address) {
+        immediate::deactivate_position_manager(&env, &caller, &manager)
+    }
+
+    /// Revokes a Blend migration source on the controller. Requires the
+    /// caller to hold the guardian role; approval stays timelocked.
+    fn revoke_blend_pool(env: Env, caller: Address, pool: Address) {
+        immediate::revoke_blend_pool(&env, &caller, &pool)
+    }
+
     /// Revokes `role` from `account` without going through the timelock.
     /// Restricted to the owner; only the guardian and oracle roles can be
     /// revoked this way.

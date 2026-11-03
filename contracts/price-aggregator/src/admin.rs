@@ -5,6 +5,7 @@
 //! composition depends on the changed key.
 
 use common::errors::OracleError;
+use common::oracle::providers::chainlink::CHAINLINK_DECIMALS;
 use common::oracle::providers::redstone::REDSTONE_DECIMALS;
 use common::oracle::providers::reflector::ReflectorClient;
 use common::oracle::providers::xoxno::XoxnoOracleAdapterClient;
@@ -24,7 +25,8 @@ use crate::validation;
 
 /// Attests every price source configured on `oracle`, dispatching feed, scaled-feed,
 /// Aquarius LP, and Aquarius stable-LP sources to their respective provider
-/// attestation routines.
+/// attestation routines. A Curve LP source is a no-op here: the hard probe in
+/// `set_oracle` enforces its pool binding.
 fn attest_sources(env: &Env, key: &PriceKey, oracle: &AssetOracle) {
     for source in oracle.sources.iter() {
         match &source {
@@ -33,6 +35,8 @@ fn attest_sources(env: &Env, key: &PriceKey, oracle: &AssetOracle) {
 
             PriceSource::AquariusLp(lp) => aquarius::attest(env, key, oracle, lp, false),
             PriceSource::AquariusStableLp(lp) => aquarius::attest(env, key, oracle, lp, true),
+            // Curve pool binding is checked when `set_oracle` probes the LP source.
+            PriceSource::CurveStableLp(_) => {}
         }
     }
 }
@@ -47,6 +51,11 @@ fn attest_feed(env: &Env, feed: &FeedSource, quote: Option<&PriceKey>) {
         ProviderRef::RedStone(_) => assert_with_error!(
             env,
             feed.decimals == REDSTONE_DECIMALS,
+            OracleError::InvalidOracleDecimals
+        ),
+        ProviderRef::Chainlink(_) => assert_with_error!(
+            env,
+            feed.decimals == CHAINLINK_DECIMALS,
             OracleError::InvalidOracleDecimals
         ),
         ProviderRef::Xoxno(xoxno_feed) => {
@@ -67,7 +76,7 @@ fn attest_feed(env: &Env, feed: &FeedSource, quote: Option<&PriceKey>) {
 }
 
 /// Validates `oracle` and attests its sources, then probes it: a hard probe
-/// for Aquarius LP oracles that panics on any unusable outcome, or a soft
+/// for LP (Aquarius or Curve) oracles that panics on any unusable outcome, or a soft
 /// probe otherwise that panics only on configuration-level failures. Stores
 /// the oracle, revalidates dependents, and emits the registry event.
 ///
@@ -84,7 +93,7 @@ pub(crate) fn set_oracle(env: &Env, key: PriceKey, oracle: AssetOracle) {
     validate_asset_oracle(env, &key, &oracle);
     attest_sources(env, &key, &oracle);
     let mut session = Session::new(env);
-    if oracle.has_aquarius_lp_source() {
+    if oracle.has_lp_source() {
         engine::probe_priceable(&mut session, &key, &oracle);
     } else {
         engine::probe(&mut session, &key, &oracle);
@@ -112,7 +121,7 @@ fn revalidate_dependents(env: &Env, changed: &PriceKey) {
         }
         let oracle = registry::get_oracle(env, &candidate)
             .unwrap_or_else(|| panic_with_error!(env, OracleError::OracleNotConfigured));
-        validate_asset_oracle(env, &candidate, &oracle);
+        validate_oracle(env, &candidate, &oracle, false);
     }
 }
 
@@ -126,8 +135,7 @@ fn depends_on(env: &Env, root: &PriceKey, target: &PriceKey, visiting: &mut Vec<
     visiting.push_back(root.clone());
     let found = registry::get_oracle(env, root).is_some_and(|oracle| {
         oracle.sources.iter().any(|source| {
-            properties::local_properties(env, &source)
-                .dependencies
+            properties::dependencies(env, &source)
                 .iter()
                 .any(|dependency| {
                     dependency == *target || depends_on(env, &dependency, target, visiting)
@@ -141,9 +149,15 @@ fn depends_on(env: &Env, root: &PriceKey, target: &PriceKey, visiting: &mut Vec<
 /// Runs the full validation suite for `oracle` under `key`, covering sanity
 /// bounds, source shape and count, asset decimals, composition depth,
 /// staleness, smoothing, tolerance, and source independence, with the
-/// smoothing and tolerance checks waived for Aquarius LP oracles. Panics if
-/// any check fails.
+/// smoothing and tolerance checks waived for LP oracles. Panics if any check
+/// fails. An `AllowShared` declaration must match the shared set exactly.
 pub(crate) fn validate_asset_oracle(env: &Env, key: &PriceKey, oracle: &AssetOracle) {
+    validate_oracle(env, key, oracle, true);
+}
+
+/// Runs [`validate_asset_oracle`]'s checks; `exact_independence` false lets a
+/// stored `AllowShared` declaration cover a shared set that has since shrunk.
+fn validate_oracle(env: &Env, key: &PriceKey, oracle: &AssetOracle, exact_independence: bool) {
     let mut session = Session::new(env);
     session.push_key(key);
     let derived = properties::properties_of_config(&mut session, &oracle.sources);
@@ -154,7 +168,7 @@ pub(crate) fn validate_asset_oracle(env: &Env, key: &PriceKey, oracle: &AssetOra
         oracle.min_sanity_price_wad,
         oracle.max_sanity_price_wad,
     );
-    if oracle.has_aquarius_lp_source() {
+    if oracle.has_lp_source() {
         // Sole-source by construction, so the band is the only backstop.
         validate_lp_sanity_band(
             env,
@@ -178,7 +192,7 @@ pub(crate) fn validate_asset_oracle(env: &Env, key: &PriceKey, oracle: &AssetOra
         validation::source_shape(env, &source);
     }
 
-    let has_lp = oracle.sources.iter().any(|source| source.is_aquarius_lp());
+    let has_lp = oracle.sources.iter().any(|source| source.is_lp());
     if has_lp && oracle.sources.len() != 1 {
         panic_with_error!(env, OracleError::SourceCountOutOfRange);
     }
@@ -188,15 +202,18 @@ pub(crate) fn validate_asset_oracle(env: &Env, key: &PriceKey, oracle: &AssetOra
         validation::composition_depth(env, second);
     }
     validation::staleness_envelope(env, oracle.max_price_stale_seconds, &derived.combined());
-    if !oracle.has_aquarius_lp_source() {
+    if !oracle.has_lp_source() {
         validation::smoothing(env, &derived.first, derived.second.as_ref());
-    }
-
-    if !oracle.has_aquarius_lp_source() {
         validate_oracle_tolerance(env, &oracle.tolerance);
     }
     if let Some(second) = derived.second.as_ref() {
-        validation::independence(env, &derived.first, second, &oracle.independence);
+        validation::independence(
+            env,
+            &derived.first,
+            second,
+            &oracle.independence,
+            exact_independence,
+        );
     }
 }
 
@@ -218,23 +235,23 @@ pub(crate) fn set_sanity_band(env: &Env, key: PriceKey, min_wad: i128, max_wad: 
     );
     oracle.min_sanity_price_wad = min_wad;
     oracle.max_sanity_price_wad = max_wad;
-    validate_asset_oracle(env, &key, &oracle);
+    validate_oracle(env, &key, &oracle, false);
 
     let mut session = Session::new(env);
     engine::probe(&mut session, &key, &oracle);
     registry::commit(env, &key, &oracle);
 }
 
-/// Updates the tolerance of the oracle registered under `key`. Rejects Aquarius LP
-/// oracles, validates the new tolerance, re-probes the oracle, and commits the
-/// result to the registry. Panics if the oracle is not configured, has an
-/// Aquarius LP source, or the tolerance fails validation.
+/// Updates the tolerance of the oracle registered under `key`. Rejects LP
+/// (Aquarius or Curve) oracles, validates the new tolerance, re-probes the
+/// oracle, and commits the result to the registry. Panics if the oracle is not
+/// configured, has an LP source, or the tolerance fails validation.
 pub(crate) fn set_tolerance(env: &Env, key: PriceKey, tolerance: OracleTolerance) {
     let mut oracle = registry::get_oracle(env, &key)
         .unwrap_or_else(|| panic_with_error!(env, OracleError::OracleNotConfigured));
     assert_with_error!(
         env,
-        !oracle.has_aquarius_lp_source(),
+        !oracle.has_lp_source(),
         OracleError::SourceCountOutOfRange
     );
     validate_oracle_tolerance(env, &tolerance);

@@ -49,12 +49,17 @@ For each candidate:
 when eligibility changes or no target debt remains. Identify the panicking
 contract before mapping the number.
 
+`liquidate` prices every supply and debt leg, so one failing price reverts it.
+When the failing asset is a dust debt leg, `repay` is permissionless and reads
+no price: repay that leg in full, then liquidate. A paused listing rejects that
+repayment.
+
 ## 2. Select the seize mode
 
 | Mode | Result | Estimate units | Main constraint |
 |---|---|---|---|
 | `Transfer` | Underlying collateral to the liquidator | Asset base units | Every generated Transfer seizure leg needs sufficient pool cash and the recipient may need a classic-asset trustline |
-| `Credit(0)` | New normal-mode receiving account | RAY supply shares | Position limit; no pool-cash requirement |
+| `Credit(0)` | New normal-mode receiving account | RAY supply shares | No governed position limit; no pool-cash requirement |
 | `Credit(id)` | Supply shares credited to `id` | RAY supply shares | Receiver is authorized, same spoke, normal mode, and not the liquidated account |
 
 Seizure is pro rata, but the planner drops legs that round to zero.
@@ -67,15 +72,23 @@ A missing spoke listing permits repayment and Transfer seizure. Credit needs
 a listing when it creates a new receiver supply position. An existing receiver
 position uses its stored risk parameters.
 
-The estimate does not prove receiver authorization, position capacity,
-low-decimal isolation, or pool cash availability. For `Credit(id)`, require current NFT ownership or an active registered
+The estimate checks a `Credit` receiver's spoke, mode, position capacity and
+low-decimal isolation, but not receiver authorization or pool cash
+availability. For `Credit(id)`, require current NFT ownership or an active registered
 manager delegated by that owner. Require the same spoke, `Normal` mode,
 and a receiver distinct from the target. Simulate the complete
 write for every mode.
 
-Use Credit when Transfer cannot draw pool cash. Convert Credit estimate shares
-to token units with the matching market supply index and asset decimals before
-valuation:
+Use Credit when Transfer cannot draw pool cash. A liquidation that leaves at
+most $5 of collateral below the remaining debt socializes that debt in the
+same call. A Credit receiver credited in a market written down there shares
+that write-down pro rata, and the estimate does not show it. When the account
+also owes a seized asset, a seize-all Credit liquidation can lose money in
+that asset's market. Use Transfer there, or a partial size that leaves more
+than $5 of collateral.
+
+Convert Credit estimate shares to token units with the matching market supply
+index and asset decimals before valuation:
 
 ```text
 value_ray   = floor(shares * supply_index / RAY)

@@ -117,7 +117,8 @@ claim does not guarantee that the supplier can withdraw that amount.
 
 Supply, repayment, recapitalization, and supported strategy legs credit the
 amount received. Under-delivered liquidation repayment reduces the associated
-seizure. This supports specific receipt-tax behavior; it does not make rebases,
+seizure, except that a liquidation seizing collateral below 3 decimals reverts
+on a short receipt. This supports specific receipt-tax behavior; it does not make rebases,
 sender surcharges, or false balances safe. See [token assumptions](threat-model.md#token-assumptions).
 
 <a id="adr-0015"></a>
@@ -172,6 +173,11 @@ A valuation-dependent operation must obtain every required valid price in its
 context. Price failure aborts the operation. This protects risk decisions at
 the cost of withdrawal and liquidation availability during outages.
 
+A borrower can hold a dust leg of a failing asset to block its own
+liquidation ([DoS.1](threat-model.md#stride-register)). Repayment reads no
+price, so anyone can repay a dust debt leg during the outage and then
+liquidate, unless that listing is paused.
+
 <a id="adr-0014"></a>
 
 ### ADR-0014: Governed source admission
@@ -184,7 +190,8 @@ sole-source, waive smoothing and tolerance checks, and use a separate sanity
 cap alongside pool and underlying-price validation.
 
 Changed keys receive provider-specific attestation and a probe. Non-LP probes
-permit market-condition failures; LP admission requires a usable price.
+permit market-condition failures; LP admission requires a usable price. Curve
+attestation is a no-op; that probe enforces the pool binding.
 Transitive dependents receive structural revalidation without new live probes.
 This limits repeated provider calls and their memory cost; an LP receives live
 suitability checks on its own admission, not on each upstream-key edit.
@@ -224,7 +231,7 @@ Routes use bounded indexed address and amount registries.
 Decoding checks format, index bounds, Prev links, and individual split weights;
 runtime vault accounting checks available balances and venue receipts.
 Split weights apply to the shrinking remainder and need not sum to one.
-Registries need not be unique; Aquarius LP constituents come from the pool.
+Registries need not be unique; LP (Aquarius or Curve) constituents come from the pool.
 A valid instruction stream does not establish good economic execution.
 
 <a id="adr-0019"></a>
@@ -236,7 +243,8 @@ liquidator owns or is a delegate for, avoiding a collateral cash payout.
 Seized shares split into receiver credit and protocol revenue by
 reclassification; the fee does not mint unbacked shares.
 
-Receiver position limits still apply, and a newly credited asset needs a
+Position limits still apply to an existing receiver (a `Credit(0)` receiver
+is exempt), and a newly credited asset needs a
 listing. Existing positions retain their risk tuple; new positions use the
 listing's values. The receiver's supply increase is bounded by the target's
 seizure and its debt does not move. The [event reference](../reference/events.md) distinguishes

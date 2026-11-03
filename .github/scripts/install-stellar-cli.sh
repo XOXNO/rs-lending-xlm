@@ -6,7 +6,13 @@ STELLAR_VERSION="${STELLAR_VERSION:-28.0.0}"
 os="$(uname -s)"
 arch="$(uname -m)"
 case "$os" in
-  Linux) TARGET="x86_64-unknown-linux-gnu" ;;
+  Linux)
+    if [ "$arch" = "arm64" ] || [ "$arch" = "aarch64" ]; then
+      TARGET="aarch64-unknown-linux-gnu"
+    else
+      TARGET="x86_64-unknown-linux-gnu"
+    fi
+    ;;
   Darwin)
     if [ "$arch" = "arm64" ] || [ "$arch" = "aarch64" ]; then
       TARGET="aarch64-apple-darwin"
@@ -23,6 +29,7 @@ esac
 # SHA-256 of each release tarball, as the GitHub release asset `digest` reports it.
 case "${STELLAR_VERSION}/${TARGET}" in
   28.0.0/x86_64-unknown-linux-gnu) SHA256="207544486734fccb4df1afc4a7745478f9f1e21688b2f9506f0ef36f60ce3fdc" ;;
+  28.0.0/aarch64-unknown-linux-gnu) SHA256="8d8e5ea9bb441a19e99a7a7a4809df3f758c9654265c76953436fb7e9288b9ff" ;;
   28.0.0/aarch64-apple-darwin) SHA256="416483409db89d9bf58163023d2c9d67cda24a5645042a98c0b8c1378cfc659d" ;;
   28.0.0/x86_64-apple-darwin) SHA256="9408343ed9cad961e529b3fdcd124ddc38fe1fa4766098e3c109d78e8d847305" ;;
   *)

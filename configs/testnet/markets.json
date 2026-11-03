@@ -8,23 +8,18 @@
       "asset_address": "CBIELTK6YBZJU5UP2WWQEUCYKLPU6AUNZ2BQ4WWFEIE3USCIHMXQDAMA",
       "oracle": {
         "asset_decimals": 7,
-        "max_price_stale_seconds": 86400,
+        "max_price_stale_seconds": 93600,
         "sources": [
           {
             "Feed": {
               "provider": {
-                "Reflector": {
-                  "contract": "CCYOZJCOPG34LLQQ7N24YXBM7LL62R7ONMZ3G6WZAAYPB5OYKOMJRN63",
-                  "asset": {
-                    "Symbol": "USDC"
-                  },
-                  "read_mode": {
-                    "Twap": 3
-                  }
+                "Chainlink": {
+                  "contract": "CBUF6IADAWPWIDWRTHJNINKXHG2UTIQ6TU2F2HRAXWAI7OT3KJPKK6O4",
+                  "data_id": "01a80ff216000332000000000000000000000000000000000000000000000000"
                 }
               },
-              "decimals": 14,
-              "max_stale_seconds": 3600
+              "decimals": 18,
+              "max_stale_seconds": 93600
             }
           },
           {
@@ -69,23 +64,18 @@
       "asset_address": "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC",
       "oracle": {
         "asset_decimals": 7,
-        "max_price_stale_seconds": 86400,
+        "max_price_stale_seconds": 93600,
         "sources": [
           {
             "Feed": {
               "provider": {
-                "Reflector": {
-                  "contract": "CCYOZJCOPG34LLQQ7N24YXBM7LL62R7ONMZ3G6WZAAYPB5OYKOMJRN63",
-                  "asset": {
-                    "Symbol": "XLM"
-                  },
-                  "read_mode": {
-                    "Twap": 3
-                  }
+                "Chainlink": {
+                  "contract": "CBUF6IADAWPWIDWRTHJNINKXHG2UTIQ6TU2F2HRAXWAI7OT3KJPKK6O4",
+                  "data_id": "017be2f55a000332000000000000000000000000000000000000000000000000"
                 }
               },
-              "decimals": 14,
-              "max_stale_seconds": 3600
+              "decimals": 18,
+              "max_stale_seconds": 93600
             }
           },
           {
@@ -178,23 +168,18 @@
       "asset_address": "CBK3FNAM3C54674OSOCQLDNW4EXMNUY6ZO3C3ZI5S5DGBIIPX4GJ7WHW",
       "oracle": {
         "asset_decimals": 7,
-        "max_price_stale_seconds": 86400,
+        "max_price_stale_seconds": 93600,
         "sources": [
           {
             "Feed": {
               "provider": {
-                "Reflector": {
-                  "contract": "CCYOZJCOPG34LLQQ7N24YXBM7LL62R7ONMZ3G6WZAAYPB5OYKOMJRN63",
-                  "asset": {
-                    "Symbol": "BTC"
-                  },
-                  "read_mode": {
-                    "Twap": 3
-                  }
+                "Chainlink": {
+                  "contract": "CBUF6IADAWPWIDWRTHJNINKXHG2UTIQ6TU2F2HRAXWAI7OT3KJPKK6O4",
+                  "data_id": "01a0b4d920000332000000000000000000000000000000000000000000000000"
                 }
               },
-              "decimals": 14,
-              "max_stale_seconds": 3600
+              "decimals": 18,
+              "max_stale_seconds": 93600
             }
           },
           {
@@ -239,23 +224,18 @@
       "asset_address": "CBFNIHC2B7WMAH2CKNKQJOB3CWBUXXNNRQXYISJ7VZONM77YBMHCOULJ",
       "oracle": {
         "asset_decimals": 7,
-        "max_price_stale_seconds": 86400,
+        "max_price_stale_seconds": 93600,
         "sources": [
           {
             "Feed": {
               "provider": {
-                "Reflector": {
-                  "contract": "CCYOZJCOPG34LLQQ7N24YXBM7LL62R7ONMZ3G6WZAAYPB5OYKOMJRN63",
-                  "asset": {
-                    "Symbol": "ETH"
-                  },
-                  "read_mode": {
-                    "Twap": 3
-                  }
+                "Chainlink": {
+                  "contract": "CBUF6IADAWPWIDWRTHJNINKXHG2UTIQ6TU2F2HRAXWAI7OT3KJPKK6O4",
+                  "data_id": "01d585327c000332000000000000000000000000000000000000000000000000"
                 }
               },
-              "decimals": 14,
-              "max_stale_seconds": 3600
+              "decimals": 18,
+              "max_stale_seconds": 93600
             }
           },
           {
@@ -300,23 +280,18 @@
       "asset_address": "CBIELTK6YBZJU5UP2WWQEUCYKLPU6AUNZ2BQ4WWFEIE3USCIHMXQDAMA",
       "oracle": {
         "asset_decimals": 7,
-        "max_price_stale_seconds": 86400,
+        "max_price_stale_seconds": 93600,
         "sources": [
           {
             "Feed": {
               "provider": {
-                "Reflector": {
-                  "contract": "CCYOZJCOPG34LLQQ7N24YXBM7LL62R7ONMZ3G6WZAAYPB5OYKOMJRN63",
-                  "asset": {
-                    "Symbol": "USDC"
-                  },
-                  "read_mode": {
-                    "Twap": 3
-                  }
+                "Chainlink": {
+                  "contract": "CBUF6IADAWPWIDWRTHJNINKXHG2UTIQ6TU2F2HRAXWAI7OT3KJPKK6O4",
+                  "data_id": "01a80ff216000332000000000000000000000000000000000000000000000000"
                 }
               },
-              "decimals": 14,
-              "max_stale_seconds": 3600
+              "decimals": 18,
+              "max_stale_seconds": 93600
             }
           },
           {
@@ -361,7 +336,7 @@
       "asset_address": "CDEUHPEUQAQNLCHFVBX3ZOSIR2FUWD2COYTSHUPQPJWK2BCLLQCW66FY",
       "oracle": {
         "asset_decimals": 7,
-        "max_price_stale_seconds": 86400,
+        "max_price_stale_seconds": 93600,
         "sources": [
           {
             "AquariusLp": {
@@ -408,23 +383,18 @@
       "asset_address": "CBIELTK6YBZJU5UP2WWQEUCYKLPU6AUNZ2BQ4WWFEIE3USCIHMXQDAMA",
       "oracle": {
         "asset_decimals": 7,
-        "max_price_stale_seconds": 86400,
+        "max_price_stale_seconds": 93600,
         "sources": [
           {
             "Feed": {
               "provider": {
-                "Reflector": {
-                  "contract": "CCYOZJCOPG34LLQQ7N24YXBM7LL62R7ONMZ3G6WZAAYPB5OYKOMJRN63",
-                  "asset": {
-                    "Symbol": "USDC"
-                  },
-                  "read_mode": {
-                    "Twap": 3
-                  }
+                "Chainlink": {
+                  "contract": "CBUF6IADAWPWIDWRTHJNINKXHG2UTIQ6TU2F2HRAXWAI7OT3KJPKK6O4",
+                  "data_id": "01a80ff216000332000000000000000000000000000000000000000000000000"
                 }
               },
-              "decimals": 14,
-              "max_stale_seconds": 3600
+              "decimals": 18,
+              "max_stale_seconds": 93600
             }
           },
           {

@@ -134,10 +134,13 @@ entrypoint (#[only_owner])
 Checks-effects-interactions holds everywhere except `flash_loan`, which pays
 out first and then reconciles balances.
 
-`ops::run_batch` loads a fresh `Cache` per entry, so two entries on the same
-market compose: the second reads the first's committed state. A market touched
-twice emits two snapshots in one `PoolMarketStateBatchEvent`; indexers take the
-last. An empty batch emits nothing.
+`ops::run_batch` loads a fresh `Cache` per entry. Supply, borrow, withdraw
+and repay reject a batch that repeats a market with `InvalidPayments` (16),
+because each leg carries a position read before the batch. Only
+`seize_positions` composes same-market entries: the second reads the first's
+committed state, and the market emits two snapshots in one
+`PoolMarketStateBatchEvent`; indexers take the last. An empty batch emits
+nothing.
 
 ## State
 
@@ -167,7 +170,7 @@ A seized deposit is already in `supplied`; interest creates new claims.
 Backing shortfall (`guards::backing_shortfall`):
 
 ```text
-supplied_claim(floor) − (cash + outstanding_debt(ceil)), clamped ≥ 0
+floor_to_units(supplied_claim(floor) − outstanding_debt(ceil)) − cash, clamped ≥ 0
 ```
 
 ## Rounding

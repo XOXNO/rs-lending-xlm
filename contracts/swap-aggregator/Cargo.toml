@@ -2,7 +2,7 @@
 name = "swap-aggregator"
 version = "0.1.0"
 edition = "2021"
-description = "Soroban aggregator router. Executes StrategyPayload XDR across Soroswap, Aquarius, Phoenix, Sushi, and Comet."
+description = "Soroban aggregator router. Executes StrategyPayload XDR across Soroswap, Aquarius, Phoenix, Sushi, Comet, and Curve."
 license = "Apache-2.0"
 
 [lib]

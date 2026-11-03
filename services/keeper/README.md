@@ -54,7 +54,10 @@ Each TTL tick discovers:
   configured markets.
 - XOXNO oracle adapter instance, WASM, and persistent asset, feed and signer
   keys when `contracts.xoxno_oracle_adapter` is set.
-- Each `contracts.extra_instances` instance and its WASM.
+- The `contracts.redstone_adapter`, `contracts.swap_router`, and each
+  `contracts.extra_instances` instance and its WASM. The named dependencies
+  appear as `redstone_adapter` and `swap_router` in Prometheus and Grafana;
+  unnamed extra instances retain their `other_<id prefix>` labels.
 
 The controller defines no access-control roles. Governance role keys are
 discovered from the governance `ExistingRoles` entry. Governance defines the
@@ -74,6 +77,8 @@ contracts:
   flash_loan_receiver: C...  # optional
   governance: C...           # optional
   price_aggregator: C...     # required when markets are configured
+  redstone_adapter: C...     # optional; instance and WASM renewal
+  swap_router: C...          # optional; instance and WASM renewal
   markets:
     - hub_id: 1
       asset: C...
@@ -149,7 +154,7 @@ renew these entries.
 | Governance role keys | persistent | `ExistingRoles` | yes, when configured |
 | Pool / position-NFT / receiver / price-aggregator instances and WASM code | instance / code | instance reads | yes |
 | XOXNO oracle adapter instance, WASM and persistent keys | instance / code / persistent | configured `xoxno_oracle_adapter` | yes, when configured |
-| Third-party instances the protocol reads through (`contracts.extra_instances`: RedStone adapter, swap router) and their WASM code | instance / code | configured list | yes, when configured — nothing in the protocol writes these, so nothing else renews them |
+| Dependencies the protocol reads through (`contracts.redstone_adapter`, `contracts.swap_router`, `contracts.extra_instances`) and their WASM code | instance / code | configured addresses | yes, when configured — nothing in the protocol writes these, so nothing else renews them |
 | Timelock `OperationLedger(BytesN<32>)` | persistent | event-only | no, documented gap |
 | Temporary keys | temporary | n/a | no, expire by design |
 

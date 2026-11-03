@@ -13,7 +13,7 @@ use soroban_sdk::{panic_with_error, Address, Env, Map, String, Vec};
 use common::types::{PriceSource, ProviderRef, MAX_RESOLUTION_DEPTH};
 
 #[cfg(not(feature = "certora"))]
-use crate::registry;
+use crate::{properties, registry};
 
 /// Per-invocation resolution state for the price aggregator.
 ///
@@ -196,26 +196,24 @@ fn collect_key(
         match &source {
             PriceSource::Feed(feed) => collect_provider(env, by_adapter, &feed.provider),
             PriceSource::Scaled(scaled) => {
-                collect_provider(env, by_adapter, &scaled.factor.provider);
-                collect_key(env, by_adapter, visited, &scaled.quote, depth + 1);
+                collect_provider(env, by_adapter, &scaled.factor.provider)
             }
-
-            PriceSource::AquariusLp(lp) | PriceSource::AquariusStableLp(lp) => {
-                collect_key(env, by_adapter, visited, &lp.key_a, depth + 1);
-                collect_key(env, by_adapter, visited, &lp.key_b, depth + 1);
-            }
+            _ => {}
+        }
+        for dependency in properties::dependencies(env, &source).iter() {
+            collect_key(env, by_adapter, visited, &dependency, depth + 1);
         }
     }
 }
 
 /// Records the feed id referenced by `provider` under its adapter contract
 /// in `by_adapter`, deduplicating against feeds already recorded for that
-/// adapter. Reflector providers are not bulk-fetchable and are skipped.
+/// adapter. Chainlink and Reflector providers are not bulk-fetchable and are skipped.
 #[cfg(not(feature = "certora"))]
 fn collect_provider(env: &Env, by_adapter: &mut Map<Address, Vec<String>>, provider: &ProviderRef) {
     let multi_feed = match provider {
         ProviderRef::RedStone(feed) | ProviderRef::Xoxno(feed) => feed,
-        ProviderRef::Reflector(_) => return,
+        ProviderRef::Chainlink(_) | ProviderRef::Reflector(_) => return,
     };
     let mut feeds = by_adapter
         .get(multi_feed.contract.clone())

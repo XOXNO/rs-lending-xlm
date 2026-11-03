@@ -5,16 +5,17 @@ use test_harness::{
     LendingTest, ALICE, BOB,
 };
 
-/// Mainnet per-transaction CPU and memory limits, the same pair that
-/// `tests/test-harness/tests/fuzz/strategy_multiply_budget.rs` asserts against.
-const MAINNET_CPU_BUDGET: u64 = 100_000_000;
-const MAINNET_MEM_BUDGET: u64 = 41_943_040;
+/// Mainnet per-transaction CPU and memory limits (`tx_max_instructions`,
+/// `tx_memory_limit`), read with `stellar network settings` on 2026-11-02.
+const MAINNET_CPU_LIMIT: u64 = 400_000_000;
+const MAINNET_MEM_LIMIT: u64 = 41_943_040;
 
-/// Ceilings for the six measured paths: a quarter of the mainnet limit. The
-/// heaviest path measures about 9.9M CPU and 5.6M memory, so a 3x regression
-/// fails here.
-const CPU_CEILING: u64 = MAINNET_CPU_BUDGET / 4;
-const MEM_CEILING: u64 = MAINNET_MEM_BUDGET / 4;
+/// Ceilings for the six measured paths: 25M CPU (a sixteenth of the mainnet
+/// limit, a quarter of the 100M test-host default budget) and a quarter of the
+/// mainnet memory limit. The heaviest path measures about 9.9M CPU and 5.6M
+/// memory, so a 3x regression fails here.
+const CPU_CEILING: u64 = MAINNET_CPU_LIMIT / 16;
+const MEM_CEILING: u64 = MAINNET_MEM_LIMIT / 4;
 
 /// Prints the per-cost-type CPU breakdown and asserts that the totals stay
 /// within `CPU_CEILING` and `MEM_CEILING`.
@@ -53,12 +54,12 @@ fn dump(env: &Env, label: &str) {
     assert!(
         total_cpu <= CPU_CEILING,
         "{label}: cpu={total_cpu} exceeds the ceiling {CPU_CEILING} \
-         (mainnet limit {MAINNET_CPU_BUDGET})"
+         (mainnet limit {MAINNET_CPU_LIMIT})"
     );
     assert!(
         total_mem <= MEM_CEILING,
         "{label}: mem={total_mem} exceeds the ceiling {MEM_CEILING} \
-         (mainnet limit {MAINNET_MEM_BUDGET})"
+         (mainnet limit {MAINNET_MEM_LIMIT})"
     );
 }
 

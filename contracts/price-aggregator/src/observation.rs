@@ -1,10 +1,11 @@
-//! Converts raw provider price payloads (RedStone, Reflector) into normalized,
+//! Converts raw provider price payloads (Chainlink, RedStone, Reflector) into normalized,
 //! WAD-scaled observations, rejecting prices timestamped in the future or that
 //! fail decimal normalization.
 
 use common::oracle::observation::{
     is_future_at, millis_to_seconds, try_normalize_positive_price, try_u256_to_i128,
 };
+use common::oracle::providers::chainlink::ChainlinkRound;
 use common::oracle::providers::redstone::RedStonePriceData;
 use common::oracle::providers::reflector::ReflectorPriceData;
 /// A normalized price observation: a WAD-scaled price and its observation
@@ -17,6 +18,22 @@ pub(crate) struct OracleObservation {
 }
 
 impl OracleObservation {
+    /// Builds an observation from a Chainlink round. Rejects a future-dated,
+    /// non-positive, oversized, or unnormalizable answer.
+    pub(crate) fn from_chainlink(
+        now_secs: u64,
+        round: &ChainlinkRound,
+        decimals: u32,
+    ) -> Option<Self> {
+        if is_future_at(now_secs, round.timestamp) {
+            return None;
+        }
+        Some(OracleObservation {
+            price_wad: try_normalize_positive_price(round.answer.to_i128()?, decimals)?,
+            timestamp: round.timestamp,
+        })
+    }
+
     /// Builds an observation from a RedStone multi-feed payload. Rejects the
     /// observation if its package or write timestamp exceeds
     /// `now_secs + MAX_FUTURE_SKEW_SECONDS`, if the price does not fit an

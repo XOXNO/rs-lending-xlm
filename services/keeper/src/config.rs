@@ -53,6 +53,12 @@ pub struct ContractsConfig {
     #[serde(default, deserialize_with = "empty_string_as_none")]
     pub price_aggregator: Option<String>,
 
+    #[serde(default, deserialize_with = "empty_string_as_none")]
+    pub redstone_adapter: Option<String>,
+
+    #[serde(default, deserialize_with = "empty_string_as_none")]
+    pub swap_router: Option<String>,
+
     /// Instances the protocol only reads through (third-party oracle adapters,
     /// the swap router). Nothing in the protocol writes them, so nothing renews
     /// them; anyone may pay their rent, and an archived one fails every price
@@ -266,6 +272,23 @@ impl KeeperConfig {
         .into_iter()
         .flatten()
         .collect();
+        for (name, address) in [
+            (
+                "redstone_adapter",
+                self.contracts.redstone_adapter.as_deref(),
+            ),
+            ("swap_router", self.contracts.swap_router.as_deref()),
+        ] {
+            if let Some(address) = address {
+                contract_id_from_strkey(address)
+                    .with_context(|| format!("config.contracts.{name}"))?;
+                if !kept.insert(address) {
+                    return Err(anyhow!(
+                        "config.contracts.{name} repeats a contract already kept alive: {address}"
+                    ));
+                }
+            }
+        }
         for (i, extra) in self.contracts.extra_instances.iter().enumerate() {
             contract_id_from_strkey(extra)
                 .with_context(|| format!("config.contracts.extra_instances[{i}]"))?;
@@ -335,6 +358,55 @@ pub const LEDGERS_PER_DAY: u32 = 17_280;
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn named_dependencies_reject_invalid_and_duplicate_addresses() {
+        let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("config/mainnet.yaml");
+        let base = KeeperConfig::load(&path).unwrap();
+        let mut config = base.clone();
+        config.contracts.redstone_adapter = Some("CABC".into());
+        assert!(config.validate().is_err());
+        let mut config = base.clone();
+        config.contracts.swap_router = Some("CABC".into());
+        assert!(config.validate().is_err());
+        let mut config = base.clone();
+        config.contracts.swap_router = config.contracts.redstone_adapter.clone();
+        assert!(config.validate().is_err());
+        let mut config = base.clone();
+        config.contracts.redstone_adapter = Some(config.contracts.controller.clone());
+        assert!(config.validate().is_err());
+        let mut config = base;
+        config
+            .contracts
+            .extra_instances
+            .push(config.contracts.swap_router.clone().unwrap());
+        assert!(config.validate().is_err());
+    }
+
+    #[test]
+    fn legacy_extra_instances_still_load_without_named_dependencies() {
+        let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("config/mainnet.yaml");
+        let raw = fs::read_to_string(path).unwrap();
+        let mut value: serde_yaml::Value = serde_yaml::from_str(&raw).unwrap();
+        let contracts = value["contracts"].as_mapping_mut().unwrap();
+        let addresses: Vec<_> = ["redstone_adapter", "swap_router"]
+            .into_iter()
+            .map(|name| {
+                contracts
+                    .remove(serde_yaml::Value::String(name.into()))
+                    .unwrap()
+            })
+            .collect();
+        contracts.insert(
+            "extra_instances".into(),
+            serde_yaml::Value::Sequence(addresses),
+        );
+        let config: KeeperConfig = serde_yaml::from_value(value).unwrap();
+        config.validate().unwrap();
+        assert!(config.contracts.redstone_adapter.is_none());
+        assert!(config.contracts.swap_router.is_none());
+        assert_eq!(config.contracts.extra_instances.len(), 2);
+    }
 
     /// The shipped mainnet config validates; a malformed or repeated
     /// `extra_instances` entry fails validation.

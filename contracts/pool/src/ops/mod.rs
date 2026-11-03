@@ -16,12 +16,13 @@ pub(crate) mod strategy;
 pub(crate) mod supply;
 pub(crate) mod withdraw;
 
+use common::errors::GenericError;
 use common::math::fp::Ray;
 use common::ttl::renew_instance;
 use common::types::{HubAssetKey, MarketStateSnapshot, PoolAction};
 use common::validation::require_nonneg_amount;
 
-use soroban_sdk::{Env, IntoVal, TryFromVal, Val, Vec};
+use soroban_sdk::{assert_with_error, Env, IntoVal, TryFromVal, Val, Vec};
 
 use crate::cache::Cache;
 use crate::{events, interest};
@@ -39,9 +40,11 @@ pub(crate) fn renewed_market(env: &Env, hub_asset: &HubAssetKey) -> Cache {
     synced_market(env, hub_asset)
 }
 
-/// Validates `action.amount ≥ 0`, syncs the market, and returns (cache, scaled position).
+/// Validates `action.amount ≥ 0` and `action.position.scaled_amount ≥ 0`, syncs
+/// the market, and returns (cache, scaled position).
 pub(crate) fn load_leg(env: &Env, action: &PoolAction) -> (Cache, Ray) {
     require_nonneg_amount(env, action.amount);
+    require_nonneg_amount(env, action.position.scaled_amount);
     let cache = synced_market(env, &action.hub_asset);
     (cache, Ray::from(action.position.scaled_amount))
 }
@@ -50,9 +53,12 @@ pub(crate) fn load_leg(env: &Env, action: &PoolAction) -> (Cache, Ray) {
 /// market state batch event (none for an empty batch).
 ///
 /// Each leg returns a result `R` plus a [`MarketStateSnapshot`] for the event batch.
+/// With `unique_markets`, a batch that repeats a market panics with `InvalidPayments`:
+/// each leg carries a position read before the batch, so a second leg would be stale.
 pub(crate) fn run_batch<E, R>(
     env: &Env,
     entries: Vec<E>,
+    unique_markets: bool,
     mut leg: impl FnMut(&Env, &E) -> (R, MarketStateSnapshot),
 ) -> Vec<R>
 where
@@ -63,8 +69,14 @@ where
 
     let mut results = Vec::new(env);
     let mut snapshots = Vec::new(env);
+    let mut markets = Vec::new(env);
     for entry in entries.iter() {
         let (result, snapshot) = leg(env, &entry);
+        if unique_markets {
+            let repeated = markets.contains(&snapshot.hub_asset);
+            assert_with_error!(env, !repeated, GenericError::InvalidPayments);
+            markets.push_back(snapshot.hub_asset.clone());
+        }
         results.push_back(result);
         snapshots.push_back(snapshot);
     }

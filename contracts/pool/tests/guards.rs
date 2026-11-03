@@ -245,3 +245,15 @@ fn test_require_liquidation_buffer_admits_cash_at_the_rounded_up_reserve() {
         require_liquidation_buffer(&t.env, &cache, 999);
     });
 }
+
+/// Claims 100.9 units, debt 50.1, cash 49: the exact gap is 1.8 units, so the
+/// shortfall is 1. Rounding each side to whole units first would read 0.
+#[test]
+fn test_backing_shortfall_floors_the_exact_gap_once() {
+    let t = TestSetup::new();
+    let tenth = RAY / 100_000_000;
+    t.as_contract(|| {
+        let cache = cache_with(&t.env, &t.params, 1_009 * tenth, 501 * tenth, 49);
+        assert_eq!(backing_shortfall(&cache), 1);
+    });
+}

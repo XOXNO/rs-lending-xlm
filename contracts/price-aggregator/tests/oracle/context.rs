@@ -2,11 +2,11 @@ use super::*;
 use crate::test_support::{in_contract, CountingRedStoneAdapter, CountingRedStoneAdapterClient};
 use common::constants::WAD;
 use common::types::{
-    AssetOracle, FeedNature, FeedSource, IndependencePolicy, MultiFeedRef, OracleTolerance,
-    ScaledSource,
+    AssetOracle, CurveStableLpSource, FeedNature, FeedSource, IndependencePolicy, MultiFeedRef,
+    OracleTolerance, ScaledSource,
 };
 use soroban_sdk::testutils::{Address as _, Ledger as _};
-use soroban_sdk::{Address, Symbol};
+use soroban_sdk::{Address, BytesN, Symbol};
 
 fn token(env: &Env) -> PriceKey {
     PriceKey::Token(Address::generate(env))
@@ -206,6 +206,39 @@ fn test_a_lone_feed_is_read_lazily_rather_than_bulked() {
     let (single, bulk, _) = client.counts();
     assert_eq!(bulk, 0, "one feed does not earn a bulk call");
     assert_eq!(single, 1);
+}
+
+#[test]
+fn curve_warms_all_coin_feeds_in_one_batch() {
+    let env = Env::default();
+    env.ledger().set_timestamp(NOW);
+    let (adapter, client) = counting_adapter(&env, &["A", "B", "C"]);
+    in_contract(&env, || {
+        let mut coins = Vec::new(&env);
+        for name in ["A", "B", "C"] {
+            let PriceKey::Token(coin) = feed_key(&env, &adapter, name) else {
+                unreachable!()
+            };
+            coins.push_back(coin);
+        }
+        let pool = Address::generate(&env);
+        let key = PriceKey::Token(pool.clone());
+        crate::registry::store_oracle(
+            &env,
+            &key,
+            &oracle_of(
+                &env,
+                PriceSource::CurveStableLp(CurveStableLpSource {
+                    pool,
+                    coins,
+                    wasm_hash: BytesN::from_array(&env, &[0; 32]),
+                    min_pool_value_wad: WAD,
+                }),
+            ),
+        );
+        Session::new(&env).warm(&Vec::from_array(&env, [key]));
+    });
+    assert_eq!(client.counts(), (0, 1, 3));
 }
 
 #[test]

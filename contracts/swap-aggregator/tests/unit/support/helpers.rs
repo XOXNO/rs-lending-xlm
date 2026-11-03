@@ -22,6 +22,7 @@ fn venue_opcode(venue: SwapVenue) -> u8 {
         SwapVenue::Phoenix => 2,
         SwapVenue::Sushi => 3,
         SwapVenue::CometDex => 4,
+        SwapVenue::Curve => 7,
     }
 }
 

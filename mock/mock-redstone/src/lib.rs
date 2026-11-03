@@ -1,9 +1,11 @@
 #![no_std]
 
 use soroban_sdk::{
-    assert_with_error, contract, contracterror, contractimpl, contracttype, Env, String, Vec, U256,
+    assert_with_error, contract, contracterror, contractimpl, contracttype, BytesN, Env, String,
+    Vec, I256, U256,
 };
 
+pub use common::oracle::providers::chainlink::{ChainlinkRound, CHAINLINK_DECIMALS};
 pub use common::oracle::providers::redstone::RedStonePriceData;
 
 #[contracterror]
@@ -13,11 +15,13 @@ pub enum MockRedStoneError {
     FeedNotSet = 1,
     InvalidPrice = 2,
     TimestampOverflow = 3,
+    InvalidDecimals = 4,
 }
 
 #[contracttype]
 pub enum MockKey {
     PriceData(String),
+    ChainlinkRound(BytesN<32>),
 }
 
 const WAD_TO_8_DECIMALS: i128 = 10_000_000_000;
@@ -28,6 +32,32 @@ pub struct MockRedStonePriceFeed;
 
 #[contractimpl]
 impl MockRedStonePriceFeed {
+    pub fn set_chainlink_price(env: Env, data_id: BytesN<32>, price_wad: i128) {
+        assert_with_error!(&env, price_wad >= 0, MockRedStoneError::InvalidPrice);
+        let round = ChainlinkRound {
+            round_id: 1,
+            answer: I256::from_i128(&env, price_wad),
+            timestamp: env.ledger().timestamp(),
+        };
+        env.storage()
+            .persistent()
+            .set(&MockKey::ChainlinkRound(data_id), &round);
+    }
+
+    pub fn latest_round(
+        env: Env,
+        data_id: BytesN<32>,
+        decimals: u32,
+    ) -> Result<ChainlinkRound, MockRedStoneError> {
+        if decimals != CHAINLINK_DECIMALS {
+            return Err(MockRedStoneError::InvalidDecimals);
+        }
+        env.storage()
+            .persistent()
+            .get(&MockKey::ChainlinkRound(data_id))
+            .ok_or(MockRedStoneError::FeedNotSet)
+    }
+
     pub fn set_price(env: Env, feed_id: String, price_wad: i128) {
         let now_ms = env
             .ledger()

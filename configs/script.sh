@@ -13,6 +13,7 @@ HUBS_FILE="$CONFIG_ROOT/${NETWORK}/hubs.json"
 SPOKES_FILE="$CONFIG_ROOT/${NETWORK}/spokes.json"
 MARKET_CONFIG_FILE="$CONFIG_ROOT/${NETWORK}/markets.json"
 BLEND_POOLS_FILE="$CONFIG_ROOT/${NETWORK}/blend.json"
+CURVE_REVIEWED_POOLS_FILE="$CONFIG_ROOT/${NETWORK}/curve_reviewed_pools.json"
 
 require_tool() {
     if ! command -v "$1" >/dev/null 2>&1; then
@@ -84,6 +85,84 @@ get_market_value() {
     local market=$1
     local field=$2
     jq -r ".markets[] | select(.name == \"$market\") | .$field" "$MARKET_CONFIG_FILE"
+}
+
+# LP prices (Aquarius or Curve) are collateral-only: an LP mark is a
+# conservative lower bound, so it understates a debt denominated in the LP.
+# Prices are keyed by asset address, not market name, so every market sharing
+# the named market's address counts (another hub or alias may carry the LP
+# source). A Scaled source whose quote Token or Ref is LP-priced inherits the
+# LP mark, so the walk follows those quotes (bounded depth guards cycles).
+market_has_lp_source() {
+    jq -e --arg m "$1" '
+        . as $root |
+        def lp_priced($sources; $depth):
+            $depth > 0 and any($sources[]?;
+                has("AquariusLp") or has("AquariusStableLp") or has("CurveStableLp") or
+                ((.Scaled.quote.Token? // null) as $q | $q != null and
+                    lp_priced([$root.markets[]? | select(.asset_address == $q) | .oracle.sources[]?]; $depth - 1)) or
+                ((.Scaled.quote.Ref? // null) as $r | $r != null and
+                    lp_priced([$root.references[]? | select(.name == $r or .key.Ref == $r) | .oracle.sources[]?]; $depth - 1)));
+        [.markets[]? | select(.name == $m) | .asset_address] as $addrs |
+        lp_priced([.markets[]? | select(.asset_address as $a | any($addrs[]; . == $a)) | .oracle.sources[]?]; 8)
+    ' "$MARKET_CONFIG_FILE" >/dev/null
+}
+
+refuse_borrowable_lp() {
+    local asset_name=$1 can_borrow=$2
+    if [ "$can_borrow" = "true" ] && market_has_lp_source "$asset_name"; then
+        die "${asset_name} has an LP oracle source and is collateral-only; set can_be_borrowed: false in ${SPOKES_FILE}"
+    fi
+}
+
+curve_reviewed_schema_hint() {
+    local hint='need {"pools": [...]} with unique lowercase 64-hex wasm_hash and non-empty source_repo, source_commit, review, expected_factory'
+    if [ "$NETWORK" = "mainnet" ]; then
+        hint="${hint}; on mainnet source_commit must be a 40-hex git commit, source_repo must not be unknown, ?, or contain TODO, TBD or n/a, and expected_factory must be a C... contract address"
+    fi
+    printf '%s' "$hint"
+}
+
+# Prints the governance-reviewed Curve pool hashes of $NETWORK as a JSON array.
+# A missing file lists nothing; a malformed file fails. Mainnet entries must
+# name their provenance: a pinned commit, a repository (not a placeholder such
+# as unknown, TODO, TBD, n/a or ?) and the factory contract address.
+curve_reviewed_hashes() {
+    if [ ! -f "$CURVE_REVIEWED_POOLS_FILE" ]; then
+        printf '[]'
+        return 0
+    fi
+    jq -ce --arg net "$NETWORK" '
+        def known: type == "string" and length > 0 and (ascii_downcase | startswith("unknown") | not);
+        def named: known and (test("todo|tbd|n/a"; "i") | not) and (test("^\\s*\\?\\s*$") | not);
+        if (.pools | type) == "array" and
+            all(.pools[];
+                (.wasm_hash | type == "string" and test("^[0-9a-f]{64}$")) and
+                all(.source_repo, .source_commit, .review, .expected_factory;
+                    type == "string" and length > 0) and
+                ($net != "mainnet" or (
+                    (.source_commit | test("^[0-9a-f]{40}$")) and
+                    (.source_repo | named) and
+                    (.expected_factory | test("^C[A-Z2-7]{55}$"))))) and
+            ([.pools[].wasm_hash] | unique | length) == (.pools | length)
+        then [.pools[].wasm_hash] else false end
+    ' "$CURVE_REVIEWED_POOLS_FILE" 2>/dev/null
+}
+
+# Every CurveStableLp source must name a reviewed pool executable. Reads the
+# same allowlist as validate_configs, so the direct set_oracle proposal path
+# (configureMarketOracle, configureReferenceOracle) enforces it too.
+refuse_unreviewed_curve_hash() {
+    local label=$1 cfg_json=$2 reviewed
+    printf '%s' "$cfg_json" | jq -e 'any(.sources[]?; has("CurveStableLp"))' >/dev/null || return 0
+    reviewed=$(curve_reviewed_hashes) ||
+        die "${label}: ${CURVE_REVIEWED_POOLS_FILE}: $(curve_reviewed_schema_hint)"
+    if ! printf '%s' "$cfg_json" | jq -e --argjson reviewed "$reviewed" '
+        all(.sources[]? | select(has("CurveStableLp")) | .CurveStableLp.wasm_hash;
+            type == "string" and (ascii_downcase as $h | $reviewed | index($h) != null))
+    ' >/dev/null 2>&1; then
+        die "${label}: Curve wasm_hash $(printf '%s' "$cfg_json" | jq -c '[.sources[]? | .CurveStableLp.wasm_hash? // empty]') is not in ${CURVE_REVIEWED_POOLS_FILE}"
+    fi
 }
 
 get_spoke_value() {
@@ -243,6 +322,10 @@ get_oracle() { get_cex_oracle; }
 
 get_redstone_adapter() {
     get_network_value "redstone_adapter_contract"
+}
+
+get_chainlink_proxy() {
+    get_network_value "chainlink_data_feeds_proxy"
 }
 
 get_xoxno_oracle_adapter() {
@@ -1087,6 +1170,11 @@ execute_op() {
             echo "ERROR: failed to resolve oracle op ${op_id} args via the governance view." >&2
             exit 1
         fi
+        if [ "$kind" = "price_aggregator" ] && [ "$function" = "set_oracle" ] \
+            && [ "$(jq -r '.resolve.view_fn' "$path")" = "resolve_asset_oracle" ]; then
+            preflight_chainlink_sources "oracle op ${op_id}" \
+                "$(jq -c '.resolve.args.oracle // .resolve.args.cfg' "$path")" || return $?
+        fi
     else
         args_json=$(jq -c '.args' "$path")
     fi
@@ -1202,11 +1290,20 @@ validate_configs() {
         fi
     done
 
-    local cex dex fx redstone xoxno_adapter
+    # Governance-reviewed Curve pool executables for this network. A missing
+    # file lists nothing, so any CurveStableLp source then fails below.
+    local curve_reviewed
+    if ! curve_reviewed=$(curve_reviewed_hashes); then
+        vc_err "${CURVE_REVIEWED_POOLS_FILE}: $(curve_reviewed_schema_hint)"
+        curve_reviewed='[]'
+    fi
+
+    local cex dex fx redstone chainlink xoxno_adapter
     cex=$(get_cex_oracle)
     dex=$(get_dex_oracle)
     fx=$(get_fx_oracle)
     redstone=$(get_redstone_adapter)
+    chainlink=$(get_chainlink_proxy)
     xoxno_adapter=$(get_xoxno_oracle_adapter)
 
     local dup
@@ -1220,6 +1317,7 @@ validate_configs() {
     fi
 
     local oracle_bot_heartbeat_seconds=3600
+    local chainlink_heartbeat_seconds=86400
     local max_leg_age_spread_seconds=3600
     local m mj hub addr missing o strat anchor_tag minw maxw ptag pcontract atag acontract pstale astale
     for m in $(jq -r '.markets[].name' "$MARKET_CONFIG_FILE"); do
@@ -1270,7 +1368,7 @@ validate_configs() {
             vc_err "market ${m}: oracle still uses legacy primary/anchor/strategy/tolerance_bps fields"
         fi
         if ! printf '%s' "$o" | jq -e '
-            any(.sources[]?; has("AquariusLp") or has("AquariusStableLp")) or (
+            any(.sources[]?; has("AquariusLp") or has("AquariusStableLp") or has("CurveStableLp")) or (
                 (.tolerance.upper_ratio_bps // 0) > 10000 and
                 (.tolerance.lower_ratio_bps // 99999) < 10000 and
                 (.tolerance.lower_ratio_bps // 0) >= 1
@@ -1289,7 +1387,7 @@ validate_configs() {
         if printf '%s' "$o" | jq -e --argjson cap "$max_leg_age_spread_seconds" '
             (.sources | length) == 2 and
             ([.sources[] | (.Feed // .Scaled.factor) | select(. != null) |
-                if (.provider | has("Reflector")) then "Market"
+                if (.provider | (has("Reflector") or has("Chainlink"))) then "Market"
                 else (.provider.RedStone // .provider.Xoxno).nature end
              ] | length == 2 and all(. == "Market")) and
             ([.sources[] | (.Feed // .Scaled.factor).max_stale_seconds] | any(. > $cap))
@@ -1323,11 +1421,13 @@ validate_configs() {
                 fstale=$(printf '%s' "$sjson" | jq -r '.Feed.max_stale_seconds // "missing"')
                 pkind=$(printf '%s' "$sjson" | jq -r '
                     if .Feed.provider | has("Reflector") then "Reflector"
+                    elif .Feed.provider | has("Chainlink") then "Chainlink"
                     elif .Feed.provider | has("RedStone") then "RedStone"
                     elif .Feed.provider | has("Xoxno") then "Xoxno"
                     else "unknown" end')
                 pcontract=$(printf '%s' "$sjson" | jq -r '
                     if .Feed.provider | has("Reflector") then .Feed.provider.Reflector.contract
+                    elif .Feed.provider | has("Chainlink") then .Feed.provider.Chainlink.contract
                     elif .Feed.provider | has("RedStone") then .Feed.provider.RedStone.contract
                     elif .Feed.provider | has("Xoxno") then .Feed.provider.Xoxno.contract
                     else "" end')
@@ -1335,11 +1435,13 @@ validate_configs() {
                 fstale=$(printf '%s' "$sjson" | jq -r '.Scaled.factor.max_stale_seconds // "missing"')
                 pkind=$(printf '%s' "$sjson" | jq -r '
                     if .Scaled.factor.provider | has("Reflector") then "Reflector"
+                    elif .Scaled.factor.provider | has("Chainlink") then "Chainlink"
                     elif .Scaled.factor.provider | has("RedStone") then "RedStone"
                     elif .Scaled.factor.provider | has("Xoxno") then "Xoxno"
                     else "unknown" end')
                 pcontract=$(printf '%s' "$sjson" | jq -r '
                     if .Scaled.factor.provider | has("Reflector") then .Scaled.factor.provider.Reflector.contract
+                    elif .Scaled.factor.provider | has("Chainlink") then .Scaled.factor.provider.Chainlink.contract
                     elif .Scaled.factor.provider | has("RedStone") then .Scaled.factor.provider.RedStone.contract
                     elif .Scaled.factor.provider | has("Xoxno") then .Scaled.factor.provider.Xoxno.contract
                     else "" end')
@@ -1387,8 +1489,35 @@ validate_configs() {
                 fi
                 i=$((i + 1))
                 continue
+            elif printf '%s' "$sjson" | jq -e 'has("CurveStableLp")' >/dev/null; then
+                if ! printf '%s' "$sjson" | jq -e --arg asset "$addr" --argjson oracle "$o" '
+                    .CurveStableLp as $lp |
+                    $lp.pool == $asset and
+                    $oracle.asset_decimals == 18 and ($oracle.sources | length) == 1 and
+                    ($lp.wasm_hash | test("^[0-9a-fA-F]{64}$")) and
+                    ($lp.coins | type == "array") and
+                    ($lp.coins | length >= 2 and length <= 3) and
+                    ($lp.coins | unique | length) == ($lp.coins | length) and
+                    all($lp.coins[]; test("^C[A-Z2-7]{55}$") and . != $lp.pool) and
+                    ($lp.min_pool_value_wad | tonumber) > 0
+                ' >/dev/null; then
+                    vc_err "market ${m}: sources[$i] Curve LP needs the pool LP token, 18 decimals, a 64-hex WASM hash, 2..3 distinct ordered coins, and a positive liquidity floor"
+                fi
+                if ! printf '%s' "$sjson" | jq -e --argjson reviewed "$curve_reviewed" '
+                    (.CurveStableLp.wasm_hash | ascii_downcase) as $h | $reviewed | index($h) != null
+                ' >/dev/null 2>&1; then
+                    vc_err "market ${m}: sources[$i] Curve wasm_hash $(printf '%s' "$sjson" | jq -r '.CurveStableLp.wasm_hash') is not in ${CURVE_REVIEWED_POOLS_FILE}"
+                fi
+                local coin
+                while IFS= read -r coin; do
+                    if ! jq -e --arg a "$coin" 'any(.markets[]?; .asset_address == $a)' "$MARKET_CONFIG_FILE" >/dev/null; then
+                        vc_err "market ${m}: sources[$i] Curve coin ${coin} not in markets.json"
+                    fi
+                done < <(printf '%s' "$sjson" | jq -r '.CurveStableLp.coins[]? | strings')
+                i=$((i + 1))
+                continue
             else
-                vc_err "market ${m}: sources[$i] must be Feed, Scaled, AquariusLp, or AquariusStableLp"
+                vc_err "market ${m}: sources[$i] must be Feed, Scaled, AquariusLp, AquariusStableLp, or CurveStableLp"
                 i=$((i + 1))
                 continue
             fi
@@ -1435,6 +1564,25 @@ validate_configs() {
                         vc_err "market ${m}: sources[$i] RedStone max_stale_seconds ${fstale} < 4x oracle bot heartbeat (${oracle_bot_heartbeat_seconds}s)"
                     fi
                     ;;
+                Chainlink)
+                    if [ -n "$pcontract" ] && [ "$pcontract" != "$chainlink" ]; then
+                        vc_err "market ${m}: sources[$i] Chainlink contract differs from networks.json chainlink_data_feeds_proxy"
+                    fi
+                    local chainlink_data_id chainlink_decimals
+                    chainlink_data_id=$(printf '%s' "$sjson" | jq -r '
+                        ((.Feed // .Scaled.factor).provider.Chainlink.data_id) // ""')
+                    chainlink_decimals=$(printf '%s' "$sjson" | jq -r '
+                        ((.Feed // .Scaled.factor).decimals) // 0')
+                    if ! printf '%s' "$chainlink_data_id" | grep -qE '^[0-9a-fA-F]{64}$'; then
+                        vc_err "market ${m}: sources[$i] Chainlink data_id must be 32-byte hex"
+                    fi
+                    if [ "$chainlink_decimals" -ne 18 ]; then
+                        vc_err "market ${m}: sources[$i] Chainlink decimals must be 18"
+                    fi
+                    if [ "$fstale" != "missing" ] && [ "$fstale" -lt "$chainlink_heartbeat_seconds" ]; then
+                        vc_err "market ${m}: sources[$i] Chainlink max_stale_seconds ${fstale} < published heartbeat (${chainlink_heartbeat_seconds}s)"
+                    fi
+                    ;;
                 Xoxno)
                     if [ -n "$pcontract" ] && [ "$pcontract" != "$xoxno_adapter" ]; then
                         vc_warn "market ${m}: sources[$i] Xoxno contract differs from networks.json xoxno_oracle_adapter"
@@ -1463,7 +1611,7 @@ validate_configs() {
         if printf '%s' "$ro" | jq -e --argjson cap "$max_leg_age_spread_seconds" '
             (.sources | length) == 2 and
             ([.sources[] | (.Feed // .Scaled.factor) | select(. != null) |
-                if (.provider | has("Reflector")) then "Market"
+                if (.provider | (has("Reflector") or has("Chainlink"))) then "Market"
                 else (.provider.RedStone // .provider.Xoxno).nature end
              ] | length == 2 and all(. == "Market")) and
             ([.sources[] | (.Feed // .Scaled.factor).max_stale_seconds] | any(. > $cap))
@@ -1537,6 +1685,10 @@ validate_configs() {
                 ((.liquidation_threshold // 0) * (10000 + (.liquidation_bonus // 0))) <= 100000000 and
                 ((.liquidation_fees // 0) <= 10000)' >/dev/null; then
                 vc_err "spoke ${cat}/${a}: risk bounds invalid (need ltv < threshold <= 10000, bonus/fees <= 10000, threshold*(1+bonus) <= 100%)"
+            fi
+            if printf '%s' "$sj" | jq -e '.can_be_borrowed == true' >/dev/null &&
+               market_has_lp_source "$a"; then
+                vc_err "spoke ${cat}/${a}: LP oracle source (Aquarius or Curve) is collateral-only; set can_be_borrowed: false"
             fi
         done
     done
@@ -1820,6 +1972,7 @@ add_asset_to_spoke() {
     can_collateral=$(get_spoke_value "$config_category_id" ".assets.\"$asset_name\".can_be_collateral")
     local can_borrow
     can_borrow=$(get_spoke_value "$config_category_id" ".assets.\"$asset_name\".can_be_borrowed")
+    refuse_borrowable_lp "$asset_name" "$can_borrow"
     local ltv
     ltv=$(get_spoke_value "$config_category_id" ".assets.\"$asset_name\".ltv")
     local threshold
@@ -1912,6 +2065,7 @@ edit_asset_in_spoke() {
     can_collateral=$(get_spoke_value "$config_category_id" ".assets.\"$asset_name\".can_be_collateral")
     local can_borrow
     can_borrow=$(get_spoke_value "$config_category_id" ".assets.\"$asset_name\".can_be_borrowed")
+    refuse_borrowable_lp "$asset_name" "$can_borrow"
     local ltv
     ltv=$(get_spoke_value "$config_category_id" ".assets.\"$asset_name\".ltv")
     local threshold
@@ -2731,6 +2885,37 @@ preflight_oracle_sanity() {
     fi
 }
 
+preflight_chainlink_sources() {
+    local label=$1 cfg_json=$2 expected_proxy="" contract data_id decimals max_stale round now
+    while IFS=$'\t' read -r contract data_id decimals max_stale; do
+        if [ -z "$expected_proxy" ]; then
+            expected_proxy=$(get_chainlink_proxy)
+        fi
+        [ "$contract" = "$expected_proxy" ] \
+            || die "${label}: Chainlink source must use the network proxy ${expected_proxy}"
+        printf '%s' "$data_id" | grep -qE '^[0-9a-fA-F]{64}$' \
+            || die "${label}: Chainlink data_id must be 32-byte hex"
+        [ "$decimals" = 18 ] \
+            || die "${label}: Chainlink sources must request 18 decimals"
+        round=$(invoke_view "$contract" latest_round --data_id "$data_id" --decimals "$decimals") \
+            || die "${label}: Chainlink latest_round preflight failed"
+        now=$(date +%s)
+        printf '%s' "$round" | jq -e --argjson now "$now" --argjson max_stale "$max_stale" '
+            type == "object" and
+            (.answer | if type == "string" then test("^[1-9][0-9]*$")
+                       elif type == "number" then . > 0 and . == floor
+                       else false end) and
+            (.round_id | type == "number" and . >= 0 and . == floor) and
+            (.timestamp | type == "number" and . >= 0 and . == floor) and
+            .timestamp <= ($now + 60) and .timestamp + $max_stale >= $now
+        ' >/dev/null || die "${label}: Chainlink latest_round is malformed, non-positive, or stale"
+    done < <(printf '%s' "$cfg_json" | jq -r '
+        .sources[]? | (.Feed // .Scaled.factor) |
+        select(.provider.Chainlink? != null) |
+        [.provider.Chainlink.contract, .provider.Chainlink.data_id, .decimals, .max_stale_seconds] | @tsv
+    ')
+}
+
 schedule_configure_asset_oracle() {
     local label=$1
     local key_json=$2
@@ -2747,10 +2932,19 @@ schedule_configure_asset_oracle() {
     resolve_args=$(jq -nc --argjson key "$key_json" --argjson oracle "$cfg_json" \
         '{key:$key, oracle:$oracle}')
 
-    local agg resolved_args salt_use known_id state gen
+    local agg resolved_args salt_use known_id state gen requires_current_abi=false
+    refuse_unreviewed_curve_hash "configure oracle ${label}" "$cfg_json"
+    if printf '%s' "$cfg_json" | jq -e '
+        any(.sources[]?; has("CurveStableLp") or ((.Feed // .Scaled.factor).provider.Chainlink? != null))
+    ' >/dev/null; then
+        requires_current_abi=true
+    fi
     agg=$(get_price_aggregator)
     resolved_args=$(resolve_oracle_args_for resolve_asset_oracle "$agg" \
         set_oracle "$key_json" "$cfg_json" 2>/dev/null) || resolved_args=""
+    if [ "$requires_current_abi" = true ] && { [ -z "$resolved_args" ] || [ "$resolved_args" = "null" ]; }; then
+        die "This oracle configuration requires compatible governance and price-aggregator deployments; run 'make ${NETWORK} upgradeAll' first"
+    fi
     if [ -n "$resolved_args" ] && [ "$resolved_args" != "null" ]; then
         read -r salt_use known_id state gen < <(probe_salt_generations "$agg" set_oracle "$resolved_args" "$salt")
         case "$state" in
@@ -2782,6 +2976,8 @@ schedule_configure_asset_oracle() {
             *) ;;
         esac
     fi
+
+    preflight_chainlink_sources "$label" "$cfg_json"
 
     local op_file
     op_file=$(mktemp)
@@ -3812,6 +4008,7 @@ show_info() {
     echo "Reflector DEX: $(get_dex_oracle)"
     echo "Reflector FX:  $(get_fx_oracle)"
     echo "RedStone adapter: $(get_redstone_adapter)"
+    echo "Chainlink Data Feeds proxy: $(get_chainlink_proxy)"
     echo "XOXNO oracle adapter (networks.json, NOT chain-verified): $(get_oracle_adapter_address 2>/dev/null || echo 'not set (make <network> deployOracleAdapter)')"
 
     local agg_addr adapter_addr
@@ -3822,7 +4019,8 @@ show_info() {
         echo "Oracle adapter owner (chain-verified): $(invoke_view "$adapter_addr" get_owner 2>/dev/null | tail -n1 || echo 'read failed')"
     fi
 
-    echo "RedStone markets: $(jq -r '[.markets[] | select(any(.oracle.sources[]?; .Feed.provider.RedStone? != null)) | .name] | if length == 0 then "none" else join(", ") end' "$MARKET_CONFIG_FILE" 2>/dev/null || echo "n/a")"
+    echo "RedStone markets: $(jq -r '[.markets[] | select(any(.oracle.sources[]?; ((.Feed // .Scaled.factor).provider.RedStone? != null))) | .name] | if length == 0 then "none" else join(", ") end' "$MARKET_CONFIG_FILE" 2>/dev/null || echo "n/a")"
+    echo "Chainlink markets: $(jq -r '[.markets[] | select(any(.oracle.sources[]?; ((.Feed // .Scaled.factor).provider.Chainlink? != null))) | .name] | if length == 0 then "none" else join(", ") end' "$MARKET_CONFIG_FILE" 2>/dev/null || echo "n/a")"
 }
 
 check_delay() {
@@ -4230,6 +4428,18 @@ claim_aggregator_admin_fees() {
         -- claim_admin_fees --recipient "$recipient" --tokens "$tokens_json"
 }
 
+claim_aggregator_referral_fees() {
+    local id=$1
+    shift || true
+    [ -n "$id" ] && [ $# -ge 1 ] || die "Usage: $0 claimAggregatorReferralFees <id> <token> [token...]"
+    local router tokens_json
+    router=$(get_aggregator_address) || die "No aggregator deployed for ${NETWORK}."
+    tokens_json=$(_json_addr_vec "$@")
+    echo "=== claim_referral_fees ${id} on aggregator ${router} (${NETWORK}; pays stored owner) ===" >&2
+    stellar contract invoke --instruction-leeway "${INSTRUCTION_LEEWAY:-20000000}" --id "$router" $SOURCE_FLAG --network "$NETWORK" \
+        -- claim_referral_fees --id "$id" --tokens "$tokens_json"
+}
+
 sweep_aggregator_balance() {
     local recipient=$1
     shift || true
@@ -4610,6 +4820,25 @@ query_redstone_cmd() {
     invoke_view "$adapter" read_prices --feed_ids "$feed_ids_json"
 }
 
+query_chainlink_cmd() {
+    local data_id=$1
+    local proxy=${2:-$(get_chainlink_proxy)}
+    local decimals=${3:-18}
+    if [ -z "$data_id" ] || [ -z "$proxy" ] || [ "$proxy" = "null" ]; then
+        echo "Usage: $0 queryChainlink <data_id> [proxy_contract] [decimals=18]" >&2
+        exit 1
+    fi
+    echo "=== Chainlink proxy (${proxy}) data_id=${data_id} decimals=${decimals} ===" >&2
+    echo "latest_round:" >&2
+    invoke_view "$proxy" latest_round --data_id "$data_id" --decimals "$decimals"
+    echo "description:" >&2
+    invoke_view "$proxy" description --data_id "$data_id"
+    echo "native decimals:" >&2
+    invoke_view "$proxy" decimals --data_id "$data_id"
+    echo "minimum decimals:" >&2
+    invoke_view "$proxy" get_min_decimals --data_id "$data_id"
+}
+
 oracle_union_tag() {
     jq -r 'if type == "object" and has("tag") then .tag else keys_unsorted[0] end'
 }
@@ -4662,7 +4891,7 @@ describe_oracle_source() {
             body=$(printf '%s' "$factor_json" | jq -c '.provider' | oracle_union_value)
             echo "[${label}] Scaled quote=${quote} factor_provider=${provider_tag}" >&2
             ;;
-        Reflector|RedStone|Xoxno)
+        Reflector|RedStone|Xoxno|Chainlink)
 
             provider_tag="$shape"
             body=$(printf '%s' "$source_json" | oracle_union_value)
@@ -4690,6 +4919,12 @@ describe_oracle_source() {
             feed_id=$(printf '%s' "$body" | jq -r '.feed_id // empty')
             nature=$(printf '%s' "$body" | jq -r '.nature // empty')
             echo "[${label}] ${provider_tag} nature=${nature} contract=${contract} feed_id=${feed_id} decimals=${feed_decimals} max_stale=${feed_stale}" >&2
+            ;;
+        Chainlink)
+            local contract data_id
+            contract=$(printf '%s' "$body" | jq -r '.contract // empty')
+            data_id=$(printf '%s' "$body" | jq -r '.data_id // empty')
+            echo "[${label}] Chainlink nature=Market contract=${contract} data_id=${data_id} decimals=${feed_decimals} max_stale=${feed_stale}" >&2
             ;;
         *)
             echo "[${label}] unknown provider ${provider_tag}: ${source_json}" >&2
@@ -4840,6 +5075,10 @@ case "$1" in
     "claimAggregatorAdminFees")
         shift
         claim_aggregator_admin_fees "$@"
+        ;;
+    "claimAggregatorReferralFees")
+        shift
+        claim_aggregator_referral_fees "$@"
         ;;
     "sweepAggregatorBalance")
         shift
@@ -5314,7 +5553,10 @@ case "$1" in
         query_reflector_twap_cmd "$2" "$3" "$4" "$5"
         ;;
     "queryRedStone")
-        query_redstone_cmd "$2"
+        query_redstone_cmd "$2" "$3"
+        ;;
+    "queryChainlink")
+        query_chainlink_cmd "$2" "$3" "$4"
         ;;
     "getOracle")
         if [ -z "$2" ]; then
@@ -5436,6 +5678,7 @@ case "$1" in
         echo "  setAggregatorReferralFee <id> <fee_bps> / setAggregatorReferralActive <id> <true|false>"
         echo "  setAggregatorReferralOwner <id> <new_owner>"
         echo "  claimAggregatorAdminFees <recipient> <token> [token...]"
+        echo "  claimAggregatorReferralFees <id> <token> [token...]  (any signer; pays stored owner)"
         echo "  sweepAggregatorBalance <recipient> <token> [token...]"
         echo "  upgradeAggregatorHash <wasm_hash>       (make <net> upgradeAggregator builds+uploads+invokes)"
         echo "  upgradeOracleAdapterHash <wasm_hash>    (make <net> upgradeOracleAdapter builds+uploads+invokes)"
@@ -5487,6 +5730,7 @@ case "$1" in
         echo "  queryReflectorPrice <oracle> stellar|other <sym|sac> lastprice"
         echo "  queryReflectorTwap  <oracle> stellar|other <sym|sac> [records] prices history"
         echo "  queryRedStone <feed_id> [adapter]                    RedStone multi-feed price data"
+        echo "  queryChainlink <data_id> [proxy] [decimals=18]       Chainlink latest round and metadata"
         echo ""
         echo "Examples:"
         echo "  NETWORK=testnet $0 getPrice USDC"

@@ -1,8 +1,9 @@
 //! Timelock delay and grace-period constants that size the governance
 //! contract's operation tiers.
 
-/// Suggested constructor `min_delay`, in ledgers (about 2 days). The contract
-/// does not enforce it.
+/// Floor, in ledgers (about 2 days), below which a delay update cannot lower
+/// the minimum delay. Also the suggested constructor `min_delay`; construction
+/// does not enforce it, and an update may still raise a smaller delay.
 pub const TIMELOCK_MIN_DELAY_LEDGERS: u32 = 34_560;
 
 /// Upper bound, in ledgers, allowed when updating the timelock's minimum

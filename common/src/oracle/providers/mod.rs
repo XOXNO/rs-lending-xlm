@@ -1,8 +1,10 @@
 //! Cross-contract client bindings and call helpers for the external price
-//! and AMM data sources consumed by the oracle: Aquarius, RedStone,
-//! Reflector, and XOXNO.
+//! and AMM data sources consumed by the oracle: Aquarius, Chainlink,
+//! RedStone, Reflector, and XOXNO.
 
 pub mod aquarius;
+pub mod chainlink;
+pub mod curve;
 pub mod redstone;
 pub mod reflector;
 pub mod xoxno;

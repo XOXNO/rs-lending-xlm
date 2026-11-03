@@ -4,8 +4,9 @@ use soroban_sdk::{panic_with_error, token, vec, Address, Env, IntoVal, Map, Symb
 
 use crate::errors::Error;
 use crate::vault::Vault;
-use crate::venues::aquarius::pool::{assert_share_token, pool_tokens, to_u128};
+use crate::venues::aquarius::pool::{assert_share_token, get_tokens, to_u128};
 use crate::venues::auth::authorize_as_current;
+use crate::venues::pool_tokens;
 
 /// Burns the vault's full `lp_token` balance and credits the measured constituent amounts.
 ///
@@ -28,7 +29,7 @@ pub(crate) fn remove_liquidity(
     min_start: u32,
     cache: &mut Map<Address, Vec<Address>>,
 ) {
-    let tokens = pool_tokens(env, cache, pool);
+    let tokens = pool_tokens(env, cache, pool, get_tokens);
     assert_share_token(env, pool, lp_token);
 
     let n = tokens.len();

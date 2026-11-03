@@ -129,7 +129,7 @@ impl LiquidityPoolInterface for LiquidityPool {
     /// controller transfers the tokens in before this call. Owner-only.
     #[only_owner]
     fn supply(env: Env, entries: Vec<PoolSupplyEntry>) -> Vec<PoolPositionMutation> {
-        ops::run_batch(&env, entries, ops::supply::apply)
+        ops::run_batch(&env, entries, true, ops::supply::apply)
     }
 
     /// Batch-borrows assets and transfers them to `receiver`: accrues
@@ -142,7 +142,7 @@ impl LiquidityPoolInterface for LiquidityPool {
         receiver: Address,
         entries: Vec<PoolBorrowEntry>,
     ) -> Vec<PoolPositionMutation> {
-        ops::run_batch(&env, entries, |env, entry| {
+        ops::run_batch(&env, entries, true, |env, entry| {
             ops::borrow::apply(env, &receiver, entry)
         })
     }
@@ -157,7 +157,7 @@ impl LiquidityPoolInterface for LiquidityPool {
         is_liquidation: bool,
         entries: Vec<PoolWithdrawEntry>,
     ) -> Vec<PoolPositionMutation> {
-        ops::run_batch(&env, entries, |env, entry| {
+        ops::run_batch(&env, entries, true, |env, entry| {
             ops::withdraw::apply(env, &receiver, is_liquidation, entry)
         })
     }
@@ -166,7 +166,7 @@ impl LiquidityPoolInterface for LiquidityPool {
     /// repay and refunds overpayment to `payer`. Owner-only.
     #[only_owner]
     fn repay(env: Env, payer: Address, actions: Vec<PoolAction>) -> Vec<PoolPositionMutation> {
-        ops::run_batch(&env, actions, |env, action| {
+        ops::run_batch(&env, actions, true, |env, action| {
             ops::repay::apply(env, &payer, action)
         })
     }
@@ -227,7 +227,9 @@ impl LiquidityPoolInterface for LiquidityPool {
     /// Restricted to the owner.
     #[only_owner]
     fn seize_positions(env: Env, entries: Vec<PoolSeizeEntry>) {
-        ops::run_batch(&env, entries, |e, entry| ((), ops::seize::apply(e, entry)));
+        ops::run_batch(&env, entries, false, |e, entry| {
+            ((), ops::seize::apply(e, entry))
+        });
     }
 
     /// Nets supply against debt on one market with no cash movement, capped by

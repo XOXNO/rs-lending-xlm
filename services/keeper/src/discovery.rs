@@ -30,6 +30,8 @@ pub struct ContractIds {
     pub xoxno_oracle_adapter: Option<[u8; 32]>,
 
     pub price_aggregator: Option<[u8; 32]>,
+    pub redstone_adapter: Option<[u8; 32]>,
+    pub swap_router: Option<[u8; 32]>,
 }
 
 impl ContractIds {
@@ -60,6 +62,16 @@ impl ContractIds {
             governance,
             xoxno_oracle_adapter,
             price_aggregator,
+            redstone_adapter: contracts
+                .redstone_adapter
+                .as_deref()
+                .map(contract_id_from_strkey)
+                .transpose()?,
+            swap_router: contracts
+                .swap_router
+                .as_deref()
+                .map(contract_id_from_strkey)
+                .transpose()?,
         })
     }
 }
@@ -349,13 +361,15 @@ pub async fn snapshot(
         }
     }
 
-    // Third-party instances the protocol reads through. Read as one batch so a
+    // Dependencies the protocol reads through. Read as one batch so a
     // single archived one cannot abort the tick for the others.
-    let extra_ids: Vec<[u8; 32]> = contracts
+    let mut extra_ids: Vec<[u8; 32]> = contracts
         .extra_instances
         .iter()
         .map(|id| contract_id_from_strkey(id))
         .collect::<Result<_>>()?;
+    extra_ids.extend(ids.redstone_adapter);
+    extra_ids.extend(ids.swap_router);
     let extra_instances: Vec<LedgerEntryQuery> = if extra_ids.is_empty() {
         Vec::new()
     } else {
@@ -1211,6 +1225,8 @@ mod tests {
             governance: None,
             xoxno_oracle_adapter: None,
             price_aggregator: None,
+            redstone_adapter: None,
+            swap_router: None,
             extra_instances: Vec::new(),
             blend_pools: vec![pool.into(), pool.into()],
             position_managers: vec![manager.into()],
@@ -1478,6 +1494,8 @@ mod tests {
             governance: Some("CCGAETDFZNTJYNOFRC3DR3KZCDZFANBEN2CJSBTOGTLVJPRAFPF7DWMH".into()),
             xoxno_oracle_adapter: None,
             price_aggregator: None,
+            redstone_adapter: None,
+            swap_router: None,
             extra_instances: Vec::new(),
             blend_pools: Vec::new(),
             position_managers: Vec::new(),
@@ -1500,6 +1518,8 @@ mod tests {
             governance: None,
             xoxno_oracle_adapter: None,
             price_aggregator: None,
+            redstone_adapter: None,
+            swap_router: None,
             extra_instances: Vec::new(),
             blend_pools: Vec::new(),
             position_managers: Vec::new(),

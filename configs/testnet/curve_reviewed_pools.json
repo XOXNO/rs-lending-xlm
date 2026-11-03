@@ -1,0 +1,18 @@
+{
+  "pools": [
+    {
+      "wasm_hash": "af5c110c313f1bb9d7605415ff53ad44c6197eabe8d8c8204972c1fb12cb895d",
+      "source_repo": "unknown (contract metadata: github:TODO)",
+      "source_commit": "unknown",
+      "review": "Testnet fixture pool-2coin.wasm fetched from CD65V5XD6B3AVNALJAAXNR4ZCIIKISYO4GKOIAT6ZXBQFPEI26WDVV3Z (stableswap-pool 0.1.0, soroban-sdk 26.1.1); exercised by the harness, upstream source not reviewed. See contracts/swap-aggregator/tests/fixtures/curve/README.md",
+      "expected_factory": "unknown"
+    },
+    {
+      "wasm_hash": "d04f845f374548e30cb72c921d8e50d90f96165722d4816ee51f11eebb2e21d1",
+      "source_repo": "unknown (contract metadata: github:TODO)",
+      "source_commit": "unknown",
+      "review": "Testnet fixture pool-3coin.wasm fetched from CCAFTS7MA6ZXKNSGZWVPK7WNXSZULY2UEHQNHS7TJ3CFHWNH3HMTFI6K (stableswap-pool 0.1.0, soroban-sdk 26.1.1); exercised by the harness, upstream source not reviewed. See contracts/swap-aggregator/tests/fixtures/curve/README.md",
+      "expected_factory": "unknown"
+    }
+  ]
+}

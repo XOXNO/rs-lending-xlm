@@ -2,20 +2,21 @@ use super::*;
 use crate::admin::{set_oracle, set_sanity_band, set_tolerance};
 use crate::session::Session;
 use common::errors::OracleError;
+use common::oracle::providers::chainlink::CHAINLINK_DECIMALS;
 use common::oracle::providers::redstone::REDSTONE_DECIMALS;
 use common::types::{
-    AquariusLpSource, FeedNature, FeedSource, IndependencePolicy, MultiFeedRef, OracleAssetRef,
-    OracleReadMode, OracleTolerance, PriceSource, ProviderRef, ReflectorFeedRef, ScaledSource,
-    MAX_RESOLUTION_DEPTH,
+    AquariusLpSource, ChainlinkFeedRef, FeedNature, FeedSource, IndependencePolicy, MultiFeedRef,
+    OracleAssetRef, OracleReadMode, OracleTolerance, PriceSource, ProviderRef, ReflectorFeedRef,
+    ScaledSource, MAX_RESOLUTION_DEPTH,
 };
 use soroban_sdk::testutils::{Address as _, Ledger as _};
-use soroban_sdk::{Address, String, Symbol, Vec};
+use soroban_sdk::{Address, BytesN, String, Symbol, Vec};
 
 use crate::test_support::{
-    EmptyReflector, NonUsdReflector, QuotedReflector, QuotedReflectorClient, StubXoxnoAdapter,
-    TwapReflector, XOXNO_SUBMISSION_WINDOW_SECS,
+    EmptyReflector, MockAquariusPoolClient, NonUsdReflector, QuotedReflector,
+    QuotedReflectorClient, StubXoxnoAdapter, TwapReflector, XOXNO_SUBMISSION_WINDOW_SECS,
 };
-use crate::PriceAggregator;
+use crate::{PriceAggregator, PriceAggregatorClient};
 use common::constants::WAD;
 
 fn oracle(env: &Env, decimals: u32) -> AssetOracle {
@@ -48,6 +49,36 @@ fn with_contract<T>(env: &Env, body: impl FnOnce() -> T) -> T {
     env.as_contract(&id, body)
 }
 
+fn chainlink_oracle(env: &Env, decimals: u32) -> AssetOracle {
+    let mut cfg = oracle(env, 7);
+    cfg.max_price_stale_seconds = 93_600;
+    cfg.sources = Vec::from_array(
+        env,
+        [
+            PriceSource::Feed(FeedSource {
+                provider: ProviderRef::Chainlink(ChainlinkFeedRef {
+                    contract: Address::generate(env),
+                    data_id: BytesN::from_array(env, &[3; 32]),
+                }),
+                decimals,
+                max_stale_seconds: 93_600,
+            }),
+            PriceSource::Feed(FeedSource {
+                provider: ProviderRef::RedStone(MultiFeedRef {
+                    contract: Address::generate(env),
+                    feed_id: String::from_str(env, "USDT0"),
+                    nature: FeedNature::Fundamental,
+                }),
+                decimals: REDSTONE_DECIMALS,
+                max_stale_seconds: 57_600,
+            }),
+        ],
+    );
+    cfg.min_sanity_price_wad = WAD * 95 / 100;
+    cfg.max_sanity_price_wad = WAD * 105 / 100;
+    cfg
+}
+
 #[test]
 fn test_round_trips_a_token_key() {
     let env = Env::default();
@@ -65,6 +96,37 @@ fn test_round_trips_a_reference_key() {
         let key = PriceKey::Ref(Symbol::new(&env, "BTC"));
         store_oracle(&env, &key, &oracle(&env, 0));
         assert!(get_oracle(&env, &key).is_some());
+    });
+}
+
+#[test]
+fn test_round_trips_a_chainlink_provider() {
+    let env = Env::default();
+    with_contract(&env, || {
+        let key = PriceKey::Token(Address::generate(&env));
+        store_oracle(&env, &key, &chainlink_oracle(&env, CHAINLINK_DECIMALS));
+        let stored = get_oracle(&env, &key).expect("oracle");
+        assert!(matches!(
+            stored.sources.get_unchecked(0),
+            PriceSource::Feed(FeedSource {
+                provider: ProviderRef::Chainlink(_),
+                ..
+            })
+        ));
+    });
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #221)")]
+fn test_set_oracle_rejects_non_native_chainlink_decimals() {
+    let env = Env::default();
+    env.ledger().set_timestamp(1_000_000);
+    with_contract(&env, || {
+        set_oracle(
+            &env,
+            PriceKey::Token(Address::generate(&env)),
+            chainlink_oracle(&env, CHAINLINK_DECIMALS - 1),
+        );
     });
 }
 
@@ -546,15 +608,11 @@ const BALANCED_STABLE_UNITS: u128 = 10_000_000_000;
 
 const BALANCED_STABLE_SHARES: i128 = 1_000;
 
-fn balanced_stable_lp(env: &Env) -> (Address, Address, AssetOracle) {
-    let (pool, share, token_a, token_b) = lp_fixture(
-        env,
-        "stable",
-        BALANCED_STABLE_UNITS,
-        BALANCED_STABLE_UNITS,
-        BALANCED_STABLE_UNITS,
-    );
-    crate::test_support::MockAquariusPoolClient::new(env, &pool).set_amp(&STABLE_AMP);
+/// A stable LP whose reserves and share supply are all `units`, so it prices
+/// at 2 WAD, inside the [1, 3] WAD sanity band.
+fn balanced_stable_lp(env: &Env, units: u128, amp: u128) -> (Address, Address, AssetOracle) {
+    let (pool, share, token_a, token_b) = lp_fixture(env, "stable", units, units, units);
+    MockAquariusPoolClient::new(env, &pool).set_amp(&amp);
     let (key_a, key_b) = dollar_underlyings(env, &token_a, &token_b);
     let oracle = stable_lp_oracle(env, &pool, &token_a, &token_b, key_a, key_b);
     (pool, share, oracle)
@@ -1125,7 +1183,7 @@ fn test_the_second_lp_leg_is_resolved_one_level_below_the_lp() {
 }
 
 fn priced_stable_lp(env: &Env) -> (PriceKey, AquariusLpSource, i128) {
-    let (_pool, share, oracle) = balanced_stable_lp(env);
+    let (_pool, share, oracle) = balanced_stable_lp(env, BALANCED_STABLE_UNITS, STABLE_AMP);
     let key = PriceKey::Token(share);
     let lp = lp_of(&oracle);
 
@@ -1170,7 +1228,7 @@ fn assert_deepened_stable_leg_exhausts_the_cap(deepen_key_a: bool) {
     let env = Env::default();
     env.ledger().set_timestamp(1_000_000);
     with_contract(&env, || {
-        let (_pool, share, oracle) = balanced_stable_lp(&env);
+        let (_pool, share, oracle) = balanced_stable_lp(&env, BALANCED_STABLE_UNITS, STABLE_AMP);
         let lp = lp_of(&oracle);
         let key = PriceKey::Token(share);
 
@@ -1201,4 +1259,39 @@ fn test_the_first_stable_lp_leg_is_resolved_one_level_below_the_lp() {
 #[test]
 fn test_the_second_stable_lp_leg_is_resolved_one_level_below_the_lp() {
     assert_deepened_stable_leg_exhausts_the_cap(false);
+}
+
+/// A stable LP listed while balanced, as governance lists it, then drained to
+/// one side, as when one coin depegs. At 10^10 : 10^7 tokens it still prices
+/// at D / supply; at 10^15 : 10^3 tokens the solver overflows `U256`, and
+/// `quotes` marks only the LP key `InvalidPrice` instead of reverting.
+#[test]
+fn test_a_drained_stable_lp_prices_or_fails_closed_per_key() {
+    const TOKEN: u128 = 10_000_000;
+    let env = Env::default();
+    env.ledger().set_timestamp(1_000_000);
+    let aggregator = env.register(PriceAggregator, (Address::generate(&env),));
+    let (pool, key, key_a) = env.as_contract(&aggregator, || {
+        let (pool, share, oracle) = balanced_stable_lp(&env, 1_200_000_000 * TOKEN, 2);
+        let key_a = lp_of(&oracle).key_a;
+        let key = PriceKey::Token(share);
+        set_oracle(&env, key.clone(), oracle);
+        (pool, key, key_a)
+    });
+    let pool = MockAquariusPoolClient::new(&env, &pool);
+    let client = PriceAggregatorClient::new(&env, &aggregator);
+
+    pool.set_reserves(&(10_000_000_000 * TOKEN), &(10_000_000 * TOKEN));
+    let keys = Vec::from_array(&env, [key.clone()]);
+    assert_eq!(
+        client.prices(&keys).get_unchecked(key.clone()).price_wad,
+        1_968_514_416_602_111_980
+    );
+
+    pool.set_reserves(&(1_000_000_000_000_000 * TOKEN), &(1_000 * TOKEN));
+    let quotes = client.quotes(&Vec::from_array(&env, [key_a.clone(), key.clone()]));
+    assert!(quotes.get_unchecked(key_a).valid);
+    let status = quotes.get_unchecked(key);
+    assert!(!status.valid);
+    assert_eq!(status.error_code, Some(OracleError::InvalidPrice as u32));
 }

@@ -8,7 +8,8 @@
 //! `execute_strategy`, so each payload is malformed in one way only and the
 //! exact contract error is observed.
 
-use soroban_sdk::{contract, contractimpl, Address, Bytes, Env};
+use soroban_sdk::testutils::Address as _;
+use soroban_sdk::{contract, contractimpl, Address, Bytes, Env, Vec};
 
 use crate::constants::PPM_DENOMINATOR;
 use crate::errors::Error;
@@ -39,10 +40,10 @@ impl DecodeProbe {
     pub fn header(
         env: Env,
         ops: Bytes,
-        assets_len: u32,
+        assets: Vec<Address>,
         amounts_len: u32,
     ) -> (u32, u32, u32, u32, u64) {
-        let program = Program::decode(&env, &ops, assets_len, amounts_len);
+        let program = Program::decode(&env, &ops, &assets, amounts_len);
         (
             program.len(),
             program.token_in,
@@ -57,17 +58,45 @@ fn probe(env: &Env) -> Address {
     env.register(DecodeProbe, ())
 }
 
-/// Decode `ops`, requiring success.
-fn decode(env: &Env, ops: &Bytes, assets_len: u32, amounts_len: u32) -> (u32, u32, u32, u32, u64) {
-    DecodeProbeClient::new(env, &probe(env)).header(ops, &assets_len, &amounts_len)
+/// An address registry of `len` distinct addresses.
+fn registry(env: &Env, len: u32) -> Vec<Address> {
+    let mut assets = Vec::new(env);
+    for _ in 0..len {
+        assets.push_back(Address::generate(env));
+    }
+    assets
 }
 
-/// Decode `ops`, requiring failure, and return the contract error raised.
+/// Decode `ops` over `assets_len` distinct addresses, requiring success.
+fn decode(env: &Env, ops: &Bytes, assets_len: u32, amounts_len: u32) -> (u32, u32, u32, u32, u64) {
+    DecodeProbeClient::new(env, &probe(env)).header(ops, &registry(env, assets_len), &amounts_len)
+}
+
+/// Decode `ops` over `assets_len` distinct addresses, requiring failure, and
+/// return the contract error raised.
 fn decode_error(env: &Env, ops: &Bytes, assets_len: u32, amounts_len: u32) -> soroban_sdk::Error {
+    decode_error_over(env, ops, &registry(env, assets_len), amounts_len)
+}
+
+/// Decode `ops` over the given registry, requiring failure, and return the
+/// contract error raised.
+fn decode_error_over(
+    env: &Env,
+    ops: &Bytes,
+    assets: &Vec<Address>,
+    amounts_len: u32,
+) -> soroban_sdk::Error {
     DecodeProbeClient::new(env, &probe(env))
-        .try_header(ops, &assets_len, &amounts_len)
+        .try_header(ops, assets, &amounts_len)
         .unwrap_err()
         .unwrap()
+}
+
+/// A registry of three distinct addresses whose index 3 repeats index 1.
+fn registry_repeating_index_1(env: &Env) -> Vec<Address> {
+    let mut assets = registry(env, 3);
+    assets.push_back(assets.get_unchecked(1));
+    assets
 }
 
 /// One Soroswap swap instruction.
@@ -303,6 +332,22 @@ fn decode_rejects_a_strategy_whose_input_and_output_token_coincide() {
         &[],
     );
     assert_eq!(decode_error(&env, &bytes, 3, 1), Error::SameToken.into());
+
+    // Identity is the address: header token_out = 3 repeats token_in = 1.
+    let bytes = encode::program(
+        &env,
+        1,
+        3,
+        0,
+        0,
+        &alloc::vec![swap(encode::ALL, 0, 1, 2)],
+        &[],
+    );
+    let assets = registry_repeating_index_1(&env);
+    assert_eq!(
+        decode_error_over(&env, &bytes, &assets, 1),
+        Error::SameToken.into()
+    );
 }
 
 /// The referral id is a big-endian `u32` at a fixed header offset; it must
@@ -555,23 +600,43 @@ fn validate_rejects_a_swap_between_one_token_and_itself() {
         &[],
     );
     assert_eq!(decode_error(&env, &bytes, 3, 1), Error::SameToken.into());
+
+    // Identity is the address: the swap's output index 3 repeats its input 1.
+    let bytes = encode::program(
+        &env,
+        1,
+        2,
+        0,
+        0,
+        &alloc::vec![swap(encode::ALL, 0, 1, 3)],
+        &[],
+    );
+    let assets = registry_repeating_index_1(&env);
+    assert_eq!(
+        decode_error_over(&env, &bytes, &assets, 1),
+        Error::SameToken.into()
+    );
 }
 
 #[test]
 fn validate_rejects_an_unknown_opcode() {
     let env = Env::default();
-    let ops = alloc::vec![RawOp {
-        opcode: 7,
-        mode: encode::ALL,
-        idx_a: 0,
-        idx_b: 1,
-        idx_c: 2,
-    }];
-    let bytes = encode::program(&env, 1, 2, 0, 0, &ops, &[]);
-    assert_eq!(
-        decode_error(&env, &bytes, 3, 1),
-        Error::InvalidRouteXdr.into()
-    );
+    // 8 is the first byte past the last venue opcode (7, Curve).
+    for opcode in [8, u8::MAX] {
+        let ops = alloc::vec![RawOp {
+            opcode,
+            mode: encode::ALL,
+            idx_a: 0,
+            idx_b: 1,
+            idx_c: 2,
+        }];
+        let bytes = encode::program(&env, 1, 2, 0, 0, &ops, &[]);
+        assert_eq!(
+            decode_error(&env, &bytes, 3, 1),
+            Error::InvalidRouteXdr.into(),
+            "opcode {opcode} must be rejected"
+        );
+    }
 }
 
 /// Both liquidity legs consume the whole vault balance, so a sized mode would
