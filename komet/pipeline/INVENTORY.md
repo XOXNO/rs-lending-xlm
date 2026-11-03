@@ -76,6 +76,17 @@ each proof README for numbers.
 | `test_withdrawal` [withdrawal] | half-up full-close threshold, floor payout, ceil partial burn | `rates::resolve_withdrawal` | concrete only |
 | `test_net_settle` [net-settle] | overlap = min(request, floor supply, ceil debt); burns bounded | `rates::resolve_net_settle` | concrete only |
 
+### Pool entrypoints (`komet/pool-entry`)
+
+| Test | Claim | Status |
+|---|---|---|
+| `test_seize_bad_debt_a/_b`, `test_seize_zero_a/_b`, `test_seize_wrong` [seize] | `seize_positions` (Borrow): supply index in `[10^24, I]`, proportional loss bounds, wipe-out to the floor, exact debt burn | blocked by memory: every probe (even the concrete false control) OOMKilled at the 6 GB cap or pinned at a 5 GB GHC heap before the first checkpoint |
+| `test_recap_exact_a/_b`, `test_recap_wrong` [recap] | `recapitalize` with amount <= shortfall: exact credit, other fields unchanged | not run to completion (same memory bound) |
+
+The harness links the whole pool contract (166 Wasm functions); the deploy
+`pool.wasm` built from `origin/main` e08377ef has SHA-256 `a67804c9…` and is
+recorded for reference (the proof Wasm is the harness, `3bcdf8b6…` for seize).
+
 ### Other harnesses
 
 | Crate | Test | Claim | Status |
