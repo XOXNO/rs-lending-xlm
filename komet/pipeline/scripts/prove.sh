@@ -7,7 +7,7 @@
 set -euo pipefail
 
 here=$(cd -- "$(dirname -- "$0")/.." && pwd)
-repo=$(cd -- "$here/../.." && pwd)
+repo=${KOMET_REPO_ROOT:-$(cd -- "$here/../.." && pwd)}
 wasm=$1 id=$2 expect=$3 out=$4 module=${5:-} cap=${6:-14400}
 eval "$("$here/scripts/build-images.sh" print-tags)"
 test ! -e "$out" || { echo "refusing to reuse existing $out" >&2; exit 2; }

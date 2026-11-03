@@ -5,7 +5,7 @@
 set -euo pipefail
 
 here=$(cd -- "$(dirname -- "$0")/.." && pwd)
-repo=$(cd -- "$here/../.." && pwd)
+repo=${KOMET_REPO_ROOT:-$(cd -- "$here/../.." && pwd)}
 crate=$1 feature=$2 out=$3
 eval "$("$here/scripts/build-images.sh" print-tags)"
 mkdir -p "$out"

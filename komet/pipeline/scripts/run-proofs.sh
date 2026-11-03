@@ -24,6 +24,13 @@ print('\n'.join(want or known))
 PY
 )
 
+# Run from a snapshot of the pipeline scripts: editing the checkout during a
+# long run must not change the scripts that bash is still reading.
+snap="$ev/pipeline"
+mkdir -p "$snap"
+cp -pr "$here/scripts" "$here/docker" "$here/pins.env" "$here/proofs.json" "$snap/"
+export KOMET_REPO_ROOT="$repo"
+
 eval "$("$here/scripts/build-images.sh" print-tags)"
 docker image inspect "$PROVER_IMAGE" >/dev/null 2>&1 || "$here/scripts/build-images.sh" prover
 docker image inspect "$WASM_IMAGE" >/dev/null 2>&1 || "$here/scripts/build-images.sh" wasm
@@ -56,7 +63,7 @@ PY
 )"
   dir="$ev/$name"
   mkdir -p "$dir"
-  sha=$("$here/scripts/build-wasm.sh" "$crate" "$feature" "$dir/wasm" 2> "$dir/wasm-build.log")
+  sha=$("$snap/scripts/build-wasm.sh" "$crate" "$feature" "$dir/wasm" 2> "$dir/wasm-build.log")
   echo "$sha" > "$dir/wasm.sha256"
   if [ "$sha" != "$want_sha" ]; then
     echo "$name: Wasm SHA-256 $sha != recorded $want_sha" | tee -a "$ev/errors.txt" >&2
@@ -68,7 +75,7 @@ PY
     id=${t%%:*} expect=${t#*:}
     # At most KOMET_JOBS concurrent proofs (each runs a backend and Z3).
     while [ "$(jobs -rp | wc -l)" -ge "${KOMET_JOBS:-4}" ]; do sleep 5; done
-    ( "$here/scripts/prove.sh" "$wasm" "$id" "$expect" "$dir/$id" "$module" "$cap" \
+    ( "$snap/scripts/prove.sh" "$wasm" "$id" "$expect" "$dir/$id" "$module" "$cap" \
         > "$dir/$id.prove.log" 2>&1 \
       || echo "$name/$id: expectation '$expect' not met" >> "$ev/errors.txt" ) &
     pids+=($!)
