@@ -337,7 +337,7 @@
    "name": "utilization-wide",
    "crate": "komet/pool-math",
    "feature": "utilization-wide",
-   "wasm_sha256": "bb3a2a9ddf6e57f32c941381914578b377e943c4d18a58d84085c64ca76c93bd",
+   "wasm_sha256": "80bc5f0604e6e5d236ef606a4ee8680e99ee5b40a28604770ce34da88e1ed523",
    "module": "komet/pipeline/proofs/pool-math-lemmas.k:POOL-MATH-LEMMAS",
    "cap_seconds": 14400,
    "tests": [
@@ -360,7 +360,7 @@
    "name": "utilization-fixed-b",
    "crate": "komet/pool-math",
    "feature": "utilization-fixed-b",
-   "wasm_sha256": "0da8562d2a50829e786a877b73e980b8ab21489f8b5a3b1d0f9c12ebacfef3a8",
+   "wasm_sha256": "57249224c6cf15a1388754e74142d8b58e42749bf5eca14fbadf15d0d4682771",
    "module": "komet/pipeline/proofs/pool-math-lemmas.k:POOL-MATH-LEMMAS",
    "cap_seconds": 14400,
    "smt_timeout_ms": 60000,

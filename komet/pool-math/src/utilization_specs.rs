@@ -30,9 +30,11 @@ pub fn wide_exact(env: &Env, borrowed: i128, supplied: i128) -> bool {
     let numerator = I256::from_i128(env, borrowed)
         .mul(&I256::from_i128(env, RAY))
         .add(&half);
+    // All comparisons on the result are I256 (host) comparisons: an i128
+    // comparison would make the Wasm branch on the result's 64-bit words.
     let q = I256::from_i128(env, result);
-    result >= 0
-        && result <= RAY
+    q >= I256::from_i128(env, 0)
+        && q <= I256::from_i128(env, RAY)
         && q.mul(&s) <= numerator
         && numerator < q.add(&I256::from_i128(env, 1)).mul(&s)
 }
@@ -52,8 +54,8 @@ pub fn wide_bounds(env: &Env, borrowed: i128, supplied: i128) -> bool {
     if !in_domain(borrowed, supplied) {
         return true;
     }
-    let result = utilization(env, borrowed, supplied);
-    (0..=RAY).contains(&result)
+    let q = I256::from_i128(env, utilization(env, borrowed, supplied));
+    q >= I256::from_i128(env, 0) && q <= I256::from_i128(env, RAY)
 }
 
 /// Deliberately false: at the exact tie B = 2^64 + 1, S = 2*RAY production
