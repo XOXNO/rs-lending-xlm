@@ -95,11 +95,11 @@ PY
     id=${t%%:*} rest=${t#*:} expect=${rest%%:*} codes=${rest#*:}
     [ "$expect" = pass ] || continue
     (
-      run_test "$dir" "$wasm" "$id" pass "$codes" "${KOMET_FEASIBILITY_CAP:-600}"; rc=$?
+      rc=0; run_test "$dir" "$wasm" "$id" pass "$codes" "${KOMET_FEASIBILITY_CAP:-600}" || rc=$?
       outcome=$(python3 -c "import json,sys;print(json.load(open(sys.argv[1])).get('outcome'))" "$dir/$id/run.json" 2>/dev/null)
       if [ "$rc" = 3 ] && [ "$outcome" = stopped ]; then
         echo "feasibility stage stopped at the cap without a block: promoted" >> "$dir/$id.prove.log"
-        run_test "$dir" "$wasm" "$id" pass "$codes" "$cap" 1; rc=$?
+        rc=0; run_test "$dir" "$wasm" "$id" pass "$codes" "$cap" 1 || rc=$?
       fi
       [ "$rc" = 0 ] || echo "$name/$id: no proof (exit $rc, see $id/run.json outcome)" >> "$ev/errors.txt"
     ) &
