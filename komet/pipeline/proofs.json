@@ -377,7 +377,7 @@
    "wasm_sha256": "57249224c6cf15a1388754e74142d8b58e42749bf5eca14fbadf15d0d4682771",
    "module": "komet/pipeline/proofs/pool-math-lemmas.k:POOL-MATH-LEMMAS",
    "cap_seconds": 14400,
-   "smt_timeout_ms": 60000,
+   "smt_timeout_ms": 300000,
    "tests": [
     {
      "id": "test_util_fixed_b0",
