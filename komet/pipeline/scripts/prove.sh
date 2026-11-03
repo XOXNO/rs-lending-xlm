@@ -29,9 +29,9 @@ if [ -e "$out" ]; then
 import json, sys
 try:
     g = json.load(open(sys.argv[1]))
-    print(json.dumps({'attempt': int(sys.argv[2]), 'nodes': len(g['nodes']),
-                      'rewrite_steps': sum(e['depth'] for e in g['edges'])}))
-except FileNotFoundError:
+    print(json.dumps({'attempt': int(sys.argv[2]), 'nodes': len(g.get('nodes', [])),
+                      'rewrite_steps': sum(e['depth'] for e in g.get('edges', []))}))
+except (FileNotFoundError, ValueError):
     print('null')
 PY
 )
