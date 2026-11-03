@@ -18,6 +18,8 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
+import re
 import sys
 from pathlib import Path
 from typing import Any
@@ -65,9 +67,11 @@ def leaf_outcome(config: dict) -> dict:
     }
 
 
-def is_trap(outcome: dict) -> bool:
-    """A leaf stopped by a Wasm trap: `trap` heads the instruction stack."""
-    return outcome['instrs'] is not None and outcome['instrs'].startswith('trap')
+def contract_error(outcome: dict) -> int | None:
+    """Error code of a call that ended in `panic_with_error!` (host returns
+    SCVal:Error(ErrorType:Contract, code) to the test runner), else None."""
+    m = re.match(r'hostStackList\(SCVal:Error\(ErrorType:Contract, (\d+)\)', outcome['host_stack'] or '')
+    return int(m.group(1)) if m else None
 
 
 def main() -> int:
@@ -132,17 +136,24 @@ def main() -> int:
             if not ok:
                 errors.append(f'failing leaf {nid} is not a completed false assertion: {outcome}')
     elif expect == 'reject':
+        codes = os.environ.get('KOMET_REJECT_CODES', '')
+        allowed = {int(c) for c in codes.split(',') if c} or None
         # Rejection claim: the harness returns true on the accepted domain and
-        # `false` right after the validator call. Every failing leaf must stop
-        # inside the call (a trap), never complete with `false`.
+        # `false` right after the validator call. Every failing leaf must end
+        # in a contract error raised inside the call (one of the expected
+        # codes when given), never complete with `false`.
         res['failing_leaves'] = {}
         for nid in res['failing']:
             outcome = leaf_outcome(proof.kcfg.node(nid).cterm.config.to_dict())
             res['failing_leaves'][nid] = outcome
+            code = contract_error(outcome)
             if (outcome['host_stack'] or '').startswith('hostStackList(SCVal:Bool(false)'):
                 errors.append(f'failing leaf {nid} returned false: the validator accepted an input it must reject')
-            elif not is_trap(outcome):
-                errors.append(f'failing leaf {nid} is not a trap: {outcome}')
+            elif code is None:
+                errors.append(f'failing leaf {nid} is not a contract error: {outcome}')
+            elif allowed is not None and code not in allowed:
+                errors.append(f'failing leaf {nid} rejected with error {code}, expected one of {sorted(allowed)}')
+            res.setdefault('reject_codes', []).append(code)
         if not res['failing']:
             errors.append('no rejecting (trap) leaf: rejection domain not exercised')
         if res['status'] != 'FAILED':

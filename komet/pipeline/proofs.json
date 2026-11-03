@@ -75,7 +75,10 @@
     },
     {
      "id": "test_risk_bounds_rejects",
-     "expect": "reject"
+     "expect": "reject",
+     "codes": [
+      113
+     ]
     },
     {
      "id": "test_risk_bounds_reject_wrong",
@@ -87,7 +90,11 @@
     },
     {
      "id": "test_twap_records_rejects",
-     "expect": "reject"
+     "expect": "reject",
+     "codes": [
+      219,
+      228
+     ]
     },
     {
      "id": "test_twap_records_reject_wrong",
@@ -99,7 +106,10 @@
     },
     {
      "id": "test_liquidation_curve_rejects",
-     "expect": "reject"
+     "expect": "reject",
+     "codes": [
+      134
+     ]
     }
    ]
   },

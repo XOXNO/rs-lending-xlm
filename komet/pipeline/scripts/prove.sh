@@ -39,7 +39,7 @@ json.dump({'image': image, 'id': pid, 'expect': expect, 'exit_code': int(rc), 'w
           open(path, 'w'), indent=1)
 PY
 docker run --rm --network=none -u "$(id -u):$(id -g)" -e HOME=/out/home \
-  -v "$out:/out" -v "$here/scripts:/scripts:ro" "$PROVER_IMAGE" \
+  -e KOMET_REJECT_CODES="${KOMET_REJECT_CODES:-}" -v "$out:/out" -v "$here/scripts:/scripts:ro" "$PROVER_IMAGE" \
   python3 /scripts/check-proof.py /out/proof "$id" "$expect" /out/check.json \
   || { echo "check rejected $id (komet exit $rc)" >&2; exit 1; }
 # Exit codes must agree with the graph: 0 for a proof, 1 for a refuted control.
