@@ -81,5 +81,5 @@ Re-run with the pinned toolchain of [`komet/pipeline`](../pipeline/README.md)
 on the rebuilt Wasm (same SHA-256 `5c9dff7f…`): `test_fresh_never_stale`
 `PASSED` (3 nodes, 411 rewrite steps, 73 s, no open or vacuous node) and
 `test_fresh_wrong` `FAILED` at its completed `false` assertion (3 nodes, 400
-steps, 79 s). Records and graphs: [`server/`](server/).
+steps, 79 s). Records and graphs: [`server/`](server/summary.json).
 

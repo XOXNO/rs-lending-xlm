@@ -35,7 +35,7 @@ of [`komet/pipeline`](../../../pipeline/README.md) (Komet `7e74d11`, backend
 The rebuilt Wasm SHA-256 equals the original (`099e7e12…`), the claim hash
 in `inputs.json` equals the original (`916a8fa7…`), and the extra module is
 the unchanged [`double-cli.k`](double-cli.k). The graph size matches the
-original native proof. [`server/`](server/) holds the run records, checks,
+original native proof. [`server/`](server/summary.json) holds the run records, checks,
 logs, toolchain and semantics hashes and the compressed graphs
 (`graphs.tar.zst`); every one of the 17 extra-module rules is a Lean theorem
 in [`lean/DoubleCliRules.lean`](lean/DoubleCliRules.lean), and every other
