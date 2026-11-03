@@ -244,6 +244,30 @@
         "max_price_stale_seconds": 57600,
         "sources": [
           {
+            "Scaled": {
+              "factor": {
+                "provider": {
+                  "Reflector": {
+                    "contract": "CALI2BYU2JE6WVRUFYTS6MSBNEHGJ35P4AVCZYF3B6QOE3QKOB2PLE6M",
+                    "asset": {
+                      "Stellar": "CCCRWH6Q3FNP3I2I57BDLM5AFAT7O6OF6GKQOC6SSJNDAVRZ57SPHGU2"
+                    },
+                    "read_mode": {
+                      "Twap": 3
+                    }
+                  }
+                },
+                "decimals": 14,
+                "max_stale_seconds": 3600
+              },
+              "quote": {
+                "Token": "CCW67TSZV3SSS2HXMBQ5JFGCKJNXKZM7UQUWUZPUTHXSTZLEO7SJMI75"
+              },
+              "min_factor_wad": "950000000000000000",
+              "max_factor_wad": "1050000000000000000"
+            }
+          },
+          {
             "Feed": {
               "provider": {
                 "RedStone": {
@@ -258,10 +282,14 @@
           }
         ],
         "tolerance": {
-          "upper_ratio_bps": 10500,
-          "lower_ratio_bps": 9524
+          "upper_ratio_bps": 10200,
+          "lower_ratio_bps": 9804
         },
-        "independence": "RequireDisjoint",
+        "independence": {
+          "AllowShared": [
+            "CA526Y2NQWGWVVQ7RFFPGAZMU66PSYJ3UC2MTVAV4ZU7OM5BOPHDXUSG"
+          ]
+        },
         "min_sanity_price_wad": "950000000000000000",
         "max_sanity_price_wad": "1050000000000000000"
       },

@@ -398,12 +398,12 @@
       "PYUSD": {
         "hub_id": 1,
         "can_be_collateral": true,
-        "can_be_borrowed": false,
-        "ltv": 8100,
-        "liquidation_threshold": 8500,
+        "can_be_borrowed": true,
+        "ltv": 8600,
+        "liquidation_threshold": 9000,
         "liquidation_bonus": 300,
         "supply_cap": "2000000000000",
-        "borrow_cap": "0",
+        "borrow_cap": "1500000000000",
         "liquidation_fees": 1000
       },
       "USDT0": {

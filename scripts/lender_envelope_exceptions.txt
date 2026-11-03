@@ -34,7 +34,15 @@
 #          RedStone CA526...). The spoke 1 SolvBTC/xSolvBTC debt pairs were
 #          closed by the BTC reference tolerance (+-4%) and the SolvBTC factor
 #          cap (1.03).
+# S3-MC-1: spoke 5 deliberately treats its USD assets as correlated. PYUSD's
+#          200k supply / 150k borrow entry caps limit new exposure and its 2%
+#          cross-source tolerance bounds divergence; interest can exceed caps.
 
 mainnet 5 USDC EURC CA526Y2NQWGWVVQ7RFFPGAZMU66PSYJ3UC2MTVAV4ZU7OM5BOPHDXUSG S3-CR-1 1.014397 pending config fix: spoke 5 USDC LT below 0.898
 mainnet 5 USDC EURC CAFJZQWSED6YAWZU3GWRTOCNPPCGBN32L7QV43XX5LZLFTK6JLN34DLN S3-CR-1 1.014397 pending config fix: spoke 5 USDC LT below 0.898
 mainnet 5 USDC USDT0 CA526Y2NQWGWVVQ7RFFPGAZMU66PSYJ3UC2MTVAV4ZU7OM5BOPHDXUSG S3-CR-1 1.014397 pending config fix: spoke 5 USDC LT below 0.898
+mainnet 5 USDC PYUSD CA526Y2NQWGWVVQ7RFFPGAZMU66PSYJ3UC2MTVAV4ZU7OM5BOPHDXUSG S3-MC-1 1.034735 accepted correlated-stable risk: scaled debt reuses the USDC quote; PYUSD borrow entry cap 150k
+mainnet 5 USST PYUSD CA526Y2NQWGWVVQ7RFFPGAZMU66PSYJ3UC2MTVAV4ZU7OM5BOPHDXUSG S3-MC-1 1.007212 accepted correlated-stable risk: PYUSD tolerance 2%; borrow entry cap 150k
+mainnet 5 PYUSD USDC CA526Y2NQWGWVVQ7RFFPGAZMU66PSYJ3UC2MTVAV4ZU7OM5BOPHDXUSG S3-MC-1 1.012241 accepted correlated-stable risk: PYUSD tolerance 2%; supply entry cap 200k
+mainnet 5 PYUSD EURC CA526Y2NQWGWVVQ7RFFPGAZMU66PSYJ3UC2MTVAV4ZU7OM5BOPHDXUSG S3-MC-1 1.012241 accepted correlated-stable risk: PYUSD tolerance 2%; supply entry cap 200k
+mainnet 5 PYUSD USDT0 CA526Y2NQWGWVVQ7RFFPGAZMU66PSYJ3UC2MTVAV4ZU7OM5BOPHDXUSG S3-MC-1 1.012241 accepted correlated-stable risk: PYUSD tolerance 2%; supply entry cap 200k
