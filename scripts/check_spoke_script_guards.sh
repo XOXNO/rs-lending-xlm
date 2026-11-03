@@ -70,6 +70,42 @@ expect_die "merge_tightened_flags '$LIVE_ON' ''"        # nothing requested
 expect_die "merge_tightened_flags '{\"paused\":1}' paused" # listing without boolean flags
 expect_die "merge_tightened_flags '' paused"             # unreadable listing: fail closed
 
+# Both successful tightening paths must retain the incident review guidance.
+cat > "$tmp/tighten.sh" <<EOF
+source '$tmp/lib.sh'
+NETWORK=testnet SOURCE_FLAG=
+get_controller() { echo CCTRL; }
+get_governance() { echo CGOV; }
+get_signer_address() { echo GGUARDIAN; }
+get_market_value() { echo CASSET; }
+list_ops() { echo listed >> '$tmp/tighten-calls'; }
+stellar() {
+    case "\$*" in
+        *"--send=no -- get_spoke_asset --spoke_id 4 "*) printf '%s\\n' "\$LIVE_FLAGS" ;;
+        *"set_spoke_asset_flags "*)
+            echo submitted >> '$tmp/tighten-calls'
+            [ "\${FAIL_SUBMISSION:-0}" = 0 ] ;;
+        *) echo "unexpected stellar call: \$*" >&2; return 1 ;;
+    esac
+}
+$(extract tighten_asset_flags)
+tighten_asset_flags 4 XLM 5 paused
+EOF
+for live in "$LIVE_ON" "$LIVE_OFF"; do
+    : > "$tmp/tighten-calls"
+    output=$(LIVE_FLAGS="$live" bash "$tmp/tighten.sh" 2>&1) || fail 'tighten_asset_flags failed'
+    grep -q 'NEXT: cancel every Waiting/Ready op' <<<"$output" || fail 'tightening omitted cancellation guidance'
+    expected=listed
+    if [ "$live" = "$LIVE_OFF" ]; then expected=$'submitted\nlisted'; fi
+    [ "$(cat "$tmp/tighten-calls")" = "$expected" ] || fail 'tightening submitted or listed unexpectedly'
+done
+: > "$tmp/tighten-calls"
+if LIVE_FLAGS="$LIVE_OFF" FAIL_SUBMISSION=1 bash "$tmp/tighten.sh" > "$tmp/tighten-output" 2>&1; then
+    fail 'failed tightening submission reported success'
+fi
+[ "$(cat "$tmp/tighten-calls")" = submitted ] || fail 'failed tightening continued to list operations'
+grep -q 'set_spoke_asset_flags failed' "$tmp/tighten-output" || fail 'failed tightening omitted its error'
+
 LIVE_ALL='{"paused":true,"frozen":true,"no_seize":true}'
 expect "merge_relaxed_flags '$LIVE_ALL' frozen" '{"paused":true,"frozen":false,"no_seize":true}'
 expect "merge_relaxed_flags '$LIVE_ALL' paused,no_seize" '{"paused":false,"frozen":true,"no_seize":false}'

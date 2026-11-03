@@ -3649,18 +3649,17 @@ tighten_asset_flags() {
     if printf '%s' "$live_listing" | jq -e --argjson want "$flags" \
         '[.paused, .frozen, .no_seize] == [$want.paused, $want.frozen, $want.no_seize]' >/dev/null; then
         echo "Flags on ${asset_name}, on-chain spoke ${category_id}, already ${flags}; nothing sent." >&2
-        return 0
+    else
+        gov=$(get_governance)
+        caller=$(get_signer_address)
+        echo "Setting flags on ${asset_name}, on-chain spoke ${category_id}: ${flags}" >&2
+        stellar contract invoke --instruction-leeway "${INSTRUCTION_LEEWAY:-20000000}" --id "$gov" $SOURCE_FLAG --network "$NETWORK" -- \
+            set_spoke_asset_flags --caller "$caller" --spoke_id "$category_id" --hub_asset "$hub_asset" \
+            --paused "$(printf '%s' "$flags" | jq -r .paused)" \
+            --frozen "$(printf '%s' "$flags" | jq -r .frozen)" \
+            --no_seize "$(printf '%s' "$flags" | jq -r .no_seize)" \
+            || die "set_spoke_asset_flags failed (does ${caller} hold GUARDIAN?)"
     fi
-
-    gov=$(get_governance)
-    caller=$(get_signer_address)
-    echo "Setting flags on ${asset_name}, on-chain spoke ${category_id}: ${flags}" >&2
-    stellar contract invoke --instruction-leeway "${INSTRUCTION_LEEWAY:-20000000}" --id "$gov" $SOURCE_FLAG --network "$NETWORK" -- \
-        set_spoke_asset_flags --caller "$caller" --spoke_id "$category_id" --hub_asset "$hub_asset" \
-        --paused "$(printf '%s' "$flags" | jq -r .paused)" \
-        --frozen "$(printf '%s' "$flags" | jq -r .frozen)" \
-        --no_seize "$(printf '%s' "$flags" | jq -r .no_seize)" \
-        || die "set_spoke_asset_flags failed (does ${caller} hold GUARDIAN?)"
 
     echo "" >&2
     echo "NEXT: cancel every Waiting/Ready op that edits this listing (cancelOp <op-id>):" >&2
