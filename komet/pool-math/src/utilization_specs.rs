@@ -37,6 +37,16 @@ pub fn wide_exact(env: &Env, borrowed: i128, supplied: i128) -> bool {
         && numerator < q.add(&I256::from_i128(env, 1)).mul(&s)
 }
 
+/// Representative fixed borrowed values for the symbolic-supply claims:
+/// one RAY, an odd value near 10^30 and an odd value above 2^100.
+pub const FIXED_B: [i128; 3] = [RAY, 1_000_000_000_000_000_000_000_000_007, (1 << 100) + 1];
+
+/// Fixed borrowed value `FIXED_B[k]`, every supplied >= borrowed: the same
+/// exact half-up statement as `wide_exact`.
+pub fn fixed_b_exact(env: &Env, k: usize, supplied: i128) -> bool {
+    wide_exact(env, FIXED_B[k], supplied)
+}
+
 /// Bounds only: 0 <= U <= RAY.
 pub fn wide_bounds(env: &Env, borrowed: i128, supplied: i128) -> bool {
     if !in_domain(borrowed, supplied) {
@@ -73,5 +83,10 @@ mod tests {
         }
         assert_eq!(utilization(&env, WIDE + 1, 2 * RAY), WIDE / 2 + 1);
         assert!(!wide_round_wrong(&env));
+        for k in 0..3 {
+            for s in [FIXED_B[k], FIXED_B[k] + 1, 2 * FIXED_B[k] + 1, i128::MAX] {
+                assert!(fixed_b_exact(&env, k, s));
+            }
+        }
     }
 }

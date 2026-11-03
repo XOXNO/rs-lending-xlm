@@ -29,7 +29,7 @@ pub mod settlement_specs;
     feature = "scaled-borrow"
 ))]
 pub mod signed;
-#[cfg(feature = "utilization-wide")]
+#[cfg(any(feature = "utilization-wide", feature = "utilization-fixed-b"))]
 pub mod utilization_specs;
 #[cfg(any(feature = "validation", feature = "oracle-time"))]
 pub mod validation_specs;
@@ -482,6 +482,30 @@ impl PoolMathProof {
     #[cfg(feature = "withdraw-fixed")]
     pub fn test_withdraw_fixed_wrong(env: Env) -> bool {
         settlement_fixed_specs::withdraw_wrong(&env)
+    }
+
+    /// borrowed = RAY, every supplied >= borrowed: exact half-up utilization.
+    #[cfg(feature = "utilization-fixed-b")]
+    pub fn test_util_fixed_b0(env: Env, supplied: i128) -> bool {
+        utilization_specs::fixed_b_exact(&env, 0, supplied)
+    }
+
+    /// borrowed = 10^30 + 7, every supplied >= borrowed: exact half-up utilization.
+    #[cfg(feature = "utilization-fixed-b")]
+    pub fn test_util_fixed_b1(env: Env, supplied: i128) -> bool {
+        utilization_specs::fixed_b_exact(&env, 1, supplied)
+    }
+
+    /// borrowed = 2^100 + 1, every supplied >= borrowed: exact half-up utilization.
+    #[cfg(feature = "utilization-fixed-b")]
+    pub fn test_util_fixed_b2(env: Env, supplied: i128) -> bool {
+        utilization_specs::fixed_b_exact(&env, 2, supplied)
+    }
+
+    /// Deliberately false: the tie at 2^64+1 over 2 RAY is claimed rounded down.
+    #[cfg(feature = "utilization-fixed-b")]
+    pub fn test_util_fixed_b_wrong(env: Env) -> bool {
+        utilization_specs::wide_round_wrong(&env)
     }
 
     /// x, y >= 2^64, representable: Ray::mul_floor is exactly floor(x*y/RAY).

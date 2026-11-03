@@ -357,6 +357,33 @@
    "smt_timeout_ms": 60000
   },
   {
+   "name": "utilization-fixed-b",
+   "crate": "komet/pool-math",
+   "feature": "utilization-fixed-b",
+   "wasm_sha256": "0da8562d2a50829e786a877b73e980b8ab21489f8b5a3b1d0f9c12ebacfef3a8",
+   "module": "komet/pipeline/proofs/pool-math-lemmas.k:POOL-MATH-LEMMAS",
+   "cap_seconds": 14400,
+   "smt_timeout_ms": 60000,
+   "tests": [
+    {
+     "id": "test_util_fixed_b0",
+     "expect": "pass"
+    },
+    {
+     "id": "test_util_fixed_b1",
+     "expect": "pass"
+    },
+    {
+     "id": "test_util_fixed_b2",
+     "expect": "pass"
+    },
+    {
+     "id": "test_util_fixed_b_wrong",
+     "expect": "fail"
+    }
+   ]
+  },
+  {
    "name": "repay-fixed",
    "crate": "komet/pool-math",
    "feature": "repay-fixed",
