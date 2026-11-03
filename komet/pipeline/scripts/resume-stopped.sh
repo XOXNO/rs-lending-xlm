@@ -7,7 +7,8 @@ ev=$(cd -- "$1" && pwd) cap=${2:-14400}
 snap="$ev/pipeline"
 export KOMET_REPO_ROOT=${KOMET_REPO_ROOT:-$(cd -- "$(dirname -- "$0")/../../.." && pwd)}
 for runf in "$ev"/*/test_*/run.json; do
-  [ "$(python3 -c "import json,sys;print(json.load(open(sys.argv[1])).get('outcome'))" "$runf")" = stopped ] || continue
+  # Only runs that stopped at the cap, at most KOMET_MAX_ATTEMPTS (3) in all.
+  [ "$(python3 -c "import json,sys;r=json.load(open(sys.argv[1]));print(r.get('outcome') if r.get('attempt',1) < int(sys.argv[2]) else 'done')" "$runf" "${KOMET_MAX_ATTEMPTS:-3}")" = stopped ] || continue
   d=$(dirname "$runf") id=$(basename "$(dirname "$runf")") pdir=$(dirname "$(dirname "$runf")")
   name=$(basename "$pdir")
   read -r module smt < <(python3 - "$snap/proofs.json" "$name" <<'PY'
