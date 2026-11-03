@@ -20,8 +20,10 @@ PY
   [ "$module" = - ] && module=
   [ "$smt" = - ] && smt=
   wasm=$(ls "$pdir"/wasm/*.wasm)
-  echo "resuming $name/$id" >> "$pdir/$id.prove.log"
-  ( KOMET_RESUME=1 KOMET_SMT_TIMEOUT_MS="$smt" "$snap/scripts/prove.sh" "$wasm" "$id" pass "$d" "$module" "$cap" \
-      >> "$pdir/$id.prove.log" 2>&1 || true ) &
+  # A per-test lock: an overlapping invocation skips a test already resuming.
+  ( flock -n 9 || exit 0
+    echo "resuming $name/$id" >> "$pdir/$id.prove.log"
+    KOMET_RESUME=1 KOMET_SMT_TIMEOUT_MS="$smt" "$snap/scripts/prove.sh" "$wasm" "$id" pass "$d" "$module" "$cap" \
+      >> "$pdir/$id.prove.log" 2>&1 || true ) 9> "$pdir/.$id.resume.lock" &
 done
 wait
