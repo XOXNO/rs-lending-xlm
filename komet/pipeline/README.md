@@ -59,6 +59,40 @@ trap, timeout or stuck host call is not an accepted negative control.
 Each proof starts from a fresh directory; `inputs.json` inside it fingerprints
 the claim, extra module, runner and compiled definitions.
 
+## How to verify (no re-proving)
+
+```sh
+make komet-verify            # about 1-2 minutes
+REBUILD=1 make komet-verify  # also rebuilds each harness Wasm and compares its SHA-256
+```
+
+`scripts/verify-evidence.sh` checks, for every committed `komet/**/server*/`
+evidence directory: the `SHA256SUMS` manifest; each compressed proof graph,
+re-checked by `scripts/check-proof.py` with its recorded expectation (pass,
+fail, or reject with the expected contract error codes) inside the pinned
+prover image, with status, node and rewrite-step counts equal to the recorded
+summary; and every Lean file with `--trust=0`. It prints one line per claim
+and exits non-zero on any mismatch. It needs the prover image: build it with
+`scripts/build-images.sh prover` (hours on a cold cache; the tag hashes the pins).
+
+## Scheduling and resource limits
+
+* Each proof container: `--memory=6g --memory-swap=6g`; at most 3 at a time
+  across all runs (flock slots); a proof starts only with >= 8 GB available.
+  `run.json` records the memory peak and `OOMKilled`.
+* False controls run first; a proof's positive claims are skipped when a
+  control does not fail at its completed assertion (harness problem).
+* Positive claims first run a feasibility stage (`KOMET_FEASIBILITY_CAP`,
+  600 s). A run stopped at the cap without a solver block is resumed from its
+  saved graph with the full cap (`KOMET_RESUME=1`; `run.json` records the
+  attempt and the checkpoint resumed from; earlier logs move to `attempt-N/`).
+* Fail fast: a claim expected to pass stops at the first stuck node, and an
+  SMT `canceled`/unknown answer ends the run as `blocked` (the query is saved
+  in `blocked.txt`). `blocked`, `stopped` and `infrastructure` (OOM, backend
+  killed) are recorded as outcomes, never as verdicts.
+* Manifest `lane`: fixed-constant framings (0) are scheduled before fully
+  symbolic ones (1).
+
 ## Run
 
 ```sh

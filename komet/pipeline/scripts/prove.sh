@@ -1,16 +1,42 @@
 #!/usr/bin/env bash
 # Run one Komet proof in the pinned prover image and check its graph.
 # Usage: prove.sh <wasm> <test-id> <pass|fail|reject> <out-dir> [extra-module.k:MODULE] [cap-seconds]
-# <out-dir> must not exist; it receives proof/, stdout.log, stderr.log,
-# run.json (command, exit code, wall time) and check.json (graph verdict).
-# Exit status: 0 when the graph meets the expectation, 1 otherwise.
+# <out-dir> must not exist unless KOMET_RESUME=1: then the saved proof graph
+# in <out-dir>/proof is continued (Komet checks that claim, module, runner and
+# compiled definitions are unchanged), earlier logs move to attempt-N/, and
+# run.json records the attempt number and the checkpoint it resumed from.
+# Fail fast: a claim expected to pass is stopped at the first stuck node, and
+# an SMT canceled/unknown answer ends it as `blocked` (blocked.txt holds the
+# query); blocked is not a verdict. Outputs: proof/, stdout.log, stderr.log,
+# run.json, check.json. Exit 0 when the graph meets the expectation, 1 when it
+# does not, 3 when blocked or stopped at the cap without a verdict.
 set -euo pipefail
 
 here=$(cd -- "$(dirname -- "$0")/.." && pwd)
 repo=${KOMET_REPO_ROOT:-$(cd -- "$here/../.." && pwd)}
 wasm=$1 id=$2 expect=$3 out=$4 module=${5:-} cap=${6:-14400}
 eval "$("$here/scripts/build-images.sh" print-tags)"
-test ! -e "$out" || { echo "refusing to reuse existing $out" >&2; exit 2; }
+attempt=1 resumed_from=null
+if [ -e "$out" ]; then
+  [ "${KOMET_RESUME:-0}" = 1 ] || { echo "refusing to reuse existing $out (set KOMET_RESUME=1)" >&2; exit 2; }
+  out=$(cd -- "$out" && pwd)
+  while [ -d "$out/attempt-$attempt" ]; do attempt=$((attempt + 1)); done
+  mkdir -p "$out/attempt-$attempt"
+  for f in run.json check.json stdout.log stderr.log blocked.txt memory.peak; do
+    [ -f "$out/$f" ] && mv "$out/$f" "$out/attempt-$attempt/"
+  done
+  resumed_from=$(python3 - "$out/proof/$id/kcfg/kcfg.json" "$attempt" <<'PY'
+import json, sys
+try:
+    g = json.load(open(sys.argv[1]))
+    print(json.dumps({'attempt': int(sys.argv[2]), 'nodes': len(g['nodes']),
+                      'rewrite_steps': sum(e['depth'] for e in g['edges'])}))
+except FileNotFoundError:
+    print('null')
+PY
+)
+  attempt=$((attempt + 1))
+fi
 mkdir -p "$out/tmp" "$out/home" "$out/input"
 out=$(cd -- "$out" && pwd)
 cp "$wasm" "$out/input/$(basename "$wasm")"
@@ -66,6 +92,21 @@ name="komet-proof-$$-$RANDOM"
 
 started=$(date -u +%FT%TZ)
 t0=$(date +%s)
+# Fail-fast watcher: a claim expected to pass cannot succeed once a node is
+# stuck; stop the container as soon as a saved graph shows one.
+(
+  [ "$expect" = pass ] || exit 0
+  while sleep 60; do
+    g="$out/proof/$id/kcfg/kcfg.json"
+    [ -f "$g" ] || continue
+    if python3 -c "import json,sys; sys.exit(0 if json.load(open(sys.argv[1])).get('stuck') else 1)" "$g" 2>/dev/null; then
+      echo "stuck node in a claim expected to pass" > "$out/blocked.txt"
+      docker stop -t 30 "$name" >/dev/null 2>&1
+      exit 0
+    fi
+  done
+) &
+watch=$!
 set +e
 docker run --name "$name" --network=none --memory="$mem" --memory-swap="$mem" \
   -u "$(id -u):$(id -g)" "${mounts[@]}" \
@@ -74,21 +115,45 @@ docker run --name "$name" --network=none --memory="$mem" --memory-swap="$mem" \
     cat /sys/fs/cgroup/memory.peak > /out/memory.peak 2>/dev/null; exit $rc' "$cap" "${args[@]}" \
   > "$out/stdout.log" 2> "$out/stderr.log"
 rc=$?
+kill "$watch" 2>/dev/null || true
 oom=$(docker inspect -f '{{.State.OOMKilled}}' "$name" 2>/dev/null || echo unknown)
 docker rm -f "$name" >/dev/null 2>&1
 set -e
 flock -u 9
 wall=$(( $(date +%s) - t0 ))
 peak=$(cat "$out/memory.peak" 2>/dev/null || echo 0)
-python3 - "$out/run.json" "$PROVER_IMAGE" "$id" "$expect" "$rc" "$wall" "$cap" "$started" "${KOMET_SMT_TIMEOUT_MS:-5000}" "$mem" "$peak" "$oom" "${args[@]}" <<'PY'
+# Classify runs that ended without a verdict.
+outcome=verdict
+if grep -qE "SmtSolverError|canceled|retry limit" "$out/stderr.log" 2>/dev/null; then
+  outcome=blocked
+  python3 - "$out/stderr.log" >> "$out/blocked.txt" <<'PY'
+import sys
+s = open(sys.argv[1]).read()
+i = s.rfind('CTermSMTError:')
+print('SMT canceled/unknown on query:')
+print(s[i:i + 4000] if i >= 0 else s[-4000:])
+PY
+elif [ -f "$out/blocked.txt" ]; then
+  outcome=blocked
+elif [ "$oom" = true ] || grep -q "Empty response received" "$out/stderr.log" 2>/dev/null; then
+  outcome=infrastructure
+elif [ "$rc" = 124 ] || [ "$rc" = 130 ] || [ "$rc" = 137 ] || [ "$rc" = 143 ]; then
+  outcome=stopped
+fi
+python3 - "$out/run.json" "$PROVER_IMAGE" "$id" "$expect" "$rc" "$wall" "$cap" "$started" "${KOMET_SMT_TIMEOUT_MS:-5000}" "$mem" "$peak" "$oom" "$outcome" "$attempt" "$resumed_from" "${args[@]}" <<'PY'
 import json, sys
-path, image, pid, expect, rc, wall, cap, started, smt, mem, peak, oom, *args = sys.argv[1:]
+path, image, pid, expect, rc, wall, cap, started, smt, mem, peak, oom, outcome, attempt, resumed, *args = sys.argv[1:]
 json.dump({'image': image, 'id': pid, 'expect': expect, 'exit_code': int(rc), 'wall_seconds': int(wall),
            'cap_seconds': int(cap), 'started_utc': started, 'smt_timeout_ms': int(smt),
            'memory_limit': mem, 'memory_peak_bytes': int(peak or 0), 'oom_killed': oom,
+           'outcome': outcome, 'attempt': int(attempt), 'resumed_from': json.loads(resumed),
            'command': ['komet', *args]},
           open(path, 'w'), indent=1)
 PY
+if [ "$outcome" != verdict ]; then
+  echo "$id: no verdict ($outcome); see $out/blocked.txt / stderr.log" >&2
+  exit 3
+fi
 docker run --rm --network=none --memory=2g --memory-swap=2g -u "$(id -u):$(id -g)" -e HOME=/out/home \
   -e KOMET_REJECT_CODES="${KOMET_REJECT_CODES:-}" -v "$out:/out" -v "$here/scripts:/scripts:ro" "$PROVER_IMAGE" \
   python3 /scripts/check-proof.py /out/proof "$id" "$expect" /out/check.json \

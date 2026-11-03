@@ -38,7 +38,7 @@
 
 SHELL := /bin/bash
 .PHONY: \
-        build build-one optimize deploy-artifacts release-artifacts integration-wasm integration-preflight integration-validate integration-shellcheck integration-appendix certora-wasm wasm-artifacts \
+        build build-one optimize deploy-artifacts release-artifacts integration-wasm integration-preflight integration-validate integration-shellcheck integration-appendix certora-wasm komet-verify wasm-artifacts \
         certora certora-list \
         test test-harness test-verbose test-one test-match test-pool \
         miri-common miri-pool miri-controller miri-all \
@@ -229,6 +229,10 @@ release-artifacts:
 # Without names the prover inlines the limb arithmetic of every i128 multiply
 # and divide instead (docs/explanation/certora-sunbeam-prover-tuning.md,
 # "Check the artifact before tuning").
+# Re-check committed Komet server evidence (hashes, graphs, Lean) without re-proving.
+komet-verify:
+	REBUILD=$(REBUILD) bash komet/pipeline/scripts/verify-evidence.sh
+
 certora-wasm:
 	@set -euo pipefail; \
 	mkdir -p $(CERTORA_WASM_DIR) $(CERTORA_BUILD_DIR); \
@@ -2194,6 +2198,7 @@ help-verify:
 	$(call ROW,make certora,cloud jobs (CERTORA_PROFILE=sanity))
 	$(call ROW,make certora-list,list Certora profiles)
 	$(call ROW,make certora-wasm,build Certora-feature WASM first)
+	$(call ROW,make komet-verify,re-check committed Komet proofs (REBUILD=1))
 	$(call BLANK)
 
 
