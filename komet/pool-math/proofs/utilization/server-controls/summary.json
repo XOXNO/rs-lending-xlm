@@ -1,0 +1,67 @@
+[
+ {
+  "proof": "controls",
+  "id": "test_full_utilization",
+  "expect": "pass",
+  "status": "PASSED",
+  "verdict": "OK",
+  "exit_code": 0,
+  "wall_seconds": 842,
+  "smt_timeout_ms": 5000,
+  "nodes": 4,
+  "rewrite_steps": 1747,
+  "errors": []
+ },
+ {
+  "proof": "controls",
+  "id": "test_full_utilization_wrong",
+  "expect": "fail",
+  "status": "FAILED",
+  "verdict": "OK",
+  "exit_code": 1,
+  "wall_seconds": 899,
+  "smt_timeout_ms": 5000,
+  "nodes": 4,
+  "rewrite_steps": 1734,
+  "errors": []
+ },
+ {
+  "proof": "controls",
+  "id": "test_util_zero_supply",
+  "expect": "pass",
+  "status": "PASSED",
+  "verdict": "OK",
+  "exit_code": 0,
+  "wall_seconds": 674,
+  "smt_timeout_ms": 5000,
+  "nodes": 3,
+  "rewrite_steps": 622,
+  "errors": []
+ },
+ {
+  "proof": "controls",
+  "id": "test_util_zero_supply_wrong",
+  "expect": "fail",
+  "status": "FAILED",
+  "verdict": "OK",
+  "exit_code": 1,
+  "wall_seconds": 631,
+  "smt_timeout_ms": 5000,
+  "nodes": 3,
+  "rewrite_steps": 477,
+  "errors": []
+ },
+ {
+  "proof": "controls",
+  "id": "test_widened_ceil",
+  "expect": "pass",
+  "status": "PASSED",
+  "verdict": "OK",
+  "exit_code": 0,
+  "wall_seconds": 970,
+  "smt_timeout_ms": 5000,
+  "nodes": 4,
+  "rewrite_steps": 1167,
+  "errors": []
+ }
+]

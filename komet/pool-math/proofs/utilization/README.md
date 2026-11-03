@@ -80,3 +80,26 @@ limit and 15-second interruption grace; actual wall times are recorded.
 Unchanged inputs resume the existing graph. Lean helper checks establish
 integer identities and partial-input models; they do not independently prove
 K/Wasm refinement or validate a saved APR certificate.
+
+## Server results (Linux pipeline, 2026-11-03)
+
+Pinned toolchain of [`komet/pipeline`](../../../pipeline/README.md), extra module
+[`pool-math-lemmas.k`](../../../pipeline/proofs/pool-math-lemmas.k) (every rule
+Lean-backed). Records and graphs: [`server-controls/`](server-controls/summary.json).
+
+| Claim | Domain | Result |
+|---|---|---|
+| `test_util_zero_supply` | every i128 borrowed, supplied = 0: utilization is 0 | `PASSED`, 3 nodes, 622 steps, 674 s |
+| `test_util_zero_supply_wrong` (false) | `U(RAY, 0) == RAY` | `FAILED` at the completed assertion, 631 s |
+| `test_full_utilization` | `U(RAY, RAY) == RAY` (concrete witness) | `PASSED`, 4 nodes, 1,747 steps, 842 s |
+| `test_full_utilization_wrong` (false) | `U(RAY, RAY) < RAY` | `FAILED` as required, 899 s |
+| `test_widened_ceil` | `mul_div_ceil(RAY+1, RAY+1, RAY) == RAY+3` | `PASSED`, 4 nodes, 1,167 steps, 970 s |
+| `test_utilization_round_wrong` (false) | floor rounding at `B=1, S=2*RAY` | `FAILED` as required, 344 s |
+
+Still open on the server: `test_utilization_exact` / `test_utilization_bounds`
+(general), `test_util_wide_*` (2^64 <= B <= S) and `test_util_fixed_b*` (B fixed,
+every S >= B). Each run stops on an SMT `canceled` answer: with symbolic B the
+query is the i128 overflow check of `B*RAY` expressed through 32-bit limbs;
+with fixed B it is the word decomposition of the quotient `(B*RAY + S/2) div S`
+over symbolic S (nonlinear division). Raising the initial SMT timeout from 5 s
+to 60 s moved the wide runs past their first stop but not to completion.

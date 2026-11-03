@@ -1,0 +1,44 @@
+{
+ "admitted": false,
+ "bounded": [],
+ "circularity": false,
+ "covers": 0,
+ "edges": 2,
+ "errors": [],
+ "expect": "fail",
+ "failing": [
+  4
+ ],
+ "failing_leaves": {
+  "4": {
+   "host_stack": "hostStackList(SCVal:Bool(false), .List{\"hostStackList\"})",
+   "instrs": "",
+   "k_head": "expectResult(SCVal:Bool(true))"
+  }
+ },
+ "id": "test_full_utilization_wrong",
+ "input_fingerprint": {
+  "claim": "f02323b0e09853a7843b52b698a870e2dbd37261265ba834b3bce6f62b33aace",
+  "definitions": {
+   "haskell": "a66ba5710a4bfe9569247ce0b4fa777812c2f1835a71434d5e5676eb9c934b98",
+   "llvm": "bc45d16cc07aa32904549e2086fc416b7eafa0c8c11afc9f9a47871d96610325"
+  },
+  "llvm_libraries": {
+   "interpreter.so": "94a466bd685ff2cafc270088ecbe22fbf434b9ec973389c3222d8e0e5f09881a"
+  },
+  "runner": "ac43e6cafd049c505f81b5e363968c509d656de5c9d57ab81c1eea091654a8e2"
+ },
+ "inputs_sha256": "9a98960b4d5773bbe2375f81fcefce99f7904c05b320d57cf1882d6e0c72dbe8",
+ "node_refutations": {},
+ "nodes": 4,
+ "pending": [],
+ "rewrite_steps": 1734,
+ "splits": 0,
+ "status": "FAILED",
+ "stuck": [
+  4
+ ],
+ "subproof_ids": [],
+ "vacuous": [],
+ "verdict": "OK"
+}
