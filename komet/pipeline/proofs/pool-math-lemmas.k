@@ -284,4 +284,9 @@ module POOL-MATH-LEMMAS
     (9223372036854775808 <=Int (u64Xor(A:Int, B:Int) &Int u64Xor(C:Int, D:Int)))
       => notBool ((u64Xor(A, B) <Int 9223372036854775808) orBool (u64Xor(C, D) <Int 9223372036854775808))
     [simplification, preserves-definedness]
+  // Truncating division undoes multiplication by the same nonzero constant.
+  rule [mul-div-cancel]:
+    ((X:Int *Int C:Int) /Int C) => X
+    requires C =/=Int 0
+    [simplification, concrete(C), preserves-definedness]
 endmodule

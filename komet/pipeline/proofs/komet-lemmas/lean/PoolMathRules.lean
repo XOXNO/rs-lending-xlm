@@ -127,4 +127,10 @@ theorem u64_xor_and_sign_ge (A B C D : Int) :
 #print axioms u64_xor_and_sign
 #print axioms u64_xor_and_sign_ge
 
+-- [mul-div-cancel]  (X *Int C) /Int C => X  requires C =/=Int 0
+theorem mul_div_cancel (X C : Int) (h : C ≠ 0) : (X * C).tdiv C = X :=
+  Int.mul_tdiv_cancel X h
+
+#print axioms mul_div_cancel
+
 end PoolMathRules
