@@ -275,13 +275,17 @@
    "name": "controls",
    "crate": "komet/pool-math",
    "feature": "controls",
-   "wasm_sha256": "f1b2987ea827bac5dc78c8d283006a6cb4f4736def1f7378a3828b9b1968ac4b",
+   "wasm_sha256": "9245c5767d70587b33f9492cfa5d532c101158f2e16a3696e88f2f6d25d86575",
    "module": "komet/pipeline/proofs/pool-math-lemmas.k:POOL-MATH-LEMMAS",
    "cap_seconds": 14400,
    "tests": [
     {
      "id": "test_util_zero_supply",
      "expect": "pass"
+    },
+    {
+     "id": "test_util_zero_supply_wrong",
+     "expect": "fail"
     },
     {
      "id": "test_full_utilization",

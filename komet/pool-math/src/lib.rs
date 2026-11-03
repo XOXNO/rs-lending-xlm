@@ -550,6 +550,12 @@ impl PoolMathProof {
         production_utilization(&env, borrowed, 0) == 0
     }
 
+    /// Deliberately false: zero supply does not report full utilization.
+    #[cfg(feature = "controls")]
+    pub fn test_util_zero_supply_wrong(env: Env) -> bool {
+        production_utilization(&env, RAY, 0) == RAY
+    }
+
     /// Index monotonicity and cap for RAY <= old <= cap and RAY <= factor <= 8 RAY.
     #[cfg(feature = "borrow-index")]
     pub fn test_borrow_index_bounds(env: Env, old: i128, factor: i128) -> bool {
