@@ -94,7 +94,7 @@ for check in sorted(ev.glob('*/*/check.json')):
     run = json.loads((check.parent / 'run.json').read_text())
     rows.append({'proof': check.parent.parent.name, 'id': c['id'], 'expect': c['expect'],
                  'status': c['status'], 'verdict': c['verdict'], 'exit_code': run['exit_code'],
-                 'wall_seconds': run['wall_seconds'], 'nodes': c['nodes'],
+                 'wall_seconds': run['wall_seconds'], 'memory_peak_bytes': run.get('memory_peak_bytes'), 'nodes': c['nodes'],
                  'rewrite_steps': c['rewrite_steps'], 'errors': c['errors']})
 (ev / 'summary.json').write_text(json.dumps(rows, indent=1) + '\n')
 for r in rows:

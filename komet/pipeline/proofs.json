@@ -670,12 +670,16 @@
    "smt_timeout_ms": 60000,
    "tests": [
     {
+     "id": "test_seize_wrong",
+     "expect": "fail"
+    },
+    {
      "id": "test_seize_zero_a",
      "expect": "pass"
     },
     {
-     "id": "test_seize_wrong",
-     "expect": "fail"
+     "id": "test_seize_zero_b",
+     "expect": "pass"
     },
     {
      "id": "test_seize_bad_debt_a",
@@ -683,10 +687,6 @@
     },
     {
      "id": "test_seize_bad_debt_b",
-     "expect": "pass"
-    },
-    {
-     "id": "test_seize_zero_b",
      "expect": "pass"
     }
    ]

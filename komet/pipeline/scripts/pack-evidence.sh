@@ -25,7 +25,7 @@ for check in sorted(Path(sys.argv[1]).glob('test_*/check.json')):
         continue
     rows.append({'proof': sys.argv[2], 'id': c['id'], 'expect': c['expect'], 'status': c['status'],
                  'verdict': c['verdict'], 'exit_code': run['exit_code'], 'wall_seconds': run['wall_seconds'],
-                 'smt_timeout_ms': run.get('smt_timeout_ms', 5000), 'nodes': c['nodes'],
+                 'smt_timeout_ms': run.get('smt_timeout_ms', 5000), 'memory_peak_bytes': run.get('memory_peak_bytes'), 'nodes': c['nodes'],
                  'rewrite_steps': c['rewrite_steps'], 'errors': c['errors']})
 json.dump(rows, open(sys.argv[3], 'w'), indent=1)
 PY

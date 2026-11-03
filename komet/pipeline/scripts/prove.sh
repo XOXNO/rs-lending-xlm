@@ -41,25 +41,55 @@ WRAP
   mounts=(-v "$out/input/kore-rpc-booster:/opt/komet-backend/wrapper/kore-rpc-booster:ro")
 fi
 
+# Resource limits (mandatory after a host-wide OOM): one proof container per
+# slot (KOMET_SLOTS, default 3, shared by every run through flock), a hard
+# memory cap (KOMET_MEMORY, default 6g, no swap), and no start while the host
+# has less than KOMET_MIN_AVAIL_GB (default 8) GB available.
+slots=${KOMET_SLOTS:-3} slot_dir=${KOMET_SLOT_DIR:-/tmp/komet-proof-slots}
+mkdir -p "$slot_dir"
+exec 9>/dev/null
+while :; do
+  got=
+  for i in $(seq 1 "$slots"); do
+    exec 9>"$slot_dir/slot$i"
+    if flock -n 9; then got=$i; break; fi
+  done
+  if [ -n "$got" ]; then
+    avail=$(awk '/MemAvailable/ {print int($2/1048576)}' /proc/meminfo)
+    [ "$avail" -ge "${KOMET_MIN_AVAIL_GB:-8}" ] && break
+    flock -u 9
+  fi
+  sleep 30
+done
+mem=${KOMET_MEMORY:-6g}
+name="komet-proof-$$-$RANDOM"
+
 started=$(date -u +%FT%TZ)
 t0=$(date +%s)
 set +e
-docker run --rm --network=none -u "$(id -u):$(id -g)" "${mounts[@]}" \
+docker run --name "$name" --network=none --memory="$mem" --memory-swap="$mem" \
+  -u "$(id -u):$(id -g)" "${mounts[@]}" \
   -e HOME=/out/home -e TMPDIR=/out/tmp -v "$out:/out" -w /out "$PROVER_IMAGE" \
-  timeout --signal=INT --kill-after=30s "$cap" komet "${args[@]}" \
+  bash -c 'timeout --signal=INT --kill-after=30s "$0" komet "$@"; rc=$?
+    cat /sys/fs/cgroup/memory.peak > /out/memory.peak 2>/dev/null; exit $rc' "$cap" "${args[@]}" \
   > "$out/stdout.log" 2> "$out/stderr.log"
 rc=$?
+oom=$(docker inspect -f '{{.State.OOMKilled}}' "$name" 2>/dev/null || echo unknown)
+docker rm -f "$name" >/dev/null 2>&1
 set -e
+flock -u 9
 wall=$(( $(date +%s) - t0 ))
-python3 - "$out/run.json" "$PROVER_IMAGE" "$id" "$expect" "$rc" "$wall" "$cap" "$started" "${KOMET_SMT_TIMEOUT_MS:-5000}" "${args[@]}" <<'PY'
+peak=$(cat "$out/memory.peak" 2>/dev/null || echo 0)
+python3 - "$out/run.json" "$PROVER_IMAGE" "$id" "$expect" "$rc" "$wall" "$cap" "$started" "${KOMET_SMT_TIMEOUT_MS:-5000}" "$mem" "$peak" "$oom" "${args[@]}" <<'PY'
 import json, sys
-path, image, pid, expect, rc, wall, cap, started, smt, *args = sys.argv[1:]
+path, image, pid, expect, rc, wall, cap, started, smt, mem, peak, oom, *args = sys.argv[1:]
 json.dump({'image': image, 'id': pid, 'expect': expect, 'exit_code': int(rc), 'wall_seconds': int(wall),
            'cap_seconds': int(cap), 'started_utc': started, 'smt_timeout_ms': int(smt),
+           'memory_limit': mem, 'memory_peak_bytes': int(peak or 0), 'oom_killed': oom,
            'command': ['komet', *args]},
           open(path, 'w'), indent=1)
 PY
-docker run --rm --network=none -u "$(id -u):$(id -g)" -e HOME=/out/home \
+docker run --rm --network=none --memory=2g --memory-swap=2g -u "$(id -u):$(id -g)" -e HOME=/out/home \
   -e KOMET_REJECT_CODES="${KOMET_REJECT_CODES:-}" -v "$out:/out" -v "$here/scripts:/scripts:ro" "$PROVER_IMAGE" \
   python3 /scripts/check-proof.py /out/proof "$id" "$expect" /out/check.json \
   || { echo "check rejected $id (komet exit $rc)" >&2; exit 1; }
