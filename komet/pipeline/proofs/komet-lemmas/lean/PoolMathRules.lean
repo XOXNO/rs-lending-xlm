@@ -87,4 +87,44 @@ theorem bool_word_mod (b : Bool) (M : Int) (h : 2 ≤ M) : bw b % M = bw b := by
 #print axioms bool_word_xor
 #print axioms bool_word_mod
 
+theorem and_false_aux (a b : Bool) :
+    decide ((a && b) = false) = (decide (a = false) || decide (b = false)) := by
+  cases a <;> cases b <;> rfl
+
+theorem land_sign (X Y : Int) (hx0 : 0 ≤ X) (hx1 : X < W) (hy0 : 0 ≤ Y) (hy1 : Y < W) :
+    decide (land X Y < Half) = (decide (X < Half) || decide (Y < Half)) := by
+  have hxy0 : 0 ≤ land X Y := masked_int_nonnegative X Y hy0
+  have hxy1 : land X Y < W := Int.lt_of_le_of_lt (land_le_mask X Y hy0) hy1
+  have ex : X % W = X := Int.emod_eq_of_lt hx0 hx1
+  have ey : Y % W = Y := Int.emod_eq_of_lt hy0 hy1
+  have exy : land X Y % W = land X Y := Int.emod_eq_of_lt hxy0 hxy1
+  have ha := emod_lt_half_iff X 63
+  have hb := emod_lt_half_iff Y 63
+  have hab := emod_lt_half_iff (land X Y) 63
+  rw [bit_land] at hab
+  simp only [W, Half, P] at *
+  rw [ex] at ha; rw [ey] at hb; rw [exy] at hab
+  rw [decide_eq_decide.mpr hab, decide_eq_decide.mpr ha, decide_eq_decide.mpr hb]
+  exact and_false_aux _ _
+
+-- [u64-xor-and-sign]: both operands are u64Xor values, hence in [0, 2^64).
+theorem u64_xor_and_sign (A B C D : Int) :
+    decide (land (u64Xor A B) (u64Xor C D) < Half) =
+      (decide (u64Xor A B < Half) || decide (u64Xor C D < Half)) :=
+  land_sign _ _ (Int.le_of_lt_add_one (by have := u64_xor_nonnegative A B; omega))
+    (u64_xor_upper_bound A B)
+    (Int.le_of_lt_add_one (by have := u64_xor_nonnegative C D; omega)) (u64_xor_upper_bound C D)
+
+-- [u64-xor-and-sign-ge]
+theorem u64_xor_and_sign_ge (A B C D : Int) :
+    decide (Half ≤ land (u64Xor A B) (u64Xor C D)) =
+      !(decide (u64Xor A B < Half) || decide (u64Xor C D < Half)) := by
+  rw [← u64_xor_and_sign]
+  have : Half ≤ land (u64Xor A B) (u64Xor C D) ↔ ¬ land (u64Xor A B) (u64Xor C D) < Half := by omega
+  rw [decide_eq_decide.mpr this, decide_not]
+
+#print axioms land_sign
+#print axioms u64_xor_and_sign
+#print axioms u64_xor_and_sign_ge
+
 end PoolMathRules

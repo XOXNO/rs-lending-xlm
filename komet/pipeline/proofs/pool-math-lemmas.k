@@ -274,4 +274,14 @@ module POOL-MATH-LEMMAS
       => #if B #then 1 #else 0 #fi
     requires 2 <=Int M
     [simplification, concrete(M), preserves-definedness]
+  // Sign bit of an AND of two projected XOR words (i128 subtraction overflow
+  // checks): set exactly when both sign bits are set.
+  rule [u64-xor-and-sign]:
+    ((u64Xor(A:Int, B:Int) &Int u64Xor(C:Int, D:Int)) <Int 9223372036854775808)
+      => (u64Xor(A, B) <Int 9223372036854775808) orBool (u64Xor(C, D) <Int 9223372036854775808)
+    [simplification, preserves-definedness]
+  rule [u64-xor-and-sign-ge]:
+    (9223372036854775808 <=Int (u64Xor(A:Int, B:Int) &Int u64Xor(C:Int, D:Int)))
+      => notBool ((u64Xor(A, B) <Int 9223372036854775808) orBool (u64Xor(C, D) <Int 9223372036854775808))
+    [simplification, preserves-definedness]
 endmodule
