@@ -2,9 +2,9 @@
 #![allow(clippy::too_many_arguments)]
 
 pub use common::types::{
-    AquariusLpSource, AssetOracle, ChainlinkFeedRef, FeedNature, FeedSource, IndependencePolicy,
-    MultiFeedRef, OracleTolerance, PriceKey, PriceSource, ProviderRef, ReflectorFeedRef,
-    ScaledSource,
+    AquariusLpSource, AssetOracle, ChainlinkFeedRef, CurveStableLpSource, FeedNature, FeedSource,
+    IndependencePolicy, MultiFeedRef, OracleTolerance, PriceKey, PriceSource, ProviderRef,
+    ReflectorFeedRef, ScaledSource,
 };
 use common::types::{HubAssetKey, PositionLimits};
 use common::types::{InterestRateModel, MarketParamsRaw};

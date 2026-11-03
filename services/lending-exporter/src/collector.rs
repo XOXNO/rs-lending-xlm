@@ -770,10 +770,10 @@ async fn publish_lp_floor_headroom(
         client,
         metrics,
         net,
-        "get_total_shares",
+        floor.supply_view,
         &market.asset_strkey,
         &pool,
-        "get_total_shares",
+        floor.supply_view,
         vec![],
     )
     .await

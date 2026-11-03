@@ -9,7 +9,7 @@ anyone can call it for a plain swap.
 | --- | --- |
 | Owner | OZ `Ownable`, two-step |
 | Trust | Untrusted by the controller, which checks balance deltas |
-| Venues | Aquarius, Comet, Phoenix, Soroswap, Sushi |
+| Venues | Aquarius, Comet, Curve, Phoenix, Soroswap, Sushi |
 | Client | [`interfaces/swap-aggregator`](../../interfaces/swap-aggregator) |
 
 Full signatures are in `contracts/swap-aggregator/src/lib.rs`; the generated
@@ -120,7 +120,7 @@ src/
   math.rs         checked arithmetic
   types.rs        StrategyPayload, venues, storage keys
   vault.rs        invocation-local balance ledger
-  venues/         per-DEX hop adapters (aquarius/ has LP mint/burn)
+  venues/         per-DEX hop adapters (aquarius/ and curve.rs have LP mint/burn)
   errors.rs       error codes
 tests/unit/       unit tests, mounted by #[path] from lib.rs
 ```

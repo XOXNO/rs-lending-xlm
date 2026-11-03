@@ -13,6 +13,7 @@ HUBS_FILE="$CONFIG_ROOT/${NETWORK}/hubs.json"
 SPOKES_FILE="$CONFIG_ROOT/${NETWORK}/spokes.json"
 MARKET_CONFIG_FILE="$CONFIG_ROOT/${NETWORK}/markets.json"
 BLEND_POOLS_FILE="$CONFIG_ROOT/${NETWORK}/blend.json"
+CURVE_REVIEWED_POOLS_FILE="$CONFIG_ROOT/${NETWORK}/curve_reviewed_pools.json"
 
 require_tool() {
     if ! command -v "$1" >/dev/null 2>&1; then
@@ -84,6 +85,84 @@ get_market_value() {
     local market=$1
     local field=$2
     jq -r ".markets[] | select(.name == \"$market\") | .$field" "$MARKET_CONFIG_FILE"
+}
+
+# LP prices (Aquarius or Curve) are collateral-only: an LP mark is a
+# conservative lower bound, so it understates a debt denominated in the LP.
+# Prices are keyed by asset address, not market name, so every market sharing
+# the named market's address counts (another hub or alias may carry the LP
+# source). A Scaled source whose quote Token or Ref is LP-priced inherits the
+# LP mark, so the walk follows those quotes (bounded depth guards cycles).
+market_has_lp_source() {
+    jq -e --arg m "$1" '
+        . as $root |
+        def lp_priced($sources; $depth):
+            $depth > 0 and any($sources[]?;
+                has("AquariusLp") or has("AquariusStableLp") or has("CurveStableLp") or
+                ((.Scaled.quote.Token? // null) as $q | $q != null and
+                    lp_priced([$root.markets[]? | select(.asset_address == $q) | .oracle.sources[]?]; $depth - 1)) or
+                ((.Scaled.quote.Ref? // null) as $r | $r != null and
+                    lp_priced([$root.references[]? | select(.name == $r or .key.Ref == $r) | .oracle.sources[]?]; $depth - 1)));
+        [.markets[]? | select(.name == $m) | .asset_address] as $addrs |
+        lp_priced([.markets[]? | select(.asset_address as $a | any($addrs[]; . == $a)) | .oracle.sources[]?]; 8)
+    ' "$MARKET_CONFIG_FILE" >/dev/null
+}
+
+refuse_borrowable_lp() {
+    local asset_name=$1 can_borrow=$2
+    if [ "$can_borrow" = "true" ] && market_has_lp_source "$asset_name"; then
+        die "${asset_name} has an LP oracle source and is collateral-only; set can_be_borrowed: false in ${SPOKES_FILE}"
+    fi
+}
+
+curve_reviewed_schema_hint() {
+    local hint='need {"pools": [...]} with unique lowercase 64-hex wasm_hash and non-empty source_repo, source_commit, review, expected_factory'
+    if [ "$NETWORK" = "mainnet" ]; then
+        hint="${hint}; on mainnet source_commit must be a 40-hex git commit, source_repo must not be unknown, ?, or contain TODO, TBD or n/a, and expected_factory must be a C... contract address"
+    fi
+    printf '%s' "$hint"
+}
+
+# Prints the governance-reviewed Curve pool hashes of $NETWORK as a JSON array.
+# A missing file lists nothing; a malformed file fails. Mainnet entries must
+# name their provenance: a pinned commit, a repository (not a placeholder such
+# as unknown, TODO, TBD, n/a or ?) and the factory contract address.
+curve_reviewed_hashes() {
+    if [ ! -f "$CURVE_REVIEWED_POOLS_FILE" ]; then
+        printf '[]'
+        return 0
+    fi
+    jq -ce --arg net "$NETWORK" '
+        def known: type == "string" and length > 0 and (ascii_downcase | startswith("unknown") | not);
+        def named: known and (test("todo|tbd|n/a"; "i") | not) and (test("^\\s*\\?\\s*$") | not);
+        if (.pools | type) == "array" and
+            all(.pools[];
+                (.wasm_hash | type == "string" and test("^[0-9a-f]{64}$")) and
+                all(.source_repo, .source_commit, .review, .expected_factory;
+                    type == "string" and length > 0) and
+                ($net != "mainnet" or (
+                    (.source_commit | test("^[0-9a-f]{40}$")) and
+                    (.source_repo | named) and
+                    (.expected_factory | test("^C[A-Z2-7]{55}$"))))) and
+            ([.pools[].wasm_hash] | unique | length) == (.pools | length)
+        then [.pools[].wasm_hash] else false end
+    ' "$CURVE_REVIEWED_POOLS_FILE" 2>/dev/null
+}
+
+# Every CurveStableLp source must name a reviewed pool executable. Reads the
+# same allowlist as validate_configs, so the direct set_oracle proposal path
+# (configureMarketOracle, configureReferenceOracle) enforces it too.
+refuse_unreviewed_curve_hash() {
+    local label=$1 cfg_json=$2 reviewed
+    printf '%s' "$cfg_json" | jq -e 'any(.sources[]?; has("CurveStableLp"))' >/dev/null || return 0
+    reviewed=$(curve_reviewed_hashes) ||
+        die "${label}: ${CURVE_REVIEWED_POOLS_FILE}: $(curve_reviewed_schema_hint)"
+    if ! printf '%s' "$cfg_json" | jq -e --argjson reviewed "$reviewed" '
+        all(.sources[]? | select(has("CurveStableLp")) | .CurveStableLp.wasm_hash;
+            type == "string" and (ascii_downcase as $h | $reviewed | index($h) != null))
+    ' >/dev/null 2>&1; then
+        die "${label}: Curve wasm_hash $(printf '%s' "$cfg_json" | jq -c '[.sources[]? | .CurveStableLp.wasm_hash? // empty]') is not in ${CURVE_REVIEWED_POOLS_FILE}"
+    fi
 }
 
 get_spoke_value() {
@@ -1211,6 +1290,14 @@ validate_configs() {
         fi
     done
 
+    # Governance-reviewed Curve pool executables for this network. A missing
+    # file lists nothing, so any CurveStableLp source then fails below.
+    local curve_reviewed
+    if ! curve_reviewed=$(curve_reviewed_hashes); then
+        vc_err "${CURVE_REVIEWED_POOLS_FILE}: $(curve_reviewed_schema_hint)"
+        curve_reviewed='[]'
+    fi
+
     local cex dex fx redstone chainlink xoxno_adapter
     cex=$(get_cex_oracle)
     dex=$(get_dex_oracle)
@@ -1281,7 +1368,7 @@ validate_configs() {
             vc_err "market ${m}: oracle still uses legacy primary/anchor/strategy/tolerance_bps fields"
         fi
         if ! printf '%s' "$o" | jq -e '
-            any(.sources[]?; has("AquariusLp") or has("AquariusStableLp")) or (
+            any(.sources[]?; has("AquariusLp") or has("AquariusStableLp") or has("CurveStableLp")) or (
                 (.tolerance.upper_ratio_bps // 0) > 10000 and
                 (.tolerance.lower_ratio_bps // 99999) < 10000 and
                 (.tolerance.lower_ratio_bps // 0) >= 1
@@ -1402,8 +1489,35 @@ validate_configs() {
                 fi
                 i=$((i + 1))
                 continue
+            elif printf '%s' "$sjson" | jq -e 'has("CurveStableLp")' >/dev/null; then
+                if ! printf '%s' "$sjson" | jq -e --arg asset "$addr" --argjson oracle "$o" '
+                    .CurveStableLp as $lp |
+                    $lp.pool == $asset and
+                    $oracle.asset_decimals == 18 and ($oracle.sources | length) == 1 and
+                    ($lp.wasm_hash | test("^[0-9a-fA-F]{64}$")) and
+                    ($lp.coins | type == "array") and
+                    ($lp.coins | length >= 2 and length <= 3) and
+                    ($lp.coins | unique | length) == ($lp.coins | length) and
+                    all($lp.coins[]; test("^C[A-Z2-7]{55}$") and . != $lp.pool) and
+                    ($lp.min_pool_value_wad | tonumber) > 0
+                ' >/dev/null; then
+                    vc_err "market ${m}: sources[$i] Curve LP needs the pool LP token, 18 decimals, a 64-hex WASM hash, 2..3 distinct ordered coins, and a positive liquidity floor"
+                fi
+                if ! printf '%s' "$sjson" | jq -e --argjson reviewed "$curve_reviewed" '
+                    (.CurveStableLp.wasm_hash | ascii_downcase) as $h | $reviewed | index($h) != null
+                ' >/dev/null 2>&1; then
+                    vc_err "market ${m}: sources[$i] Curve wasm_hash $(printf '%s' "$sjson" | jq -r '.CurveStableLp.wasm_hash') is not in ${CURVE_REVIEWED_POOLS_FILE}"
+                fi
+                local coin
+                while IFS= read -r coin; do
+                    if ! jq -e --arg a "$coin" 'any(.markets[]?; .asset_address == $a)' "$MARKET_CONFIG_FILE" >/dev/null; then
+                        vc_err "market ${m}: sources[$i] Curve coin ${coin} not in markets.json"
+                    fi
+                done < <(printf '%s' "$sjson" | jq -r '.CurveStableLp.coins[]? | strings')
+                i=$((i + 1))
+                continue
             else
-                vc_err "market ${m}: sources[$i] must be Feed, Scaled, AquariusLp, or AquariusStableLp"
+                vc_err "market ${m}: sources[$i] must be Feed, Scaled, AquariusLp, AquariusStableLp, or CurveStableLp"
                 i=$((i + 1))
                 continue
             fi
@@ -1571,6 +1685,10 @@ validate_configs() {
                 ((.liquidation_threshold // 0) * (10000 + (.liquidation_bonus // 0))) <= 100000000 and
                 ((.liquidation_fees // 0) <= 10000)' >/dev/null; then
                 vc_err "spoke ${cat}/${a}: risk bounds invalid (need ltv < threshold <= 10000, bonus/fees <= 10000, threshold*(1+bonus) <= 100%)"
+            fi
+            if printf '%s' "$sj" | jq -e '.can_be_borrowed == true' >/dev/null &&
+               market_has_lp_source "$a"; then
+                vc_err "spoke ${cat}/${a}: LP oracle source (Aquarius or Curve) is collateral-only; set can_be_borrowed: false"
             fi
         done
     done
@@ -1854,6 +1972,7 @@ add_asset_to_spoke() {
     can_collateral=$(get_spoke_value "$config_category_id" ".assets.\"$asset_name\".can_be_collateral")
     local can_borrow
     can_borrow=$(get_spoke_value "$config_category_id" ".assets.\"$asset_name\".can_be_borrowed")
+    refuse_borrowable_lp "$asset_name" "$can_borrow"
     local ltv
     ltv=$(get_spoke_value "$config_category_id" ".assets.\"$asset_name\".ltv")
     local threshold
@@ -1946,6 +2065,7 @@ edit_asset_in_spoke() {
     can_collateral=$(get_spoke_value "$config_category_id" ".assets.\"$asset_name\".can_be_collateral")
     local can_borrow
     can_borrow=$(get_spoke_value "$config_category_id" ".assets.\"$asset_name\".can_be_borrowed")
+    refuse_borrowable_lp "$asset_name" "$can_borrow"
     local ltv
     ltv=$(get_spoke_value "$config_category_id" ".assets.\"$asset_name\".ltv")
     local threshold
@@ -2812,17 +2932,18 @@ schedule_configure_asset_oracle() {
     resolve_args=$(jq -nc --argjson key "$key_json" --argjson oracle "$cfg_json" \
         '{key:$key, oracle:$oracle}')
 
-    local agg resolved_args salt_use known_id state gen has_chainlink=false
+    local agg resolved_args salt_use known_id state gen requires_current_abi=false
+    refuse_unreviewed_curve_hash "configure oracle ${label}" "$cfg_json"
     if printf '%s' "$cfg_json" | jq -e '
-        any(.sources[]?; ((.Feed // .Scaled.factor).provider.Chainlink? != null))
+        any(.sources[]?; has("CurveStableLp") or ((.Feed // .Scaled.factor).provider.Chainlink? != null))
     ' >/dev/null; then
-        has_chainlink=true
+        requires_current_abi=true
     fi
     agg=$(get_price_aggregator)
     resolved_args=$(resolve_oracle_args_for resolve_asset_oracle "$agg" \
         set_oracle "$key_json" "$cfg_json" 2>/dev/null) || resolved_args=""
-    if [ "$has_chainlink" = true ] && { [ -z "$resolved_args" ] || [ "$resolved_args" = "null" ]; }; then
-        die "Chainlink oracle configuration requires compatible governance and price-aggregator deployments; run 'make ${NETWORK} upgradeAll' first"
+    if [ "$requires_current_abi" = true ] && { [ -z "$resolved_args" ] || [ "$resolved_args" = "null" ]; }; then
+        die "This oracle configuration requires compatible governance and price-aggregator deployments; run 'make ${NETWORK} upgradeAll' first"
     fi
     if [ -n "$resolved_args" ] && [ "$resolved_args" != "null" ]; then
         read -r salt_use known_id state gen < <(probe_salt_generations "$agg" set_oracle "$resolved_args" "$salt")

@@ -285,6 +285,7 @@ EXTERNAL_CLIENT_READS = {
     "AquariusPoolClient": frozenset(
         {"a", "pool_type", "get_reserves", "get_tokens", "share_id", "get_total_shares"}
     ),
+    "CurvePoolClient": frozenset({"pool_info", "get_virtual_price", "total_supply", "decimals"}),
     "XoxnoOracleAdapterClient": frozenset(
         {
             "base",

@@ -44,7 +44,7 @@ groups:
         for: 10m
         labels: { severity: warning }
         annotations:
-          summary: "Aquarius pool behind {{ $labels.symbol }} ({{ $labels.network }}) is within 25% of its value floor"
+          summary: "LP pool (Aquarius or Curve) behind {{ $labels.symbol }} ({{ $labels.network }}) is within 25% of its value floor"
           description: "Pool value is {{ $value | humanize }}x the min_pool_value floor. Under 1.0x the LP price is rejected and accounts holding this leg become unliquidatable. Review the floor, the listing's collateral flag, and the spoke borrow caps."
 
       - alert: LendingOracleStaleCritical

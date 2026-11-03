@@ -162,7 +162,7 @@ impl Metrics {
             oracle_status_timestamp: register_gauge_vec(&registry, "lending_oracle_status_timestamp_seconds", "Soft status blend price timestamp (Unix s)", ORACLE_LABELS)?,
             oracle_max_stale_seconds: register_gauge_vec(&registry, "lending_oracle_max_stale_seconds", "Configured market-level max price staleness (s)", ORACLE_LABELS)?,
             oracle_effective_max_stale_seconds: register_gauge_vec(&registry, "lending_oracle_effective_max_stale_seconds", "Max-stale of the soonest-to-stale provider leg (s)", ORACLE_LABELS)?,
-            oracle_lp_total_shares: register_gauge_vec(&registry, "lending_oracle_lp_total_shares", "Aquarius LP share supply of an LP-priced asset (whole shares). Pool value = this * lending_oracle_price_usd", ORACLE_LABELS)?,
+            oracle_lp_total_shares: register_gauge_vec(&registry, "lending_oracle_lp_total_shares", "LP (Aquarius or Curve) share supply of an LP-priced asset (whole shares). Pool value = this * lending_oracle_price_usd", ORACLE_LABELS)?,
             oracle_lp_pool_floor_usd: register_gauge_vec(&registry, "lending_oracle_lp_pool_floor_usd", "Configured min_pool_value of an LP-priced asset (USD); the price fails closed under it", ORACLE_LABELS)?,
             oracle_tolerance_upper_bps: register_gauge_vec(&registry, "lending_oracle_tolerance_upper_bps", "Configured upper tolerance ratio (bps, 10000 = parity)", ORACLE_LABELS)?,
             oracle_tolerance_lower_bps: register_gauge_vec(&registry, "lending_oracle_tolerance_lower_bps", "Configured lower tolerance ratio (bps, 10000 = parity)", ORACLE_LABELS)?,

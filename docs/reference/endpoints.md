@@ -260,7 +260,7 @@ Account ids are NFT token ids: the NFT uses `u32`, and the controller exposes th
 
 ## Swap aggregator
 
-Constructor `(admin: Address)` sets the router owner. The sender authorizes `execute_strategy`. Its XDR payload carries a validated, packed instruction stream of swaps and Aquarius LP burns and mints. The router applies fees, checks its output balance against the route minimum, then transfers and returns the payout amount.
+Constructor `(admin: Address)` sets the router owner. The sender authorizes `execute_strategy`. Its XDR payload carries a validated, packed instruction stream of swaps and Aquarius LP burns and mints. A Curve swap leg also mints LP when its output is the pool, and burns LP to one coin when its input is the pool. The router applies fees, checks its output balance against the route minimum, then transfers and returns the payout amount.
 
 Recipient receipt is not remeasured, so taxed payout tokens can deliver less than the return value. Controller strategies measure positive swap receipts but do not independently enforce the route minimum. Fees require an active nonzero referral. The whitelist selects which side pays the fee; it does not restrict permitted tokens.
 

@@ -45,6 +45,7 @@ pub struct OracleConfig {
 pub struct LpFloor {
     pub pool: String,
     pub min_pool_value_wad: i128,
+    pub supply_view: &'static str,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -95,11 +96,16 @@ pub fn decode_oracle_config(value: &ScVal) -> Result<OracleConfig> {
 }
 
 fn decode_lp_floor(value: &ScVal) -> Option<LpFloor> {
-    let (_, payload) = enum_variant(value)?;
+    let (tag, payload) = enum_variant(value)?;
     let inner = payload.first()?;
     Some(LpFloor {
         pool: map_field(inner, "pool").and_then(address_strkey)?,
         min_pool_value_wad: field_i128(inner, "min_pool_value_wad")?,
+        supply_view: if tag == "CurveStableLp" {
+            "total_supply"
+        } else {
+            "get_total_shares"
+        },
     })
 }
 
@@ -117,7 +123,7 @@ fn decode_price_source(value: &ScVal) -> Result<Option<OracleSource>> {
                 .ok_or_else(|| anyhow!("scaled source missing factor"))?;
             decode_feed_source(factor).map(Some)
         }
-        "AquariusLp" | "AquariusStableLp" => Ok(None),
+        "AquariusLp" | "AquariusStableLp" | "CurveStableLp" => Ok(None),
         other => Err(anyhow!("unknown price source variant {other}")),
     }
 }
@@ -615,16 +621,23 @@ mod tests {
 
     #[test]
     fn stable_lp_source_decodes_like_the_constant_product_one() {
-        let lp_share = enum_val(
-            "AquariusStableLp",
-            vec![map(vec![
-                ("pool", addr(1)),
-                ("min_pool_value_wad", i128v(7)),
-            ])],
-        );
-        let cfg = decode_oracle_config(&asset_oracle(vec![lp_share])).unwrap();
-        assert!(cfg.sources.is_empty());
-        assert_eq!(cfg.lp_floor.unwrap().min_pool_value_wad, 7);
+        for (kind, supply_view) in [
+            ("AquariusStableLp", "get_total_shares"),
+            ("CurveStableLp", "total_supply"),
+        ] {
+            let lp_share = enum_val(
+                kind,
+                vec![map(vec![
+                    ("pool", addr(1)),
+                    ("min_pool_value_wad", i128v(7)),
+                ])],
+            );
+            let cfg = decode_oracle_config(&asset_oracle(vec![lp_share])).unwrap();
+            assert!(cfg.sources.is_empty());
+            let floor = cfg.lp_floor.unwrap();
+            assert_eq!(floor.min_pool_value_wad, 7);
+            assert_eq!(floor.supply_view, supply_view);
+        }
     }
 
     #[test]

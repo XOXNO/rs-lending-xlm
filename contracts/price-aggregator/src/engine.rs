@@ -1,6 +1,6 @@
 //! Core price-resolution engine: reads an oracle's configured sources, blends them
 //! into a single price with staleness and deviation flags, and enforces cycle and
-//! depth limits while resolving nested (scaled and Aquarius LP) compositions.
+//! depth limits while resolving nested (scaled and LP) compositions.
 
 use common::errors::OracleError;
 use common::math::fp::Wad;
@@ -12,7 +12,8 @@ use common::types::{
 use soroban_sdk::{panic_with_error, Env};
 
 use crate::observation::OracleObservation;
-use crate::providers::{aquarius, chainlink, multi_feed, reflector};
+use crate::properties;
+use crate::providers::{aquarius, chainlink, curve, multi_feed, reflector};
 use crate::registry;
 use crate::session::Session;
 use crate::tolerance::{midpoint_price_or_zero, within_tolerance_band};
@@ -242,7 +243,7 @@ pub(crate) fn resolve_status(session: &mut Session, key: &PriceKey, depth: u32) 
 /// Resolves `oracle` for `key` at depth 0 and panics with the applicable
 /// `OracleError` if it produces any unusable outcome, including market-condition
 /// failures such as staleness or sanity-bound violations. `admin::set_oracle`
-/// calls it for an oracle whose first source is an Aquarius LP.
+/// calls it for an oracle whose first source is an LP (Aquarius or Curve).
 pub(crate) fn probe_priceable(session: &mut Session, key: &PriceKey, oracle: &AssetOracle) {
     let env = session.env().clone();
     let (outcome, resolved) = resolve_outcome(session, key, 0, Some(oracle));
@@ -325,8 +326,8 @@ pub(crate) fn resolve_nested(
 
 /// Validates that resolving `key` from a session cache hit would still respect
 /// the depth and cycle limits at `depth`, by walking the oracle's configured
-/// sources (recursing into a scaled source's quote and an Aquarius LP source's
-/// paired dependencies) as if resolving them fresh. Returns the first
+/// sources (recursing into scaled quotes and every LP constituent)
+/// as if resolving them fresh. Returns the first
 /// `OracleError` encountered, if any.
 fn validate_cached_path(
     session: &mut Session,
@@ -345,21 +346,10 @@ fn validate_cached_path(
     session.push_key(key);
     let mut result = Ok(());
     'sources: for source in oracle.sources.iter() {
-        match source {
-            PriceSource::Feed(_) => {}
-            PriceSource::Scaled(scaled) => {
-                if let Err(err) = validate_cached_path(session, &scaled.quote, depth + 1) {
-                    result = Err(err);
-                    break;
-                }
-            }
-            PriceSource::AquariusLp(lp) | PriceSource::AquariusStableLp(lp) => {
-                for dependency in [&lp.key_a, &lp.key_b] {
-                    if let Err(err) = validate_cached_path(session, dependency, depth + 1) {
-                        result = Err(err);
-                        break 'sources;
-                    }
-                }
+        for dependency in properties::dependencies(&env, &source).iter() {
+            if let Err(err) = validate_cached_path(session, &dependency, depth + 1) {
+                result = Err(err);
+                break 'sources;
             }
         }
     }
@@ -574,18 +564,20 @@ fn read_source(
 
 /// Returns the feed nature of `source`: the provider's nature for a plain
 /// feed, the factor feed's provider nature for a scaled source (the quote
-/// leg's nature is not considered), and always `Market` for an Aquarius LP
-/// or Aquarius stable-LP source.
+/// leg's nature is not considered), and always `Market` for an LP (Aquarius or
+/// Curve) source.
 fn source_nature(source: &PriceSource) -> FeedNature {
     match source {
         PriceSource::Feed(feed) => feed.provider.nature(),
         PriceSource::Scaled(scaled) => scaled.factor.provider.nature(),
-        PriceSource::AquariusLp(_) | PriceSource::AquariusStableLp(_) => FeedNature::Market,
+        PriceSource::AquariusLp(_)
+        | PriceSource::AquariusStableLp(_)
+        | PriceSource::CurveStableLp(_) => FeedNature::Market,
     }
 }
 
-/// Dispatches `source` to its evaluation routine (feed, scaled, Aquarius LP, or
-/// Aquarius stable LP), returning the resulting observation and its
+/// Dispatches `source` to its evaluation routine (feed, scaled, or LP
+/// (Aquarius or Curve)), returning the resulting observation and its
 /// component-level staleness flag, if any.
 fn evaluate_source(
     session: &mut Session,
@@ -603,6 +595,7 @@ fn evaluate_source(
         PriceSource::AquariusStableLp(lp) => {
             aquarius::read(session, key, lp, asset_decimals, depth, true)
         }
+        PriceSource::CurveStableLp(lp) => curve::read(session, key, lp, asset_decimals, depth),
     }
 }
 

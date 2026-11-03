@@ -466,9 +466,15 @@ retry_tx() { echo proposed >> '$tmp/chainlink-schedule-log'; echo op; }
 parse_op_id() { echo op; }
 write_oracle_op_record() { :; }
 schedule_and_maybe_execute() { [ "\$1" = op ]; }
+CURVE_REVIEWED_POOLS_FILE='$tmp/schedule-curve-pools.json'
 die() { echo "ERROR: \$*" >&2; exit 1; }
+$(extract curve_reviewed_schema_hint)
+$(extract curve_reviewed_hashes)
+$(extract refuse_unreviewed_curve_hash)
 $(extract schedule_configure_asset_oracle)
 EOF
+jq -n '{pools:[{wasm_hash:("ab" * 32), source_repo:"r", source_commit:"c", review:"v", expected_factory:"f"}]}' \
+    > "$tmp/schedule-curve-pools.json"
 rm -f "$tmp/chainlink-schedule-log"
 if bash -c 'source "$1"; schedule_configure_asset_oracle test "{\"Token\":\"C\"}" "$2"' \
     _ "$tmp/chainlink-schedule.sh" "$direct_chainlink" >/dev/null 2>&1; then
@@ -490,6 +496,238 @@ bash -c 'source "$1"; schedule_configure_asset_oracle test "{\"Token\":\"C\"}" "
     || fail 'non-Chainlink scheduling lost its compatibility fallback'
 grep -q '^proposed$' "$tmp/chainlink-schedule-log" || fail 'non-Chainlink config was not proposed'
 echo 'Chainlink proposal preflight: OK'
+
+curve_lp='{"sources":[{"CurveStableLp":{"pool":"CPOOL","wasm_hash":"ABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABAB"}}]}'
+rm -f "$tmp/chainlink-schedule-log"
+if bash -c 'source "$1"; schedule_configure_asset_oracle test "{\"Token\":\"CPOOL\"}" "$2"' \
+    _ "$tmp/chainlink-schedule.sh" "$curve_lp" >/dev/null 2>&1; then
+    fail 'Curve LP scheduling accepted incompatible deployed ABIs'
+fi
+[ ! -e "$tmp/chainlink-schedule-log" ] || fail 'an incompatible Curve ABI reached proposal'
+RESOLVED_ARGS='[]' bash -c 'source "$1"; schedule_configure_asset_oracle test "{\"Token\":\"CPOOL\"}" "$2"' \
+    _ "$tmp/chainlink-schedule.sh" "$curve_lp" >/dev/null \
+    || fail 'compatible Curve LP ABIs did not reach proposal'
+grep -q '^proposed$' "$tmp/chainlink-schedule-log" || fail 'Curve LP config was not proposed'
+# The direct set_oracle path (configureMarketOracle) enforces the reviewed-pool
+# list too, before any proposal, even when the deployed ABIs are compatible.
+for unreviewed in \
+    '{"sources":[{"CurveStableLp":{"pool":"CPOOL","wasm_hash":"cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd"}}]}' \
+    '{"sources":[{"CurveStableLp":{"pool":"CPOOL"}}]}'; do
+    rm -f "$tmp/chainlink-schedule-log"
+    if RESOLVED_ARGS='[]' bash -c 'source "$1"; schedule_configure_asset_oracle test "{\"Token\":\"CPOOL\"}" "$2"' \
+        _ "$tmp/chainlink-schedule.sh" "$unreviewed" >/dev/null 2>&1; then
+        fail "Curve LP scheduling accepted an unreviewed pool executable: $unreviewed"
+    fi
+    [ ! -e "$tmp/chainlink-schedule-log" ] || fail 'an unreviewed Curve pool executable reached proposal'
+done
+mv "$tmp/schedule-curve-pools.json" "$tmp/schedule-curve-pools.saved"
+if RESOLVED_ARGS='[]' bash -c 'source "$1"; schedule_configure_asset_oracle test "{\"Token\":\"CPOOL\"}" "$2"' \
+    _ "$tmp/chainlink-schedule.sh" "$curve_lp" >/dev/null 2>&1; then
+    fail 'Curve LP scheduling accepted without a reviewed-pool list'
+fi
+mv "$tmp/schedule-curve-pools.saved" "$tmp/schedule-curve-pools.json"
+extract configure_market_oracle | grep -qF 'schedule_configure_asset_oracle "market ${market_name}"' \
+    || fail 'configureMarketOracle must propose through schedule_configure_asset_oracle'
+extract schedule_configure_asset_oracle | grep -qF 'refuse_unreviewed_curve_hash "configure oracle ${label}" "$cfg_json"' \
+    || fail 'schedule_configure_asset_oracle must enforce the reviewed Curve pool list'
+echo 'Curve LP proposal ABI guard: OK'
+
+cat > "$tmp/curve-validate.sh" <<EOF
+NETWORK=\${NET:-testnet}
+MARKET_CONFIG_FILE='$tmp/curve-market.json'
+SPOKES_FILE='$tmp/curve-spokes.json'
+NETWORKS_FILE='$tmp/networks.json'
+CURVE_REVIEWED_POOLS_FILE=\${CURVE_POOLS:-'$tmp/curve-pools.json'}
+get_network_value() { echo configured; }
+get_cex_oracle() { echo CEX; }
+get_dex_oracle() { echo DEX; }
+get_fx_oracle() { echo FX; }
+get_redstone_adapter() { echo REDSTONE; }
+get_chainlink_proxy() { echo CHAINLINK; }
+get_xoxno_oracle_adapter() { echo XOXNO; }
+all_oracle_ref_dependencies() { :; }
+enabled_market_names() { :; }
+$(extract get_market_value)
+$(extract is_market_enabled)
+$(extract market_has_lp_source)
+$(extract curve_reviewed_schema_hint)
+$(extract curve_reviewed_hashes)
+$(extract validate_configs)
+validate_configs
+EOF
+# Market 0 ("XLM") becomes the LP; B is one of its plain coins.
+cat > "$tmp/curve-spokes-valid.json" <<'JSON'
+{"1":{"assets":{
+ "XLM":{"hub_id":1,"can_be_collateral":true,"can_be_borrowed":false,"ltv":1,"liquidation_threshold":2,"liquidation_bonus":3,"liquidation_fees":4,"supply_cap":"1","borrow_cap":"0"},
+ "B":{"hub_id":1,"can_be_collateral":true,"can_be_borrowed":true,"ltv":1,"liquidation_threshold":2,"liquidation_bonus":3,"liquidation_fees":4,"supply_cap":"1","borrow_cap":"1"}}}}
+JSON
+cp "$tmp/curve-spokes-valid.json" "$tmp/curve-spokes.json"
+jq -n '{pools:[{wasm_hash:("ab" * 32), source_repo:"r", source_commit:"c", review:"v", expected_factory:"f"}]}' \
+    > "$tmp/curve-pools-valid.json"
+cp "$tmp/curve-pools-valid.json" "$tmp/curve-pools.json"
+jq '.markets[0] as $coin |
+    {markets:([$coin] + [("B", "D", "E") as $c | $coin | .name = $c | .asset_address = ("C" + ($c * 55))])} |
+    .markets[0].asset_address = ("C" + ("A" * 55)) |
+    .markets[0].oracle |= (.asset_decimals = 18 |
+        .tolerance = {upper_ratio_bps:0,lower_ratio_bps:0} |
+        .sources = [{CurveStableLp:{
+            pool:("C" + ("A" * 55)), wasm_hash:("ab" * 32),
+            coins:[("C" + ("B" * 55)),("C" + ("D" * 55)),("C" + ("E" * 55))],
+            min_pool_value_wad:"1000000000000000000"}}])' \
+    "$ROOT/configs/mainnet/markets.json" > "$tmp/curve-valid.json"
+cp "$tmp/curve-valid.json" "$tmp/curve-market.json"
+bash "$tmp/curve-validate.sh" >/dev/null 2>&1 || fail 'valid Curve LP config rejected'
+for mutation in \
+    '.markets[0].oracle.asset_decimals = 7' \
+    '.markets[0].oracle.sources[0].CurveStableLp.wasm_hash = "bad"' \
+    '.markets[0].oracle.sources[0].CurveStableLp.pool = "wrong"' \
+    '.markets[0].oracle.sources[0].CurveStableLp.coins |= .[:1]' \
+    '.markets[0].oracle.sources[0].CurveStableLp.coins += ["C" + ("F" * 55)]' \
+    '.markets[0].oracle.sources[0].CurveStableLp.coins[2] = .markets[0].oracle.sources[0].CurveStableLp.coins[0]' \
+    '.markets[0].oracle.sources[0].CurveStableLp.coins[1] = .markets[0].oracle.sources[0].CurveStableLp.pool' \
+    '.markets[0].oracle.sources[0].CurveStableLp.coins[0] = "bad"' \
+    '.markets |= .[:3]' \
+    '.markets[0].oracle.sources[0].CurveStableLp.min_pool_value_wad = "0"' \
+    '.markets[0].oracle.sources += .markets[0].oracle.sources'; do
+    jq "$mutation" "$tmp/curve-valid.json" > "$tmp/curve-market.json"
+    if bash "$tmp/curve-validate.sh" >/dev/null 2>&1; then
+        fail "invalid Curve LP config accepted: $mutation"
+    fi
+done
+jq '.markets[0].oracle.sources[0].CurveStableLp.wasm_hash |= ascii_upcase' "$tmp/curve-valid.json" > "$tmp/curve-market.json"
+bash "$tmp/curve-validate.sh" >/dev/null 2>&1 || fail 'reviewed Curve hash rejected for its letter case'
+cp "$tmp/curve-valid.json" "$tmp/curve-market.json"
+if CURVE_POOLS="$tmp/absent.json" bash "$tmp/curve-validate.sh" >/dev/null 2>&1; then
+    fail 'Curve LP accepted without a reviewed-pool list'
+fi
+if CURVE_POOLS="$ROOT/configs/mainnet/curve_reviewed_pools.json" bash "$tmp/curve-validate.sh" >/dev/null 2>&1; then
+    fail 'Curve LP accepted against the mainnet reviewed-pool list'
+fi
+for mutation in \
+    '.pools[0].wasm_hash = ("cd" * 32)' \
+    '.pools[0].wasm_hash |= ascii_upcase' \
+    '.pools[0].wasm_hash = "ab"' \
+    '.pools += .pools' \
+    'del(.pools[0].source_commit)' \
+    '.pools[0].source_repo = ""' \
+    'del(.pools[0].review)' \
+    'del(.pools[0].expected_factory)' \
+    '.pools = {}'; do
+    jq "$mutation" "$tmp/curve-pools-valid.json" > "$tmp/curve-pools.json"
+    if bash "$tmp/curve-validate.sh" >/dev/null 2>&1; then
+        fail "Curve LP accepted with reviewed-pool list mutation: $mutation"
+    fi
+done
+cp "$tmp/curve-pools-valid.json" "$tmp/curve-pools.json"
+# Mainnet entries must pin their provenance: a 40-hex commit, a repository that
+# is not a placeholder (unknown, TODO, TBD, n/a, ?) and a C... factory contract
+# address. Testnet fixtures may say unknown.
+sha40=$(printf 'a%.0s' $(seq 40))
+jq --arg c "$sha40" '.pools[0] |= (.source_commit = $c | .source_repo = "github:org/pool" | .expected_factory = ("C" + ("F" * 55)))' \
+    "$tmp/curve-pools-valid.json" > "$tmp/curve-pools-mainnet.json"
+cp "$tmp/curve-pools-mainnet.json" "$tmp/curve-pools.json"
+NET=mainnet bash "$tmp/curve-validate.sh" >/dev/null 2>&1 || fail 'mainnet reviewed-pool entry with pinned provenance rejected'
+for mutation in \
+    '.pools[0].source_commit = "unknown"' \
+    '.pools[0].source_commit |= ascii_upcase' \
+    '.pools[0].source_commit |= .[:39]' \
+    '.pools[0].source_repo = "unknown (contract metadata: github:TODO)"' \
+    '.pools[0].source_repo = "Unknown"' \
+    '.pools[0].source_repo = "github:org/TODO"' \
+    '.pools[0].source_repo = "todo"' \
+    '.pools[0].source_repo = "TBD"' \
+    '.pools[0].source_repo = "github:org/pool@tbd"' \
+    '.pools[0].source_repo = "N/A"' \
+    '.pools[0].source_repo = "n/a"' \
+    '.pools[0].source_repo = "?"' \
+    '.pools[0].source_repo = " ? "' \
+    '.pools[0].expected_factory = "unknown"' \
+    '.pools[0].expected_factory = "f"' \
+    '.pools[0].expected_factory = ("G" + ("F" * 55))' \
+    '.pools[0].expected_factory = ("C" + ("f" * 55))' \
+    '.pools[0].expected_factory = ("C" + ("F" * 54))' \
+    '.pools[0].expected_factory = ("C" + ("F" * 56))' \
+    '.pools[0].expected_factory = ("C" + ("1" * 55))' \
+    '.pools[0].expected_factory += " "'; do
+    jq "$mutation" "$tmp/curve-pools-mainnet.json" > "$tmp/curve-pools.json"
+    NET=testnet bash "$tmp/curve-validate.sh" >/dev/null 2>&1 \
+        || fail "testnet reviewed-pool entry rejected for provenance: $mutation"
+    if NET=mainnet bash "$tmp/curve-validate.sh" >/dev/null 2>&1; then
+        fail "mainnet reviewed-pool entry accepted without provenance: $mutation"
+    fi
+done
+cp "$tmp/curve-pools-valid.json" "$tmp/curve-pools.json"
+echo 'Curve LP config validation: OK'
+
+# LP markets are collateral-only, for Curve and Aquarius sources alike.
+jq '.markets[0].oracle.sources = [{AquariusLp:{
+        pool:("C" + ("A" * 55)), token_a:("C" + ("B" * 55)), token_b:("C" + ("D" * 55)),
+        key_a:{Token:("C" + ("B" * 55))}, key_b:{Token:("C" + ("D" * 55))},
+        reserve_a_decimals:7, reserve_b_decimals:7, min_pool_value_wad:"1"}}]' \
+    "$tmp/curve-valid.json" > "$tmp/aquarius-valid.json"
+for lp in curve aquarius; do
+    cp "$tmp/$lp-valid.json" "$tmp/curve-market.json"
+    cp "$tmp/curve-spokes-valid.json" "$tmp/curve-spokes.json"
+    bash "$tmp/curve-validate.sh" >/dev/null 2>&1 || fail "collateral-only $lp LP listing rejected"
+    jq '."1".assets.XLM.can_be_borrowed = true' "$tmp/curve-spokes-valid.json" > "$tmp/curve-spokes.json"
+    if bash "$tmp/curve-validate.sh" >/dev/null 2>&1; then
+        fail "borrowable $lp LP listing accepted"
+    fi
+done
+cp "$tmp/curve-spokes-valid.json" "$tmp/curve-spokes.json"
+cat > "$tmp/lp-listing.sh" <<EOF
+MARKET_CONFIG_FILE='$tmp/curve-market.json'
+SPOKES_FILE='$tmp/curve-spokes.json'
+die() { echo "ERROR: \$*" >&2; exit 1; }
+$(extract market_has_lp_source)
+$(extract refuse_borrowable_lp)
+EOF
+for lp in curve aquarius; do
+    cp "$tmp/$lp-valid.json" "$tmp/curve-market.json"
+    bash -c 'source "$1"; refuse_borrowable_lp XLM false' _ "$tmp/lp-listing.sh" || fail "$lp LP collateral listing refused"
+    bash -c 'source "$1"; refuse_borrowable_lp B true' _ "$tmp/lp-listing.sh" || fail 'plain coin borrow listing refused'
+    if bash -c 'source "$1"; refuse_borrowable_lp XLM true' _ "$tmp/lp-listing.sh" 2>/dev/null; then
+        fail "a borrowable $lp LP listing was not refused"
+    fi
+done
+# Prices are keyed by asset address: a second-hub alias of an LP market, or a
+# market whose Scaled quote is LP-priced, inherits the LP mark.
+jq '.markets += [.markets[0] | .name = "XLM_H2" | .hub_id = 2 | .oracle = $plain] |
+    .markets += [.markets[0] | .name = "SCALED_T" | .asset_address = ("C" + ("G" * 55)) |
+        .oracle = ($plain | .sources[0] = {Scaled:{quote:{Token:("C" + ("A" * 55))}}})] |
+    .markets += [.markets[0] | .name = "SCALED_R" | .asset_address = ("C" + ("H" * 55)) |
+        .oracle = ($plain | .sources[0] = {Scaled:{quote:{Ref:"LPREF"}}})] |
+    .references = [{name:"LPREF", key:{Ref:"LPREF"}, oracle:{sources:[{Scaled:{quote:{Token:("C" + ("A" * 55))}}}]}},
+                   {name:"PLAINREF", key:{Ref:"PLAINREF"}, oracle:$plain}] |
+    .markets += [.markets[0] | .name = "SCALED_PLAIN" | .asset_address = ("C" + ("J" * 55)) |
+        .oracle = ($plain | .sources[0] = {Scaled:{quote:{Ref:"PLAINREF"}}})]' \
+    --argjson plain "$(jq '.markets[1].oracle' "$tmp/curve-valid.json")" \
+    "$tmp/curve-valid.json" > "$tmp/curve-market.json"
+for alias in XLM_H2 SCALED_T SCALED_R; do
+    if bash -c 'source "$1"; refuse_borrowable_lp "$2" true' _ "$tmp/lp-listing.sh" "$alias" 2>/dev/null; then
+        fail "a borrowable listing of LP-priced $alias was not refused"
+    fi
+done
+for plain in B SCALED_PLAIN; do
+    bash -c 'source "$1"; refuse_borrowable_lp "$2" true' _ "$tmp/lp-listing.sh" "$plain" \
+        || fail "plain $plain borrow listing refused"
+done
+jq '.markets[1].oracle as $plain | .markets += [.markets[0] | .name = "XLM_H2" | .hub_id = 2 | .oracle = $plain]' \
+    "$tmp/curve-valid.json" > "$tmp/curve-market.json"
+jq '."1".assets.XLM_H2 = (."1".assets.B | .hub_id = 2)' "$tmp/curve-spokes-valid.json" > "$tmp/curve-spokes.json"
+if bash "$tmp/curve-validate.sh" >/dev/null 2>&1; then
+    fail 'validateConfigs accepted a borrowable second-hub alias of an LP market'
+fi
+jq '."1".assets.XLM_H2.can_be_borrowed = false | ."1".assets.XLM_H2.borrow_cap = "0"' \
+    "$tmp/curve-spokes.json" > "$tmp/curve-spokes-alias.json"
+cp "$tmp/curve-spokes-alias.json" "$tmp/curve-spokes.json"
+bash "$tmp/curve-validate.sh" >/dev/null 2>&1 || fail 'collateral-only second-hub alias of an LP market rejected'
+cp "$tmp/curve-valid.json" "$tmp/curve-market.json"
+cp "$tmp/curve-spokes-valid.json" "$tmp/curve-spokes.json"
+for fn in add_asset_to_spoke edit_asset_in_spoke; do
+    extract "$fn" | grep -qF 'refuse_borrowable_lp "$asset_name" "$can_borrow"' || fail "$fn must refuse a borrowable LP"
+done
+echo 'LP markets collateral-only: OK'
 
 # Explicit hub listings need one qualified read, never the discarded spoke read.
 cat > "$tmp/listing-spokes.json" <<'JSON'

@@ -2,6 +2,7 @@
 //! malformed values, missing data and panics.
 
 use common::oracle::providers::chainlink::ChainlinkRound;
+use common::oracle::providers::curve::CurvePoolInfo;
 use common::oracle::providers::redstone::RedStonePriceData;
 use common::oracle::providers::reflector::{ReflectorAsset, ReflectorPriceData};
 use soroban_sdk::{
@@ -36,6 +37,8 @@ enum Key {
     PoolType,
     Share,
     Amp,
+    Info,
+    VirtualPrice,
 }
 
 fn set<V: IntoVal<Env, Val>>(env: &Env, key: Key, value: &V) {
@@ -237,6 +240,48 @@ impl FuzzAquarius {
     pub fn a(env: Env) -> u128 {
         guard(&env);
         get(&env, Key::Amp).unwrap()
+    }
+}
+
+/// Serves the four Curve pool views the LP provider reads; `Shares` holds `total_supply`.
+#[contract]
+pub struct FuzzCurve;
+
+#[contractimpl]
+impl FuzzCurve {
+    pub fn setup(
+        env: Env,
+        info: CurvePoolInfo,
+        virtual_price: i128,
+        supply: i128,
+        decimals: u32,
+        panics: bool,
+    ) {
+        set(&env, Key::Info, &info);
+        set(&env, Key::VirtualPrice, &virtual_price);
+        set(&env, Key::Shares, &supply);
+        set(&env, Key::Decimals, &decimals);
+        set(&env, Key::Panics, &panics);
+    }
+
+    pub fn pool_info(env: Env) -> CurvePoolInfo {
+        guard(&env);
+        get(&env, Key::Info).unwrap()
+    }
+
+    pub fn get_virtual_price(env: Env) -> i128 {
+        guard(&env);
+        get(&env, Key::VirtualPrice).unwrap()
+    }
+
+    pub fn total_supply(env: Env) -> i128 {
+        guard(&env);
+        get(&env, Key::Shares).unwrap()
+    }
+
+    pub fn decimals(env: Env) -> u32 {
+        guard(&env);
+        get(&env, Key::Decimals).unwrap()
     }
 }
 

@@ -11,7 +11,8 @@ use common::oracle::observation::{
 };
 use common::types::{
     AquariusLpSource, FeedSource, IndependencePolicy, OracleAssetRef, OracleReadMode, PriceKey,
-    PriceSource, ProviderRef, ScaledSource, MAX_RESOLUTION_DEPTH, MAX_SOURCES, MIN_SOURCES,
+    PriceSource, ProviderRef, ScaledSource, MAX_CURVE_COINS, MAX_RESOLUTION_DEPTH, MAX_SOURCES,
+    MIN_SOURCES,
 };
 use common::validation::validate_twap_records;
 use soroban_sdk::{panic_with_error, Address, Env, Vec};
@@ -117,6 +118,11 @@ pub(crate) fn source_shape(env: &Env, source: &PriceSource) {
         }
         PriceSource::AquariusLp(lp) | PriceSource::AquariusStableLp(lp) => {
             aquarius_lp_shape(env, lp)
+        }
+        PriceSource::CurveStableLp(lp) => {
+            if !(2..=MAX_CURVE_COINS).contains(&lp.coins.len()) || lp.min_pool_value_wad <= 0 {
+                panic_with_error!(env, OracleError::InvalidOracleBase);
+            }
         }
     }
 }

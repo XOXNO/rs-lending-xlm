@@ -190,7 +190,8 @@ sole-source, waive smoothing and tolerance checks, and use a separate sanity
 cap alongside pool and underlying-price validation.
 
 Changed keys receive provider-specific attestation and a probe. Non-LP probes
-permit market-condition failures; LP admission requires a usable price.
+permit market-condition failures; LP admission requires a usable price. Curve
+attestation is a no-op; that probe enforces the pool binding.
 Transitive dependents receive structural revalidation without new live probes.
 This limits repeated provider calls and their memory cost; an LP receives live
 suitability checks on its own admission, not on each upstream-key edit.
@@ -230,7 +231,7 @@ Routes use bounded indexed address and amount registries.
 Decoding checks format, index bounds, Prev links, and individual split weights;
 runtime vault accounting checks available balances and venue receipts.
 Split weights apply to the shrinking remainder and need not sum to one.
-Registries need not be unique; Aquarius LP constituents come from the pool.
+Registries need not be unique; LP (Aquarius or Curve) constituents come from the pool.
 A valid instruction stream does not establish good economic execution.
 
 <a id="adr-0019"></a>

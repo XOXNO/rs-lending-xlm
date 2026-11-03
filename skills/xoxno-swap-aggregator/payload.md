@@ -72,9 +72,9 @@ Total length must equal `10 + 5·op_count + 3·weight_count` exactly, at most `1
 
 Instruction record (5 bytes):
 
-| Byte | Field | Swap (`opcode 0..=4`) | Burn (`5`) | Mint (`6`) |
+| Byte | Field | Swap (`opcode 0..=4` or `7`) | Burn (`5`) | Mint (`6`) |
 |---|---|---|---|---|
-| `[0]` | `opcode` | `0` Soroswap, `1` Aquarius (the encoder also maps Aquarius CLMM pools here), `2` Phoenix, `3` Sushi, `4` CometDex | Aquarius withdraw | Aquarius deposit |
+| `[0]` | `opcode` | `0` Soroswap, `1` Aquarius (the encoder also maps Aquarius CLMM pools here), `2` Phoenix, `3` Sushi, `4` CometDex, `7` Curve | Aquarius withdraw | Aquarius deposit |
 | `[1]` | `mode` | any | must be `All` (`0`) | must be `All` (`0`) |
 | `[2]` | `idx_a` | pool → `assets` | pool | pool |
 | `[3]` | `idx_b` | `token_in` → `assets` | share token → `assets` | share token → `assets` |
@@ -84,6 +84,21 @@ The table maps each opcode to its on-chain adapter. It does **not** prove that a
 production pool or the quote server is ABI-compatible with that adapter. Treat venue compatibility as unverified until a deployment test pins pool
 contracts and quote-server revision. This includes Aquarius CLMM/stable,
 Phoenix stable, Sushi concentrated, and Comet weighted pools.
+
+Curve requires a router build with opcode `7` and a matching quote-server encoder.
+Its adapter reads `pool_info().coins`, then picks the pool call from the hop's tokens:
+
+| Hop | Pool call | Nested auth |
+|---|---|---|
+| `token_in` and `token_out` are both coins | `exchange(router, i, j, amount_in, 0, router)` | Exact transfer of `amount_in` to the pool |
+| `token_out` is the pool (LP mint) | `add_liquidity(router, amounts, 0, router)`, with `amount_in` at coin `i` and `0` elsewhere | Exact transfer of `amount_in` to the pool |
+| `token_in` is the pool (one-coin LP burn) | `remove_liquidity_one_coin(router, amount_in, j, 0, router)` | None: the pool burns its own LP |
+
+The plain router address is accepted as a `MuxedAddress` receiver. Metadata reads
+precede transfer authorization. The coin list must hold 2 to 256 distinct
+addresses, none of them the pool, or the hop fails with `BrokenTokenChain`.
+Every Curve call passes `0` as its own minimum, so the payload `min_out` is the
+only floor. Measured balance checks are unchanged.
 
 Mode byte → input sizing (`Mode::from_u8` in `program.rs`, `resolve_amount` in `execute/mod.rs`):
 
@@ -153,7 +168,8 @@ The router authorizes venue calls itself:
 
 | Venue | Router authorization |
 | --- | --- |
-| Phoenix, Sushi, Aquarius | Exact nested token transfer from router to pool |
+| Phoenix, Sushi, Aquarius, Curve (exchange and LP mint) | Exact nested token transfer from router to pool |
+| Curve one-coin LP burn | None; the pool burns the router's LP itself |
 | Comet | Approve input, authorize `transfer_from`, then clear the allowance |
 | Soroswap | Transfer input directly to the pool |
 
@@ -190,7 +206,7 @@ codes overlap. The canonical enum is
 |---|---|---|
 | 1 | `EmptyBatch` | Empty/over-cap instruction batch or over-cap weights |
 | 3 | `InvalidAmount` | Nonpositive amount, vault overdraft, or measured spend mismatch |
-| 4 | `BrokenTokenChain` | Invalid `Prev` dependency; an Aquarius `get_tokens` list that is empty, longer than 256, has duplicates, or omits a hop token; or Sushi `token0`/`token1` does not match the hop pair |
+| 4 | `BrokenTokenChain` | Invalid `Prev` dependency; malformed Aquarius `get_tokens` or Curve `pool_info().coins` metadata, duplicate or missing hop tokens; or Sushi `token0`/`token1` does not match the hop pair |
 | 5 | `SlippageExceeded` | Nonpositive `min_out` or delivered output below it |
 | 7 | `ZeroOutput` | Venue or LP leg produced no usable output |
 | 9 | `IntegerOverflow` | Checked conversion or arithmetic overflow |

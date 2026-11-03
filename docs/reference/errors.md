@@ -83,7 +83,7 @@ SDK `try_` calls distinguish contract errors from host, authorization, storage, 
 | 133 `SelfLiquidationNotAllowed` | Credit receiver id equals the liquidated account id. | Choose another receiver; owner self-liquidation is otherwise allowed. |
 | 134 `InvalidLiquidationCurve` | The target HF is outside (1 WAD, `MAX_LIQUIDATION_TARGET_HF_WAD`], the max-bonus HF is outside (0, target HF), or the bonus factor is outside (0, BPS]. | Fix the curve bounds in the proposal. |
 
-### Oracle errors (201–235)
+### Oracle errors (201–237)
 
 | Code / variant | Condition | Response |
 | --- | --- | --- |
@@ -99,7 +99,7 @@ SDK `try_` calls distinguish contract errors from host, authorization, storage, 
 | 217 `InvalidPrice` | The resolved price is zero or negative, or LP fair-value math produces a non-representable result. | Report it; the feed returned an unusable value. |
 | 218 `InvalidStalenessConfig` | Staleness configuration is outside its bounds or incompatible with source freshness requirements. | Fix the source and aggregate freshness windows. |
 | 219 `TwapInsufficientObservations` | Zero configured records, a record count below the smoothing minimum, excess history, spacing below provider resolution, or a history that does not span the window those records imply. | Configure a record count the provider history can span. A history with a skipped provider round is accepted while it still spans the window. Reflector `Twap` reads compute an equal-weight mean. |
-| 220 `InvalidOracleBase` | A bare Reflector feed does not quote in USD; a `Scaled` factor's Reflector base is not token X for quote key `Token(X)` (a `Ref` quote or a USD base always fails); or an LP source has an invalid binding, key pairing or pool-value floor. | Match quote/base and LP constraints. |
+| 220 `InvalidOracleBase` | A bare Reflector feed does not quote in USD; a `Scaled` factor's Reflector base is not token X for quote key `Token(X)` (a `Ref` quote or a USD base always fails); or an LP source has an invalid binding, key pairing or pool-value floor; or a Curve source has fewer than 2 or more than `MAX_CURVE_COINS` coins. | Match quote/base and LP constraints. |
 | 221 `InvalidOracleDecimals` | The declared decimals do not match what the provider reports, they fall outside the allowed range, or a replacement oracle changes the `asset_decimals` stored for the key. | Declare the provider's real decimals. For a replacement, keep the key's stored `asset_decimals`, even after the token issuer changes its decimals. Governance `ConfigureAssetOracle` already resolves them from the stored oracle; read them with `oracle(key)`. |
 | 222 `InvalidOracleResolution` | The Reflector resolution is below the minimum, above `max_stale_seconds`, or the TWAP span it implies exceeds `max_stale_seconds`. | Match records and `max_stale_seconds` to the feed resolution. |
 | 223 `SanityBoundViolated` | The resolved price falls outside the oracle's stored min/max sanity band. | Wait for the price to return to the band, or ask governance to rebase it. |
@@ -114,6 +114,8 @@ SDK `try_` calls distinguish contract errors from host, authorization, storage, 
 | 232 `IndependenceNotDeclared` | Two sources share a provider contract while the policy requires disjoint sources, or the declared shared set is empty or differs from the actual one. When an upstream key changes, or on a sanity-band edit, a key's declared set need only cover the actual one. | Declare the shared contracts, or use independent sources. |
 | 234 `UnsupportedAquariusPool` | LP attestation finds wrong pool kind, absent stable amp, nonpositive reserves or share supply. | Configure a supported, funded pool. |
 | 235 `InsufficientAquariusLiquidity` | The Aquarius pool's total value is below the source's `min_pool_value_wad` floor. | Wait for deeper pool liquidity. |
+| 236 `UnsupportedCurvePool` | Curve executable hash, LP binding, coin order/count, decimals, `precision` (must be WAD) or normalization rates do not match the configured plain pool, or a `pool_info`/`decimals` read fails. | Review the executable and pool configuration before relisting. |
+| 237 `InsufficientCurveLiquidity` | The Curve pool's conservative total value is below `min_pool_value_wad`. | Wait for deeper pool liquidity. |
 
 ### Spoke errors (300–319)
 
@@ -177,7 +179,7 @@ Reflector runtime TWAP errors, including 212, 219 and 222, make the source leg u
 | --- | --- | --- |
 | 1 `EmptyBatch` | Empty/over-cap program or over-cap split table | Use a bounded nonempty program. |
 | 3 `InvalidAmount` | Nonpositive amount, overdraft or spend mismatch | Correct funding and amounts. |
-| 4 `BrokenTokenChain` | Prev absent or wrong token; Aquarius `get_tokens` empty, oversized, or duplicate; hop token missing from pool metadata | Repair the instruction dependency or the pool's constituent list. |
+| 4 `BrokenTokenChain` | Prev absent or wrong token; Aquarius `get_tokens` or Curve `pool_info().coins` has fewer than 2 or too many tokens, a duplicate, or the pool itself; Curve `coins` missing or not an address list; hop token missing from pool metadata | Repair the instruction dependency or the pool's constituent list. |
 | 5 `SlippageExceeded` | Nonpositive declared minimum or vault output below minimum before payout | Correct minimum or route. |
 | 7 `ZeroOutput` | Venue yields no usable output | Use a productive route. |
 | 9 `IntegerOverflow` | Checked arithmetic overflow | Reduce amount/domain. |
