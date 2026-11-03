@@ -1,0 +1,98 @@
+[
+ {
+  "proof": "validation",
+  "id": "test_liquidation_curve_accepts",
+  "expect": "pass",
+  "status": "PASSED",
+  "verdict": "OK",
+  "exit_code": 0,
+  "wall_seconds": 870,
+  "nodes": 47,
+  "rewrite_steps": 1506,
+  "errors": []
+ },
+ {
+  "proof": "validation",
+  "id": "test_liquidation_curve_rejects",
+  "expect": "reject",
+  "status": "FAILED",
+  "verdict": "OK",
+  "exit_code": 1,
+  "wall_seconds": 527,
+  "nodes": 19,
+  "rewrite_steps": 1595,
+  "errors": []
+ },
+ {
+  "proof": "validation",
+  "id": "test_risk_bounds_accepts",
+  "expect": "pass",
+  "status": "PASSED",
+  "verdict": "OK",
+  "exit_code": 0,
+  "wall_seconds": 809,
+  "nodes": 15,
+  "rewrite_steps": 719,
+  "errors": []
+ },
+ {
+  "proof": "validation",
+  "id": "test_risk_bounds_reject_wrong",
+  "expect": "fail",
+  "status": "FAILED",
+  "verdict": "OK",
+  "exit_code": 1,
+  "wall_seconds": 344,
+  "nodes": 3,
+  "rewrite_steps": 130,
+  "errors": []
+ },
+ {
+  "proof": "validation",
+  "id": "test_risk_bounds_rejects",
+  "expect": "reject",
+  "status": "FAILED",
+  "verdict": "OK",
+  "exit_code": 1,
+  "wall_seconds": 928,
+  "nodes": 11,
+  "rewrite_steps": 768,
+  "errors": []
+ },
+ {
+  "proof": "validation",
+  "id": "test_twap_records_accepts",
+  "expect": "pass",
+  "status": "PASSED",
+  "verdict": "OK",
+  "exit_code": 0,
+  "wall_seconds": 388,
+  "nodes": 7,
+  "rewrite_steps": 260,
+  "errors": []
+ },
+ {
+  "proof": "validation",
+  "id": "test_twap_records_reject_wrong",
+  "expect": "fail",
+  "status": "FAILED",
+  "verdict": "OK",
+  "exit_code": 1,
+  "wall_seconds": 254,
+  "nodes": 3,
+  "rewrite_steps": 130,
+  "errors": []
+ },
+ {
+  "proof": "validation",
+  "id": "test_twap_records_rejects",
+  "expect": "reject",
+  "status": "FAILED",
+  "verdict": "OK",
+  "exit_code": 1,
+  "wall_seconds": 459,
+  "nodes": 11,
+  "rewrite_steps": 319,
+  "errors": []
+ }
+]

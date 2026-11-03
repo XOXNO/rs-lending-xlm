@@ -1,0 +1,71 @@
+{
+ "admitted": false,
+ "bounded": [],
+ "circularity": false,
+ "covers": 1,
+ "edges": 9,
+ "errors": [],
+ "expect": "reject",
+ "failing": [
+  12,
+  13,
+  14,
+  18
+ ],
+ "failing_leaves": {
+  "12": {
+   "host_stack": "hostStackList(SCVal:Error(ErrorType:Contract, 134), .List{\"hostStackList\"})",
+   "instrs": "",
+   "k_head": "expectResult(SCVal:Bool(true))"
+  },
+  "13": {
+   "host_stack": "hostStackList(SCVal:Error(ErrorType:Contract, 134), .List{\"hostStackList\"})",
+   "instrs": "",
+   "k_head": "expectResult(SCVal:Bool(true))"
+  },
+  "14": {
+   "host_stack": "hostStackList(SCVal:Error(ErrorType:Contract, 134), .List{\"hostStackList\"})",
+   "instrs": "",
+   "k_head": "expectResult(SCVal:Bool(true))"
+  },
+  "18": {
+   "host_stack": "hostStackList(SCVal:Error(ErrorType:Contract, 134), .List{\"hostStackList\"})",
+   "instrs": "",
+   "k_head": "expectResult(SCVal:Bool(true))"
+  }
+ },
+ "id": "test_liquidation_curve_rejects",
+ "input_fingerprint": {
+  "claim": "094341c01ed90217f767dcce0f50ff3efec925fe6325711d26eb0fc502bc590d",
+  "definitions": {
+   "haskell": "a66ba5710a4bfe9569247ce0b4fa777812c2f1835a71434d5e5676eb9c934b98",
+   "llvm": "bc45d16cc07aa32904549e2086fc416b7eafa0c8c11afc9f9a47871d96610325"
+  },
+  "llvm_libraries": {
+   "interpreter.so": "94a466bd685ff2cafc270088ecbe22fbf434b9ec973389c3222d8e0e5f09881a"
+  },
+  "runner": "ac43e6cafd049c505f81b5e363968c509d656de5c9d57ab81c1eea091654a8e2"
+ },
+ "inputs_sha256": "0a62b428b8b2afc5fa7c950f14509c8b81cfabe900ca49aa503a3d5538d35764",
+ "node_refutations": {},
+ "nodes": 19,
+ "pending": [],
+ "reject_codes": [
+  134,
+  134,
+  134,
+  134
+ ],
+ "rewrite_steps": 1595,
+ "splits": 4,
+ "status": "FAILED",
+ "stuck": [
+  12,
+  13,
+  14,
+  18
+ ],
+ "subproof_ids": [],
+ "vacuous": [],
+ "verdict": "OK"
+}

@@ -1,0 +1,23 @@
+{
+ "image": "komet-prover:247c6bde25aa9aa0",
+ "id": "test_risk_bounds_rejects",
+ "expect": "reject",
+ "exit_code": 1,
+ "wall_seconds": 928,
+ "cap_seconds": 14400,
+ "started_utc": "2026-11-03T14:18:32Z",
+ "command": [
+  "komet",
+  "prove",
+  "run",
+  "--always-allocate",
+  "--wasm",
+  "/out/input/pool_math_proof.wasm",
+  "--id",
+  "test_risk_bounds_rejects",
+  "--proof-dir",
+  "/out/proof",
+  "--extra-module",
+  "/out/input/pool-math-lemmas.k:POOL-MATH-LEMMAS"
+ ]
+}
