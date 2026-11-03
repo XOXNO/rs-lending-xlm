@@ -41,9 +41,13 @@ the effective review window and key custody; see
 Immediate guardian actions can pause the controller and tighten listing flags.
 Reopening uses delayed administration. A listing edit can keep or tighten flags
 but never clears one. Clearing is a separate timelocked operation,
-`relax_spoke_asset_flags`, bound to the listing's flags epoch. Every guardian
-flag call and every flag change advances the epoch, so a relaxation proposed
-before a later guardian action reverts when executed. The ORACLE role can
+`relax_spoke_asset_flags`, bound to the listing's flags epoch. Every flag
+change advances the epoch, so a relaxation proposed before a later guardian
+action reverts when executed. A guardian call that names the flags the listing
+already holds is rejected (`SpokeAssetFlagsUnchanged`) and leaves the epoch
+alone: the epoch moves only on a genuine tightening, so a guardian can
+invalidate a pending relaxation at most once per flag and cannot hold a listing
+closed against governance by re-asserting the same flags. The ORACLE role can
 narrow sanity bands; widening requires timelocked oracle reconfiguration.
 The [listing-freeze runbook](../reference/runbooks/freeze-a-listing.md) gives the
 operator steps.

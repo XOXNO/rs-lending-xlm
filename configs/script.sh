@@ -3643,6 +3643,15 @@ tighten_asset_flags() {
     flags=$(merge_tightened_flags "$live_listing" "$wanted") \
         || die "cannot compute flags for ${asset_name}: bad flag list '${wanted}' or unreadable listing"
 
+    # The controller rejects a write that changes no flag (SpokeAssetFlagsUnchanged)
+    # so that a no-op cannot advance the flags epoch. Skip it here instead of failing
+    # an emergency loop on a listing that is already at least that tight.
+    if printf '%s' "$live_listing" | jq -e --argjson want "$flags" \
+        '[.paused, .frozen, .no_seize] == [$want.paused, $want.frozen, $want.no_seize]' >/dev/null; then
+        echo "Flags on ${asset_name}, on-chain spoke ${category_id}, already ${flags}; nothing sent." >&2
+        return 0
+    fi
+
     gov=$(get_governance)
     caller=$(get_signer_address)
     echo "Setting flags on ${asset_name}, on-chain spoke ${category_id}: ${flags}" >&2

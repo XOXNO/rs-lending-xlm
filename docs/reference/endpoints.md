@@ -156,7 +156,7 @@ Constructor `(admin: Address)` initializes the controller and starts it paused. 
 
 `force_socialize_bad_debt` requires debt greater than unweighted collateral and bypasses the $5 collateral cap. Follow the [force-socialize runbook](runbooks/force-socialize-bad-debt.md) before scheduling this irreversible operation.
 
-`set_spoke_asset_flags` and `edit_asset_in_spoke` can set flags but cannot clear them. `relax_spoke_asset_flags` writes any flag combination, clearing included, only when `expected_epoch` equals the listing's flags epoch. Listing creation, every `set_spoke_asset_flags` call, every `relax_spoke_asset_flags` call, and an edit that changes a flag advance that epoch; removing a listing keeps it. Upgrade pauses the controller before replacing its code. Migration requires a strictly increasing version.
+`set_spoke_asset_flags` and `edit_asset_in_spoke` can set flags but cannot clear them. `set_spoke_asset_flags` also rejects a call that changes no flag with `SpokeAssetFlagsUnchanged`. `relax_spoke_asset_flags` writes any flag combination, clearing included, only when `expected_epoch` equals the listing's flags epoch. Listing creation, every successful `set_spoke_asset_flags` call, every `relax_spoke_asset_flags` call, and an edit that changes a flag advance that epoch; removing a listing keeps it. Upgrade pauses the controller before replacing its code. Migration requires a strictly increasing version.
 
 ## Pool
 

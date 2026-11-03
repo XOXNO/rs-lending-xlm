@@ -268,6 +268,11 @@ pub enum SpokeError {
 
     /// `relax_spoke_asset_flags` names a flags epoch other than the listing's stored one.
     SpokeFlagsEpochMismatch = 319,
+
+    /// `set_spoke_asset_flags` names the flags the listing already holds. A write that
+    /// changes nothing does not advance the flags epoch, so a guardian cannot keep a
+    /// pending `relax_spoke_asset_flags` from ever matching.
+    SpokeAssetFlagsUnchanged = 320,
 }
 
 /// Error codes for flash-loan execution and repayment failures.

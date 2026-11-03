@@ -108,7 +108,10 @@ fn flags(config: &SpokeAssetConfig) -> (bool, bool, bool) {
 }
 
 /// Tightens paused, frozen, and no-seize flags on a listed asset, advances
-/// its flags epoch, and emits the new config. Rejects any true-to-false transition.
+/// its flags epoch, and emits the new config. Rejects any true-to-false
+/// transition, and rejects a write that changes no flag: the epoch advances
+/// only on a genuine tightening, so a pending `relax_spoke_asset_flags` can
+/// be invalidated at most once per flag (ADR-0007).
 pub(crate) fn set_spoke_asset_flags(
     env: &Env,
     spoke_id: u32,
@@ -120,6 +123,11 @@ pub(crate) fn set_spoke_asset_flags(
     let config = storage::get_spoke_asset(env, spoke_id, &hub_asset)
         .unwrap_or_else(|| panic_with_error!(env, SpokeError::AssetNotInSpoke));
     require_flag_ratchet(env, &config, paused, frozen, no_seize);
+    assert_with_error!(
+        env,
+        (paused, frozen, no_seize) != flags(&config),
+        SpokeError::SpokeAssetFlagsUnchanged
+    );
     write_spoke_asset_flags(env, spoke_id, hub_asset, config, paused, frozen, no_seize);
 }
 
