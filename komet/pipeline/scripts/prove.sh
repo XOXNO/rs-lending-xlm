@@ -51,17 +51,21 @@ fi
 # replaces the runner's --smt-timeout and keeps the recorded backend flags.
 # A timeout only affects completeness; the evidence checks are unchanged.
 mounts=()
-if [ -n "${KOMET_SMT_TIMEOUT_MS:-}" ]; then
+# Optional GHC RTS options for the backend (KOMET_BOOSTER_RTS, e.g. "-c" for
+# the compacting collector, which needs far less headroom than copying GC).
+if [ -n "${KOMET_SMT_TIMEOUT_MS:-}" ] || [ -n "${KOMET_BOOSTER_RTS:-}" ]; then
+  smt_arg=${KOMET_SMT_TIMEOUT_MS:+--smt-timeout $KOMET_SMT_TIMEOUT_MS}
+  rts_arg=${KOMET_BOOSTER_RTS:++RTS $KOMET_BOOSTER_RTS -RTS}
   cat > "$out/input/kore-rpc-booster" <<WRAP
 #!/bin/bash
 args=(); skip=0
 for a in "\$@"; do
   if ((skip)); then skip=0; continue; fi
-  if [[ \$a == --smt-timeout ]]; then skip=1; continue; fi
+  if [[ -n "${KOMET_SMT_TIMEOUT_MS:-}" && \$a == --smt-timeout ]]; then skip=1; continue; fi
   args+=("\$a")
 done
 flags=\$(sed -n 's/^booster_flags=//p' /opt/toolchain.txt)
-exec /opt/komet-backend/bin/kore-rpc-booster "\${args[@]}" --smt-timeout ${KOMET_SMT_TIMEOUT_MS} \$flags
+exec /opt/komet-backend/bin/kore-rpc-booster "\${args[@]}" ${smt_arg} ${rts_arg} \$flags
 WRAP
   chmod 0755 "$out/input/kore-rpc-booster"
   mounts=(-v "$out/input/kore-rpc-booster:/opt/komet-backend/wrapper/kore-rpc-booster:ro")
@@ -142,9 +146,11 @@ elif [ "$rc" = 124 ] || [ "$rc" = 130 ] || [ "$rc" = 137 ] || [ "$rc" = 143 ]; t
 fi
 python3 - "$out/run.json" "$PROVER_IMAGE" "$id" "$expect" "$rc" "$wall" "$cap" "$started" "${KOMET_SMT_TIMEOUT_MS:-5000}" "$mem" "$peak" "$oom" "$outcome" "$attempt" "$resumed_from" "${args[@]}" <<'PY'
 import json, sys
+import os
 path, image, pid, expect, rc, wall, cap, started, smt, mem, peak, oom, outcome, attempt, resumed, *args = sys.argv[1:]
 json.dump({'image': image, 'id': pid, 'expect': expect, 'exit_code': int(rc), 'wall_seconds': int(wall),
            'cap_seconds': int(cap), 'started_utc': started, 'smt_timeout_ms': int(smt),
+           'booster_rts': os.environ.get('KOMET_BOOSTER_RTS', ''),
            'memory_limit': mem, 'memory_peak_bytes': int(peak or 0), 'oom_killed': oom,
            'outcome': outcome, 'attempt': int(attempt), 'resumed_from': json.loads(resumed),
            'command': ['komet', *args]},
