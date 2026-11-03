@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Check one Komet APR proof directory against the pipeline's evidence standard.
 
-Usage: check-proof.py <proof-dir> <test-id> <pass|fail> <out.json>
+Usage: check-proof.py <proof-dir> <test-id> <pass|fail|reject> <out.json>
 
 pass: native status PASSED; no pending, failing, stuck, vacuous or bounded
       nodes; not admitted; no circularity, refutations or subproofs.
@@ -65,6 +65,11 @@ def leaf_outcome(config: dict) -> dict:
     }
 
 
+def is_trap(outcome: dict) -> bool:
+    """A leaf stopped by a Wasm trap: `trap` heads the instruction stack."""
+    return outcome['instrs'] is not None and outcome['instrs'].startswith('trap')
+
+
 def main() -> int:
     proof_dir, pid, expect, out = Path(sys.argv[1]), sys.argv[2], sys.argv[3], Path(sys.argv[4])
     proof = APRProof.read_proof_data(proof_dir, pid)
@@ -126,6 +131,22 @@ def main() -> int:
             )
             if not ok:
                 errors.append(f'failing leaf {nid} is not a completed false assertion: {outcome}')
+    elif expect == 'reject':
+        # Rejection claim: the harness returns true on the accepted domain and
+        # `false` right after the validator call. Every failing leaf must stop
+        # inside the call (a trap), never complete with `false`.
+        res['failing_leaves'] = {}
+        for nid in res['failing']:
+            outcome = leaf_outcome(proof.kcfg.node(nid).cterm.config.to_dict())
+            res['failing_leaves'][nid] = outcome
+            if (outcome['host_stack'] or '').startswith('hostStackList(SCVal:Bool(false)'):
+                errors.append(f'failing leaf {nid} returned false: the validator accepted an input it must reject')
+            elif not is_trap(outcome):
+                errors.append(f'failing leaf {nid} is not a trap: {outcome}')
+        if not res['failing']:
+            errors.append('no rejecting (trap) leaf: rejection domain not exercised')
+        if res['status'] != 'FAILED':
+            errors.append(f"status {res['status']} != FAILED")
     else:
         errors.append(f'unknown expectation {expect}')
     res['errors'] = errors

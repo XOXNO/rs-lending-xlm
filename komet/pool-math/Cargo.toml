@@ -37,6 +37,8 @@ ray-div-rounding = []
 index-identity = []
 noop-guards = []
 rescale-up = []
+validation = []
+oracle-time = []
 
 [dependencies]
 common = { path = "../../common" }

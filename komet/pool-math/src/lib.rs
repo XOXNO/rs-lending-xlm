@@ -27,6 +27,8 @@ pub mod settlement_specs;
     feature = "scaled-borrow"
 ))]
 pub mod signed;
+#[cfg(any(feature = "validation", feature = "oracle-time"))]
+pub mod validation_specs;
 
 #[cfg(any(feature = "borrow-index", feature = "borrow-double"))]
 use common::constants::MAX_BORROW_INDEX_RAY;
@@ -296,12 +298,7 @@ impl PoolMathProof {
 
     /// Every i128 triple: zero supply or zero rewards returns the old supply index.
     #[cfg(feature = "noop-guards")]
-    pub fn test_supply_zero_inputs(
-        env: Env,
-        supplied: i128,
-        old: i128,
-        rewards: i128,
-    ) -> bool {
+    pub fn test_supply_zero_inputs(env: Env, supplied: i128, old: i128, rewards: i128) -> bool {
         identity_specs::supply_index_zero_inputs(&env, supplied, old, rewards)
     }
 
@@ -345,6 +342,88 @@ impl PoolMathProof {
     #[cfg(feature = "rescale-up")]
     pub fn test_from_asset_7_wrong(env: Env) -> bool {
         identity_specs::from_asset_7_wrong(&env)
+    }
+
+    /// ltv < threshold <= BPS and threshold*(BPS+bonus) <= BPS^2: validate_risk_bounds accepts.
+    #[cfg(feature = "validation")]
+    pub fn test_risk_bounds_accepts(env: Env, ltv: u32, threshold: u32, bonus: u32) -> bool {
+        validation_specs::risk_bounds_accepts(&env, ltv, threshold, bonus)
+    }
+
+    /// Outside that domain validate_risk_bounds never returns normally.
+    #[cfg(feature = "validation")]
+    pub fn test_risk_bounds_rejects(env: Env, ltv: u32, threshold: u32, bonus: u32) -> bool {
+        validation_specs::risk_bounds_rejects(&env, ltv, threshold, bonus)
+    }
+
+    /// Deliberately false: valid risk bounds claimed rejected.
+    #[cfg(feature = "validation")]
+    pub fn test_risk_bounds_reject_wrong(env: Env) -> bool {
+        validation_specs::risk_bounds_reject_wrong(&env)
+    }
+
+    /// 1 <= records <= 12: validate_twap_records accepts.
+    #[cfg(feature = "validation")]
+    pub fn test_twap_records_accepts(env: Env, records: u32) -> bool {
+        validation_specs::twap_records_accepts(&env, records)
+    }
+
+    /// Otherwise validate_twap_records never returns normally.
+    #[cfg(feature = "validation")]
+    pub fn test_twap_records_rejects(env: Env, records: u32) -> bool {
+        validation_specs::twap_records_rejects(&env, records)
+    }
+
+    /// Deliberately false: 12 records claimed rejected.
+    #[cfg(feature = "validation")]
+    pub fn test_twap_records_reject_wrong(env: Env) -> bool {
+        validation_specs::twap_records_reject_wrong(&env)
+    }
+
+    /// WAD < target <= 10 WAD, 0 < hf < target, 0 < factor <= BPS: validate_liquidation_curve accepts.
+    #[cfg(feature = "validation")]
+    pub fn test_liquidation_curve_accepts(
+        env: Env,
+        target: i128,
+        max_bonus_hf: i128,
+        factor: u32,
+    ) -> bool {
+        validation_specs::liquidation_curve_accepts(&env, target, max_bonus_hf, factor)
+    }
+
+    /// Otherwise validate_liquidation_curve never returns normally.
+    #[cfg(feature = "validation")]
+    pub fn test_liquidation_curve_rejects(
+        env: Env,
+        target: i128,
+        max_bonus_hf: i128,
+        factor: u32,
+    ) -> bool {
+        validation_specs::liquidation_curve_rejects(&env, target, max_bonus_hf, factor)
+    }
+
+    /// Every u64 triple: is_stale(now, feed, max) == (now > feed + max).
+    #[cfg(feature = "oracle-time")]
+    pub fn test_stale_exact(_env: Env, now: u64, feed: u64, max_stale: u64) -> bool {
+        validation_specs::stale_exact(now, feed, max_stale)
+    }
+
+    /// Deliberately false: a feed exactly max_stale old is claimed stale.
+    #[cfg(feature = "oracle-time")]
+    pub fn test_stale_wrong(_env: Env) -> bool {
+        validation_specs::stale_wrong()
+    }
+
+    /// Every u64 pair: is_future_at == (now + skew fits u64 and feed > now + skew).
+    #[cfg(feature = "oracle-time")]
+    pub fn test_future_exact(_env: Env, now: u64, feed: u64) -> bool {
+        validation_specs::future_exact(now, feed)
+    }
+
+    /// Deliberately false: a feed at the skew boundary is claimed in the future.
+    #[cfg(feature = "oracle-time")]
+    pub fn test_future_wrong(_env: Env) -> bool {
+        validation_specs::future_wrong()
     }
 
     /// x, y >= 2^64, representable: Ray::mul_floor is exactly floor(x*y/RAY).

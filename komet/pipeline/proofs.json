@@ -36,6 +36,74 @@
    ]
   },
   {
+   "name": "oracle-time",
+   "crate": "komet/pool-math",
+   "feature": "oracle-time",
+   "wasm_sha256": "8771fdebdd2d5b158f9978882640ec393c6816726892a9779bbe6842ca5f4762",
+   "module": "komet/pool-math/proofs/borrow-double/double-cli.k:SIGNED-DISTRIBUTE-COMPLEMENT-NEGATIVE-PACK64-DOUBLE-RAY-SIGNED-DECODER-FLOOR-EQUALITY-LOW-WORD-SIGNED64-SIGN-FIXED64-XOR",
+   "cap_seconds": 14400,
+   "tests": [
+    {
+     "id": "test_stale_exact",
+     "expect": "pass"
+    },
+    {
+     "id": "test_stale_wrong",
+     "expect": "fail"
+    },
+    {
+     "id": "test_future_exact",
+     "expect": "pass"
+    },
+    {
+     "id": "test_future_wrong",
+     "expect": "fail"
+    }
+   ]
+  },
+  {
+   "name": "validation",
+   "crate": "komet/pool-math",
+   "feature": "validation",
+   "wasm_sha256": "db863069f3cf125442d491e08db8133bc256879594dc305f416999d0e4f7e951",
+   "module": "komet/pool-math/proofs/borrow-double/double-cli.k:SIGNED-DISTRIBUTE-COMPLEMENT-NEGATIVE-PACK64-DOUBLE-RAY-SIGNED-DECODER-FLOOR-EQUALITY-LOW-WORD-SIGNED64-SIGN-FIXED64-XOR",
+   "cap_seconds": 14400,
+   "tests": [
+    {
+     "id": "test_risk_bounds_accepts",
+     "expect": "pass"
+    },
+    {
+     "id": "test_risk_bounds_rejects",
+     "expect": "reject"
+    },
+    {
+     "id": "test_risk_bounds_reject_wrong",
+     "expect": "fail"
+    },
+    {
+     "id": "test_twap_records_accepts",
+     "expect": "pass"
+    },
+    {
+     "id": "test_twap_records_rejects",
+     "expect": "reject"
+    },
+    {
+     "id": "test_twap_records_reject_wrong",
+     "expect": "fail"
+    },
+    {
+     "id": "test_liquidation_curve_accepts",
+     "expect": "pass"
+    },
+    {
+     "id": "test_liquidation_curve_rejects",
+     "expect": "reject"
+    }
+   ]
+  },
+  {
    "name": "index-identity",
    "crate": "komet/pool-math",
    "feature": "index-identity",

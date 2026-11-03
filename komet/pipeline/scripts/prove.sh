@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Run one Komet proof in the pinned prover image and check its graph.
-# Usage: prove.sh <wasm> <test-id> <pass|fail> <out-dir> [extra-module.k:MODULE] [cap-seconds]
+# Usage: prove.sh <wasm> <test-id> <pass|fail|reject> <out-dir> [extra-module.k:MODULE] [cap-seconds]
 # <out-dir> must not exist; it receives proof/, stdout.log, stderr.log,
 # run.json (command, exit code, wall time) and check.json (graph verdict).
 # Exit status: 0 when the graph meets the expectation, 1 otherwise.
@@ -43,6 +43,6 @@ docker run --rm --network=none -u "$(id -u):$(id -g)" -e HOME=/out/home \
   python3 /scripts/check-proof.py /out/proof "$id" "$expect" /out/check.json \
   || { echo "check rejected $id (komet exit $rc)" >&2; exit 1; }
 # Exit codes must agree with the graph: 0 for a proof, 1 for a refuted control.
-want=0; [ "$expect" = fail ] && want=1
+want=0; [ "$expect" = pass ] || want=1
 [ "$rc" -eq "$want" ] || { echo "komet exit $rc, expected $want for $id" >&2; exit 1; }
 rm -rf "$out/tmp" "$out/home"
