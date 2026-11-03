@@ -64,11 +64,13 @@ listing's flags epoch equals its `expected_epoch`. The oracle role's immediate
 <a id="inv-auth-05"></a>
 <a id="inv-auth-05--governance-delay-cannot-be-shortened"></a>
 
-### INV-AUTH-05 — Delay updates cannot shorten the minimum
+### INV-AUTH-05 — Delay updates cannot shorten the minimum below its floor
 
-Construction requires a nonzero minimum delay. Delay updates can retain or
-increase it, up to 241920 ledgers; construction does not enforce that upper
-bound. Only the owner can propose `UpdateGovDelay`. Sensitive and Recovery
+Construction requires a nonzero minimum delay. Delay updates can increase it,
+up to 241920 ledgers, or decrease it, but never below 34560 ledgers
+(`TIMELOCK_MIN_DELAY_LEDGERS`, about 2 days); construction enforces neither
+bound. Only the owner can propose `UpdateGovDelay`, and a decrease takes effect
+only after the current, longer delay has passed. Sensitive and Recovery
 delays also apply their compiled minimums.
 
 These checks govern the deployed implementation and cannot constrain replacement
