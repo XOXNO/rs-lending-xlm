@@ -254,4 +254,24 @@ module POOL-MATH-LEMMAS
       => X
     requires 0 <=Int X
     [simplification, preserves-definedness]
+  // Boolean words: bitwise operators on 0/1 integers built from Booleans
+  // (Wasm i32 results of comparisons) are the Boolean connectives.
+  rule [bool-word-and]:
+    ((#if B1:Bool #then 1 #else 0 #fi) &Int (#if B2:Bool #then 1 #else 0 #fi))
+      => #if B1 andBool B2 #then 1 #else 0 #fi
+    [simplification, preserves-definedness]
+  rule [bool-word-or]:
+    ((#if B1:Bool #then 1 #else 0 #fi) |Int (#if B2:Bool #then 1 #else 0 #fi))
+      => #if B1 orBool B2 #then 1 #else 0 #fi
+    [simplification, preserves-definedness]
+  rule [bool-word-xor]:
+    ((#if B1:Bool #then 1 #else 0 #fi) xorInt (#if B2:Bool #then 1 #else 0 #fi))
+      => #if B1 xorBool B2 #then 1 #else 0 #fi
+    [simplification, preserves-definedness]
+  // A 0/1 word is unchanged by any modulus of at least 2.
+  rule [bool-word-mod]:
+    ((#if B:Bool #then 1 #else 0 #fi) modInt M:Int)
+      => #if B #then 1 #else 0 #fi
+    requires 2 <=Int M
+    [simplification, concrete(M), preserves-definedness]
 endmodule

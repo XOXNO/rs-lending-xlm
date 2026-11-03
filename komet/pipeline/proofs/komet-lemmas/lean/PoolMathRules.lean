@@ -68,4 +68,23 @@ theorem ray_identity_half_up (X : Int) (h : 0 ≤ X) :
 #print axioms u64_or_sign_bit
 #print axioms ray_identity_half_up
 
+def bw (b : Bool) : Int := if b then 1 else 0
+
+-- [bool-word-and] / [bool-word-or] / [bool-word-xor]
+theorem bool_word_and (b1 b2 : Bool) : land (bw b1) (bw b2) = bw (b1 && b2) := by
+  cases b1 <;> cases b2 <;> rfl
+theorem bool_word_or (b1 b2 : Bool) : lor (bw b1) (bw b2) = bw (b1 || b2) := by
+  cases b1 <;> cases b2 <;> rfl
+theorem bool_word_xor (b1 b2 : Bool) : xor (bw b1) (bw b2) = bw (b1 ^^ b2) := by
+  cases b1 <;> cases b2 <;> rfl
+
+-- [bool-word-mod]  requires 2 <=Int M
+theorem bool_word_mod (b : Bool) (M : Int) (h : 2 ≤ M) : bw b % M = bw b := by
+  cases b <;> simp only [bw] <;> apply Int.emod_eq_of_lt <;> omega
+
+#print axioms bool_word_and
+#print axioms bool_word_or
+#print axioms bool_word_xor
+#print axioms bool_word_mod
+
 end PoolMathRules
