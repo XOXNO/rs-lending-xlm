@@ -140,6 +140,25 @@ stateful pool, controller and oracle rule. Claims whose production path runs
 native i128 division with a symbolic operand (`__divti3`/`__udivti3` loops)
 are tier C: feasible only with further word-level lemmas.
 
+## 4b. Decision logic not reachable from a harness (recommendation only)
+
+These functions encode pure decisions but are `pub(crate)` inside contract
+crates (and several read the pool `Cache` or storage), so a Komet harness
+cannot call them without changing production code. Candidates for moving the
+pure arithmetic/predicate into `common` (no change made here):
+
+| Function | Location | Decision |
+|---|---|---|
+| `run_batch` | `contracts/pool/src/ops/mod.rs:53` | batch leg ordering and duplicate-market handling |
+| `Cache::require_reserves` | `contracts/pool/src/cache/cash.rs:15` | cash sufficiency for a payout |
+| `require_utilization_below_max`, `require_liquidation_buffer`, `require_backed_market`, `backing_shortfall`, `require_supply_for_debt` | `contracts/pool/src/guards.rs` | utilization cap, buffer after a draw, revenue backing, no debt without supply |
+| `enforce_spoke_asset_flags` | `contracts/controller/src/positions/mod.rs:257` | spoke-asset flag ratchet (supply/borrow/collateral enablement) |
+| `add_asset_to_spoke`, `edit_asset_in_spoke` | `contracts/controller/src/config/asset.rs` | spoke parameter bounds |
+| `validate_delay_update` | `contracts/governance/src/timelock/mod.rs:59` | timelock delay bounds |
+
+`common::validation` and `common::oracle::observation` helpers are public and
+are covered by the `validation` and `oracle-time` features.
+
 ## 5. Server results
 
 Filled in as runs complete (verdict, nodes, rewrite steps, wall time, Wasm
