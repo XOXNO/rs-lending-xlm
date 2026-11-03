@@ -1,0 +1,12 @@
+k=K version:    v7.1.337
+z3=Z3 version 4.13.4 - 64 bit
+z3_path=/opt/z3/bin/z3
+booster_path=/opt/komet-backend/wrapper/kore-rpc-booster
+booster_commit=818a5e4c79275505c3adaadf1d6a6338362c5b47
+booster_sha256=51c5277cdbaded260c7338de671b2a0e480736192cdba9ca5cfdb755036a0e33
+booster_flags=--equation-max-local-steps 32 --no-fallback-simplify --no-post-exec-simplify --smt-retry-limit 3
+komet_commit=7e74d11c9e330326d8d3b7b055cd29b0206139ce
+stellar=stellar 28.0.0 (300aaf69ab100536678bdb641428b06f06b318ea)
+python=Python 3.10.12
+pyk_dir=/opt/komet/.venv/lib/python3.10/site-packages/pyk
+kdist_dir=/opt/komet-cache/kdist-245346a

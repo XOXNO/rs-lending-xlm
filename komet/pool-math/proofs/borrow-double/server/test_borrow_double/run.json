@@ -1,0 +1,23 @@
+{
+ "image": "komet-prover:247c6bde25aa9aa0",
+ "id": "test_borrow_double",
+ "expect": "pass",
+ "exit_code": 0,
+ "wall_seconds": 2849,
+ "cap_seconds": 14400,
+ "started_utc": "2026-11-02T23:21:27Z",
+ "command": [
+  "komet",
+  "prove",
+  "run",
+  "--always-allocate",
+  "--wasm",
+  "/out/input/pool_math_proof.wasm",
+  "--id",
+  "test_borrow_double",
+  "--proof-dir",
+  "/out/proof",
+  "--extra-module",
+  "/out/input/double-cli.k:SIGNED-DISTRIBUTE-COMPLEMENT-NEGATIVE-PACK64-DOUBLE-RAY-SIGNED-DECODER-FLOOR-EQUALITY-LOW-WORD-SIGNED64-SIGN-FIXED64-XOR"
+ ]
+}

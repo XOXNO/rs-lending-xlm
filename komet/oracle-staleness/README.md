@@ -74,3 +74,12 @@ it is not counted as a proof. No claim-local extra module or admitted claim is
 used. The proof trusts the fork's reviewed simplification rules as part of its
 recorded semantics.
 The standalone workspace leaves production contract manifests and code unchanged.
+
+## Server reproduction (Linux, 2026-11-03)
+
+Re-run with the pinned toolchain of [`komet/pipeline`](../pipeline/README.md)
+on the rebuilt Wasm (same SHA-256 `5c9dff7f…`): `test_fresh_never_stale`
+`PASSED` (3 nodes, 411 rewrite steps, 73 s, no open or vacuous node) and
+`test_fresh_wrong` `FAILED` at its completed `false` assertion (3 nodes, 400
+steps, 79 s). Records and graphs: [`server/`](server/).
+

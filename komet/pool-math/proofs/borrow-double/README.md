@@ -21,6 +21,26 @@ This establishes the fixed factor `2 * RAY` case. General growth factors,
 storage transitions, time accrual, controller behavior, and pool endpoints
 require separate proofs. The production contracts are unchanged.
 
+## Server reproduction (Linux, 2026-11-03)
+
+The proof was re-run from a fresh directory with the pinned Linux toolchain
+of [`komet/pipeline`](../../../pipeline/README.md) (Komet `7e74d11`, backend
+`818a5e4c`, Z3 4.13.4, K 7.1.337), on a Wasm rebuilt from source:
+
+| Test | Verdict | Nodes | Rewrite steps | Wall time | `komet` exit |
+|---|---|---|---|---|---|
+| `test_borrow_double` | `PASSED`; no pending, failing, stuck, vacuous or bounded node; not admitted | 47 | 5,871 | 2,849 s (one fresh run) | 0 |
+| `test_borrow_double_wrong` | `FAILED` at the completed assertion: returned `Bool(false)`, expected `Bool(true)` | 4 | 1,464 | 417 s | 1 |
+
+The rebuilt Wasm SHA-256 equals the original (`099e7e12…`), the claim hash
+in `inputs.json` equals the original (`916a8fa7…`), and the extra module is
+the unchanged [`double-cli.k`](double-cli.k). The graph size matches the
+original native proof. [`server/`](server/) holds the run records, checks,
+logs, toolchain and semantics hashes and the compressed graphs
+(`graphs.tar.zst`); every one of the 17 extra-module rules is a Lean theorem
+in [`lean/DoubleCliRules.lean`](lean/DoubleCliRules.lean), and every other
+custom rule is listed in [`TRUSTED-BASE.md`](../../../pipeline/TRUSTED-BASE.md).
+
 ## Result and evidence
 
 | Check | Result |
