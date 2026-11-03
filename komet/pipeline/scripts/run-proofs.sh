@@ -57,7 +57,7 @@ import json, shlex, sys
 p = next(p for p in json.load(open(sys.argv[1]))['proofs'] if p['name'] == sys.argv[2])
 print(f"crate={shlex.quote(p['crate'])} feature={shlex.quote(p['feature'])}")
 print(f"want_sha={shlex.quote(p['wasm_sha256'])} module={shlex.quote(p.get('module', ''))}")
-print(f"cap={int(p.get('cap_seconds', 14400))}")
+print(f"cap={int(p.get('cap_seconds', 14400))} smt_ms={int(p.get('smt_timeout_ms', 0)) or ''}")
 print('tests=(' + ' '.join(shlex.quote(f"{t['id']}:{t['expect']}:{','.join(map(str, t.get('codes', [])))}") for t in p['tests']) + ')')
 PY
 )"
@@ -75,7 +75,7 @@ PY
     id=${t%%:*} rest=${t#*:} expect=${rest%%:*} codes=${rest#*:}
     # At most KOMET_JOBS concurrent proofs (each runs a backend and Z3).
     while [ "$(jobs -rp | wc -l)" -ge "${KOMET_JOBS:-4}" ]; do sleep 5; done
-    ( KOMET_REJECT_CODES="$codes" "$snap/scripts/prove.sh" "$wasm" "$id" "$expect" "$dir/$id" "$module" "$cap" \
+    ( KOMET_REJECT_CODES="$codes" KOMET_SMT_TIMEOUT_MS="$smt_ms" "$snap/scripts/prove.sh" "$wasm" "$id" "$expect" "$dir/$id" "$module" "$cap" \
         > "$dir/$id.prove.log" 2>&1 \
       || echo "$name/$id: expectation '$expect' not met" >> "$ev/errors.txt" ) &
     pids+=($!)

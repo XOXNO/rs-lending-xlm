@@ -137,7 +137,8 @@
      "id": "test_borrow_cap_sticky_wrong",
      "expect": "fail"
     }
-   ]
+   ],
+   "smt_timeout_ms": 60000
   },
   {
    "name": "noop-guards",
@@ -215,7 +216,8 @@
      "id": "test_ray_mul_ceil_wrong",
      "expect": "fail"
     }
-   ]
+   ],
+   "smt_timeout_ms": 60000
   },
   {
    "name": "ray-div-rounding",
@@ -241,7 +243,8 @@
      "id": "test_ray_div_ceil_wrong",
      "expect": "fail"
     }
-   ]
+   ],
+   "smt_timeout_ms": 60000
   },
   {
    "name": "borrow-index",
@@ -255,7 +258,8 @@
      "id": "test_borrow_index_bounds",
      "expect": "pass"
     }
-   ]
+   ],
+   "smt_timeout_ms": 60000
   },
   {
    "name": "index-exact",
@@ -269,7 +273,8 @@
      "id": "test_borrow_index_exact",
      "expect": "pass"
     }
-   ]
+   ],
+   "smt_timeout_ms": 60000
   },
   {
    "name": "controls",
@@ -325,7 +330,8 @@
      "id": "test_utilization_bounds",
      "expect": "pass"
     }
-   ]
+   ],
+   "smt_timeout_ms": 60000
   },
   {
    "name": "utilization-wide",
@@ -347,7 +353,8 @@
      "id": "test_util_wide_round_wrong",
      "expect": "fail"
     }
-   ]
+   ],
+   "smt_timeout_ms": 60000
   },
   {
    "name": "repay-fixed",
@@ -369,7 +376,8 @@
      "id": "test_repay_fixed_wrong",
      "expect": "fail"
     }
-   ]
+   ],
+   "smt_timeout_ms": 60000
   },
   {
    "name": "withdraw-fixed",
@@ -391,7 +399,8 @@
      "id": "test_withdraw_fixed_wrong",
      "expect": "fail"
     }
-   ]
+   ],
+   "smt_timeout_ms": 60000
   },
   {
    "name": "half-two",
