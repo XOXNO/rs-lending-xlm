@@ -134,6 +134,7 @@ SDK `try_` calls distinguish contract errors from host, authorization, storage, 
 | 317 `SpokeAssetFlagRelaxation` | The immediate guardian call or a listing edit tries to clear `paused`, `frozen`, or `no_seize`. | Clear flags through the timelocked `relax_spoke_asset_flags`. |
 | 318 `SpokeAssetSeizureHalted` | A pro-rata collateral seizure leg has no_seize set. | Wait for authorized flag clearance; liquidation has no collateral-selection argument. |
 | 319 `SpokeFlagsEpochMismatch` | A `RelaxSpokeAssetFlags` proposal or `relax_spoke_asset_flags` names a flags epoch other than the listing's current one: a flag write occurred after the relaxation was prepared. | Read `get_spoke_asset_flags_epoch` and the live flags again, then propose a new relaxation. |
+| 320 `SpokeAssetFlagsUnchanged` | `set_spoke_asset_flags` names the flags the listing already holds. A write that changes nothing does not advance the flags epoch. | Nothing to do: the listing is already at least that tight. Name a flag that is not yet set. |
 
 ### Flash-loan errors (400–412)
 

@@ -25,9 +25,11 @@ Do this immediately after the flags are set.
 
 A listing edit proposed before the freeze cannot clear it: the controller
 rejects an edit that turns a set flag off. A relaxation proposed before the
-freeze cannot clear it either, because every flag write advances the listing's
-flags epoch and the old relaxation names the old epoch. Other pending
-operations, such as `Unpause`, still execute as proposed.
+freeze cannot clear it either, because every flag change advances the listing's
+flags epoch and the old relaxation names the old epoch. A guardian call that
+names flags the listing already holds reverts with `SpokeAssetFlagsUnchanged`
+and leaves the epoch alone; the `tightenAssetFlags` verb skips the call in that
+case. Other pending operations, such as `Unpause`, still execute as proposed.
 
 1. The verb prints every operation recorded in `configs/ops/<network>/` with its
    live state. `make <network> listOps` prints the same list. An operation

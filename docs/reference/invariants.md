@@ -58,8 +58,11 @@ clearing restrictions requires a timelock under the repository wiring.
 
 A listing edit and the guardian flag method can only keep or tighten flags.
 Only the timelocked `relax_spoke_asset_flags` clears one, and only while the
-listing's flags epoch equals its `expected_epoch`. The oracle role's immediate
-`set_sanity_band` can only keep or narrow a band.
+listing's flags epoch equals its `expected_epoch`. The guardian flag method
+rejects a call that changes no flag, so the epoch advances at most once per
+flag between relaxations and the guardian cannot invalidate a pending
+relaxation indefinitely. The oracle role's immediate `set_sanity_band` can
+only keep or narrow a band.
 
 <a id="inv-auth-05"></a>
 <a id="inv-auth-05--governance-delay-cannot-be-shortened"></a>

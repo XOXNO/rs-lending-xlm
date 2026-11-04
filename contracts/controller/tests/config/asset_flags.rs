@@ -226,17 +226,17 @@ fn set_spoke_asset_flags_rejects_clearing_no_seize() {
 }
 
 #[test]
-fn flag_ratchet_allows_idempotent_tighten() {
+#[should_panic(expected = "Error(Contract, #320)")]
+fn flag_ratchet_rejects_an_idempotent_tighten() {
     let env = Env::default();
     let contract = env.register(Controller, (Address::generate(&env),));
     let asset = Address::generate(&env);
 
     env.as_contract(&contract, || {
         seed_listing(&env, 1, &asset, true, true, false);
-        // Re-asserting the same flags is not a relaxation.
+        // Re-asserting the same flags is not a relaxation, but it changes
+        // nothing and must not advance the epoch.
         set_spoke_asset_flags(&env, 1, hub(&asset), true, true, false);
-        let cfg = storage::get_spoke_asset(&env, 1, &hub(&asset)).unwrap();
-        assert!(cfg.paused && cfg.frozen);
     });
 }
 
@@ -306,7 +306,7 @@ fn edit_cannot_clear_one_flag_while_raising_another() {
 }
 
 #[test]
-fn guardian_flag_writes_advance_the_epoch_even_when_idempotent() {
+fn guardian_flag_writes_advance_the_epoch_once_per_tightening() {
     let env = Env::default();
     let contract = env.register(Controller, (Address::generate(&env),));
     let asset = Address::generate(&env);
@@ -318,8 +318,12 @@ fn guardian_flag_writes_advance_the_epoch_even_when_idempotent() {
         set_spoke_asset_flags(&env, 1, hub(&asset), false, true, false);
         assert_eq!(epoch(&env, &asset), 1);
 
-        set_spoke_asset_flags(&env, 1, hub(&asset), false, true, false);
+        set_spoke_asset_flags(&env, 1, hub(&asset), true, true, false);
         assert_eq!(epoch(&env, &asset), 2);
+
+        set_spoke_asset_flags(&env, 1, hub(&asset), true, true, true);
+        assert_eq!(epoch(&env, &asset), 3);
+        // Every flag is set: no further guardian write can advance the epoch.
     });
 }
 
