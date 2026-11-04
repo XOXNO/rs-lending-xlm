@@ -651,6 +651,32 @@ fn constructor_rejects_spoke_id_argument_of_the_wrong_type() {
     env.register(Strategy, (asset, args));
 }
 
+/// Registers a USDC strategy on `spoke_id` against a live lending harness.
+fn register_usdc_strategy_on_spoke(t: &LendingTest, spoke_id: u32) {
+    let args: Vec<Val> = vec![
+        &t.env,
+        t.controller.clone().into_val(&t.env),
+        HARNESS_HUB.into_val(&t.env),
+        spoke_id.into_val(&t.env),
+    ];
+    t.env.register(Strategy, (t.resolve_asset("USDC"), args));
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #300)")]
+fn constructor_rejects_a_spoke_that_does_not_exist() {
+    let t = LendingTest::new().with_market(usdc_preset()).build();
+    register_usdc_strategy_on_spoke(&t, HARNESS_SPOKE + 1);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #307)")]
+fn constructor_rejects_a_spoke_that_does_not_list_the_asset() {
+    let t = LendingTest::new().with_market(usdc_preset()).build();
+    t.remove_asset_from_spoke("USDC", HARNESS_SPOKE);
+    register_usdc_strategy_on_spoke(&t, HARNESS_SPOKE);
+}
+
 // ---------------------------------------------------------------------------
 // Every entry point fails closed once the instance `Config` is gone.
 //

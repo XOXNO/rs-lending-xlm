@@ -2,8 +2,9 @@
 #![allow(clippy::too_many_arguments)]
 
 pub use common::types::{
-    AquariusLpSource, AssetOracle, FeedNature, FeedSource, IndependencePolicy, MultiFeedRef,
-    OracleTolerance, PriceKey, PriceSource, ProviderRef, ReflectorFeedRef, ScaledSource,
+    AquariusLpSource, AssetOracle, ChainlinkFeedRef, CurveStableLpSource, FeedNature, FeedSource,
+    IndependencePolicy, MultiFeedRef, OracleTolerance, PriceKey, PriceSource, ProviderRef,
+    ReflectorFeedRef, ScaledSource,
 };
 use common::types::{HubAssetKey, PositionLimits};
 use common::types::{InterestRateModel, MarketParamsRaw};
@@ -205,6 +206,10 @@ pub trait GovernanceInterface {
     fn create_hub(env: Env, caller: Address) -> u32;
 
     fn add_spoke(env: Env, caller: Address) -> u32;
+
+    fn deactivate_position_manager(env: Env, caller: Address, manager: Address);
+
+    fn revoke_blend_pool(env: Env, caller: Address, pool: Address);
 
     fn revoke_role_immediate(env: Env, account: Address, role: Symbol);
 

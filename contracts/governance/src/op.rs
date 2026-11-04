@@ -177,7 +177,6 @@ pub(crate) fn resolve_op(env: &Env, op: &AdminOperation) -> ResolvedOperation {
             ],
             DelayTier::Sensitive,
         ),
-
         AdminOperation::SetSwapAggregator(addr) => {
             validate::require_contract_address(env, addr, OracleError::InvalidAggregator);
             sensitive_controller_operation(
@@ -443,9 +442,12 @@ pub(crate) fn apply_self_op(env: &Env, op: &AdminOperation) {
         AdminOperation::GrantGovRole(args) => {
             access::apply_grant_role(env, &args.account, &args.role)
         }
-        AdminOperation::RevokeGovRole(args) => {
-            access::apply_revoke_role(env, &args.account, &args.role)
-        }
+        AdminOperation::RevokeGovRole(args) => access::apply_revoke_role(
+            env,
+            &args.account,
+            &args.role,
+            &env.current_contract_address(),
+        ),
         AdminOperation::TransferGovOwnership(args) => {
             access::apply_transfer_ownership(env, &args.new_owner, args.live_until_ledger)
         }

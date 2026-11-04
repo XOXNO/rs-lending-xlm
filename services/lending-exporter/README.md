@@ -152,6 +152,11 @@ by accident. Add both scrape jobs from `ops/prometheus.example.yml` to
 Prometheus. Every series except `lending_exporter_simulations_total` carries a
 `network` label.
 
+Deploy a Chainlink-aware exporter before configuring a Chainlink source, then
+upgrade governance and the price aggregator with `make <network> upgradeAll`.
+After a Chainlink config is stored, revert that config before downgrading any of
+these three components to a pre-Chainlink release.
+
 ### Dashboard
 
 Import `ops/grafana-dashboard.json` into Grafana. Its sections are Health

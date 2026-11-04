@@ -563,7 +563,7 @@ fn pack_pool_native(f: &ExtractedFields) -> Vec<Vec<u8>> {
         ],
     ];
 
-    for (base, s1, s2, s3, mid, opt, max, reserve) in params {
+    for (base, s1, s2, s3, mid, opt, flash_fee_raw, reserve) in params {
         for ops in op_sets {
             let mut buf = Vec::with_capacity(82);
             buf.push(base);
@@ -572,7 +572,7 @@ fn pack_pool_native(f: &ExtractedFields) -> Vec<Vec<u8>> {
             buf.extend_from_slice(&s3.to_le_bytes());
             buf.push(mid);
             buf.push(opt);
-            buf.extend_from_slice(&max.to_le_bytes());
+            buf.extend_from_slice(&flash_fee_raw.to_le_bytes());
             buf.push(reserve);
             for (price, dt, kind) in ops {
                 buf.extend_from_slice(&price.to_le_bytes());

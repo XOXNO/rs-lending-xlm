@@ -7,13 +7,16 @@ use common::errors::GenericError;
 use common::math::fp::Ray;
 use common::rates::{unscale_borrow, unscale_supply};
 use common::types::{
-    AccountAttributes, AccountPositionRaw, DebtPositionRaw, HubAssetKey, HubPayment,
+    Account, AccountAttributes, AccountPositionRaw, DebtPositionRaw, HubAssetKey, HubPayment,
     LiquidationEstimate, MarketIndexView, PaymentTuple, PriceStatus, SeizeMode,
 };
 use soroban_sdk::{assert_with_error, Env, Map, Vec};
 
 use crate::external::price_aggregator::fetch_prices_status;
-use crate::positions::liquidation::{build_liquidation_plan, split_seized_shares};
+use crate::positions::liquidation::apply::require_credit_position_limit;
+use crate::positions::liquidation::{
+    build_liquidation_plan, load_credit_receiver, split_seized_shares,
+};
 use crate::storage;
 
 /// Fails with `InvalidPayments` when `values` has more than `MAX_VIEW_INPUTS` entries.
@@ -196,6 +199,9 @@ pub(crate) fn get_all_market_indexes_detailed(
 /// reports RAY-scaled supply shares (what would leave the liquidated account and what would be
 /// reclassified as revenue). In credit mode the liquidator receives
 /// `seized_collaterals - protocol_fees` shares.
+///
+/// A `Credit` receiver must pass execution's spoke, mode, position-limit and
+/// whole-unit isolation gates; the owner-or-delegate check needs a caller and is skipped.
 pub(crate) fn liquidation_estimations_detailed(
     env: &Env,
     account_id: u64,
@@ -207,6 +213,19 @@ pub(crate) fn liquidation_estimations_detailed(
     let account = storage::get_account(env, account_id);
 
     let result = build_liquidation_plan(env, &account, debt_payments, &mut cache).into_result();
+    if let SeizeMode::Credit(requested) = seize_mode {
+        // `Credit(0)` would create an empty receiver; model it without minting.
+        let receiver = if requested == 0 {
+            Account {
+                supply_positions: Map::new(env),
+                borrow_positions: Map::new(env),
+                ..account.clone()
+            }
+        } else {
+            load_credit_receiver(env, account_id, &account, requested)
+        };
+        require_credit_position_limit(env, &receiver, &result.seized, requested == 0, &mut cache);
+    }
 
     let mut seized_collaterals = Vec::new(env);
     let mut protocol_fees = Vec::new(env);

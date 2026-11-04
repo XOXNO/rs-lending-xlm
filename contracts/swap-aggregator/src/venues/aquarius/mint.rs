@@ -7,8 +7,9 @@ use soroban_sdk::{
 
 use crate::errors::Error;
 use crate::vault::Vault;
-use crate::venues::aquarius::pool::{assert_share_token, pool_tokens, to_u128};
+use crate::venues::aquarius::pool::{assert_share_token, get_tokens, to_u128};
 use crate::venues::auth::auth_entry;
+use crate::venues::pool_tokens;
 
 /// Offers the vault's full balance of each pool constituent to the pool, debits
 /// the measured amounts spent, and credits the measured LP shares. Returns the
@@ -26,7 +27,7 @@ pub(crate) fn add_liquidity(
     min_shares: i128,
     cache: &mut Map<Address, Vec<Address>>,
 ) -> i128 {
-    let tokens = pool_tokens(env, cache, pool);
+    let tokens = pool_tokens(env, cache, pool, get_tokens);
     assert_share_token(env, pool, lp_token);
     if min_shares <= 0 {
         panic_with_error!(env, Error::MinSharesNotMet);

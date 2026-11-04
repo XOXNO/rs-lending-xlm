@@ -80,34 +80,32 @@ impl SourceProperties {
     }
 }
 
-/// A source's own (non-recursive) properties paired with the `PriceKey`s it
-/// depends on, without resolving those dependencies.
-pub(crate) struct LocalProperties {
-    pub local: SourceProperties,
-    pub dependencies: Vec<PriceKey>,
+/// Returns the `PriceKey`s `source` depends on, without resolving them: none
+/// for a plain feed, the quote key for a scaled source, and every constituent
+/// key for an LP source (Aquarius or Curve).
+pub(crate) fn dependencies(env: &Env, source: &PriceSource) -> Vec<PriceKey> {
+    match source {
+        PriceSource::Feed(_) => Vec::new(env),
+        PriceSource::Scaled(scaled) => Vec::from_array(env, [scaled.quote.clone()]),
+        PriceSource::AquariusLp(lp) | PriceSource::AquariusStableLp(lp) => {
+            Vec::from_array(env, [lp.key_a.clone(), lp.key_b.clone()])
+        }
+        PriceSource::CurveStableLp(lp) => Vec::from_iter(env, lp.coins.iter().map(PriceKey::Token)),
+    }
 }
 
-/// Computes the local `SourceProperties` and dependency keys of `source`
-/// without recursing into those dependencies: a plain feed has no
-/// dependencies; a scaled source depends on its quote key; an Aquarius LP
-/// source (standard or stable) is marked as an unsmoothed market leg and
-/// depends on both of its paired keys.
-pub(crate) fn local_properties(env: &Env, source: &PriceSource) -> LocalProperties {
+/// Computes the local `SourceProperties` of `source` without recursing into
+/// its dependencies. An LP source (Aquarius or Curve) is an unsmoothed market
+/// leg with no trusted contract of its own.
+pub(crate) fn local_properties(env: &Env, source: &PriceSource) -> SourceProperties {
     match source {
-        PriceSource::Feed(feed) => LocalProperties {
-            local: SourceProperties::of_feed(env, feed),
-            dependencies: Vec::new(env),
-        },
-        PriceSource::Scaled(scaled) => LocalProperties {
-            local: SourceProperties::of_feed(env, &scaled.factor),
-            dependencies: Vec::from_array(env, [scaled.quote.clone()]),
-        },
-        PriceSource::AquariusLp(lp) | PriceSource::AquariusStableLp(lp) => LocalProperties {
-            local: SourceProperties {
-                has_unsmoothed_market_leg: true,
-                ..SourceProperties::empty(env)
-            },
-            dependencies: Vec::from_array(env, [lp.key_a.clone(), lp.key_b.clone()]),
+        PriceSource::Feed(feed) => SourceProperties::of_feed(env, feed),
+        PriceSource::Scaled(scaled) => SourceProperties::of_feed(env, &scaled.factor),
+        PriceSource::AquariusLp(_)
+        | PriceSource::AquariusStableLp(_)
+        | PriceSource::CurveStableLp(_) => SourceProperties {
+            has_unsmoothed_market_leg: true,
+            ..SourceProperties::empty(env)
         },
     }
 }
@@ -124,10 +122,9 @@ pub(crate) fn properties_of_source(
     let env = session.env().clone();
     require_depth(&env, depth);
 
-    let described = local_properties(&env, source);
-    let mut properties = described.local;
+    let mut properties = local_properties(&env, source);
 
-    for key in described.dependencies.iter() {
+    for key in dependencies(&env, source).iter() {
         let dependency = properties_of_key(session, &key, depth + 1);
         properties = properties.join(&dependency);
     }

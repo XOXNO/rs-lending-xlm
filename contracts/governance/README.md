@@ -20,13 +20,20 @@ are in its rustdoc.
   sidecar and a canceller reset writes a `RecoveryOp` sidecar. Execute and
   cancel remove the entry and its sidecars.
 - The operation id is `hash_operation(target, function, args, predecessor,
-  salt)`. `predecessor` is always 32 zero bytes; a new `salt` gives a
-  re-proposed op a new id.
+  salt)`. `predecessor` is always 32 zero bytes. The salt only separates
+  operations that are pending at the same time: a new `salt` gives a
+  re-proposed op a new id while the earlier one is still queued. It does not
+  mark an id as used. Execute and cancel remove the entry, and nothing records
+  that an id ran, so the same op with the same salt can be proposed and
+  executed again once its delay passes. As with any new proposal, the
+  timelock delay and the cancellers are what stop a repeat of an executed
+  change.
 - An op executes once ready and before it expires. `execute` runs ops that
   target another contract; `execute_self` runs ops that target governance.
 - The owner must be the proposer for: ownership, upgrade, migration, delay
-  (`UpdateGovDelay`), oracle, swap-aggregator, Blend approval, accumulator and
-  role-grant ops.
+  (`UpdateGovDelay`), oracle, swap-aggregator, Blend approval, accumulator,
+  role-grant and position-manager activation ops. Any proposer can schedule a
+  position-manager deactivation; a GUARDIAN can also apply it immediately.
 
 ## Entrypoints
 
@@ -52,6 +59,7 @@ Recovery delay and cannot be cancelled.
 | `pause(caller)` | `GUARDIAN` | Pauses the controller |
 | `set_spoke_asset_flags(caller, spoke_id, hub_asset, paused, frozen, no_seize)` | `GUARDIAN` | Tightens a listing's halt flags (see below) |
 | `create_hub(caller) -> u32`, `add_spoke(caller) -> u32` | `GUARDIAN` | Creates a controller hub or spoke |
+| `deactivate_position_manager(caller, manager)`, `revoke_blend_pool(caller, pool)` | `GUARDIAN` | Withdraws a position manager or a Blend migration source; activation and approval stay timelocked |
 | `set_sanity_band(caller, key, min_wad, max_wad)` | `ORACLE` | Narrows an aggregator price band; a wider band reverts `SanityBandMustTighten` |
 | `revoke_role_immediate(account, role)` | owner | Strips `GUARDIAN` or `ORACLE` from `account` |
 

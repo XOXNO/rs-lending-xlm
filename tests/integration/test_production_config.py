@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Offline policy/decimal assertions; no network or signing keys required."""
+import hashlib
 import json
 import shutil
 import subprocess
@@ -9,10 +10,126 @@ import unittest
 from copy import deepcopy
 from pathlib import Path
 
-from production_config import CALLER_MARKETS, decimal_cases, fixture_price, full, lending_case, load, materialize, plan, policy_checks, verify_equal, verify_price
+from production_config import CALLER_MARKETS, CURVE_FIXTURES, decimal_cases, fixture_price, full, lending_case, load, materialize, plan, policy_checks, verify_equal, verify_price
 
 
 class ProductionPolicyChecks(unittest.TestCase):
+    def test_curve_replay_deploys_pinned_fixture_or_rejects_unknown_hash(self):
+        source = Path(__file__).resolve().parents[2] / 'configs' / 'mainnet'
+        hashes = {n: hashlib.sha256((CURVE_FIXTURES / f'pool-{n}coin.wasm').read_bytes()).hexdigest() for n in (2, 3)}
+        pool = 'C' + 'Q' * 55
+        with tempfile.TemporaryDirectory() as directory:
+            root, out = Path(directory) / 'src', Path(directory) / 'out'
+            shutil.copytree(source, root)
+            markets, spokes = load(root, 'markets.json'), load(root, 'spokes.json')
+            by_name = {m['name']: m for m in markets['markets']}
+            coins = [by_name[n]['asset_address'] for n in ('USDC', 'USDT0')]
+            lp = deepcopy(by_name['USDC'])
+            lp.update(name='CurveLP', asset_address=pool)
+            # Band midpoint (1.1) differs from the coin-derived price (1.0).
+            lp['oracle'].update(asset_decimals=18, min_sanity_price_wad=str(9 * 10**17), max_sanity_price_wad=str(13 * 10**17), sources=[{'CurveStableLp': {'pool': pool, 'coins': coins,
+                'wasm_hash': hashes[2].upper(), 'min_pool_value_wad': '1000000000000000000000000'}}])
+            # Listed first as 18-decimal collateral: decimal_cases must still skip it.
+            markets['markets'].insert(0, lp)
+            spokes['1']['assets'] = {'CurveLP': dict(spokes['1']['assets']['USDC'], can_be_borrowed=False,
+                borrow_cap='0', supply_cap=str(10**30)), **spokes['1']['assets']}
+            reviewed = lambda *hs: (root / 'curve_reviewed_pools.json').write_text(json.dumps({'pools': [
+                dict(wasm_hash=h, source_repo='r', source_commit='c', review='v', expected_factory='f') for h in hs]}))
+            def write(source_hash, coin_list=coins):
+                lp['oracle']['sources'][0]['CurveStableLp'].update(wasm_hash=source_hash, coins=coin_list)
+                (root / 'markets.json').write_text(json.dumps(markets))
+                (root / 'spokes.json').write_text(json.dumps(spokes))
+            # The source network's allowlist is checked before any fixture is chosen or deployed.
+            write(hashes[2].upper())
+            with self.assertRaisesRegex(ValueError, hashes[2] + ' is not in .*curve_reviewed_pools.json'):
+                plan(root)
+            reviewed(hashes[3])
+            with self.assertRaisesRegex(ValueError, hashes[2] + ' is not in .*curve_reviewed_pools.json'):
+                plan(root)
+            reviewed('ab' * 32, hashes[2], hashes[3])
+            for bad, message in (('ab' * 32, 'ab' * 32 + ' has no fixture.*reviewed pool WASM'),
+                                 (hashes[3], 'pool-3coin.wasm does not take 2 coins')):
+                write(bad)
+                with self.assertRaisesRegex(ValueError, message):
+                    plan(root)
+            write(hashes[2].upper())
+            definitions = plan(root)
+            self.assertEqual(definitions[pool], dict(kind='curve_pool', wasm='pool-2coin.wasm', coins=coins, decimals=18, name='CurveLP'))
+            with self.assertRaisesRegex(AssertionError, 'dropped market'):
+                plan(root, ('CurveLP', 'USDC'))
+            mapping = {address: f'fixture-{i}' for i, address in enumerate(definitions)}
+            materialize(root, out, mapping, 'testnet')
+            self.assertEqual((out / 'curve_reviewed_pools.json').read_bytes(), (root / 'curve_reviewed_pools.json').read_bytes())
+            fixtures = load(out, 'fixtures.json')
+            self.assertEqual(fixtures['curve_pools'], [dict(contract=mapping[pool], wasm='pool-2coin.wasm', wasm_hash=hashes[2].upper(),
+                coins=[mapping[c] for c in coins], coin_decimals=[7, 7], amounts=[str(10**15)] * 2)])
+            key = {'Token': mapping[pool]}
+            price = fixture_price(out, key)
+            self.assertEqual(price, min(fixture_price(out, {'Token': mapping[c]}) for c in coins))
+            quote = {json.dumps(key, sort_keys=True): {'price_wad': str(price), 'asset_decimals': 18, 'timestamp': 1}}
+            verify_price(out, 'CurveLP', quote)
+            self.assertEqual(fixtures['prices'][json.dumps(key, sort_keys=True)], str(price))
+            networks = {'testnet': {'spoke_ids': {k: int(k) + 20 for k in load(out, 'spokes.json')}}}
+            self.assertNotIn('CurveLP', [case['name'] for case in decimal_cases(out, networks)])
+            imbalanced = deepcopy(fixtures)
+            imbalanced['curve_pools'][0]['amounts'][1] = str(2 * 10**15)
+            (out / 'fixtures.json').write_text(json.dumps(imbalanced))
+            with self.assertRaisesRegex(AssertionError, 'balanced deposit'):
+                fixture_price(out, key)
+            # Shell side: the pool deploys over the mapped coins and is seeded with the fixture amounts.
+            body = r'''
+set -uo pipefail
+source "$1"
+ADMIN=admin; ADMIN_ADDR=GADMIN; CURVE_FIXTURE_DIR=/curve; LOG_DIR="$2"; NET_ARGS=(--network local)
+RES_INSTR=; RES_READ=; RES_WRITE=; RES_FEE=
+job_log() { printf '%s/%s\n' "$LOG_DIR" "$1"; }
+run_deploy() { printf '%s\n' "${@:4}" > "$LOG_DIR/deploy.args"; echo '"CDEPLOYED"' > "$1"; }
+sanitize_output() { tr -d '"\n' < "$1"; }
+extract_signing_hash() { :; }; record() { :; }; is_contract_id() { [ "$1" = CDEPLOYED ]; }
+inv() { printf '%s\n' "$*" >> "$LOG_DIR/inv.log"; }
+prod_curve_pool_job "$3" "$4" 7 && prod_curve_seed "$5"
+'''
+            (out / 'map.json').write_text(json.dumps(mapping))
+            row = json.dumps({'key': pool, 'value': definitions[pool]})
+            script = Path(__file__).resolve().parent / 'flows/production.sh'
+            result = subprocess.run(['bash', '-c', body, '_', str(script), str(out), row, str(out / 'map.json'),
+                                     json.dumps(fixtures['curve_pools'][0])], capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(result.stdout.splitlines()[-1], f'{pool} CDEPLOYED')
+            argv = (out / 'deploy.args').read_text().splitlines()
+            self.assertEqual(argv[argv.index('--wasm') + 1], '/curve/pool-2coin.wasm')
+            self.assertEqual(argv[argv.index('--source') + 1], 'admin')
+            args = json.loads(argv[argv.index('--args') + 1])
+            self.assertEqual((args['tokens'], args['factory'], args['asset_types'], args['name']),
+                             ([mapping[c] for c in coins], 'GADMIN', [0, 0], 'CurveLP'))
+            calls = (out / 'inv.log').read_text().splitlines()
+            self.assertEqual([c.split()[2:] for c in calls], [
+                [mapping[coins[0]], '--', 'mint', '--to', 'GADMIN', '--amount', str(10**15)],
+                [mapping[coins[1]], '--', 'mint', '--to', 'GADMIN', '--amount', str(10**15)],
+                [mapping[pool], '--', 'add_liquidity', '--caller', 'GADMIN', '--amounts', json.dumps([str(10**15)] * 2, separators=(',', ':')),
+                 '--min_mint', '0', '--receiver', 'GADMIN']])
+
+    def test_mainnet_usdt0_uses_chainlink_and_redstone(self):
+        config = Path(__file__).resolve().parents[2] / 'configs'
+        markets = load(config / 'mainnet', 'markets.json')
+        networks = json.loads((config / 'networks.json').read_text())
+        self.assertEqual(
+            networks['mainnet']['chainlink_data_feeds_proxy'],
+            'CDQBHEUGLDHMSUHG4IH33RJBUTMNCZOT4JIAQR4WZFRDZW6DR6S32ZLZ',
+        )
+        usdt0 = next(m for m in markets['markets'] if m['name'] == 'USDT0')
+        feeds = [source['Feed'] for source in usdt0['oracle']['sources']]
+        providers = {next(iter(feed['provider'])): feed for feed in feeds}
+
+        self.assertEqual(set(providers), {'Chainlink', 'RedStone'})
+        chainlink = providers['Chainlink']
+        self.assertEqual(chainlink['provider']['Chainlink'], {
+            'contract': networks['mainnet']['chainlink_data_feeds_proxy'],
+            'data_id': '016d06ebb6000332000000000000000000000000000000000000000000000000',
+        })
+        self.assertEqual((chainlink['decimals'], chainlink['max_stale_seconds']), (18, 93_600))
+        self.assertEqual(providers['RedStone']['provider']['RedStone']['nature'], 'Fundamental')
+
     def test_operator_refreshes_expired_fixture_twap_after_setup(self):
         script = Path(__file__).resolve().parent / 'flows/production.sh'
         seeds = [dict(kind='Reflector', contract='R', asset={'Other': 'XLM'}, price='525000000000000000'),
@@ -133,7 +250,7 @@ flow_production_operator
         source = Path(__file__).resolve().parents[2] / 'configs' / 'mainnet'
         complete, filtered = plan(source), plan(source, CALLER_MARKETS)
         self.assertLessEqual(set(filtered), set(complete))
-        self.assertLessEqual({'Reflector', 'RedStone', 'Xoxno', 'token', 'pool'}, {d['kind'] for d in filtered.values()})
+        self.assertLessEqual({'Reflector', 'RedStone', 'Xoxno', 'Chainlink', 'token', 'pool'}, {d['kind'] for d in filtered.values()})
         self.assertLessEqual(len(complete) + 1, 99)
         mapping = {address: f'fixture-{i}' for i, address in enumerate(complete)}
         with tempfile.TemporaryDirectory() as directory:

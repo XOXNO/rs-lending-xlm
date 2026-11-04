@@ -38,7 +38,7 @@
 
 SHELL := /bin/bash
 .PHONY: \
-        build build-one optimize deploy-artifacts release-artifacts integration-wasm integration-preflight integration-validate integration-shellcheck integration-appendix certora-wasm wasm-artifacts \
+        build build-one optimize deploy-artifacts release-artifacts integration-wasm integration-preflight integration-validate integration-shellcheck integration-appendix certora-wasm komet-verify wasm-artifacts \
         certora certora-list \
         test test-harness test-verbose test-one test-match test-pool \
         miri-common miri-pool miri-controller miri-all \
@@ -229,6 +229,10 @@ release-artifacts:
 # Without names the prover inlines the limb arithmetic of every i128 multiply
 # and divide instead (docs/explanation/certora-sunbeam-prover-tuning.md,
 # "Check the artifact before tuning").
+# Re-check committed Komet server evidence (hashes, graphs, Lean) without re-proving.
+komet-verify:
+	REBUILD=$(REBUILD) bash komet/pipeline/scripts/verify-evidence.sh
+
 certora-wasm:
 	@set -euo pipefail; \
 	mkdir -p $(CERTORA_WASM_DIR) $(CERTORA_BUILD_DIR); \
@@ -619,6 +623,8 @@ ops-script-check:
 	@bash scripts/check_spoke_script_guards.sh
 	@bash scripts/check_setup_wave.sh
 	@bash scripts/check_script_verbs.sh "$(ALL_ACTIONS)" "$(MAKEFILE_ACTIONS)"
+	@python3 scripts/test_check_lender_envelope.py
+	@python3 scripts/check_lender_envelope.py mainnet
 
 
 
@@ -799,6 +805,7 @@ MUTANTS_POOL_WASM := $(abspath $(RELEASE_DIR)/pool.wasm)
 MUTANTS_CONTROLLER_WASM := $(abspath $(RELEASE_DIR)/controller.wasm)
 MUTANTS_PRICE_AGGREGATOR_WASM := $(abspath $(RELEASE_DIR)/price_aggregator.wasm)
 MUTANTS_POSITION_NFT_WASM := $(abspath $(RELEASE_DIR)/position_nft.wasm)
+MUTANTS_SWAP_AGGREGATOR_WASM := $(abspath $(RELEASE_DIR)/swap_aggregator.wasm)
 
 
 
@@ -807,7 +814,8 @@ MUTANTS_ENV = PROPTEST_CASES=1 PROPTEST_RNG_SEED=0 \
 	POOL_WASM_PATH="$(MUTANTS_POOL_WASM)" \
 	CONTROLLER_WASM_PATH="$(MUTANTS_CONTROLLER_WASM)" \
 	PRICE_AGGREGATOR_WASM_PATH="$(MUTANTS_PRICE_AGGREGATOR_WASM)" \
-	POSITION_NFT_WASM_PATH="$(MUTANTS_POSITION_NFT_WASM)"
+	POSITION_NFT_WASM_PATH="$(MUTANTS_POSITION_NFT_WASM)" \
+	SWAP_AGGREGATOR_WASM_PATH="$(MUTANTS_SWAP_AGGREGATOR_WASM)"
 
 define run_mutants
 	@count=$$(cargo mutants $(1) $(MUTANTS_FILTER) --list | wc -l); \
@@ -919,7 +927,8 @@ ifeq ($(MUTANTS_FIXTURES_PREBUILT),)
 	rm -rf $(CARGO_TARGET_DIR)/$(WASM_TARGET)
 	$(MAKE) build
 else
-	@for w in "$(MUTANTS_POOL_WASM)" "$(MUTANTS_CONTROLLER_WASM)" "$(MUTANTS_PRICE_AGGREGATOR_WASM)" "$(MUTANTS_POSITION_NFT_WASM)"; do \
+	@for w in "$(MUTANTS_POOL_WASM)" "$(MUTANTS_CONTROLLER_WASM)" "$(MUTANTS_PRICE_AGGREGATOR_WASM)" "$(MUTANTS_POSITION_NFT_WASM)" \
+		"$(MUTANTS_SWAP_AGGREGATOR_WASM)"; do \
 		[ -s "$$w" ] || { echo "prebuilt fixture missing or empty: $$w"; exit 1; }; \
 	done
 	@[ -s "$(RELEASE_DIR)/SHA256SUMS" ] \
@@ -1069,8 +1078,8 @@ install-stellar-cli:
 
 
 
-FUZZ_TARGETS := fp_math rates_and_index fp_ops
-FUZZ_CONTRACT_TARGETS := flow_e2e flow_strategy pool_native aggregator
+FUZZ_TARGETS := fp_math rates_and_index fp_ops oracle_math
+FUZZ_CONTRACT_TARGETS := flow_e2e flow_strategy pool_native aggregator oracle_sources xoxno_oracle
 FUZZ_TIME ?= 60
 FUZZ_MAX_LEN ?= 256
 FUZZ_LEN_CONTROL ?= 0
@@ -1405,7 +1414,8 @@ upgrade-pool: _preflight-controller _preflight-governance $(CORE_WASM)
 		$(CONFIG_DIR)/networks.json > $$TMP_JSON && mv $$TMP_JSON $(CONFIG_DIR)/networks.json
 
 
-upgrade-all: upgrade-pool upgrade-governance upgrade-controller _unpause-after-setup _post-setup-status
+.NOTPARALLEL: upgrade-all
+upgrade-all: upgrade-pool upgrade-price-aggregator upgrade-governance upgrade-controller _unpause-after-setup _post-setup-status
 
 
 
@@ -1951,9 +1961,9 @@ POSITIONAL_ACCOUNT_ACTIONS := getHealth getAccount getCollateralUsd getBorrowUsd
                               getLtvUsd getLiqAvailable canLiquidate
 POSITIONAL_ACCOUNT_MARKET_ACTIONS := getCollateral getBorrow maxWithdraw maxSupply maxBorrow
 POSITIONAL_ACCOUNT_ROLE_ACTIONS := hasRole grantGovRole revokeGovRole
-REFLECTOR_PROBE_ACTIONS := queryReflector queryReflectorPrice queryReflectorTwap queryRedStone
+ORACLE_PROBE_ACTIONS := queryReflector queryReflectorPrice queryReflectorTwap queryRedStone queryChainlink
 VARARG_ACTIONS := updateIndexes claimRevenue supply borrow withdraw getLiquidationEstimate \
-	claimAggregatorAdminFees sweepAggregatorBalance tightenAssetFlags relaxAssetFlags
+	claimAggregatorAdminFees claimAggregatorReferralFees sweepAggregatorBalance tightenAssetFlags relaxAssetFlags
 
 
 
@@ -1964,7 +1974,7 @@ MAKEFILE_ACTIONS := deploy upgradeController upgradeGovernance upgradePool upgra
 ALL_ACTIONS := $(SIMPLE_ACTIONS) $(POSITIONAL_MARKET_ACTIONS) $(POSITIONAL_ID_ACTIONS) \
                $(POSITIONAL_ID_ASSET_ACTIONS) $(POSITIONAL_ACCOUNT_ACTIONS) \
                $(POSITIONAL_ACCOUNT_MARKET_ACTIONS) $(POSITIONAL_ACCOUNT_ROLE_ACTIONS) \
-               $(REFLECTOR_PROBE_ACTIONS) $(VARARG_ACTIONS) $(MAKEFILE_ACTIONS)
+               $(ORACLE_PROBE_ACTIONS) $(VARARG_ACTIONS) $(MAKEFILE_ACTIONS)
 
 .PHONY: $(ALL_ACTIONS)
 
@@ -2138,7 +2148,7 @@ help:
 	$(call ROW,make help-deploy,setup | upgrades | mainnet env | flash receiver)
 	$(call ROW,make help-ops,governance | markets | spokes | positions | control)
 	$(call ROW,make help-views,read-only probes (controller + pool))
-	$(call ROW,make help-oracle,adapter | feeds | Reflector | RedStone)
+	$(call ROW,make help-oracle,adapter | feeds | Reflector | RedStone | Chainlink)
 	$(call ROW,make help-aggregator,swap aggregator admin + ownership)
 	$(call ROW,make help-all,print every topic (grep-friendly))
 	$(call BLANK)
@@ -2188,6 +2198,7 @@ help-verify:
 	$(call ROW,make certora,cloud jobs (CERTORA_PROFILE=sanity))
 	$(call ROW,make certora-list,list Certora profiles)
 	$(call ROW,make certora-wasm,build Certora-feature WASM first)
+	$(call ROW,make komet-verify,re-check committed Komet proofs (REBUILD=1))
 	$(call BLANK)
 
 
@@ -2359,6 +2370,7 @@ help-oracle:
 	$(call NOTE,make <n> queryReflectorPrice C other|stellar ASSET     (lastprice))
 	$(call ROW,make <n> queryReflectorTwap C other ASSET N,prices history)
 	$(call NOTE,make <n> queryRedStone FEED_ID [adapter])
+	$(call NOTE,make <n> queryChainlink DATA_ID [proxy] [decimals=18])
 	$(call BLANK)
 
 
@@ -2380,6 +2392,7 @@ help-aggregator:
 	$(call NOTE,setAggregatorReferralFee ID BPS | setAggregatorReferralActive ID BOOL)
 	$(call NOTE,setAggregatorReferralOwner ID NEW_OWNER)
 	$(call NOTE,claimAggregatorAdminFees RECIPIENT TOKEN...)
+	$(call NOTE,claimAggregatorReferralFees ID TOKEN...  (any signer; pays referral owner))
 	$(call NOTE,sweepAggregatorBalance RECIPIENT TOKEN...)
 	$(call BLANK)
 	$(call H2,Ownership (OZ Ownable two-step))

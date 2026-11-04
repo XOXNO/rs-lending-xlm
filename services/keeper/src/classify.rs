@@ -86,6 +86,8 @@ pub fn contract_label(
         (ids.price_aggregator, "price_aggregator"),
         (ids.xoxno_oracle_adapter, "xoxno_oracle_adapter"),
         (ids.flash_receiver, "flash_loan_receiver"),
+        (ids.redstone_adapter, "redstone_adapter"),
+        (ids.swap_router, "swap_router"),
         (pool_id.copied(), "pool"),
         (position_nft_id.copied(), "position_nft"),
     ];
@@ -185,6 +187,8 @@ mod tests {
             governance: Some(GOV),
             xoxno_oracle_adapter: None,
             price_aggregator: Some(AGG),
+            redstone_adapter: None,
+            swap_router: None,
         }
     }
 
@@ -279,6 +283,28 @@ mod tests {
             contract_label(&agg_key, &ids(), None, None),
             "price_aggregator"
         );
+    }
+
+    #[test]
+    fn shipped_dependency_instances_are_named() {
+        use crate::config::KeeperConfig;
+        use crate::keys::contract_instance_key;
+
+        for network in ["mainnet", "testnet"] {
+            let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join(format!("config/{network}.yaml"));
+            let config = KeeperConfig::load(&path).unwrap();
+            let ids = ContractIds::resolve(&config.contracts).unwrap();
+            for (id, label) in [
+                (ids.redstone_adapter.unwrap(), "redstone_adapter"),
+                (ids.swap_router.unwrap(), "swap_router"),
+            ] {
+                assert_eq!(
+                    contract_label(&contract_instance_key(&id), &ids, None, None),
+                    label
+                );
+            }
+        }
     }
 
     /// The pool id comes from the controller instance, not the config. A pool

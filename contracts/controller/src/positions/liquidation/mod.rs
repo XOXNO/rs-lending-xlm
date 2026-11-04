@@ -82,7 +82,13 @@ pub(crate) fn process_liquidation(
             apply::apply_liquidation_seizures(env, liquidator, &mut account, &seized, &mut cache)
         }
         Some((_, receiving_account)) => {
-            apply::require_credit_position_limit(env, receiving_account, &seized, &mut cache);
+            apply::require_credit_position_limit(
+                env,
+                receiving_account,
+                &seized,
+                seize_mode == SeizeMode::Credit(0),
+                &mut cache,
+            );
             apply::apply_liquidation_share_credit(
                 env,
                 &mut account,
@@ -169,6 +175,20 @@ fn resolve_seize_receiver(
         ));
     }
 
+    let receiver = load_credit_receiver(env, account_id, account, requested);
+    account::require_owner_or_delegate(env, requested, liquidator, &receiver.owner);
+
+    Some((requested, receiver))
+}
+
+/// Loads an existing credit receiver and applies the gates that need no
+/// caller: not the liquidated account, same spoke, `Normal` mode.
+pub(crate) fn load_credit_receiver(
+    env: &Env,
+    account_id: u64,
+    account: &Account,
+    requested: u64,
+) -> Account {
     // Crediting the same account would undo the seizure.
     assert_with_error!(
         env,
@@ -177,7 +197,6 @@ fn resolve_seize_receiver(
     );
 
     let receiver = storage::get_account(env, requested);
-    account::require_owner_or_delegate(env, requested, liquidator, &receiver.owner);
     assert_with_error!(
         env,
         receiver.spoke_id == account.spoke_id,
@@ -188,8 +207,7 @@ fn resolve_seize_receiver(
         receiver.mode == PositionMode::Normal,
         GenericError::AccountModeMismatch
     );
-
-    Some((requested, receiver))
+    receiver
 }
 
 /// Authorizes permissionless dust-gated cleanup outside flash loans.

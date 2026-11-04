@@ -46,9 +46,9 @@ cargo +nightly fuzz run --fuzz-dir . flow_e2e --sanitizer=thread -Zbuild-std -- 
 
 | Layer | Location | Purpose |
 |---|---|---|
-| Function fuzzing | `tests/fuzz/fuzz_targets/fp_math.rs`, `rates_and_index.rs`, `fp_ops.rs` | Pure math, rounding, overflow, rates, and index transitions (scaled balances, supply-index floor on bad debt). Fast and cheap. |
-| Native pool fuzzing | `tests/fuzz/fuzz_targets/pool_native.rs` | Pool supply, borrow, withdraw, repay, index and parameter updates, revenue claim, seizure, strategy creation, and views, against reserve invariants (tracked cash ≤ token balance, revenue ≤ supplied). |
-| Oracle fuzzing | `tests/fuzz/fuzz_targets/aggregator.rs` | Price-aggregator resolution against arbitrary prices, ages, tolerances and sanity bands, on both single- and dual-source configurations. |
+| Function fuzzing | `tests/fuzz/fuzz_targets/fp_math.rs`, `rates_and_index.rs`, `fp_ops.rs`, `oracle_math.rs` | Pure math, rounding, overflow, rates, index transitions (scaled balances, supply-index floor on bad debt), and LP fair pricing. Fast and cheap. |
+| Native pool fuzzing | `tests/fuzz/fuzz_targets/pool_native.rs` | Pool supply, borrow, withdraw, repay, index and parameter updates, revenue claim, seizure, strategy creation, flash loan, net settle, recapitalize, and views, with indexes optionally pinned near their caps, against reserve invariants (tracked cash ≤ token balance, revenue ≤ supplied). |
+| Oracle fuzzing | `tests/fuzz/fuzz_targets/aggregator.rs`, `oracle_sources.rs`, `xoxno_oracle.rs` | Price-aggregator resolution against arbitrary prices, ages, tolerances and sanity bands, on single- and dual-source configurations; every provider and source shape (feed, scaled, Aquarius LP) with injected faults; and the XOXNO oracle against a reference model. |
 | Protocol flow fuzzing | `tests/fuzz/fuzz_targets/flow_e2e.rs`, `flow_strategy.rs` | Fixed-width byte op streams for multi-asset user flows, liquidations, bad-debt cleanup, flash-loan failure paths, strategy routes, zero controller residual balance, and rollback behavior. |
 | Property tests | `tests/test-harness/tests/fuzz/` | Proptest suites for accounting conservation, strategy invariants, budget metering, `migrate_from_blend` reconciliation, and liquidation differentials vs reference, plus deterministic auth matrices. |
 | Miri | `common/tests/math/fp_core.rs` | Undefined-behavior checks for the pure i128 helpers `rescale_half_up`, `rescale_floor`, `rescale_ceil`, and `div_by_int_half_up`. |
@@ -62,6 +62,7 @@ cargo +nightly fuzz run --fuzz-dir . flow_e2e --sanitizer=thread -Zbuild-std -- 
 | `fp_math` | `mul_div_half_up`, `div_by_int_half_up`, `rescale_half_up`. |
 | `rates_and_index` | Borrow and deposit rates, compound interest, index accrual, supplier rewards, protocol fee split. |
 | `fp_ops` | `Ray`, `Wad`, and `Bps` operations, directed rounding of the `mul_div_*` primitives, and exact `BigRational` checks of `position_value*`, `resolve_repay`, `resolve_withdrawal`, and `resolve_net_settle`. |
+| `oracle_math` | Constant-product and StableSwap LP fair pricing against independent bounds (leg-order symmetry, book value, D bounds, amp monotonicity), and `isqrt_of_product`. |
 
 `make fuzz-contract` runs:
 
@@ -69,8 +70,10 @@ cargo +nightly fuzz run --fuzz-dir . flow_e2e --sanitizer=thread -Zbuild-std -- 
 |---|---|
 | `flow_e2e` | Supply, borrow, withdraw, repay, liquidation, flash-loan failure/success paths, oracle jitter, index sync, revenue claim, bad-debt cleanup. |
 | `flow_strategy` | `multiply`, `swap_debt`, `swap_collateral`, `repay_debt_with_collateral`, and index sync. The controller holds no token balance after a strategy op. |
-| `pool_native` | Native pool state transitions and view invariants. |
+| `pool_native` | Native pool state transitions and view invariants, including flash loan (needs `flash_loan_receiver.wasm` from `make build`), net settle, recapitalize, and index-cap pinning. |
 | `aggregator` | Price-aggregator gates on single and dual sources: staleness against the per-feed ceiling, tolerance disagreement, and the sanity band. |
+| `oracle_sources` | The aggregator through every provider (Reflector spot and TWAP, RedStone, Xoxno, Chainlink) and source shape (feed, scaled, Aquarius constant-product and stable LP, dual blends), with injected faults, via `set_oracle` and `seed_oracle`. |
+| `xoxno_oracle` | Differential test of the XOXNO oracle against a reference model of signers, config, submissions, aggregates, and history. |
 
 `make proptest` runs:
 
@@ -86,8 +89,8 @@ cargo +nightly fuzz run --fuzz-dir . flow_e2e --sanitizer=thread -Zbuild-std -- 
 
 ## Corpus And Regressions
 
-Each target starts from small committed inputs in `tests/fuzz/seeds/<target>/`:
-two for `rates_and_index`, one for each other target. The seeds already decode
+Each target starts from small committed inputs in `tests/fuzz/seeds/<target>/`,
+one or more per target. The seeds already decode
 to inputs of useful length, so short CI campaigns do not spend their budget
 growing inputs. New corpus inputs, crash artifacts, and coverage data go to
 these local, git-ignored directories:
@@ -99,7 +102,8 @@ tests/fuzz/coverage/
 ```
 
 For long campaigns, `make fuzz-seed-corpus` adds inputs to
-`tests/fuzz/corpus/` for every target except `aggregator`. The `fp_math`,
+`tests/fuzz/corpus/` for the `fp_math`, `fp_ops`, `rates_and_index`, flow, and
+`pool_native` targets. The `fp_math`,
 `fp_ops`, `rates_and_index`, and `pool_native` inputs take their values from the
 `test_snapshots/` JSON files that the test suites write. Flow seeds are fixed,
 valid 5-byte operation streams, not `Arbitrary<Vec<_>>` prefixes. The generator

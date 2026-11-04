@@ -1,11 +1,8 @@
 //! Aquarius pool queries, share checks, and shared swap invoke.
 
-use soroban_sdk::{
-    panic_with_error, symbol_short, vec, Address, Env, IntoVal, Map, Symbol, Val, Vec,
-};
+use soroban_sdk::{panic_with_error, symbol_short, vec, Address, Env, IntoVal, Symbol, Val, Vec};
 
 use crate::errors::Error;
-use crate::program::MAX_ASSETS;
 use crate::venues::auth::authorize_token_transfer;
 
 /// Authorizes the input transfer and calls the pool's `swap` with a zero minimum
@@ -34,30 +31,10 @@ pub(super) fn invoke_pool_swap(
     let _: u128 = env.invoke_contract(pool, &symbol_short!("swap"), args);
 }
 
-/// Returns the pool's constituent tokens, cached per invocation in `cache`.
-/// Panics with `BrokenTokenChain` on an empty, oversized, or duplicate list.
-pub(super) fn pool_tokens(
-    env: &Env,
-    cache: &mut Map<Address, Vec<Address>>,
-    pool: &Address,
-) -> Vec<Address> {
-    if let Some(tokens) = cache.get(pool.clone()) {
-        return tokens;
-    }
-    let tokens: Vec<Address> =
-        env.invoke_contract(pool, &Symbol::new(env, "get_tokens"), Vec::<Val>::new(env));
-    if tokens.is_empty() || tokens.len() > MAX_ASSETS {
-        panic_with_error!(env, Error::BrokenTokenChain);
-    }
-    let mut seen: Map<Address, bool> = Map::new(env);
-    for token in tokens.iter() {
-        if seen.contains_key(token.clone()) {
-            panic_with_error!(env, Error::BrokenTokenChain);
-        }
-        seen.set(token, true);
-    }
-    cache.set(pool.clone(), tokens.clone());
-    tokens
+/// Reads the pool's constituent tokens; [`crate::venues::pool_tokens`] validates and caches
+/// them.
+pub(super) fn get_tokens(env: &Env, pool: &Address) -> Vec<Address> {
+    env.invoke_contract(pool, &Symbol::new(env, "get_tokens"), Vec::<Val>::new(env))
 }
 
 /// Validates that `lp_token` is the pool's share token. Panics with
@@ -76,14 +53,6 @@ pub(super) fn to_u128(env: &Env, amount: i128) -> u128 {
     amount
         .try_into()
         .unwrap_or_else(|_| panic_with_error!(env, Error::IntegerOverflow))
-}
-
-/// Returns the index of `target` in `tokens`. Panics with `BrokenTokenChain`
-/// if `target` is not present.
-pub(super) fn find_index(env: &Env, tokens: &Vec<Address>, target: &Address) -> u32 {
-    tokens
-        .first_index_of(target)
-        .unwrap_or_else(|| panic_with_error!(env, Error::BrokenTokenChain))
 }
 
 #[cfg(test)]

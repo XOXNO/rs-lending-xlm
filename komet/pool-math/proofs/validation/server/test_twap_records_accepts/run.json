@@ -1,0 +1,23 @@
+{
+ "image": "komet-prover:247c6bde25aa9aa0",
+ "id": "test_twap_records_accepts",
+ "expect": "pass",
+ "exit_code": 0,
+ "wall_seconds": 388,
+ "cap_seconds": 14400,
+ "started_utc": "2026-11-03T14:26:59Z",
+ "command": [
+  "komet",
+  "prove",
+  "run",
+  "--always-allocate",
+  "--wasm",
+  "/out/input/pool_math_proof.wasm",
+  "--id",
+  "test_twap_records_accepts",
+  "--proof-dir",
+  "/out/proof",
+  "--extra-module",
+  "/out/input/pool-math-lemmas.k:POOL-MATH-LEMMAS"
+ ]
+}

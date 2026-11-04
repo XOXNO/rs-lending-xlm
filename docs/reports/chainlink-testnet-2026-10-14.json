@@ -1,0 +1,770 @@
+{
+  "date": "2026-10-14",
+  "network": "testnet",
+  "branch": "feat/chainlink-oracle-support",
+  "source_commit": "d15ffc0ac105c5b1bdb6760118bddacd4a8a230e",
+  "rpc_url": "https://stellar-testnet-gateway.xoxno.com",
+  "network_passphrase": "Test SDF Network ; September 2015",
+  "signer_alias": "deployer",
+  "signer_address": "GDBBOILYIJBSUQKC3Z3USAW3DGPFHIGVKYA5T4ZUZBO56HBUPHJEN3FV",
+  "timelock_min_delay_ledgers": 12,
+  "paused": false,
+  "final_verification_ledger": 5198179,
+  "contracts": {
+    "controller": {
+      "address": "CCXRWJ6SIU2WPFEGLFGJVITPL57QAYIMIO6OAM2NBGNDQSSCK2FFV3F3",
+      "wasm_hash": "52ed959d53933c4616b927cea04acb2dddc9a7b159c394e926978655ff17fd9b"
+    },
+    "pool": {
+      "address": "CBSGF6QOQAMPFBEVSYPEQHSZRIHJ6RCGUPCRDMUX36DEKRWFAO2PZB5A",
+      "wasm_hash": "0be54b45afe46f40b82e66d8569074f421e872d0304c7c540db8dd14df528965"
+    },
+    "governance": {
+      "address": "CDS33JDOYH3F3FL4QUQ6DV4WKHML2AKHF4LADTZ57FRUAEBTE7NMY5FQ",
+      "wasm_hash": "07b7befd9b5b57a78b7cba34a55c10572d55e86a2034d0d2f722c7ac8d4b4207"
+    },
+    "price_aggregator": {
+      "address": "CBMARXSYE56NPDLX42TTICM5GS5XQCYRD5VMCJME624TS6C2S53VETYU",
+      "wasm_hash": "6c143e38a4f751331ba92f46c668f906940ca4717a3a0146ef13bb50166896a5"
+    }
+  },
+  "oracle_records": {
+    "USDC": {
+      "asset_decimals": 7,
+      "independence": [
+        "RequireDisjoint"
+      ],
+      "max_price_stale_seconds": "93600",
+      "max_sanity_price_wad": "1100000000000000000",
+      "min_sanity_price_wad": "900000000000000000",
+      "sources": [
+        [
+          "Feed",
+          {
+            "decimals": 18,
+            "max_stale_seconds": "93600",
+            "provider": [
+              "Chainlink",
+              {
+                "contract": "CBUF6IADAWPWIDWRTHJNINKXHG2UTIQ6TU2F2HRAXWAI7OT3KJPKK6O4",
+                "data_id": {
+                  "type": "Buffer",
+                  "data": [
+                    1,
+                    168,
+                    15,
+                    242,
+                    22,
+                    0,
+                    3,
+                    50,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0
+                  ]
+                }
+              }
+            ]
+          }
+        ],
+        [
+          "Feed",
+          {
+            "decimals": 8,
+            "max_stale_seconds": "86400",
+            "provider": [
+              "RedStone",
+              {
+                "contract": "CBIHT4HVRIT5OMVLSXZ44J2ZAXYBDDGOSCN3LTN2DOC6SWHDS5IP6BK3",
+                "feed_id": "USDC",
+                "nature": [
+                  "Fundamental"
+                ]
+              }
+            ]
+          }
+        ]
+      ],
+      "tolerance": {
+        "lower_ratio_bps": 9524,
+        "upper_ratio_bps": 10500
+      }
+    },
+    "XLM": {
+      "asset_decimals": 7,
+      "independence": [
+        "RequireDisjoint"
+      ],
+      "max_price_stale_seconds": "93600",
+      "max_sanity_price_wad": "500000000000000000",
+      "min_sanity_price_wad": "45000000000000000",
+      "sources": [
+        [
+          "Feed",
+          {
+            "decimals": 18,
+            "max_stale_seconds": "93600",
+            "provider": [
+              "Chainlink",
+              {
+                "contract": "CBUF6IADAWPWIDWRTHJNINKXHG2UTIQ6TU2F2HRAXWAI7OT3KJPKK6O4",
+                "data_id": {
+                  "type": "Buffer",
+                  "data": [
+                    1,
+                    123,
+                    226,
+                    245,
+                    90,
+                    0,
+                    3,
+                    50,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0
+                  ]
+                }
+              }
+            ]
+          }
+        ],
+        [
+          "Feed",
+          {
+            "decimals": 8,
+            "max_stale_seconds": "86400",
+            "provider": [
+              "RedStone",
+              {
+                "contract": "CBIHT4HVRIT5OMVLSXZ44J2ZAXYBDDGOSCN3LTN2DOC6SWHDS5IP6BK3",
+                "feed_id": "XLM",
+                "nature": [
+                  "Fundamental"
+                ]
+              }
+            ]
+          }
+        ]
+      ],
+      "tolerance": {
+        "lower_ratio_bps": 9524,
+        "upper_ratio_bps": 10500
+      }
+    },
+    "BTC": {
+      "asset_decimals": 7,
+      "independence": [
+        "RequireDisjoint"
+      ],
+      "max_price_stale_seconds": "93600",
+      "max_sanity_price_wad": "93000000000000000000000",
+      "min_sanity_price_wad": "27000000000000000000000",
+      "sources": [
+        [
+          "Feed",
+          {
+            "decimals": 18,
+            "max_stale_seconds": "93600",
+            "provider": [
+              "Chainlink",
+              {
+                "contract": "CBUF6IADAWPWIDWRTHJNINKXHG2UTIQ6TU2F2HRAXWAI7OT3KJPKK6O4",
+                "data_id": {
+                  "type": "Buffer",
+                  "data": [
+                    1,
+                    160,
+                    180,
+                    217,
+                    32,
+                    0,
+                    3,
+                    50,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0
+                  ]
+                }
+              }
+            ]
+          }
+        ],
+        [
+          "Feed",
+          {
+            "decimals": 8,
+            "max_stale_seconds": "86400",
+            "provider": [
+              "RedStone",
+              {
+                "contract": "CBIHT4HVRIT5OMVLSXZ44J2ZAXYBDDGOSCN3LTN2DOC6SWHDS5IP6BK3",
+                "feed_id": "BTC",
+                "nature": [
+                  "Fundamental"
+                ]
+              }
+            ]
+          }
+        ]
+      ],
+      "tolerance": {
+        "lower_ratio_bps": 9091,
+        "upper_ratio_bps": 11000
+      }
+    },
+    "ETH": {
+      "asset_decimals": 7,
+      "independence": [
+        "RequireDisjoint"
+      ],
+      "max_price_stale_seconds": "93600",
+      "max_sanity_price_wad": "4650000000000000000000",
+      "min_sanity_price_wad": "1350000000000000000000",
+      "sources": [
+        [
+          "Feed",
+          {
+            "decimals": 18,
+            "max_stale_seconds": "93600",
+            "provider": [
+              "Chainlink",
+              {
+                "contract": "CBUF6IADAWPWIDWRTHJNINKXHG2UTIQ6TU2F2HRAXWAI7OT3KJPKK6O4",
+                "data_id": {
+                  "type": "Buffer",
+                  "data": [
+                    1,
+                    213,
+                    133,
+                    50,
+                    124,
+                    0,
+                    3,
+                    50,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0
+                  ]
+                }
+              }
+            ]
+          }
+        ],
+        [
+          "Feed",
+          {
+            "decimals": 8,
+            "max_stale_seconds": "86400",
+            "provider": [
+              "RedStone",
+              {
+                "contract": "CBIHT4HVRIT5OMVLSXZ44J2ZAXYBDDGOSCN3LTN2DOC6SWHDS5IP6BK3",
+                "feed_id": "ETH",
+                "nature": [
+                  "Fundamental"
+                ]
+              }
+            ]
+          }
+        ]
+      ],
+      "tolerance": {
+        "lower_ratio_bps": 9091,
+        "upper_ratio_bps": 11000
+      }
+    },
+    "XLMUSDC_LP": {
+      "asset_decimals": 7,
+      "independence": [
+        "RequireDisjoint"
+      ],
+      "max_price_stale_seconds": "93600",
+      "max_sanity_price_wad": "3000000000000000000",
+      "min_sanity_price_wad": "400000000000000000",
+      "sources": [
+        [
+          "AquariusLp",
+          {
+            "key_a": [
+              "Token",
+              "CBIELTK6YBZJU5UP2WWQEUCYKLPU6AUNZ2BQ4WWFEIE3USCIHMXQDAMA"
+            ],
+            "key_b": [
+              "Token",
+              "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC"
+            ],
+            "min_pool_value_wad": "2500000000000000000000",
+            "pool": "CAYBMZYJCOMMOHOGOGBK7ANIKF3JPZAL4D7SWAPVPHC4WBMOUT5DJN5B",
+            "reserve_a_decimals": 7,
+            "reserve_b_decimals": 7,
+            "token_a": "CBIELTK6YBZJU5UP2WWQEUCYKLPU6AUNZ2BQ4WWFEIE3USCIHMXQDAMA",
+            "token_b": "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC"
+          }
+        ]
+      ],
+      "tolerance": {
+        "lower_ratio_bps": 0,
+        "upper_ratio_bps": 0
+      }
+    }
+  },
+  "market_prices": [
+    {
+      "market": "USDC",
+      "anchor_price_wad": "999898680000000000",
+      "asset": "CBIELTK6YBZJU5UP2WWQEUCYKLPU6AUNZ2BQ4WWFEIE3USCIHMXQDAMA",
+      "borrow_index": "1003547739015915509785529084",
+      "deviation": false,
+      "error_code": null,
+      "price_timestamp": 1792011089,
+      "price_wad": "999871098799109850",
+      "primary_price_wad": "999843517598219700",
+      "stale": false,
+      "supply_index": "1000823093211838226607674948",
+      "valid": true
+    },
+    {
+      "market": "XLM",
+      "anchor_price_wad": "183933970000000000",
+      "asset": "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC",
+      "borrow_index": "1026829748230290515219094126",
+      "deviation": false,
+      "error_code": null,
+      "price_timestamp": 1792013579,
+      "price_wad": "183926886192212700",
+      "primary_price_wad": "183919802384425400",
+      "stale": false,
+      "supply_index": "1021159000317569690068791204",
+      "valid": true
+    },
+    {
+      "market": "EURC",
+      "anchor_price_wad": "1116342550340750000",
+      "asset": "CCUUDM434BMZMYWYDITHFXHDMIVTGGD6T2I5UKNX5BSLXLW7HVR4MCGZ",
+      "borrow_index": "1005578431806600980486053846",
+      "deviation": false,
+      "error_code": null,
+      "price_timestamp": 1792013400,
+      "price_wad": "1116342550340750000",
+      "primary_price_wad": "1116342550340750000",
+      "stale": false,
+      "supply_index": "1002380440719828807759713311",
+      "valid": true
+    },
+    {
+      "market": "BTC",
+      "anchor_price_wad": "81699078432860000000000",
+      "asset": "CBK3FNAM3C54674OSOCQLDNW4EXMNUY6ZO3C3ZI5S5DGBIIPX4GJ7WHW",
+      "borrow_index": "1001622114343972851896466239",
+      "deviation": false,
+      "error_code": null,
+      "price_timestamp": 1791987614,
+      "price_wad": "81758047630466490000000",
+      "primary_price_wad": "81817016828072980000000",
+      "stale": false,
+      "supply_index": "1000000000000000000000000000",
+      "valid": true
+    },
+    {
+      "market": "ETH",
+      "anchor_price_wad": "2417373959150000000000",
+      "asset": "CBFNIHC2B7WMAH2CKNKQJOB3CWBUXXNNRQXYISJ7VZONM77YBMHCOULJ",
+      "borrow_index": "1001622066733722860871618453",
+      "deviation": false,
+      "error_code": null,
+      "price_timestamp": 1792010864,
+      "price_wad": "2416328316060000000000",
+      "primary_price_wad": "2415282672970000000000",
+      "stale": false,
+      "supply_index": "1000000000000000000000000000",
+      "valid": true
+    },
+    {
+      "market": "USDC_HUB2",
+      "anchor_price_wad": "999898680000000000",
+      "asset": "CBIELTK6YBZJU5UP2WWQEUCYKLPU6AUNZ2BQ4WWFEIE3USCIHMXQDAMA",
+      "borrow_index": "1003309678140729932162729851",
+      "deviation": false,
+      "error_code": null,
+      "price_timestamp": 1792011089,
+      "price_wad": "999871098799109850",
+      "primary_price_wad": "999843517598219700",
+      "stale": false,
+      "supply_index": "1000940572572898568335961846",
+      "valid": true
+    },
+    {
+      "market": "XLMUSDC_LP",
+      "anchor_price_wad": "860071045742853406",
+      "asset": "CDEUHPEUQAQNLCHFVBX3ZOSIR2FUWD2COYTSHUPQPJWK2BCLLQCW66FY",
+      "borrow_index": "1001621995000950481198758777",
+      "deviation": false,
+      "error_code": null,
+      "price_timestamp": 1792011089,
+      "price_wad": "860071045742853406",
+      "primary_price_wad": "860071045742853406",
+      "stale": false,
+      "supply_index": "1000000000000000000000000000",
+      "valid": true
+    },
+    {
+      "market": "USDC_LIQVID",
+      "anchor_price_wad": "999898680000000000",
+      "asset": "CBIELTK6YBZJU5UP2WWQEUCYKLPU6AUNZ2BQ4WWFEIE3USCIHMXQDAMA",
+      "borrow_index": "1000867902414174472710150440",
+      "deviation": false,
+      "error_code": null,
+      "price_timestamp": 1792011089,
+      "price_wad": "999871098799109850",
+      "primary_price_wad": "999843517598219700",
+      "stale": false,
+      "supply_index": "910269429311275698648449977",
+      "valid": true
+    },
+    {
+      "market": "EURC_LIQVID",
+      "anchor_price_wad": "1116342550340750000",
+      "asset": "CCUUDM434BMZMYWYDITHFXHDMIVTGGD6T2I5UKNX5BSLXLW7HVR4MCGZ",
+      "borrow_index": "1000535128698922099711070507",
+      "deviation": false,
+      "error_code": null,
+      "price_timestamp": 1792013400,
+      "price_wad": "1116342550340750000",
+      "primary_price_wad": "1116342550340750000",
+      "stale": false,
+      "supply_index": "1000000000000000000000000000",
+      "valid": true
+    },
+    {
+      "market": "LIQVID1039",
+      "anchor_price_wad": "1000000000000000000",
+      "asset": "CAH7FDDP6IDC76VTXNPN6MF5TWVZMM2N3PCU5C7TXRLTCKBSG6BGUGEA",
+      "borrow_index": "1000000000000000000000000000",
+      "deviation": false,
+      "error_code": null,
+      "price_timestamp": 1792012065,
+      "price_wad": "1000000000000000000",
+      "primary_price_wad": "1000000000000000000",
+      "stale": false,
+      "supply_index": "1000000000000000000000000000",
+      "valid": true
+    },
+    {
+      "market": "LIQVID1037",
+      "anchor_price_wad": "1000000000000000000",
+      "asset": "CDCS4Y5BZY62YS2ABQHZSQXWGFHNQXID64CYDCBSQDNDKEG6T2OE2HWC",
+      "borrow_index": "1000000000000000000000000000",
+      "deviation": false,
+      "error_code": null,
+      "price_timestamp": 1792012072,
+      "price_wad": "1000000000000000000",
+      "primary_price_wad": "1000000000000000000",
+      "stale": false,
+      "supply_index": "1000000000000000000000000000",
+      "valid": true
+    }
+  ],
+  "smoke_test": {
+    "caller": "GDBBOILYIJBSUQKC3Z3USAW3DGPFHIGVKYA5T4ZUZBO56HBUPHJEN3FV",
+    "collateral_usdc_raw": "60000000",
+    "borrow_xlm_raw": "10000000",
+    "usdc_balance_before": "72759430",
+    "xlm_balance_before": "167596153053",
+    "account_id": 53,
+    "debt_after_borrow": "10000000",
+    "health_factor_after_borrow": "31965104141625914039",
+    "withdrawals": [
+      [
+        {
+          "asset": "CBIELTK6YBZJU5UP2WWQEUCYKLPU6AUNZ2BQ4WWFEIE3USCIHMXQDAMA",
+          "hub_id": 1
+        },
+        "60000000"
+      ]
+    ],
+    "account_exists_after": false,
+    "usdc_balance_after": "72759430",
+    "xlm_balance_after": "167577236196",
+    "debt_after_repay": "0"
+  },
+  "checks": {
+    "contract_tests": 733,
+    "exporter_tests": 55,
+    "ops_script_check": "passed",
+    "validate_configs_errors": 0,
+    "existing_config_warnings": [
+      "ETH unlisted",
+      "EURC_LIQVID unlisted"
+    ]
+  },
+  "transactions": [
+    {
+      "log": "pause.log",
+      "hash": "faa45f16c7f579c7bea5b52dee5011febc61b01fbc8439afcc4e4dd833a6815c",
+      "status": "SUCCESS",
+      "ledger": 5198012,
+      "action": "Pause",
+      "url": "https://stellar.expert/explorer/testnet/tx/faa45f16c7f579c7bea5b52dee5011febc61b01fbc8439afcc4e4dd833a6815c"
+    },
+    {
+      "log": "upgrades.log",
+      "hash": "fb6367a5d204a3c130a78969d701b7e48f3155ef86fd3a427c5e8b60f927b169",
+      "status": "SUCCESS",
+      "ledger": 5198019,
+      "action": "Upload price aggregator",
+      "url": "https://stellar.expert/explorer/testnet/tx/fb6367a5d204a3c130a78969d701b7e48f3155ef86fd3a427c5e8b60f927b169"
+    },
+    {
+      "log": "upgrades.log",
+      "hash": "e2ead5898f6d3952bcbe98f0ba23d2e19b31ee8075295d706e29ae4d88b58cbc",
+      "status": "SUCCESS",
+      "ledger": 5198020,
+      "action": "Propose price aggregator upgrade",
+      "url": "https://stellar.expert/explorer/testnet/tx/e2ead5898f6d3952bcbe98f0ba23d2e19b31ee8075295d706e29ae4d88b58cbc"
+    },
+    {
+      "log": "upgrades.log",
+      "hash": "8617ed4ef99806b3dd4365ed162ecadd87ac17f26c669365d3ef5294b5f4b591",
+      "status": "SUCCESS",
+      "ledger": 5198033,
+      "action": "Execute price aggregator upgrade",
+      "url": "https://stellar.expert/explorer/testnet/tx/8617ed4ef99806b3dd4365ed162ecadd87ac17f26c669365d3ef5294b5f4b591"
+    },
+    {
+      "log": "upgrades.log",
+      "hash": "1f4ec9bbc4027fd84ec0487446c332d05b07202432f2e5fb1fd899d8384eafc4",
+      "status": "SUCCESS",
+      "ledger": 5198035,
+      "action": "Upload governance",
+      "url": "https://stellar.expert/explorer/testnet/tx/1f4ec9bbc4027fd84ec0487446c332d05b07202432f2e5fb1fd899d8384eafc4"
+    },
+    {
+      "log": "upgrades.log",
+      "hash": "a7ae186fddb659e9bf65f7ba17b2d333b55b44a732d994f7d3508f19a90abdf0",
+      "status": "SUCCESS",
+      "ledger": 5198037,
+      "action": "Propose governance upgrade",
+      "url": "https://stellar.expert/explorer/testnet/tx/a7ae186fddb659e9bf65f7ba17b2d333b55b44a732d994f7d3508f19a90abdf0"
+    },
+    {
+      "log": "upgrades.log",
+      "hash": "d992101aecabeb3e6063b595ce49dac33cc1a4c8d1c98aae28b93a7aeda27052",
+      "status": "SUCCESS",
+      "ledger": 5198050,
+      "action": "Execute governance upgrade",
+      "url": "https://stellar.expert/explorer/testnet/tx/d992101aecabeb3e6063b595ce49dac33cc1a4c8d1c98aae28b93a7aeda27052"
+    },
+    {
+      "log": "oracle-proposals.log",
+      "hash": "e75433f59177b8186fb1de4afafc84e750869bc546f2fc1f75edc5bcd691aef2",
+      "status": "SUCCESS",
+      "ledger": 5198057,
+      "action": "Propose USDC oracle",
+      "url": "https://stellar.expert/explorer/testnet/tx/e75433f59177b8186fb1de4afafc84e750869bc546f2fc1f75edc5bcd691aef2"
+    },
+    {
+      "log": "oracle-proposals.log",
+      "hash": "511b643270e93896e56db8b27da9d56446860f7eccfafbc882a60aec46a5c8ef",
+      "status": "SUCCESS",
+      "ledger": 5198059,
+      "action": "Propose XLM oracle",
+      "url": "https://stellar.expert/explorer/testnet/tx/511b643270e93896e56db8b27da9d56446860f7eccfafbc882a60aec46a5c8ef"
+    },
+    {
+      "log": "oracle-proposals.log",
+      "hash": "51c43bbe33c411461c74a7bbfd4ab7275da3c2165d2169ab3140ea01793e7464",
+      "status": "SUCCESS",
+      "ledger": 5198061,
+      "action": "Propose BTC oracle",
+      "url": "https://stellar.expert/explorer/testnet/tx/51c43bbe33c411461c74a7bbfd4ab7275da3c2165d2169ab3140ea01793e7464"
+    },
+    {
+      "log": "oracle-proposals.log",
+      "hash": "d36841a3172201e71185002e4243a30b984cb2a8623c8ac6ed60449db9624186",
+      "status": "SUCCESS",
+      "ledger": 5198063,
+      "action": "Propose ETH oracle",
+      "url": "https://stellar.expert/explorer/testnet/tx/d36841a3172201e71185002e4243a30b984cb2a8623c8ac6ed60449db9624186"
+    },
+    {
+      "log": "lp-oracle-update.log",
+      "hash": "1eac3da1ad7fdb4626226660d21a39239b9f142011b07b7b5907d240a2685262",
+      "status": "SUCCESS",
+      "ledger": 5198101,
+      "action": "Propose LP envelope",
+      "url": "https://stellar.expert/explorer/testnet/tx/1eac3da1ad7fdb4626226660d21a39239b9f142011b07b7b5907d240a2685262"
+    },
+    {
+      "log": "lp-oracle-update.log",
+      "hash": "48eef789bbe0bc8d8c6faab3518e5c12a4664abdfbaae2a54aade1e9b65c9c7e",
+      "status": "SUCCESS",
+      "ledger": 5198114,
+      "action": "Execute LP envelope",
+      "url": "https://stellar.expert/explorer/testnet/tx/48eef789bbe0bc8d8c6faab3518e5c12a4664abdfbaae2a54aade1e9b65c9c7e"
+    },
+    {
+      "log": "oracle-executions.log",
+      "hash": "e473d52d3fdcf72507a6738a2b15e301421213d0f5344ac588b9d807a335b0ed",
+      "status": "SUCCESS",
+      "ledger": 5198118,
+      "action": "Execute USDC oracle",
+      "url": "https://stellar.expert/explorer/testnet/tx/e473d52d3fdcf72507a6738a2b15e301421213d0f5344ac588b9d807a335b0ed"
+    },
+    {
+      "log": "oracle-executions.log",
+      "hash": "03061852464afc34d07a50d9a42c477ff818d0e28b9c50b794c77f017e51f488",
+      "status": "SUCCESS",
+      "ledger": 5198120,
+      "action": "Execute XLM oracle",
+      "url": "https://stellar.expert/explorer/testnet/tx/03061852464afc34d07a50d9a42c477ff818d0e28b9c50b794c77f017e51f488"
+    },
+    {
+      "log": "oracle-executions.log",
+      "hash": "51c896aa3fae3ba537d3cbc0d052e34db2ef619c2546c75f9ce7fc79fad6a8af",
+      "status": "SUCCESS",
+      "ledger": 5198122,
+      "action": "Execute BTC oracle",
+      "url": "https://stellar.expert/explorer/testnet/tx/51c896aa3fae3ba537d3cbc0d052e34db2ef619c2546c75f9ce7fc79fad6a8af"
+    },
+    {
+      "log": "oracle-executions.log",
+      "hash": "4764420b4f9e95a87fd2c98c3aedee4b3dbb4e478497e1bb28ee0bcd801f5fba",
+      "status": "SUCCESS",
+      "ledger": 5198124,
+      "action": "Execute ETH oracle",
+      "url": "https://stellar.expert/explorer/testnet/tx/4764420b4f9e95a87fd2c98c3aedee4b3dbb4e478497e1bb28ee0bcd801f5fba"
+    },
+    {
+      "log": "unpause.log",
+      "hash": "28758130ffb1fb8c1efa8041af1d484c10f8370c7b1d16260d6d8b870f6da6cd",
+      "status": "SUCCESS",
+      "ledger": 5198141,
+      "action": "Propose unpause",
+      "url": "https://stellar.expert/explorer/testnet/tx/28758130ffb1fb8c1efa8041af1d484c10f8370c7b1d16260d6d8b870f6da6cd"
+    },
+    {
+      "log": "unpause.log",
+      "hash": "4acbb027ae28d93c98e4b6d6aa018f6003b388dd588fc30158f1e77230d0535d",
+      "status": "SUCCESS",
+      "ledger": 5198154,
+      "action": "Execute unpause",
+      "url": "https://stellar.expert/explorer/testnet/tx/4acbb027ae28d93c98e4b6d6aa018f6003b388dd588fc30158f1e77230d0535d"
+    },
+    {
+      "log": "e2e-supply.log",
+      "hash": "476cff7d8d886ae663fda38f1b4714af07939882d247c99845efab6721baca3d",
+      "status": "SUCCESS",
+      "ledger": 5198168,
+      "action": "Smoke: supply 6 USDC",
+      "url": "https://stellar.expert/explorer/testnet/tx/476cff7d8d886ae663fda38f1b4714af07939882d247c99845efab6721baca3d"
+    },
+    {
+      "log": "e2e-borrow.log",
+      "hash": "cf692ac9bf8790ba761a81513be387be0d00e27c9265404781033865179a9356",
+      "status": "SUCCESS",
+      "ledger": 5198169,
+      "action": "Smoke: borrow 1 XLM",
+      "url": "https://stellar.expert/explorer/testnet/tx/cf692ac9bf8790ba761a81513be387be0d00e27c9265404781033865179a9356"
+    },
+    {
+      "log": "e2e-repay.log",
+      "hash": "e3f4627fdeec1f6629ca313252028374b9c5f34fe12aa8fa942a61147e18c138",
+      "status": "SUCCESS",
+      "ledger": 5198171,
+      "action": "Smoke: repay XLM",
+      "url": "https://stellar.expert/explorer/testnet/tx/e3f4627fdeec1f6629ca313252028374b9c5f34fe12aa8fa942a61147e18c138"
+    },
+    {
+      "log": "e2e-withdraw.log",
+      "hash": "d6e53a29f108ac84afcea39d4a6534d635191d2de6c82ba7d828c357ba1c6bdc",
+      "status": "SUCCESS",
+      "ledger": 5198172,
+      "action": "Smoke: withdraw all USDC",
+      "url": "https://stellar.expert/explorer/testnet/tx/d6e53a29f108ac84afcea39d4a6534d635191d2de6c82ba7d828c357ba1c6bdc"
+    }
+  ]
+}

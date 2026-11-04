@@ -1,0 +1,33 @@
+{
+ "admitted": false,
+ "bounded": [],
+ "circularity": false,
+ "covers": 12,
+ "edges": 23,
+ "errors": [],
+ "expect": "pass",
+ "failing": [],
+ "id": "test_liquidation_curve_accepts",
+ "input_fingerprint": {
+  "claim": "600f2dc853a225bc47a3ee39560922df96b7f4276fd99125c703e43ea58d0e37",
+  "definitions": {
+   "haskell": "a66ba5710a4bfe9569247ce0b4fa777812c2f1835a71434d5e5676eb9c934b98",
+   "llvm": "bc45d16cc07aa32904549e2086fc416b7eafa0c8c11afc9f9a47871d96610325"
+  },
+  "llvm_libraries": {
+   "interpreter.so": "94a466bd685ff2cafc270088ecbe22fbf434b9ec973389c3222d8e0e5f09881a"
+  },
+  "runner": "ac43e6cafd049c505f81b5e363968c509d656de5c9d57ab81c1eea091654a8e2"
+ },
+ "inputs_sha256": "4ca89e8f41b6b77da34806342c7ce75cc5369c24da157770a0ded9f2685c00cf",
+ "node_refutations": {},
+ "nodes": 47,
+ "pending": [],
+ "rewrite_steps": 1506,
+ "splits": 11,
+ "status": "PASSED",
+ "stuck": [],
+ "subproof_ids": [],
+ "vacuous": [],
+ "verdict": "OK"
+}

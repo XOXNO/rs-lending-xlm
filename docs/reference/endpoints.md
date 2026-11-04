@@ -21,7 +21,7 @@ Every user mutation below requires the named caller, payer or liquidator to auth
 
 | Endpoint (parameters → return) | Additional authority | Pause | Effect |
 | --- | --- | --- | --- |
-| `supply(caller: Address, account_id: u64, spoke_id: u32, assets: Vec<(HubAssetKey, i128)>) -> u64` | Existing assets only for third parties | gated | Supply measured deposits; id 0 creates Normal account. |
+| `supply(caller: Address, account_id: u64, spoke_id: u32, assets: Vec<(HubAssetKey, i128)>) -> u64` | Existing assets only for third parties | gated | Supply measured deposits; id 0 creates Normal account. Opening a new leg on an indebted account reads that leg's price. |
 | `borrow(caller: Address, account_id: u64, borrows: Vec<(HubAssetKey, i128)>, to: Option<Address>)` | NFT owner/delegate | gated | Debt booked to account; recipient defaults to caller. |
 | `withdraw(caller: Address, account_id: u64, withdrawals: Vec<(HubAssetKey, i128)>, to: Option<Address>) -> Vec<(HubAssetKey, i128)>` | NFT owner/delegate | open | Zero means full withdrawal; returns the amounts paid. |
 | `repay(caller: Address, account_id: u64, payments: Vec<(HubAssetKey, i128)>)` | None | open | Anyone can repay; excess returns to caller. |
@@ -39,8 +39,8 @@ Every user mutation below requires the named caller, payer or liquidator to auth
 | `update_account_threshold(caller: Address, has_risks: bool, account_ids: Vec<u64>)` | None | gated | Refresh LTV; optional risk refresh requires final HF >= 1.05. |
 | `recapitalize(payer: Address, hub_asset: HubAssetKey, amount: i128) -> i128` | None | open | Measured backing injection; refund surplus; return amount applied. |
 | `renew_account(caller: Address, account_id: u64)` | NFT owner | open | Renew account and NFT ownership storage. |
-| `add_delegate(caller: Address, account_id: u64, delegate: Address)` | NFT owner | gated | Grant only to active approved manager; maximum 16. |
-| `remove_delegate(caller: Address, account_id: u64, delegate: Address)` | NFT owner | open | Revoke grant. |
+| `add_delegate(caller: Address, account_id: u64, delegate: Address)` | NFT owner | gated | Grant only to active approved manager; maximum 16. Replaces a previous owner's dormant list. |
+| `remove_delegate(caller: Address, account_id: u64, delegate: Address)` | NFT owner | open | Revoke grant. Grants survive an NFT transfer and return with the NFT, so revoke each one before transferring. Called by a new owner, deletes the previous owner's dormant list without an event. |
 
 ### Accounts and authorization
 
@@ -48,7 +48,7 @@ Account id `0` creates an account on `supply`, `multiply`, `flash_position`, `mi
 
 Delegates belong to the granting owner. An NFT transfer disables that owner's grants; a transfer back can reactivate them unless a later owner has replaced or deleted the list. NFT ownership, including control of collateral and the debt obligation, transfers atomically.
 
-Ordinary payment lists sum duplicate markets in first-appearance order and reject negative amounts. `supply`, `borrow` and `repay` reject zero. In `withdraw`, zero means the full balance and overrides positive amounts for the same market. Flash-position declaration lists reject duplicates.
+Ordinary payment lists sum duplicate markets in first-appearance order and reject negative amounts. `supply`, `borrow` and `repay` reject zero. In `withdraw`, zero means the full balance; a zero and a positive amount for the same market fail with `InvalidPayments`. Flash-position declaration lists reject duplicates.
 
 ### Risk checks and pause flags
 
@@ -64,9 +64,9 @@ Seizure checks only `no_seize`. Liquidators cannot choose a different collateral
 
 ### Liquidation results
 
-Credit liquidation transfers supply shares without moving collateral tokens. The receiver must differ from the target, share its spoke and use Normal mode. `Credit(0)` can create a receiver in a deprecated spoke. Position limits apply; collateral permissions and supply caps do not gate this credit.
+Credit liquidation transfers supply shares without moving collateral tokens. The receiver must differ from the target, share its spoke and use Normal mode. `Credit(0)` can create a receiver in a deprecated spoke. Position limits apply to an existing receiver; a `Credit(0)` receiver is exempt, so a lowered limit cannot block the seizure. Collateral permissions and supply caps do not gate this credit.
 
-Liquidation estimates report gross seizure before protocol fees. Transfer-mode seizure and fees use token units; Credit-mode seizure and fees use RAY shares. `refunds` use debt-token units. Execution can differ from an estimate because prices, indexes and measured token delivery can change.
+Liquidation estimates report gross seizure before protocol fees. Transfer-mode seizure and fees use token units; Credit-mode seizure and fees use RAY shares. `refunds` use debt-token units. Execution can differ from an estimate because prices, indexes and measured token delivery can change. Same-call dust cleanup can write down a `Credit` receiver's shares after the estimate ([INV-LIQ-02](invariants.md#inv-liq-02)).
 
 ### Strategy payments and callbacks
 
@@ -102,7 +102,7 @@ Undeclared callback assets receive neither credit nor refunds. There is no contr
 | `get_account_positions(account_id: u64) -> ( Map<HubAssetKey, AccountPositionRaw>, Map<HubAssetKey, DebtPositionRaw>, )` | Supply/debt maps; empty if missing |
 | `get_account_attributes(account_id: u64) -> AccountAttributes` | Stored spoke and mode |
 | `account_exists(account_id: u64) -> bool` | Metadata existence |
-| `get_liquidation_estimate(account_id: u64, debt_payments: Vec<(HubAssetKey, i128)>, seize_mode: SeizeMode) -> LiquidationEstimate` | Shared liquidation plan; max 256 payment inputs |
+| `get_liquidation_estimate(account_id: u64, debt_payments: Vec<(HubAssetKey, i128)>, seize_mode: SeizeMode) -> LiquidationEstimate` | Shared liquidation plan; max 256 payment inputs; a `Credit(id)` receiver must pass execution's spoke, mode, position-limit and isolation gates (no auth check) |
 | `get_liquidation_collateral(account_id: u64) -> i128` | Threshold-weighted USD WAD; not a seizure ceiling |
 | `get_ltv_collateral_usd(account_id: u64) -> i128` | LTV-weighted USD WAD |
 | `get_pool_address() -> Address` | Configured pool |
@@ -218,6 +218,8 @@ Constructor `(admin: Address, min_delay: u32)` initializes the owner, access-con
 | `set_sanity_band(caller: Address, key: PriceKey, min_wad: i128, max_wad: i128)` | ORACLE_ROLE; immediate tightening only |
 | `create_hub(caller: Address) -> u32` | GUARDIAN_ROLE; immediate |
 | `add_spoke(caller: Address) -> u32` | GUARDIAN_ROLE; immediate |
+| `deactivate_position_manager(caller: Address, manager: Address)` | GUARDIAN_ROLE; immediate, deactivation only |
+| `revoke_blend_pool(caller: Address, pool: Address)` | GUARDIAN_ROLE; immediate, revocation only |
 | `revoke_role_immediate(account: Address, role: Symbol)` | Owner; only guardian/oracle roles |
 | `execute_self(executor: Option<Address>, op: AdminOperation, salt: BytesN<32>)` | Ready scheduled self-operation; optional executor |
 | `propose_canceller_reset(new_cancellers: Vec<Address>, salt: BytesN<32>) -> BytesN<32>` | Owner; schedule uncancellable recovery |
@@ -258,7 +260,7 @@ Account ids are NFT token ids: the NFT uses `u32`, and the controller exposes th
 
 ## Swap aggregator
 
-Constructor `(admin: Address)` sets the router owner. The sender authorizes `execute_strategy`. Its XDR payload carries a validated, packed instruction stream of swaps and Aquarius LP burns and mints. The router applies fees, checks its output balance against the route minimum, then transfers and returns the payout amount.
+Constructor `(admin: Address)` sets the router owner. The sender authorizes `execute_strategy`. Its XDR payload carries a validated, packed instruction stream of swaps and Aquarius LP burns and mints. A Curve swap leg also mints LP when its output is the pool, and burns LP to one coin when its input is the pool. The router applies fees, checks its output balance against the route minimum, then transfers and returns the payout amount.
 
 Recipient receipt is not remeasured, so taxed payout tokens can deliver less than the return value. Controller strategies measure positive swap receipts but do not independently enforce the route minimum. Fees require an active nonzero referral. The whitelist selects which side pays the fee; it does not restrict permitted tokens.
 

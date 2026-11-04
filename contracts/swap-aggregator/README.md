@@ -9,7 +9,7 @@ anyone can call it for a plain swap.
 | --- | --- |
 | Owner | OZ `Ownable`, two-step |
 | Trust | Untrusted by the controller, which checks balance deltas |
-| Venues | Aquarius, Comet, Phoenix, Soroswap, Sushi |
+| Venues | Aquarius, Comet, Curve, Phoenix, Soroswap, Sushi |
 | Client | [`interfaces/swap-aggregator`](../../interfaces/swap-aggregator) |
 
 Full signatures are in `contracts/swap-aggregator/src/lib.rs`; the generated
@@ -57,6 +57,25 @@ Steps:
 - Leftover balance goes to the admin bucket on every swap, with or without a
   referral.
 
+For a 0.50% router fee, use `make mainnet setAggregatorFee 5` and
+`make mainnet addAggregatorReferral OWNER 45` with the admin signer
+(`SIGNER=ledger` for the mainnet owner). Pass the returned ID as `referral_id`
+when requesting quotes. DEX pool fees and network fees are additional.
+
+`make mainnet addAggregatorWhitelist TOKEN` chooses the preferred fee token;
+it does not restrict fees to the whitelist. If neither side is whitelisted,
+fees accrue in the input token.
+
+Claim with `make mainnet claimAggregatorReferralFees ID TOKEN... SIGNER=KEY`,
+using any funded transaction signer. Payment goes to the stored referral
+owner. A `G...` owner must exist on-chain and have authorized trustlines with
+sufficient limits for each issued token claimed. Query individual balances:
+
+```sh
+make view-id NETWORK=mainnet CONTRACT_ID=ROUTER \
+  FN=referral_fee_balance ARGS='--id ID --token TOKEN'
+```
+
 `sweep_balance` sends only the balance above fee backing. It reads the
 per-token `ReservedTotal` counter, which equals the sum of that token's fee
 buckets. **Do not upgrade in place from a build without this counter**: it
@@ -101,7 +120,7 @@ src/
   math.rs         checked arithmetic
   types.rs        StrategyPayload, venues, storage keys
   vault.rs        invocation-local balance ledger
-  venues/         per-DEX hop adapters (aquarius/ has LP mint/burn)
+  venues/         per-DEX hop adapters (aquarius/ and curve.rs have LP mint/burn)
   errors.rs       error codes
 tests/unit/       unit tests, mounted by #[path] from lib.rs
 ```

@@ -1,6 +1,12 @@
 #![no_std]
 
 #[cfg(any(
+    feature = "index-identity",
+    feature = "noop-guards",
+    feature = "rescale-up"
+))]
+pub mod identity_specs;
+#[cfg(any(
     feature = "index-exact",
     feature = "supply-index",
     feature = "reward-conservation",
@@ -9,6 +15,10 @@
     feature = "flash-fee"
 ))]
 pub mod index_specs;
+#[cfg(any(feature = "ray-mul-rounding", feature = "ray-div-rounding"))]
+pub mod rounding_specs;
+#[cfg(any(feature = "repay-fixed", feature = "withdraw-fixed"))]
+pub mod settlement_fixed_specs;
 #[cfg(any(feature = "repay", feature = "withdrawal", feature = "net-settle"))]
 pub mod settlement_specs;
 #[cfg(any(
@@ -19,6 +29,10 @@ pub mod settlement_specs;
     feature = "scaled-borrow"
 ))]
 pub mod signed;
+#[cfg(any(feature = "utilization-wide", feature = "utilization-fixed-b"))]
+pub mod utilization_specs;
+#[cfg(any(feature = "validation", feature = "oracle-time"))]
+pub mod validation_specs;
 
 #[cfg(any(feature = "borrow-index", feature = "borrow-double"))]
 use common::constants::MAX_BORROW_INDEX_RAY;
@@ -262,6 +276,286 @@ impl PoolMathProof {
         )
     }
 
+    /// RAY <= old <= 10^36: growth by exactly RAY leaves the borrow index unchanged.
+    #[cfg(feature = "index-identity")]
+    pub fn test_borrow_index_identity(env: Env, old: i128) -> bool {
+        identity_specs::borrow_index_identity(&env, old)
+    }
+
+    /// Deliberately false: identity growth of RAY+1 is not RAY.
+    #[cfg(feature = "index-identity")]
+    pub fn test_borrow_index_identity_wrong(env: Env) -> bool {
+        identity_specs::borrow_index_identity_wrong(&env)
+    }
+
+    /// RAY < factor <= 100*RAY: an index at the cap stays at the cap.
+    #[cfg(feature = "index-identity")]
+    pub fn test_borrow_cap_sticky(env: Env, factor: i128) -> bool {
+        identity_specs::borrow_index_cap_sticky(&env, factor)
+    }
+
+    /// Deliberately false: doubling at the cap does not exceed the cap.
+    #[cfg(feature = "index-identity")]
+    pub fn test_borrow_cap_sticky_wrong(env: Env) -> bool {
+        identity_specs::borrow_index_cap_sticky_wrong(&env)
+    }
+
+    /// Every i128 triple: zero supply or zero rewards returns the old supply index.
+    #[cfg(feature = "noop-guards")]
+    pub fn test_supply_zero_inputs(env: Env, supplied: i128, old: i128, rewards: i128) -> bool {
+        identity_specs::supply_index_zero_inputs(&env, supplied, old, rewards)
+    }
+
+    /// Deliberately false: zero supply does not grow the index.
+    #[cfg(feature = "noop-guards")]
+    pub fn test_supply_zero_inputs_wrong(env: Env) -> bool {
+        identity_specs::supply_index_zero_inputs_wrong(&env)
+    }
+
+    /// Every i128 rate: zero elapsed time gives exactly the unit growth factor.
+    #[cfg(feature = "noop-guards")]
+    pub fn test_compound_zero_delta(env: Env, rate: i128) -> bool {
+        identity_specs::compound_zero_delta(&env, rate)
+    }
+
+    /// Deliberately false: zero elapsed time does not add the rate.
+    #[cfg(feature = "noop-guards")]
+    pub fn test_compound_zero_delta_wrong(env: Env) -> bool {
+        identity_specs::compound_zero_delta_wrong(&env)
+    }
+
+    /// Every i128 pair with a negative operand: Wad::try_mul returns None.
+    #[cfg(feature = "noop-guards")]
+    pub fn test_wad_try_mul_negative(env: Env, a: i128, b: i128) -> bool {
+        identity_specs::wad_try_mul_negative(&env, a, b)
+    }
+
+    /// Deliberately false: a negative operand is not multiplied.
+    #[cfg(feature = "noop-guards")]
+    pub fn test_wad_try_mul_negative_wrong(env: Env) -> bool {
+        identity_specs::wad_try_mul_negative_wrong(&env)
+    }
+
+    /// Every signed amount whose product fits i128: Ray::from_asset(amount, 7) is amount * 10^20.
+    #[cfg(feature = "rescale-up")]
+    pub fn test_from_asset_7_exact(env: Env, amount: i128) -> bool {
+        identity_specs::from_asset_7_exact(&env, amount)
+    }
+
+    /// Deliberately false: one 7-decimal unit is 10^20 Ray, not 10^19.
+    #[cfg(feature = "rescale-up")]
+    pub fn test_from_asset_7_wrong(env: Env) -> bool {
+        identity_specs::from_asset_7_wrong(&env)
+    }
+
+    /// ltv < threshold <= BPS and threshold*(BPS+bonus) <= BPS^2: validate_risk_bounds accepts.
+    #[cfg(feature = "validation")]
+    pub fn test_risk_bounds_accepts(env: Env, ltv: u32, threshold: u32, bonus: u32) -> bool {
+        validation_specs::risk_bounds_accepts(&env, ltv, threshold, bonus)
+    }
+
+    /// Outside that domain validate_risk_bounds never returns normally.
+    #[cfg(feature = "validation")]
+    pub fn test_risk_bounds_rejects(env: Env, ltv: u32, threshold: u32, bonus: u32) -> bool {
+        validation_specs::risk_bounds_rejects(&env, ltv, threshold, bonus)
+    }
+
+    /// Deliberately false: valid risk bounds claimed rejected.
+    #[cfg(feature = "validation")]
+    pub fn test_risk_bounds_reject_wrong(env: Env) -> bool {
+        validation_specs::risk_bounds_reject_wrong(&env)
+    }
+
+    /// 1 <= records <= 12: validate_twap_records accepts.
+    #[cfg(feature = "validation")]
+    pub fn test_twap_records_accepts(env: Env, records: u32) -> bool {
+        validation_specs::twap_records_accepts(&env, records)
+    }
+
+    /// Otherwise validate_twap_records never returns normally.
+    #[cfg(feature = "validation")]
+    pub fn test_twap_records_rejects(env: Env, records: u32) -> bool {
+        validation_specs::twap_records_rejects(&env, records)
+    }
+
+    /// Deliberately false: 12 records claimed rejected.
+    #[cfg(feature = "validation")]
+    pub fn test_twap_records_reject_wrong(env: Env) -> bool {
+        validation_specs::twap_records_reject_wrong(&env)
+    }
+
+    /// WAD < target <= 10 WAD, 0 < hf < target, 0 < factor <= BPS: validate_liquidation_curve accepts.
+    #[cfg(feature = "validation")]
+    pub fn test_liquidation_curve_accepts(
+        env: Env,
+        target: i128,
+        max_bonus_hf: i128,
+        factor: u32,
+    ) -> bool {
+        validation_specs::liquidation_curve_accepts(&env, target, max_bonus_hf, factor)
+    }
+
+    /// Otherwise validate_liquidation_curve never returns normally.
+    #[cfg(feature = "validation")]
+    pub fn test_liquidation_curve_rejects(
+        env: Env,
+        target: i128,
+        max_bonus_hf: i128,
+        factor: u32,
+    ) -> bool {
+        validation_specs::liquidation_curve_rejects(&env, target, max_bonus_hf, factor)
+    }
+
+    /// Every u64 triple: is_stale(now, feed, max) == (now > feed + max).
+    #[cfg(feature = "oracle-time")]
+    pub fn test_stale_exact(_env: Env, now: u64, feed: u64, max_stale: u64) -> bool {
+        validation_specs::stale_exact(now, feed, max_stale)
+    }
+
+    /// Deliberately false: a feed exactly max_stale old is claimed stale.
+    #[cfg(feature = "oracle-time")]
+    pub fn test_stale_wrong(_env: Env) -> bool {
+        validation_specs::stale_wrong()
+    }
+
+    /// Every u64 pair: is_future_at == (now + skew fits u64 and feed > now + skew).
+    #[cfg(feature = "oracle-time")]
+    pub fn test_future_exact(_env: Env, now: u64, feed: u64) -> bool {
+        validation_specs::future_exact(now, feed)
+    }
+
+    /// Deliberately false: a feed at the skew boundary is claimed in the future.
+    #[cfg(feature = "oracle-time")]
+    pub fn test_future_wrong(_env: Env) -> bool {
+        validation_specs::future_wrong()
+    }
+
+    /// 2^64 <= borrowed <= supplied: exact half-up utilization in [0, RAY].
+    #[cfg(feature = "utilization-wide")]
+    pub fn test_util_wide_exact(env: Env, borrowed: i128, supplied: i128) -> bool {
+        utilization_specs::wide_exact(&env, borrowed, supplied)
+    }
+
+    /// 2^64 <= borrowed <= supplied: 0 <= utilization <= RAY.
+    #[cfg(feature = "utilization-wide")]
+    pub fn test_util_wide_bounds(env: Env, borrowed: i128, supplied: i128) -> bool {
+        utilization_specs::wide_bounds(&env, borrowed, supplied)
+    }
+
+    /// Deliberately false: the tie at 2^64+1 over 2 RAY is claimed rounded down.
+    #[cfg(feature = "utilization-wide")]
+    pub fn test_util_wide_round_wrong(env: Env) -> bool {
+        utilization_specs::wide_round_wrong(&env)
+    }
+
+    /// Index RAY, 27 decimals, amount and pos >= 2^64: exact repayment resolution.
+    #[cfg(feature = "repay-fixed")]
+    pub fn test_repay_fixed_one(env: Env, amount: i128, pos: i128) -> bool {
+        settlement_fixed_specs::repay_exact(&env, amount, pos, settlement_fixed_specs::INDEX_ONE)
+    }
+
+    /// Index 1.5 RAY + 7, 27 decimals, amount and pos >= 2^64: exact repayment resolution.
+    #[cfg(feature = "repay-fixed")]
+    pub fn test_repay_fixed_mid(env: Env, amount: i128, pos: i128) -> bool {
+        settlement_fixed_specs::repay_exact(&env, amount, pos, settlement_fixed_specs::INDEX_MID)
+    }
+
+    /// Deliberately false: partial repayment burn claimed rounded up.
+    #[cfg(feature = "repay-fixed")]
+    pub fn test_repay_fixed_wrong(env: Env) -> bool {
+        settlement_fixed_specs::repay_wrong(&env)
+    }
+
+    /// Index RAY, 27 decimals, amount and pos >= 2^64: exact withdrawal resolution.
+    #[cfg(feature = "withdraw-fixed")]
+    pub fn test_withdraw_fixed_one(env: Env, amount: i128, pos: i128) -> bool {
+        settlement_fixed_specs::withdraw_exact(&env, amount, pos, settlement_fixed_specs::INDEX_ONE)
+    }
+
+    /// Index 1.5 RAY + 7, 27 decimals, amount and pos >= 2^64: exact withdrawal resolution.
+    #[cfg(feature = "withdraw-fixed")]
+    pub fn test_withdraw_fixed_mid(env: Env, amount: i128, pos: i128) -> bool {
+        settlement_fixed_specs::withdraw_exact(&env, amount, pos, settlement_fixed_specs::INDEX_MID)
+    }
+
+    /// Deliberately false: partial withdrawal burn claimed rounded down.
+    #[cfg(feature = "withdraw-fixed")]
+    pub fn test_withdraw_fixed_wrong(env: Env) -> bool {
+        settlement_fixed_specs::withdraw_wrong(&env)
+    }
+
+    /// borrowed = RAY, every supplied >= borrowed: exact half-up utilization.
+    #[cfg(feature = "utilization-fixed-b")]
+    pub fn test_util_fixed_b0(env: Env, supplied: i128) -> bool {
+        utilization_specs::fixed_b_exact(&env, 0, supplied)
+    }
+
+    /// borrowed = 10^30 + 7, every supplied >= borrowed: exact half-up utilization.
+    #[cfg(feature = "utilization-fixed-b")]
+    pub fn test_util_fixed_b1(env: Env, supplied: i128) -> bool {
+        utilization_specs::fixed_b_exact(&env, 1, supplied)
+    }
+
+    /// borrowed = 2^100 + 1, every supplied >= borrowed: exact half-up utilization.
+    #[cfg(feature = "utilization-fixed-b")]
+    pub fn test_util_fixed_b2(env: Env, supplied: i128) -> bool {
+        utilization_specs::fixed_b_exact(&env, 2, supplied)
+    }
+
+    /// Deliberately false: the tie at 2^64+1 over 2 RAY is claimed rounded down.
+    #[cfg(feature = "utilization-fixed-b")]
+    pub fn test_util_fixed_b_wrong(env: Env) -> bool {
+        utilization_specs::wide_round_wrong(&env)
+    }
+
+    /// x, y >= 2^64, representable: Ray::mul_floor is exactly floor(x*y/RAY).
+    #[cfg(feature = "ray-mul-rounding")]
+    pub fn test_ray_mul_floor(env: Env, x: i128, y: i128) -> bool {
+        rounding_specs::mul_rounding(&env, x, y, false)
+    }
+
+    /// x, y >= 2^64, representable: Ray::mul_ceil is exactly ceil(x*y/RAY).
+    #[cfg(feature = "ray-mul-rounding")]
+    pub fn test_ray_mul_ceil(env: Env, x: i128, y: i128) -> bool {
+        rounding_specs::mul_rounding(&env, x, y, true)
+    }
+
+    /// Deliberately false: (RAY+1)^2/RAY rounded down is RAY+2, not RAY+3.
+    #[cfg(feature = "ray-mul-rounding")]
+    pub fn test_ray_mul_floor_wrong(env: Env) -> bool {
+        rounding_specs::mul_floor_wrong(&env)
+    }
+
+    /// Deliberately false: (RAY+1)^2/RAY rounded up is RAY+3, not RAY+2.
+    #[cfg(feature = "ray-mul-rounding")]
+    pub fn test_ray_mul_ceil_wrong(env: Env) -> bool {
+        rounding_specs::mul_ceil_wrong(&env)
+    }
+
+    /// x >= 2^64, d > 0, representable: Ray::div_floor is exactly floor(x*RAY/d).
+    #[cfg(feature = "ray-div-rounding")]
+    pub fn test_ray_div_floor(env: Env, x: i128, d: i128) -> bool {
+        rounding_specs::div_rounding(&env, x, d, false)
+    }
+
+    /// x >= 2^64, d > 0, representable: Ray::div_ceil is exactly ceil(x*RAY/d).
+    #[cfg(feature = "ray-div-rounding")]
+    pub fn test_ray_div_ceil(env: Env, x: i128, d: i128) -> bool {
+        rounding_specs::div_rounding(&env, x, d, true)
+    }
+
+    /// Deliberately false: floor(2^64*RAY/(3*RAY)) is 2^64/3, not one more.
+    #[cfg(feature = "ray-div-rounding")]
+    pub fn test_ray_div_floor_wrong(env: Env) -> bool {
+        rounding_specs::div_floor_wrong(&env)
+    }
+
+    /// Deliberately false: ceil(2^64*RAY/(3*RAY)) is 2^64/3 + 1, not 2^64/3.
+    #[cfg(feature = "ray-div-rounding")]
+    pub fn test_ray_div_ceil_wrong(env: Env) -> bool {
+        rounding_specs::div_ceil_wrong(&env)
+    }
+
     /// Exact half-up result and rejection domain, specified without division.
     #[cfg(feature = "half-up")]
     pub fn test_half_up_exact(env: Env, x: i128, y: i128, divisor: i128) -> bool {
@@ -336,6 +630,12 @@ impl PoolMathProof {
     #[cfg(feature = "controls")]
     pub fn test_util_zero_supply(env: Env, borrowed: i128) -> bool {
         production_utilization(&env, borrowed, 0) == 0
+    }
+
+    /// Deliberately false: zero supply does not report full utilization.
+    #[cfg(feature = "controls")]
+    pub fn test_util_zero_supply_wrong(env: Env) -> bool {
+        production_utilization(&env, RAY, 0) == RAY
     }
 
     /// Index monotonicity and cap for RAY <= old <= cap and RAY <= factor <= 8 RAY.

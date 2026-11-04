@@ -57,7 +57,8 @@ pub(crate) enum ZeroLeg {
     /// Require strictly positive amounts.
     Rejected,
 
-    /// Withdraw all; overrides positive amounts for the same hub asset.
+    /// Withdraw all; mixing it with a positive amount for the same hub asset
+    /// is rejected.
     MeansAll,
 }
 
@@ -70,8 +71,9 @@ pub(crate) fn aggregate_positive_payments(
 }
 
 /// Aggregates hub-asset payments in first-seen order. Rejects empty input,
-/// negative amounts, and overflow. Under `MeansAll`, any zero leg sets that
-/// hub asset's total to zero (withdraw all), whatever the other legs hold.
+/// negative amounts, and overflow. Under `MeansAll`, a zero leg sets that
+/// hub asset's total to zero (withdraw all); a zero leg mixed with a positive
+/// leg for the same hub asset fails with `InvalidPayments`.
 pub(crate) fn aggregate_payments(
     env: &Env,
     payments: &Vec<HubPayment>,
@@ -114,7 +116,10 @@ fn aggregate_payment_amount(
         (ZeroLeg::Rejected, 0, _) => {
             panic_with_error!(env, GenericError::AmountMustBePositive);
         }
-        (ZeroLeg::MeansAll, 0, _) | (ZeroLeg::MeansAll, _, Some(0)) => 0,
+        (ZeroLeg::MeansAll, 0, None | Some(0)) => 0,
+        (ZeroLeg::MeansAll, 0, Some(_)) | (ZeroLeg::MeansAll, _, Some(0)) => {
+            panic_with_error!(env, GenericError::InvalidPayments);
+        }
         (_, amount, previous) => previous
             .unwrap_or(0)
             .checked_add(amount)

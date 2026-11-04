@@ -62,6 +62,7 @@ pub(crate) fn accounting(env: &Env, action: PoolAction, charge_fee: bool) -> Str
         hub_asset,
     } = action;
     require_nonneg_amount(env, amount);
+    require_nonneg_amount(env, position.scaled_amount);
 
     let mut cache = ops::renewed_market(env, &hub_asset);
     let fee = compute_fee(env, &cache, amount, charge_fee);

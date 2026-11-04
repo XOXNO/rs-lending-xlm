@@ -1,0 +1,6 @@
+repo_commit=0388d9c6b38927a054db2126668f78f75df2ae4d
+repo_dirty=0
+prover_image=komet-prover:247c6bde25aa9aa0 sha256:5f9f90d4076170f49a920c90b73901a121e513f535b644abbcc36573911c1766
+wasm_image=komet-wasm:e34a2d5f4a6d2c30 sha256:341db7612cc6aa26cad53e058deb0dfb38be5cf23b9a7d57c50e8757791b7bd7
+host=Linux 7.0.0-34-generic x86_64 cpus=12
+started_utc=2026-11-03T14:10:00Z

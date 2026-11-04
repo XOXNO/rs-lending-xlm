@@ -226,6 +226,10 @@ pub enum OracleError {
     UnsupportedAquariusPool = 234,
 
     InsufficientAquariusLiquidity = 235,
+
+    UnsupportedCurvePool = 236,
+
+    InsufficientCurveLiquidity = 237,
 }
 
 /// Error codes for spoke registration and per-spoke asset configuration

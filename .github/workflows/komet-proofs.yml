@@ -1,0 +1,69 @@
+name: Komet Proofs
+
+# Rebuilds the pinned Komet prover and Wasm builder images, rebuilds each
+# selected harness Wasm and checks its recorded SHA-256, re-runs every proof
+# and its false control from fresh graphs, re-checks the Lean lemmas, and
+# uploads the evidence bundle. A proof passes only with native status PASSED
+# and no pending, failing, stuck, vacuous, bounded or admitted node; a control
+# passes only when completed Wasm execution returns false at its assertion.
+# See komet/pipeline/README.md. Manual dispatch only: the first image build
+# compiles the backend and semantics (several hours on a cold cache).
+
+on:
+  workflow_dispatch:
+    inputs:
+      proofs:
+        description: "Proof names from komet/pipeline/proofs.json (space-separated); empty = all"
+        required: false
+        type: string
+        default: ""
+      job_timeout_minutes:
+        description: "Job wall-clock cap in minutes"
+        required: false
+        type: string
+        default: "720"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  prove:
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    name: Rebuild harnesses and re-run Komet proofs
+    runs-on: self-hosted
+    timeout-minutes: ${{ fromJSON(inputs.job_timeout_minutes || '720') }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Check runner prerequisites
+        run: |
+          docker version --format 'docker {{.Server.Version}}'
+          python3 --version
+          command -v curl zstd
+
+      - name: Build pinned images
+        run: komet/pipeline/scripts/build-images.sh all
+
+      - name: Re-run proofs and controls
+        env:
+          PROOFS: ${{ inputs.proofs }}
+          KOMET_PIPELINE_CACHE: ${{ runner.temp }}/komet-pipeline-cache
+        run: |
+          read -r -a selected <<< "$PROOFS"
+          komet/pipeline/scripts/run-proofs.sh "$RUNNER_TEMP/komet-evidence" "${selected[@]}"
+
+      - name: Upload evidence bundle
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: komet-evidence-${{ github.sha }}
+          path: ${{ runner.temp }}/komet-evidence
+          if-no-files-found: error
+          retention-days: 30

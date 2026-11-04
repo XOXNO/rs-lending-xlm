@@ -201,9 +201,10 @@ impl<'a> Ctx<'a> {
 impl Strategy {
     /// Decodes `init_args` as `(controller: Address, hub_id: u32, spoke_id: u32)`,
     /// panics with `NotInitialized` if any argument is missing or of the
-    /// wrong type, verifies the hub market index exists for `asset`, and
-    /// stores the resulting `Config` (resolving the pool address from the
-    /// controller) in instance storage.
+    /// wrong type, verifies that the hub market index exists for `asset`, that
+    /// the spoke exists (`SpokeNotFound`) and that it lists `(hub_id, asset)`
+    /// (`AssetNotInSpoke`), and stores the resulting `Config` (resolving the
+    /// pool address from the controller) in instance storage.
     pub fn __constructor(env: Env, asset: Address, init_args: Vec<Val>) {
         renew_instance(&env);
         let controller_val = init_args
@@ -229,6 +230,8 @@ impl Strategy {
         };
 
         controller_client.get_market_index(&hub_asset);
+        controller_client.get_spoke(&spoke_id);
+        controller_client.get_spoke_asset(&spoke_id, &hub_asset);
         env.storage().instance().set(
             &DataKey::Config,
             &Config {

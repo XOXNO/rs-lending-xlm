@@ -1,0 +1,26 @@
+[
+ {
+  "proof": "oracle-staleness",
+  "id": "test_fresh_never_stale",
+  "expect": "pass",
+  "status": "PASSED",
+  "verdict": "OK",
+  "exit_code": 0,
+  "wall_seconds": 73,
+  "nodes": 3,
+  "rewrite_steps": 411,
+  "errors": []
+ },
+ {
+  "proof": "oracle-staleness",
+  "id": "test_fresh_wrong",
+  "expect": "fail",
+  "status": "FAILED",
+  "verdict": "OK",
+  "exit_code": 1,
+  "wall_seconds": 79,
+  "nodes": 3,
+  "rewrite_steps": 400,
+  "errors": []
+ }
+]

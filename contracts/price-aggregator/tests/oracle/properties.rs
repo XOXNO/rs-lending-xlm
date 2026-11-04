@@ -2,11 +2,12 @@ use super::*;
 use crate::registry;
 use crate::session::Session;
 use common::types::{
-    AssetOracle, FeedNature, FeedSource, IndependencePolicy, MultiFeedRef, OracleAssetRef,
-    OracleReadMode, OracleTolerance, ProviderRef, ReflectorFeedRef, ScaledSource,
+    AquariusLpSource, AssetOracle, CurveStableLpSource, FeedNature, FeedSource, IndependencePolicy,
+    MultiFeedRef, OracleAssetRef, OracleReadMode, OracleTolerance, ProviderRef, ReflectorFeedRef,
+    ScaledSource,
 };
 use soroban_sdk::testutils::Address as _;
-use soroban_sdk::{Address, String, Symbol};
+use soroban_sdk::{vec, Address, BytesN, String, Symbol};
 
 use crate::PriceAggregator;
 
@@ -242,6 +243,28 @@ fn test_config_properties_carry_the_one_or_two_arity() {
     });
 }
 
+#[test]
+fn test_curve_lp_is_a_market_leg_depending_on_every_coin() {
+    let env = Env::default();
+    let [c0, c1, c2] = [0; 3].map(|_| Address::generate(&env));
+    let source = PriceSource::CurveStableLp(CurveStableLpSource {
+        pool: Address::generate(&env),
+        coins: vec![&env, c0.clone(), c1.clone(), c2.clone()],
+        wasm_hash: BytesN::from_array(&env, &[0; 32]),
+        min_pool_value_wad: 1,
+    });
+    assert!(local_properties(&env, &source).has_unsmoothed_market_leg);
+    assert_eq!(
+        dependencies(&env, &source),
+        vec![
+            &env,
+            PriceKey::Token(c0),
+            PriceKey::Token(c1),
+            PriceKey::Token(c2)
+        ]
+    );
+}
+
 fn solvbtc_oracle(
     env: &Env,
     adapter: &Address,
@@ -427,23 +450,20 @@ fn test_an_lp_source_is_an_unsmoothed_market_leg_naming_both_underlyings() {
     with_contract(&env, || {
         let key_a = PriceKey::Ref(Symbol::new(&env, "A"));
         let key_b = PriceKey::Ref(Symbol::new(&env, "B"));
-        let described = local_properties(
-            &env,
-            &PriceSource::AquariusLp(common::types::AquariusLpSource {
-                pool: Address::generate(&env),
-                token_a: Address::generate(&env),
-                token_b: Address::generate(&env),
-                key_a: key_a.clone(),
-                key_b: key_b.clone(),
-                reserve_a_decimals: 7,
-                reserve_b_decimals: 7,
-                min_pool_value_wad: 1,
-            }),
-        );
+        let source = PriceSource::AquariusLp(AquariusLpSource {
+            pool: Address::generate(&env),
+            token_a: Address::generate(&env),
+            token_b: Address::generate(&env),
+            key_a: key_a.clone(),
+            key_b: key_b.clone(),
+            reserve_a_decimals: 7,
+            reserve_b_decimals: 7,
+            min_pool_value_wad: 1,
+        });
 
-        assert!(described.local.has_unsmoothed_market_leg);
+        assert!(local_properties(&env, &source).has_unsmoothed_market_leg);
         assert_eq!(
-            described.dependencies,
+            dependencies(&env, &source),
             Vec::from_array(&env, [key_a, key_b]),
             "both underlyings must reach the prefetch and independence walks"
         );
@@ -457,7 +477,7 @@ fn test_an_lp_source_paired_with_a_clean_one_is_still_refused() {
     let reflector = Address::generate(&env);
     with_contract(&env, || {
         let mut sources = one(&env, PriceSource::Feed(twap_feed(&env, &reflector)));
-        sources.push_back(PriceSource::AquariusLp(common::types::AquariusLpSource {
+        sources.push_back(PriceSource::AquariusLp(AquariusLpSource {
             pool: Address::generate(&env),
             token_a: Address::generate(&env),
             token_b: Address::generate(&env),

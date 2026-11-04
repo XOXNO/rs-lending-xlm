@@ -1,5 +1,6 @@
-use soroban_sdk::testutils::{Address as _, Ledger as _};
-use soroban_sdk::{vec, Address, BytesN, Env, IntoVal, Symbol, Vec};
+use soroban_sdk::testutils::{Address as _, Events as _, Ledger as _};
+use soroban_sdk::{vec, Address, BytesN, Env, Event as _, IntoVal, Symbol, Vec};
+use stellar_access::access_control::RoleRevoked;
 use stellar_governance::timelock::OperationState;
 
 use common::errors::GenericError;
@@ -490,6 +491,7 @@ fn owner_only_operations(env: &Env) -> Vec<AdminOperation> {
             account: Address::generate(env),
             role: Symbol::new(env, PROPOSER_ROLE),
         }),
+        AdminOperation::SetPositionManager(Address::generate(env), true),
     ]
 }
 
@@ -534,6 +536,15 @@ fn a_non_owner_proposer_still_schedules_listing_and_limit_operations() {
             max_borrow_positions: 5,
         }),
         &BytesN::<32>::from_array(&env, &[7u8; 32]),
+    );
+    assert_eq!(gov.get_operation_state(&id), OperationState::Waiting);
+
+    // Deactivating a position manager stays open to any proposer.
+    let deactivate = AdminOperation::SetPositionManager(Address::generate(&env), false);
+    let id = gov.propose(
+        &proposer,
+        &deactivate,
+        &BytesN::<32>::from_array(&env, &[8u8; 32]),
     );
     assert_eq!(gov.get_operation_state(&id), OperationState::Waiting);
 }
@@ -594,6 +605,16 @@ fn revoking_proposer_ok_when_another_remains() {
     env.ledger()
         .with_mut(|l| l.sequence_number += delay.max(TIMELOCK_SENSITIVE_MIN_DELAY_LEDGERS));
     gov.execute_self(&Some(admin.clone()), &revoke, &r_salt);
+    // A timelocked revocation names governance, not the owner, as the caller.
+    let revoked = RoleRevoked {
+        role: proposer.clone(),
+        account: second.clone(),
+        caller: gov.address.clone(),
+    };
+    let events = env.events().all();
+    assert!(events
+        .events()
+        .contains(&revoked.to_xdr(&env, &gov.address)));
     assert!(!gov.has_role(&second, &proposer));
     assert!(gov.has_role(&admin, &proposer));
 }
@@ -614,9 +635,11 @@ fn non_proposer_cannot_propose() {
     gov.propose(&stranger, &AdminOperation::SetPositionLimits(limits), &salt);
 }
 
+/// Execution is permissionless with `executor = None`; naming an executor that
+/// lacks `EXECUTOR` reverts.
 #[test]
 #[should_panic(expected = "Error(Contract, #2000)")]
-fn non_executor_cannot_execute() {
+fn permissionless_execute_rejects_a_named_executor_without_role() {
     let env = Env::default();
     env.mock_all_auths();
     let delay = 10u32;

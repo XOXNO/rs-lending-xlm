@@ -166,12 +166,17 @@ and the debt with it. See
 [Account authority](../../docs/explanation/threat-model.md#account-authority)
 in the threat model.
 
-**Delegates lapse on transfer.** The controller stores a `DelegateGrant`
-stamped with the `granted_by` address. `get_delegates` returns an empty list
-unless `granted_by` equals the current NFT owner, so a transfer disables the
-old holder's delegates immediately. The stale grant stays in storage and
-re-arms if the token returns to `granted_by`. The next holder's `add_delegate`
-overwrites it and `remove_delegate` deletes it.
+**A transfer suspends delegates; it does not revoke them.** The controller
+stores one `DelegateGrant` per account, stamped with the `granted_by` address,
+and honours it only while `granted_by` is the current NFT owner. After a
+transfer the old holder's delegates cannot act, but the grant stays in
+storage. If the token returns to `granted_by` before a later holder changes
+the delegate list, those delegates can act again without a new grant. To end
+a delegate's authority, the owner calls `remove_delegate` for each delegate
+before transferring. A later holder clears a dormant grant with
+`add_delegate`, which replaces it, or with `remove_delegate`, which deletes it
+without emitting an event. The controller has no view that lists an account's
+delegates; they can be reconstructed from `AccountDelegateEvent`.
 
 **Upgrade is governance-reachable only.** `upgrade` requires controller
 authorization, and the only controller path is the owner-gated

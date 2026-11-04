@@ -1,0 +1,50 @@
+[
+ {
+  "proof": "oracle-time",
+  "id": "test_future_exact",
+  "expect": "pass",
+  "status": "PASSED",
+  "verdict": "OK",
+  "exit_code": 0,
+  "wall_seconds": 225,
+  "nodes": 3,
+  "rewrite_steps": 428,
+  "errors": []
+ },
+ {
+  "proof": "oracle-time",
+  "id": "test_future_wrong",
+  "expect": "fail",
+  "status": "FAILED",
+  "verdict": "OK",
+  "exit_code": 1,
+  "wall_seconds": 196,
+  "nodes": 3,
+  "rewrite_steps": 90,
+  "errors": []
+ },
+ {
+  "proof": "oracle-time",
+  "id": "test_stale_exact",
+  "expect": "pass",
+  "status": "PASSED",
+  "verdict": "OK",
+  "exit_code": 0,
+  "wall_seconds": 233,
+  "nodes": 3,
+  "rewrite_steps": 540,
+  "errors": []
+ },
+ {
+  "proof": "oracle-time",
+  "id": "test_stale_wrong",
+  "expect": "fail",
+  "status": "FAILED",
+  "verdict": "OK",
+  "exit_code": 1,
+  "wall_seconds": 190,
+  "nodes": 3,
+  "rewrite_steps": 90,
+  "errors": []
+ }
+]

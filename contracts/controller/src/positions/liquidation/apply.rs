@@ -264,11 +264,14 @@ pub(crate) fn record_share_credit_updates(
 }
 
 /// Enforces receiver position limits to preserve the liquidation resource bound.
-/// The liquidator can choose `Credit(0)` if the existing receiver has no room.
+/// A `fresh` (`Credit(0)`) receiver skips the governed limit: its legs are a
+/// subset of the liquidated account's, so a lowered limit cannot block the
+/// seizure. Whole-unit isolation applies to every receiver.
 pub(crate) fn require_credit_position_limit(
     env: &Env,
     receiver: &Account,
     seized: &Vec<SeizeEntry>,
+    fresh: bool,
     cache: &mut Context,
 ) {
     let mut aggregated: AggregatedPayments = Vec::new(env);
@@ -277,12 +280,14 @@ pub(crate) fn require_credit_position_limit(
             aggregated.push_back((entry.hub_asset.clone(), entry.amount));
         }
     }
-    validation::validate_bulk_position_limits(
-        env,
-        receiver,
-        AccountPositionType::Deposit,
-        &aggregated,
-    );
+    if !fresh {
+        validation::validate_bulk_position_limits(
+            env,
+            receiver,
+            AccountPositionType::Deposit,
+            &aggregated,
+        );
+    }
     validation::require_whole_unit_isolation(env, cache, receiver, &aggregated);
 }
 

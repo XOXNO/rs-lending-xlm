@@ -86,12 +86,12 @@ not increase.
 The market's backing check uses native units:
 
 ```rust
-let shortfall = max(0, floor(supply_value) - (cash + ceil(debt_value)));
+let shortfall = max(0, floor(supply_value_ray - ceil_ray(debt_value)) - cash);
 ```
 
-Addition and subtraction saturate. Supply entry rejects a positive shortfall.
-Recapitalization credits at most that shortfall, refunds excess and mints no
-shares.
+The RAY-precision gap rounds down to native units once; the cash subtraction
+saturates. Supply entry rejects a positive shortfall. Recapitalization credits
+at most that shortfall, refunds excess and mints no shares.
 
 Borrow draws must retain a 200 BPS liquidation buffer, rounded up from the
 floored supplied token value. Borrow, user withdrawal and revenue claims
@@ -200,11 +200,18 @@ with debt remaining require debt within LTV collateral, health at least one
 WAD and any configured minimum LTV collateral. Listing, cap and pause gates
 also apply; [risk invariants](invariants.md#inv-risk-01) define their scope.
 
+`price_wad` has its own rounding. A Reflector `Twap` mean is floored at the
+feed's precision. The two-source tolerance check rounds the leg ratio half-up,
+so it accepts an exact ratio less than 0.5 BPS above `upper_ratio_bps`. The
+two-source midpoint rounds down; a leg sum that overflows `i128` gives zero,
+which fails as `InvalidPrice` (217).
+
 ## Liquidation sizing and fees
 
 Liquidation calculates a bonus, sizes repayment toward a target health factor,
 then distributes seizure across collateral. The quote can differ from final
-settlement because of rounding and measured token receipt.
+settlement because of rounding and measured token receipt. An estimate read
+at an earlier ledger also differs by the interest accrued before execution.
 
 ### Bonus and target repayment
 
@@ -232,7 +239,8 @@ let ideal = if H <= weighted_seizure || target_debt <= W { backed_max }
 ```
 
 The base bonus averages the stored collateral bonuses by half-up-valued USD
-weight, using half-up division and multiplication. It is bounded by
+weight: it sums each leg's `value * bonus_bps` exactly and divides by total
+collateral once, rounding half-up. It is bounded by
 `floor(BPS * (BPS - t) / t)`, where
 `t = clamp(ceil(p * BPS / WAD), 1, BPS)`. Zero `p` gives a zero threshold bonus
 bound; zero collateral also gives a zero base bonus.
@@ -270,6 +278,15 @@ accepted. A partial repayment `x` seizes `x * (1 + cap)`, at most `x * C / D`,
 so `C / D` and the health factor do not fall; the BPS floor of the cap can
 raise them slightly.
 
+When the curve bonus is above the cap and the cap is at least base, the
+target formula runs at the cap. There `p * (1 + b)` is about `HF`, so the
+formula gives about `D`: the quote is the whole debt, the seizure is about
+`C`, and the bonus is about `C - D`, the borrower's whole equity
+([borrower protection](../explanation/threat-model.md#price-integrity-and-availability)).
+On the mainnet Stables & FX spoke (curve 1.02/0.80/10000), an account with one
+collateral leg gets a whole-debt quote below about HF 0.93 to 0.97, depending
+on the leg's threshold and base bonus, down to insolvency.
+
 Insolvency is the exact unweighted comparison `C < D`. With positive `p`, the
 insolvency branch quotes the repayment the collateral backs at the base bonus,
 floored, so an offer above it is trimmed and the liquidator never pays more
@@ -290,8 +307,9 @@ receives, and a plan that then seizes nothing reverts with `InvalidPayments`
 (16). Neither applies when an insolvent account's repayment reaches the
 collateral-backed quote: that call seizes every unit. Such a leg is its
 account's only supply position, so it is the whole collateral and the seizure
-stays proportional, and an action that leaves debt needs at least 2 whole
-units in it.
+stays proportional. A borrow, withdrawal or account strategy that leaves debt
+needs at least 2 whole units in it. A liquidation can leave fewer, and a
+`Credit` receiver's units are not checked at credit.
 
 The controller can change a partial quote for such a leg. All of these
 conditions must be true: the account is solvent (`C >= D`), the curve quote is
@@ -350,7 +368,8 @@ also trims the inputs above the quote from the last leg backward before tokens
 are pulled, and execution pulls the trimmed amount. On a solvent account the
 trim floors the refund, so the kept amount can round up by one token unit. A
 full-debt quote trims nothing: the per-leg ceilings can exceed `D` by unit
-rounding, and the repayment credits every unit of them. Execution then pulls
+rounding, but a leg paid at its ceiling is credited only the floor value of
+the debt it clears, so the rounded-up fraction buys no collateral. Execution then pulls
 each merged offered amount and the pool refunds what exceeds each leg's debt,
 which is exactly the listed refund. Neither a full-debt quote nor the target
 health factor guarantees an executed full close after rounding or
@@ -365,6 +384,11 @@ by zero. A collateral cap below principal leaves no bonus to charge.
 Partial seizure floors the token amount and seized shares. Full seizure uses
 the half-up token amount to request a full pool withdrawal and takes the exact
 held shares for Credit mode; the pool payout still floors the supply claim.
+In Transfer mode the pool treats any request at or above the half-up held
+balance as a full close. When the held fraction is below half a unit, a
+partial request equal to the floored balance therefore burns every share and
+pays that floored balance, the amount the plan priced. The fraction stays in
+the pool as cash that no share claims.
 Bonus shares floor at the supply index and cannot exceed seized shares.
 Zero-share or zero-token planned seizure legs are omitted.
 
@@ -390,8 +414,10 @@ let credited_shares = seized_shares - credit_fee_shares;
 ```
 
 Under-delivery floor-scales seizure amounts, transfer fees, seized shares and
-bonus shares by measured/planned repayment USD. Credit fees are recomputed
-from the scaled bonus shares.
+bonus shares by measured/planned repayment USD. The transfer amount is also
+capped at the floor asset value of the scaled shares, and the fee at that
+amount; a leg below 3 decimals reverts ([INV-LIQ-03](invariants.md#inv-liq-03)).
+Credit fees are recomputed from the scaled bonus shares.
 
 Bad-debt cleanup has separate eligibility: ceil risk debt must exceed half-up
 unweighted collateral, and permissionless cleanup requires collateral at or
@@ -440,7 +466,7 @@ fee; see [its settlement invariant](invariants.md#inv-strat-04).
 
 | Bound | Consequence |
 |---|---|
-| Asset decimals 0..=18 | Exact token-to-RAY upscaling. Below 3: collateral only, no flash loans, no liquidation fee, its account's only supply position, at least 2 whole units while in debt |
+| Asset decimals 0..=18 | Exact token-to-RAY upscaling. Below 3: collateral only, no flash loans, no liquidation fee, its account's only supply position, at least 2 whole units after a borrow, withdrawal or strategy that leaves debt |
 | Both indexes initially RAY; ceiling 10^36 | 10^9 times initial index; protocol constants |
 | Supply-index floor 10^24 | At most 1,000 times the shares minted at index one for the same deposit |
 | Borrow APR maximum 2 RAY | 200% annual rate; not a bound on balance growth alone |
@@ -461,7 +487,7 @@ These are arithmetic limits, not recommended market sizes or deployment proofs.
 These $5 repayment fixtures use ample collateral, selected USD prices and the
 decimals, bonus and fee of one mainnet listing each. They illustrate native
 arithmetic, excluding network fees and slippage. The prices are not live
-quotes; four rows sit at their listing's `max_sanity_price_wad`. The results
+quotes; five rows sit at their listing's `max_sanity_price_wad`. The results
 do not guarantee profitability. The fixture tests also run each row at its
 listing's `max_sanity_price_wad`. The fixture models at most two token-unit
 rounding costs per collateral leg; that is not a universal execution bound.

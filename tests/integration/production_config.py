@@ -11,6 +11,31 @@ if not __debug__:
     raise RuntimeError('release verification requires Python assertions; unset PYTHONOPTIMIZE')
 
 
+CURVE_FIXTURES = Path(__file__).resolve().parents[2] / 'contracts/swap-aggregator/tests/fixtures/curve'
+
+
+def curve_fixture(lp):
+    """Fixture executable for a CurveStableLp source, matched by its pinned hash."""
+    want = lp.get('wasm_hash', '').lower()
+    for path in sorted(CURVE_FIXTURES.glob('pool-*coin.wasm')):
+        if hashlib.sha256(path.read_bytes()).hexdigest() == want:
+            if path.name != f"pool-{len(lp['coins'])}coin.wasm":
+                raise ValueError(f'Curve pool {lp["pool"]}: {path.name} does not take {len(lp["coins"])} coins')
+            return path.name
+    raise ValueError(f'Curve pool {lp.get("pool")} wasm_hash {want or "<missing>"} has no fixture in '
+                     f'{CURVE_FIXTURES}; replay requires the reviewed pool WASM')
+
+
+def curve_reviewed(root, lp):
+    """Refuse a Curve source whose executable is not on the source network's allowlist."""
+    path = root / 'curve_reviewed_pools.json'
+    reviewed = {p['wasm_hash'] for p in json.loads(path.read_text())['pools']} if path.exists() else set()
+    want = lp.get('wasm_hash', '').lower()
+    if want not in reviewed:
+        raise ValueError(f'Curve pool {lp.get("pool")} wasm_hash {want or "<missing>"} is not in {path}; '
+                         'replay deploys only governance-reviewed pool executables')
+
+
 def walk(value):
     if isinstance(value, dict):
         yield value
@@ -83,7 +108,9 @@ def decimal_cases(root, networks):
         candidates = [(market, config_id) for market in markets for config_id, spoke in spokes.items()
             if market['oracle']['asset_decimals'] == decimals
             and (listing := spoke['assets'].get(market['name']))
-            and listing['can_be_collateral'] and int(listing['supply_cap']) >= amount]
+            and listing['can_be_collateral'] and int(listing['supply_cap']) >= amount
+            # A Curve LP is minted only by depositing coins; the flow mints directly.
+            and not any('CurveStableLp' in node for node in walk(market['oracle']))]
         assert candidates, f'no collateral fixture for {decimals} decimals'
         market, config_id = candidates[0]
         cases.append(dict(name=market['name'], asset=market['asset_address'], decimals=decimals,
@@ -137,14 +164,14 @@ def fixture_price(root, key):
         return (2 * n + d) // (2 * d)
     def feed(spec):
         kind, provider = next(iter(spec['provider'].items()))
-        identity = provider.get('feed_id', provider.get('asset'))
+        identity = provider.get('feed_id', provider.get('data_id', provider.get('asset')))
         if isinstance(identity, dict) and 'Symbol' in identity:
             identity = {'Other': identity['Symbol']}
         seeds = [seed for seed in fixtures['seeds'] if seed['kind'] == kind
                  and seed['contract'] == provider['contract']
-                 and seed.get('feed', seed.get('asset')) == identity]
+                 and seed.get('feed', seed.get('data_id', seed.get('asset'))) == identity]
         assert seeds, 'missing provider seed'
-        unit = 10**4 if kind == 'Reflector' else 10**10
+        unit = 10**4 if kind == 'Reflector' else (1 if kind == 'Chainlink' else 10**10)
         return int(seeds[-1]['price']) // unit * unit
     def resolve(price_key, stack=()):
         k = json.dumps(price_key, sort_keys=True)
@@ -157,6 +184,16 @@ def fixture_price(root, key):
                 value = feed(spec)
             elif kind == 'Scaled':
                 value = half_up(feed(spec['factor']) * resolve(spec['quote'], stack + (k,)), 10**18)
+            elif kind == 'CurveStableLp':
+                pool = next(p for p in fixtures['curve_pools'] if p['contract'] == spec['pool'])
+                assert pool['coins'] == spec['coins']
+                normalized = [int(a) * 10**(18 - d) for a, d in zip(pool['amounts'], pool['coin_decimals'])]
+                # One balanced first deposit: D is the normalized sum exactly and
+                # mints D shares, so virtual_price = D * WAD // supply.
+                assert len(set(normalized)) == 1 and normalized[0] > 0, 'Curve fixture must be one balanced deposit'
+                d = supply = sum(normalized)
+                virtual_price = d * 10**18 // supply
+                value = virtual_price * min(resolve({'Token': c}, stack + (k,)) for c in spec['coins']) // 10**18
             else:
                 assert kind in ('AquariusLp', 'AquariusStableLp')
                 pool = next(p['snapshot'] for p in fixtures['pools'] if p['contract'] == spec['pool'])
@@ -187,7 +224,7 @@ def fixture_price(root, key):
     return resolve(key)
 
 
-CALLER_MARKETS = ('XLM', 'USDC', 'SolvBTC', 'XAUM', 'USST', 'AQUA', 'XAUMUSDC_LP')
+CALLER_MARKETS = ('XLM', 'USDC', 'USDT0', 'SolvBTC', 'XAUM', 'USST', 'AQUA', 'XAUMUSDC_LP')
 
 
 def restrict_markets(markets, only):
@@ -196,7 +233,9 @@ def restrict_markets(markets, only):
     kept = [m for m in markets['markets'] if m['name'] in only]
     assert {m['name'] for m in kept} == set(only), 'unknown or disabled market in --only'
     def dependencies(entries):
-        return [node[k] for node in walk([e['oracle'] for e in entries]) for k in ('quote', 'key_a', 'key_b') if k in node]
+        nodes = list(walk([e['oracle'] for e in entries]))
+        return [node[k] for node in nodes for k in ('quote', 'key_a', 'key_b') if k in node] + \
+            [{'Token': coin} for node in nodes if 'CurveStableLp' in node for coin in node['CurveStableLp']['coins']]
     used = dependencies(kept)
     references = [r for r in markets.get('references', []) if r['key'] in used]
     used += dependencies(references)
@@ -227,7 +266,14 @@ def plan(root, only=None):
     for m in enabled:
         definitions[m['asset_address']] = dict(kind='token', decimals=m['oracle']['asset_decimals'], name=m['name'])
     for node in walk([enabled, markets.get('references', [])]):
-        for kind in ('Reflector', 'RedStone', 'Xoxno'):
+        if 'CurveStableLp' in node:
+            lp = node['CurveStableLp']
+            # Fails before any deploy; validate_configs repeats this on the materialized config.
+            curve_reviewed(root, lp)
+            # Deployed after its coins: the constructor takes their fixture addresses.
+            definitions[lp['pool']] = dict(kind='curve_pool', wasm=curve_fixture(lp), coins=lp['coins'],
+                                           decimals=18, name=definitions.get(lp['pool'], {}).get('name', 'CURVELP'))
+        for kind in ('Reflector', 'RedStone', 'Xoxno', 'Chainlink'):
             if kind in node:
                 definitions[node[kind]['contract']] = dict(kind=kind)
         for kind in ('AquariusLp', 'AquariusStableLp'):
@@ -265,7 +311,23 @@ def materialize(source, output, mapping, network, only=None):
                 scaled = s['Scaled']
                 price = prices[json.dumps(scaled['quote'], sort_keys=True)] * ((int(scaled['min_factor_wad']) + int(scaled['max_factor_wad'])) // 2) // 10**18
         prices[json.dumps({'Token':m['asset_address']}, sort_keys=True)] = price
-    seeds, pools, bases = [], [], {}
+    seeds, pools, bases, curve_pools = [], [], {}, []
+    decimals = {m['asset_address']: m['oracle']['asset_decimals'] for m in original['markets']}
+    for m in original['markets']:
+        for s in m['oracle']['sources']:
+            if 'CurveStableLp' in s:
+                lp = s['CurveStableLp']
+                low = min(prices[json.dumps({'Token':c}, sort_keys=True)] for c in lp['coins'])
+                # About $1e8 per coin in whole tokens, so every coin amount is exact.
+                per_coin = 10**26 * 10**18 // low // 10**18 * 10**18
+                assert per_coin > 0 and len(lp['coins'])*per_coin*low // 10**18 >= int(lp['min_pool_value_wad']), \
+                    f'Curve fixture for {m["name"]} is below its liquidity floor'
+                coin_decimals = [decimals[c] for c in lp['coins']]
+                curve_pools.append(dict(contract=mapping[lp['pool']], wasm=curve_fixture(lp), wasm_hash=lp['wasm_hash'],
+                    coins=[mapping[c] for c in lp['coins']], coin_decimals=coin_decimals,
+                    amounts=[str(per_coin // 10**(18-d)) for d in coin_decimals]))
+                # Balanced first deposit: virtual price is exactly WAD.
+                prices[json.dumps({'Token':m['asset_address']}, sort_keys=True)] = low
     def feed(feed_, price):
         provider = feed_['provider']
         if 'Reflector' in provider:
@@ -277,6 +339,11 @@ def materialize(source, output, mapping, network, only=None):
             kind='RedStone' if 'RedStone' in provider else 'Xoxno'
             p = provider[kind]
             seeds.append(dict(kind=kind, contract=mapping[p['contract']], feed=p['feed_id'], price=str(price)))
+        elif 'Chainlink' in provider:
+            p = provider['Chainlink']
+            seeds.append(dict(
+                kind='Chainlink', contract=mapping[p['contract']], data_id=p['data_id'],
+                price=str(price)))
         else:
             raise ValueError(f'provider fixture unsupported: {provider}')
     for entry in original.get('references', []) + original['markets']:
@@ -291,6 +358,8 @@ def materialize(source, output, mapping, network, only=None):
                 if 'Reflector' in s['factor']['provider']:
                     p=s['factor']['provider']['Reflector']['contract']
                     q=s['quote']; bases[mapping[p]]=remap({'Stellar':q['Token']} if 'Token' in q else {'Other':q['Ref']})
+            elif 'CurveStableLp' in source_:
+                pass  # seeded above from its coins' fixture prices
             else:
                 kind=next(iter(source_)); s=source_[kind]
                 pa=prices[json.dumps(s['key_a'],sort_keys=True)]; pb=prices[json.dumps(s['key_b'],sort_keys=True)]
@@ -316,12 +385,15 @@ def materialize(source, output, mapping, network, only=None):
                 spoke['assets']={k:v for k,v in spoke['assets'].items() if v.get('enabled',True)}
             config=restrict_spokes(config,only)
         (output/name).write_text(json.dumps(remap(config),indent=2)+'\n')
+    if (source/'curve_reviewed_pools.json').exists():
+        # validate_configs replays the source network's reviewed-pool allowlist.
+        (output/'curve_reviewed_pools.json').write_bytes((source/'curve_reviewed_pools.json').read_bytes())
     (output/'blend.json').write_text('{"pools":[]}\n')
     (output/'oracle_feeds.json').write_text('{"feeds":[]}\n')
     evidence=dict(source_sha256=hashlib.sha256((source/'markets.json').read_bytes()).hexdigest(),
                   source_files_sha256={name:hashlib.sha256((source/name).read_bytes()).hexdigest() for name in ('markets.json','hubs.json','spokes.json')},
                   address_mapping=mapping, provider_execution='fixture', market_filter=list(only) if only else None,
-                  seeds=seeds,pools=pools,bases=bases,
+                  seeds=seeds,pools=pools,bases=bases,curve_pools=curve_pools,
                   prices={json.dumps(remap(json.loads(key)),sort_keys=True):str(price) for key,price in prices.items()})
     (output/'fixtures.json').write_text(json.dumps(evidence,indent=2)+'\n')
 

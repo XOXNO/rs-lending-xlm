@@ -1,0 +1,23 @@
+{
+ "image": "komet-prover:247c6bde25aa9aa0",
+ "id": "test_liquidation_curve_accepts",
+ "expect": "pass",
+ "exit_code": 0,
+ "wall_seconds": 870,
+ "cap_seconds": 14400,
+ "started_utc": "2026-11-03T14:34:09Z",
+ "command": [
+  "komet",
+  "prove",
+  "run",
+  "--always-allocate",
+  "--wasm",
+  "/out/input/pool_math_proof.wasm",
+  "--id",
+  "test_liquidation_curve_accepts",
+  "--proof-dir",
+  "/out/proof",
+  "--extra-module",
+  "/out/input/pool-math-lemmas.k:POOL-MATH-LEMMAS"
+ ]
+}

@@ -162,7 +162,7 @@ impl Metrics {
             oracle_status_timestamp: register_gauge_vec(&registry, "lending_oracle_status_timestamp_seconds", "Soft status blend price timestamp (Unix s)", ORACLE_LABELS)?,
             oracle_max_stale_seconds: register_gauge_vec(&registry, "lending_oracle_max_stale_seconds", "Configured market-level max price staleness (s)", ORACLE_LABELS)?,
             oracle_effective_max_stale_seconds: register_gauge_vec(&registry, "lending_oracle_effective_max_stale_seconds", "Max-stale of the soonest-to-stale provider leg (s)", ORACLE_LABELS)?,
-            oracle_lp_total_shares: register_gauge_vec(&registry, "lending_oracle_lp_total_shares", "Aquarius LP share supply of an LP-priced asset (whole shares). Pool value = this * lending_oracle_price_usd", ORACLE_LABELS)?,
+            oracle_lp_total_shares: register_gauge_vec(&registry, "lending_oracle_lp_total_shares", "LP (Aquarius or Curve) share supply of an LP-priced asset (whole shares). Pool value = this * lending_oracle_price_usd", ORACLE_LABELS)?,
             oracle_lp_pool_floor_usd: register_gauge_vec(&registry, "lending_oracle_lp_pool_floor_usd", "Configured min_pool_value of an LP-priced asset (USD); the price fails closed under it", ORACLE_LABELS)?,
             oracle_tolerance_upper_bps: register_gauge_vec(&registry, "lending_oracle_tolerance_upper_bps", "Configured upper tolerance ratio (bps, 10000 = parity)", ORACLE_LABELS)?,
             oracle_tolerance_lower_bps: register_gauge_vec(&registry, "lending_oracle_tolerance_lower_bps", "Configured lower tolerance ratio (bps, 10000 = parity)", ORACLE_LABELS)?,
@@ -243,6 +243,24 @@ impl Metrics {
         }
     }
 
+    pub fn remove_oracle_config_and_freshness(&self, labels: &[&str; 3]) {
+        for gauge in [
+            &self.oracle_max_stale_seconds,
+            &self.oracle_effective_max_stale_seconds,
+            &self.oracle_lp_total_shares,
+            &self.oracle_lp_pool_floor_usd,
+            &self.oracle_tolerance_upper_bps,
+            &self.oracle_tolerance_lower_bps,
+            &self.oracle_sanity_min_usd,
+            &self.oracle_sanity_max_usd,
+            &self.oracle_strategy,
+            &self.oracle_price_timestamp,
+            &self.oracle_seconds_until_stale,
+        ] {
+            let _ = gauge.remove_label_values(labels);
+        }
+    }
+
     /// Publishes the build series and seeds the last-success time with the
     /// process start.
     pub fn publish_startup(&self, network: &str, started_at: i64) -> Result<()> {
@@ -312,6 +330,7 @@ async fn scrape(State(metrics): State<Arc<Metrics>>) -> Result<String, StatusCod
 mod tests {
     use super::*;
 
+    const SAMPLE_ORACLE: [&str; 3] = ["testnet", "CDEADBEEF", "USDC"];
     const SAMPLE_SPOKE_ASSET: [&str; 7] =
         ["testnet", "1", "Main", "2", "Core", "CDEADBEEF", "USDC"];
 
@@ -351,6 +370,54 @@ mod tests {
         )));
         assert!(rendered
             .contains("lending_exporter_last_success_timestamp{network=\"mainnet\"} 1790000000\n"));
+    }
+
+    #[test]
+    fn removing_oracle_config_drops_every_derived_series() {
+        let metrics = Metrics::new().unwrap();
+        let names = [
+            "lending_oracle_max_stale_seconds",
+            "lending_oracle_effective_max_stale_seconds",
+            "lending_oracle_lp_total_shares",
+            "lending_oracle_lp_pool_floor_usd",
+            "lending_oracle_tolerance_upper_bps",
+            "lending_oracle_tolerance_lower_bps",
+            "lending_oracle_sanity_min_usd",
+            "lending_oracle_sanity_max_usd",
+            "lending_oracle_strategy",
+            "lending_oracle_price_timestamp_seconds",
+            "lending_oracle_seconds_until_stale",
+        ];
+        let gauges = [
+            &metrics.oracle_max_stale_seconds,
+            &metrics.oracle_effective_max_stale_seconds,
+            &metrics.oracle_lp_total_shares,
+            &metrics.oracle_lp_pool_floor_usd,
+            &metrics.oracle_tolerance_upper_bps,
+            &metrics.oracle_tolerance_lower_bps,
+            &metrics.oracle_sanity_min_usd,
+            &metrics.oracle_sanity_max_usd,
+            &metrics.oracle_strategy,
+            &metrics.oracle_price_timestamp,
+            &metrics.oracle_seconds_until_stale,
+        ];
+        for gauge in gauges {
+            gauge.with_label_values(&SAMPLE_ORACLE).set(1.0);
+        }
+        let derived_series = || {
+            metrics
+                .registry
+                .gather()
+                .iter()
+                .filter(|family| names.contains(&family.get_name()))
+                .map(|family| family.get_metric().len())
+                .sum::<usize>()
+        };
+        assert_eq!(derived_series(), names.len());
+
+        metrics.remove_oracle_config_and_freshness(&SAMPLE_ORACLE);
+
+        assert_eq!(derived_series(), 0);
     }
 
     #[test]

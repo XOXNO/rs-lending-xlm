@@ -46,8 +46,8 @@ minimum to 12 ledgers on testnet and mainnet. Verify the deployed minimum and
 its review window before funding. Raising the configured minimum and changing a
 compiled tier floor are different actions.
 
-GUARDIAN can immediately pause, tighten listing flags, and create empty hubs
-or spokes. ORACLE can immediately narrow sanity bands. The owner can revoke
+GUARDIAN can immediately pause, tighten listing flags, create empty hubs
+or spokes, deactivate a position manager, and revoke a Blend pool. ORACLE can immediately narrow sanity bands. The owner can revoke
 those two hot roles immediately and perform one-time deployment bootstrap.
 Reopening, global position-manager changes, and ordinary upgrades use delayed
 operations. Controller construction and upgrade pause the controller. Pool,
@@ -55,12 +55,14 @@ position NFT, price aggregator and governance upgrades do not pause lending.
 
 A PROPOSER that is not the owner can schedule listing, cap, curve and limit
 changes. Ownership transfers, code upgrades and migration, the timelock
-minimum delay, price and swap sources, Blend approvals, the revenue accumulator
-and role grants need the owner as proposer. A stolen non-owner PROPOSER key can
-therefore schedule disruptive changes, such as listing flags, risk parameters,
-role revocations or an unpause, but cannot replace code or prices. It cannot
-change the minimum delay either. `UpdateGovDelay` can only raise the minimum,
-so no later delay update can lower it. An owner `UpgradeGov` can still replace
+minimum delay, price and swap sources, Blend approvals, the revenue accumulator,
+role grants and position-manager activation need the owner as proposer. A
+stolen non-owner PROPOSER key can therefore schedule disruptive changes, such
+as listing flags, risk parameters, role revocations, a position-manager
+deactivation or an unpause, but cannot replace code or prices. It cannot
+change the minimum delay either. `UpdateGovDelay` is owner-proposed and
+waits out the current delay; it can raise the minimum, or lower it no further
+than `TIMELOCK_MIN_DELAY_LEDGERS` (about 2 days). An owner `UpgradeGov` can still replace
 the governance code and its delay rules
 ([INV-AUTH-05](../reference/invariants.md#inv-auth-05)).
 
@@ -81,8 +83,11 @@ debt. This is not a narrowly scoped permission to handle a collectible.
 An account delegate also needs active global position-manager registration.
 Its grant is stamped with the granting owner's address, not a transfer epoch:
 it becomes inactive while someone else holds the NFT and can revive if the
-NFT returns before an intervening owner updates delegates. Owner revocation
-is immediate; global deactivation takes effect when governance executes it.
+NFT returns before an intervening owner updates delegates. A transfer is
+therefore not a revocation: an owner who wants delegates gone must call
+`remove_delegate` for each one before transferring, and no view lists the
+live delegates. Owner revocation is immediate, and so is a GUARDIAN's global
+deactivation of a position manager; reactivation is timelocked.
 Delegates can borrow/withdraw to their chosen recipient within account gates.
 Those gates do not constrain them to acting in the owner's economic interest.
 
@@ -126,6 +131,11 @@ operation. After a mismatch executes, only an aggregator Wasm upgrade can
 correct the stored unit: `set_oracle` rejects a decimals change, and
 `remove_oracle` exists only in testing builds.
 
+Never list a receipt-tax or otherwise under-delivering token as borrowable in a
+spoke that holds collateral below `MIN_BORROWABLE_ASSET_DECIMALS`. A short
+receipt against such collateral reverts, so a borrower in that pairing can only
+be fully closed with a fully delivered offer, never partially liquidated.
+
 One token listed in several hubs shares physical pool custody even though
 market books are separate. Direct donations do not rewrite those books.
 Cash flash loans impose exact balance transitions and allowance repayment;
@@ -138,6 +148,18 @@ did not require the holder's authorization when reviewed (mainnet simulation,
 unbooked donation. Gauge rewards need the pool's authorization and therefore
 cannot be claimed at all. Suppliers of LP collateral should expect no venue
 rewards; this is forgone yield, not a loss of principal.
+
+Curve LP collateral is priced at the pool's virtual price times the lowest coin
+price. The virtual price depends on the amplification coefficient A whenever the
+pool is imbalanced, and the pool factory's admin can ramp A within the pool's
+own rate limits. The aggregator pins the pool executable, not its factory, so
+governance must review the factory and its admin as trusted parties, as it does
+an Aquarius stable pool's admin. On an imbalanced pool a ramp can move the mark
+either way, but never above the normalized balances per share times the
+lowest coin price, because the invariant never exceeds their sum. Each coin's issuer
+carries the same trust as a directly listed token's. The lowest-coin price
+understates an LP held as debt, so LP sources are collateral-only and LP
+markets must not be borrowable.
 
 ## Routes, callbacks, and external integrations
 
@@ -216,6 +238,27 @@ interest that accrues after the borrow. When governance moves the band, the
 result applies again only from a report in the new band at which the account
 is healthy.
 
+Admission does not enforce this envelope. Listing validation checks only
+`LTV < LT <= 1` and `LT * (1 + bonus) <= 1`, and oracle admission reads no
+listing. Check each collateral and debt pair of a spoke against each provider
+contract. A provider's reach on a key is the largest ratio between two prices
+of that key that the aggregator accepts while every other provider stays
+fixed. The band bounds it. On a single-source key it is the band ratio. On a
+two-source key where the provider serves one leg, it is the upper tolerance
+ratio, because the midpoint moves by at most that ratio. A scaled source's
+price is factor times quote, so a provider that serves the factor feed moves
+it by up to `max_factor_wad / min_factor_wad`, times its reach on the quote
+key. A provider that serves both the collateral key and a debt key moves both
+at once, so lenders are safe from it only while
+`LT * reach(collateral) * reach(debt) < 1`. A two-source key whose legs have
+different provider sets is exempt from the 10% single-source band cap, so
+its band does not bound that reach to 11/9. `make ops-script-check` runs
+`scripts/check_lender_envelope.py`, which applies this condition with a 1%
+margin to every enabled listing in `configs/mainnet`. A pair that still breaks
+it must be declared, with its finding id and the largest product it accepts,
+in `scripts/lender_envelope_exceptions.txt`; the check also fails when a
+declared pair rises above that product, or sits more than 0.001 below it.
+
 The borrower has less protection. The bonus `b` is the curve bonus at the
 reported HF, capped at `HF / LT - 1`. It is not the base bonus. On the default
 curve (target HF 1.10, maximum bonus at HF 0.80) with LT 60%, a reported HF of
@@ -281,7 +324,8 @@ minimum-collateral floor. Expensive low-decimal collateral can yield zero
 seizure even for a $5 repayment; assess that precision risk before listing.
 The [seizure fixture tests](../../contracts/controller/tests/positions/liquidation_math.rs) reproduce this limit.
 Share credit avoids collateral cash payout but still requires an authorized
-same-spoke receiver in Normal mode, position capacity, and a listing for a
+same-spoke receiver in Normal mode, position capacity in an existing receiver
+(a `Credit(0)` receiver is exempt from the governed limit), and a listing for a
 newly credited asset.
 
 On a solvent account whose only leg is below 3 decimals, the quote can rise to
@@ -307,6 +351,25 @@ material unpaid backing, so displayed supplier claims are not a universal
 pro-rata cash-payout guarantee. New supply checks backing; recapitalization
 repairs the book's measured shortfall without minting shares.
 
+A liquidation that leaves the account's collateral at or below $5 with debt
+above it runs this cleanup in the same call, after the seizure. A `Credit`
+receiver credited in a market that this cleanup writes down is a supplier
+present at cleanup, so its credited shares lose the same fraction as every
+other claim in that market. `get_liquidation_estimate` share counts and
+`LiquidationEvent.bonus_bps` describe the plan before that write-down. In a
+shallow market, a seize-all `Credit` liquidation can therefore lose money
+where `Transfer` would not. A liquidator avoids it with `Transfer`, or with a
+partial size that leaves more than $5 of collateral, so no cleanup runs in
+that call.
+
+An insolvent account whose collateral-backed quote `floor(C / (1 + base))`
+is below one base unit of every debt leg cannot be liquidated: the trim drops
+every leg and `liquidate` reverts with `InvalidPayments` (16). With `C` above
+$5, only the owner's force-socialize path clears it. A borrowable token whose
+base unit is worth more than `$5 / (1 + base)`, about $4.76 at a 500 BPS base
+bonus, can create such accounts. That is a 3-decimal token above about
+$4,762 or a 4-decimal token above about $47,620. Listing review must note it.
+
 The compile-time dust cleanup threshold and governance-settable collateral
 floor can diverge. Above the permissionless cleanup threshold, an insolvent
 account may require the governed [force-socialize runbook](../reference/runbooks/force-socialize-bad-debt.md).
@@ -329,6 +392,31 @@ vectors still cost resources. A full-risk threshold refresh aborts the entire
 batch if an included account's final health factor is below 1.05. Isolate and
 investigate that account; no earlier updates from the failed batch persist.
 An LTV-only refresh has no such final gate.
+
+Curve LP sources accept at most 3 coins (`MAX_CURVE_COINS`). Under the default
+Soroban budget with mainnet per-invocation limits, the
+[Curve collateral tests](../../tests/test-harness/tests/curve_collateral.rs)
+measured a liquidation of `POSITION_LIMIT_MAX` (5) 3-coin LP legs at 54.87M CPU
+and 11.19M memory, a multiply into LP at 25.6M CPU, and a repay out of LP at
+29.0M CPU. The controller runs natively there, so its own instructions are not
+counted. These figures are a lower bound: native controller and feed, SAC coins,
+single-source coin oracles and one debt leg (the limit is 5). The WASM replay
+`curve_lp_liquidation_worst_case_all_wasm` removes those gaps: every contract on
+the path runs as WASM, coins are custom-WASM tokens with two-source WASM feeds,
+and the account holds 5 LP legs and 5 debt legs. Its heaviest case (`Transfer`
+seizure, 5 seconds after the last accrual) used 107.7M of 400M CPU, 15.1M of
+41.9M memory, 212 of 400 footprint entries, 0 of 200 disk read entries and 42
+of 200 writes. The replay still is not production: both feed providers (the
+RedStone primary and the Chainlink anchor) are `mock_redstone.wasm`, every coin
+and debt asset is the minimal `production_fixture.wasm` token, and the test
+prints usage without asserting a ceiling. Re-measure with the production
+RedStone adapter, Chainlink proxy and listed token executables before treating
+107.7M as a production bound; real feed and token contracts can cost more. The
+limits compared are the live mainnet settings read on 2026-11-02 with
+`stellar network settings`: `tx_max_instructions` 400,000,000,
+`tx_memory_limit` 41,943,040, `tx_max_footprint_entries` 400,
+`tx_max_disk_read_entries` 200 and `tx_max_write_ledger_entries` 200. Larger
+pools need new code and new measurements.
 
 ## STRIDE register
 
@@ -361,16 +449,17 @@ these rows do not assign severity or establish exploitability.
 | Info.2 | Liquidation competition and MEV; the bonus curve bounds terms, not ordering or liquidator profit. |
 | Info.3 | Visible pending governance changes allow anticipatory positioning; observability is intentional. |
 | Info.4 | Invalid quotes may contain prices; use validity flags or strict reads. |
-| DoS.1 | Price outage blocks valuation-dependent actions, including liquidation; fail-closed availability cost. Supply needs no price, so an indebted borrower can add a dust leg of any listed collateral and choose which feed outage shields the account. For an Aquarius LP leg, liquidity providers can cause that outage by withdrawing pool value below `min_pool_value_wad`. The same leg blocks bad-debt cleanup and force-socialization. |
+| DoS.1 | Price outage blocks valuation-dependent actions, including liquidation; fail-closed availability cost. Supply into a debt-free account needs no price. On an indebted account, a new collateral leg needs its price within the feed's staleness limit (a halted feed that is not yet stale still reads), and a supply into an existing leg prices every leg when the live listing favours liquidators over that leg's stored terms ([listing refresh gate](../reference/runbooks/liqvid-listing-params.md#10-existing-positions-keep-their-stamped-terms)). An indebted borrower can still add a dust leg of any listed collateral before an outage and so choose which feed outage shields the account. For an LP leg (Aquarius or Curve), liquidity providers can cause that outage by withdrawing pool value below `min_pool_value_wad`, so set the floor well below pool TVL. A Curve leg also fails when any one of its coins cannot be priced, when a coin's `decimals()` read fails or changes, or when an A ramp lowers pool value below the floor. The same leg blocks bad-debt cleanup and force-socialization. A dust debt leg of the outage asset shields the same way, and borrowing prices every leg, so it too must be opened while the feed is live. `repay` is permissionless and reads no price, so anyone can repay that leg during the outage and remove the shield before liquidating, unless the listing is paused. |
 | DoS.2 | Selected paused debt or no_seize collateral blocks liquidation; distinct flag policies matter. |
 | DoS.3 | False-alarm pause needs delayed reopening; emergency response is asymmetric. |
 | DoS.4 | Lost governance keys; proposer safeguards and owner-dependent canceller recovery do not restore a lost owner. |
 | DoS.5 | Resource exhaustion; limits do not substitute for real-WASM maximum-case measurements. |
 | DoS.6 | Archived storage blocks access until restoration; controller renewal is owner-authorized. |
 | DoS.7 | Signer liveness loss prevents new aggregates; a prior aggregate can remain usable until stale. |
-| DoS.8 | Cash/utilization/cap limits reject otherwise desired actions; zero caps admit no new exposure. |
+| DoS.8 | Cash/utilization/cap limits reject otherwise desired actions; zero caps admit no new exposure. A Transfer liquidation that burns a market's last supply shares while that market has debt reverts with `PoolInsolvent` (123) unless the leg's protocol fee books revenue shares first; `Credit` mode, a smaller Transfer seizure, or a repayment of that debt avoids it ([INV-ACCT-09](../reference/invariants.md#inv-acct-09)). |
 | DoS.9 | Dust and zero-share movements; rejection/floors reduce griefing but do not guarantee liquidation profitability. |
 | DoS.10 | Router/oracle owner loss disables administration; existing oracle signers may continue, but future repair powers are lost. The source ABIs export no `renounce_ownership`; verify that the deployed artifacts match. |
+| DoS.11 | A receipt-tax debt token against collateral below 3 decimals: a short receipt reverts liquidation, so only a fully delivered full close settles. The listing rule under [Token assumptions](#token-assumptions) forbids the pairing. |
 | Elevation.1 | Governance-owner compromise; actual configured delay and approved replacement code determine exposure. |
 | Elevation.2 | Guardian attempts reopening; immediate flag ratchets reject it. Listing edits cannot clear flags either; only a delayed relaxation bound to the listing's flags epoch can, so one proposed before a later guardian action reverts. |
 | Elevation.3 | Role overlap/cancellation abuse; separation exempts owner and recovery has its own rules. |

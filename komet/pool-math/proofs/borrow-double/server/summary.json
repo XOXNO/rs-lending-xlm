@@ -1,0 +1,26 @@
+[
+ {
+  "proof": "borrow-double",
+  "id": "test_borrow_double",
+  "expect": "pass",
+  "status": "PASSED",
+  "verdict": "OK",
+  "exit_code": 0,
+  "wall_seconds": 2849,
+  "nodes": 47,
+  "rewrite_steps": 5871,
+  "errors": []
+ },
+ {
+  "proof": "borrow-double",
+  "id": "test_borrow_double_wrong",
+  "expect": "fail",
+  "status": "FAILED",
+  "verdict": "OK",
+  "exit_code": 1,
+  "wall_seconds": 417,
+  "nodes": 4,
+  "rewrite_steps": 1464,
+  "errors": []
+ }
+]

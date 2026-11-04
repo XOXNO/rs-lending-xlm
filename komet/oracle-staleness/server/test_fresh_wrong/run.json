@@ -1,0 +1,21 @@
+{
+ "image": "komet-prover:247c6bde25aa9aa0",
+ "id": "test_fresh_wrong",
+ "expect": "fail",
+ "exit_code": 1,
+ "wall_seconds": 79,
+ "cap_seconds": 14400,
+ "started_utc": "2026-11-02T23:21:28Z",
+ "command": [
+  "komet",
+  "prove",
+  "run",
+  "--always-allocate",
+  "--wasm",
+  "/out/input/oracle_staleness_proof.wasm",
+  "--id",
+  "test_fresh_wrong",
+  "--proof-dir",
+  "/out/proof"
+ ]
+}

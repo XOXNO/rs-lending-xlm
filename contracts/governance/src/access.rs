@@ -166,45 +166,49 @@ fn require_executor_canceller_separation(
 
 /// Renews the governance instance's storage TTL and grants `role` to
 /// `account`, after checking that the grant does not give `account` both
-/// the executor and canceller roles.
+/// the executor and canceller roles. The role-granted event names this
+/// contract as the caller: the grant runs as a timelocked operation.
 pub(crate) fn apply_grant_role(env: &Env, account: &Address, role: &Symbol) {
     renew_instance(env);
     let owner = owner_or_panic(env);
     require_executor_canceller_separation(env, &owner, account, role);
-    access_control::grant_role_no_auth(env, account, role, &owner);
+    access_control::grant_role_no_auth(env, account, role, &env.current_contract_address());
 }
 
 /// Renews the governance instance's storage TTL, revokes the canceller role
 /// from every current holder other than `owner`, then grants it to each
 /// address in `new_cancellers` that does not already hold it, skipping
 /// `owner` and enforcing the executor/canceller separation on each new
-/// grant.
+/// grant. The role events name this contract as the caller: the reset runs as
+/// a timelocked operation.
 pub(crate) fn apply_canceller_reset(env: &Env, new_cancellers: &Vec<Address>) {
     renew_instance(env);
     let owner = owner_or_panic(env);
+    let governance = env.current_contract_address();
     let role = Symbol::new(env, CANCELLER_ROLE);
     let mut count = access_control::get_role_member_count(env, &role);
     while count > 0 {
         count -= 1;
         let holder = access_control::get_role_member(env, &role, count);
         if holder != owner {
-            access_control::revoke_role_no_auth(env, &holder, &role, &owner);
+            access_control::revoke_role_no_auth(env, &holder, &role, &governance);
         }
     }
     for account in new_cancellers.iter() {
         if account != owner && access_control::has_role(env, &account, &role).is_none() {
             require_executor_canceller_separation(env, &owner, &account, &role);
-            access_control::grant_role_no_auth(env, &account, &role, &owner);
+            access_control::grant_role_no_auth(env, &account, &role, &governance);
         }
     }
 }
 
 /// Renews the governance instance's storage TTL and revokes `role` from
-/// `account`. Panics with `GenericError::InvalidRole` if `account` does not
-/// hold `role`, with `GenericError::NotAuthorized` if `account` is the
-/// owner, and with `GenericError::CannotRemoveLastProposer` if this would
-/// remove the last remaining holder of the proposer role.
-pub(crate) fn apply_revoke_role(env: &Env, account: &Address, role: &Symbol) {
+/// `account`, naming `caller` in the role-revoked event. Panics with
+/// `GenericError::InvalidRole` if `account` does not hold `role`, with
+/// `GenericError::NotAuthorized` if `account` is the owner, and with
+/// `GenericError::CannotRemoveLastProposer` if this would remove the last
+/// remaining holder of the proposer role.
+pub(crate) fn apply_revoke_role(env: &Env, account: &Address, role: &Symbol, caller: &Address) {
     renew_instance(env);
     assert_with_error!(
         env,
@@ -220,7 +224,7 @@ pub(crate) fn apply_revoke_role(env: &Env, account: &Address, role: &Symbol) {
             GenericError::CannotRemoveLastProposer
         );
     }
-    access_control::revoke_role_no_auth(env, account, role, &owner);
+    access_control::revoke_role_no_auth(env, account, role, caller);
 }
 
 /// Renews the governance instance's storage TTL, completes a pending

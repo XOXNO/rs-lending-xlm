@@ -1,0 +1,55 @@
+{
+ "admitted": false,
+ "bounded": [],
+ "circularity": false,
+ "covers": 1,
+ "edges": 5,
+ "errors": [],
+ "expect": "reject",
+ "failing": [
+  10,
+  11
+ ],
+ "failing_leaves": {
+  "10": {
+   "host_stack": "hostStackList(SCVal:Error(ErrorType:Contract, 228), .List{\"hostStackList\"})",
+   "instrs": "",
+   "k_head": "expectResult(SCVal:Bool(true))"
+  },
+  "11": {
+   "host_stack": "hostStackList(SCVal:Error(ErrorType:Contract, 219), .List{\"hostStackList\"})",
+   "instrs": "",
+   "k_head": "expectResult(SCVal:Bool(true))"
+  }
+ },
+ "id": "test_twap_records_rejects",
+ "input_fingerprint": {
+  "claim": "6ca1262a58d6b3fd3dd80ac40f044ad9bb5569315d39206438a42a9f1ee48702",
+  "definitions": {
+   "haskell": "a66ba5710a4bfe9569247ce0b4fa777812c2f1835a71434d5e5676eb9c934b98",
+   "llvm": "bc45d16cc07aa32904549e2086fc416b7eafa0c8c11afc9f9a47871d96610325"
+  },
+  "llvm_libraries": {
+   "interpreter.so": "94a466bd685ff2cafc270088ecbe22fbf434b9ec973389c3222d8e0e5f09881a"
+  },
+  "runner": "ac43e6cafd049c505f81b5e363968c509d656de5c9d57ab81c1eea091654a8e2"
+ },
+ "inputs_sha256": "977ffeeda6ce2acec4e5b86fc504d75b05d09738f0f4f20ebe1331da6267ca0e",
+ "node_refutations": {},
+ "nodes": 11,
+ "pending": [],
+ "reject_codes": [
+  228,
+  219
+ ],
+ "rewrite_steps": 319,
+ "splits": 2,
+ "status": "FAILED",
+ "stuck": [
+  10,
+  11
+ ],
+ "subproof_ids": [],
+ "vacuous": [],
+ "verdict": "OK"
+}

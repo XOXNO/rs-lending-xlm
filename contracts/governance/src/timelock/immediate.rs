@@ -63,14 +63,29 @@ pub(crate) fn add_spoke(env: &Env, caller: &Address) -> u32 {
     controller_client(env).add_spoke()
 }
 
+/// Deactivates `manager` on the controller. Requires the caller to hold
+/// `GUARDIAN_ROLE`. Activation stays a timelocked, owner-proposed operation.
+pub(crate) fn deactivate_position_manager(env: &Env, caller: &Address, manager: &Address) {
+    begin_immediate(env, caller, GUARDIAN_ROLE);
+    controller_client(env).set_position_manager(manager, &false);
+}
+
+/// Revokes `pool` as a Blend migration source on the controller. Requires the
+/// caller to hold `GUARDIAN_ROLE`. Approval stays a timelocked operation.
+pub(crate) fn revoke_blend_pool(env: &Env, caller: &Address, pool: &Address) {
+    begin_immediate(env, caller, GUARDIAN_ROLE);
+    controller_client(env).revoke_blend_pool(pool);
+}
+
 /// Revokes `role` from `account` without going through the timelock. Only
 /// `GUARDIAN_ROLE` and `ORACLE_ROLE` can be revoked this way; panics with
-/// `GenericError::InvalidRole` for any other role.
+/// `GenericError::InvalidRole` for any other role. The role-revoked event names
+/// the owner, who calls this entrypoint, as the caller.
 pub(crate) fn revoke_role_immediate(env: &Env, account: &Address, role: &Symbol) {
     assert_with_error!(
         env,
         role == &Symbol::new(env, GUARDIAN_ROLE) || role == &Symbol::new(env, ORACLE_ROLE),
         GenericError::InvalidRole
     );
-    access::apply_revoke_role(env, account, role);
+    access::apply_revoke_role(env, account, role, &access::owner_or_panic(env));
 }

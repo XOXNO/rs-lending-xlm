@@ -4,7 +4,7 @@ use cvlr::nondet::{nondet, nondet_option};
 use crate::observation::OracleObservation;
 use crate::session::Session;
 use common::oracle::observation::MAX_FUTURE_SKEW_SECONDS;
-use common::types::{MultiFeedRef, ReflectorFeedRef};
+use common::types::{ChainlinkFeedRef, MultiFeedRef, ReflectorFeedRef};
 
 fn read_source_summary(session: &mut Session) -> Option<OracleObservation> {
     nondet_option(|| {
@@ -32,6 +32,14 @@ pub(crate) fn read_reflector_source_summary(
 pub(crate) fn read_multi_feed_source_summary(
     session: &mut Session,
     _feed: &MultiFeedRef,
+    _decimals: u32,
+) -> Option<OracleObservation> {
+    read_source_summary(session)
+}
+
+pub(crate) fn read_chainlink_source_summary(
+    session: &mut Session,
+    _feed: &ChainlinkFeedRef,
     _decimals: u32,
 ) -> Option<OracleObservation> {
     read_source_summary(session)

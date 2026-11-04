@@ -1,5 +1,5 @@
 use super::*;
-use soroban_sdk::{testutils::Address as _, Env, String, Symbol};
+use soroban_sdk::{testutils::Address as _, BytesN, Env, String, Symbol};
 
 fn multi_feed(env: &Env, contract: &Address, xoxno: bool) -> FeedSource {
     let feed = MultiFeedRef {
@@ -56,7 +56,21 @@ fn reflector_spot_is_unsmoothed_market_leg() {
 }
 
 #[test]
-fn asset_oracle_identifies_aquarius_lp() {
+fn chainlink_is_an_unsmoothed_market_leg() {
+    let env = Env::default();
+    let contract = Address::generate(&env);
+    let provider = ProviderRef::Chainlink(ChainlinkFeedRef {
+        contract: contract.clone(),
+        data_id: BytesN::from_array(&env, &[7; 32]),
+    });
+    assert_eq!(provider.contract(), &contract);
+    assert_eq!(provider.nature(), FeedNature::Market);
+    assert!(!provider.is_smoothed());
+    assert!(provider.is_unsmoothed_market_leg());
+}
+
+#[test]
+fn asset_oracle_identifies_lp_sources() {
     let env = Env::default();
     let source = PriceSource::AquariusLp(AquariusLpSource {
         pool: Address::generate(&env),
@@ -80,8 +94,8 @@ fn asset_oracle_identifies_aquarius_lp() {
         min_sanity_price_wad: 1,
         max_sanity_price_wad: i128::MAX / 2,
     };
-    assert!(oracle.has_aquarius_lp_source());
-    assert!(oracle.sources.get_unchecked(0).is_aquarius_lp());
+    assert!(oracle.has_lp_source());
+    assert!(oracle.sources.get_unchecked(0).is_lp());
     assert!(!oracle.is_dual());
 
     let stable = PriceSource::AquariusStableLp(AquariusLpSource {
@@ -94,19 +108,27 @@ fn asset_oracle_identifies_aquarius_lp() {
         reserve_b_decimals: 7,
         min_pool_value_wad: 1,
     });
-    assert!(stable.is_aquarius_lp());
+    assert!(stable.is_lp());
     let stable_oracle = AssetOracle {
         sources: Vec::from_array(&env, [stable]),
         ..oracle
     };
-    assert!(stable_oracle.has_aquarius_lp_source());
+    assert!(stable_oracle.has_lp_source());
+
+    let curve = PriceSource::CurveStableLp(CurveStableLpSource {
+        pool: Address::generate(&env),
+        coins: Vec::from_array(&env, [Address::generate(&env), Address::generate(&env)]),
+        wasm_hash: BytesN::from_array(&env, &[1; 32]),
+        min_pool_value_wad: 1,
+    });
+    assert!(curve.is_lp());
 }
 
 #[test]
-fn feed_source_is_not_aquarius_and_two_sources_are_dual() {
+fn feed_source_is_not_lp_and_two_sources_are_dual() {
     let env = Env::default();
     let feed = PriceSource::Feed(multi_feed(&env, &Address::generate(&env), false));
-    assert!(!feed.is_aquarius_lp());
+    assert!(!feed.is_lp());
     let second = PriceSource::Feed(multi_feed(&env, &Address::generate(&env), true));
     let oracle = AssetOracle {
         asset_decimals: 7,
@@ -121,5 +143,5 @@ fn feed_source_is_not_aquarius_and_two_sources_are_dual() {
         max_sanity_price_wad: i128::MAX / 2,
     };
     assert!(oracle.is_dual());
-    assert!(!oracle.has_aquarius_lp_source());
+    assert!(!oracle.has_lp_source());
 }
