@@ -112,7 +112,7 @@ jobs:
   e2e:
     needs: build
     name: Testnet e2e (${{ inputs.lanes }})
-    runs-on: self-hosted
+    runs-on: [self-hosted, xoxno]
     # Above the 95m default lane cap, leaving room for tool setup and reports.
     # Queue time is not counted against this.
     timeout-minutes: 150

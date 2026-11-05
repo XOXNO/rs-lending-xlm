@@ -40,7 +40,7 @@ jobs:
     name: Refresh main coverage baseline
 
     if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
-    runs-on: self-hosted
+    runs-on: [self-hosted, xoxno]
 
     env:
       RUSTC_WRAPPER: sccache

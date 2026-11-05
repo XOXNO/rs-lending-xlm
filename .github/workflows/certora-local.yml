@@ -57,7 +57,7 @@ jobs:
   build:
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     name: Build focused WASM artifacts
-    runs-on: self-hosted
+    runs-on: [self-hosted, xoxno]
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -106,7 +106,7 @@ jobs:
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     name: Prover regression smoke
     needs: build
-    runs-on: self-hosted
+    runs-on: [self-hosted, xoxno]
     # Dispatch can raise this; PR runs keep the 12h smoke window.
     timeout-minutes: ${{ fromJSON(inputs.job_timeout_minutes || '720') }}
     steps:
