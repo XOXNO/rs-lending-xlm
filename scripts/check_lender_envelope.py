@@ -117,27 +117,14 @@ def key_id(key: dict) -> str:
     return f"{tag}:{value}"
 
 
-def wad(value) -> int:
-    return int(value)
-
-
-def band_ratio(oracle: dict) -> float:
-    low, high = wad(oracle["min_sanity_price_wad"]), wad(oracle["max_sanity_price_wad"])
-    if low <= 0:
-        return UNBOUNDED
-    return high / low
+def span(low, high) -> float:
+    low, high = int(low), int(high)
+    return high / low if low > 0 else UNBOUNDED
 
 
 def tolerance_ratio(oracle: dict) -> float:
     """Widest leg ratio a half-up `upper_ratio_bps` comparison admits."""
     return (oracle["tolerance"]["upper_ratio_bps"] + 0.5) / BPS
-
-
-def factor_range(scaled: dict) -> float:
-    low, high = wad(scaled["min_factor_wad"]), wad(scaled["max_factor_wad"])
-    if low <= 0:
-        return UNBOUNDED
-    return high / low
 
 
 def feed_contract(feed: dict) -> str:
@@ -205,9 +192,6 @@ class Oracles:
             )
         raise ConfigError(f"unrecognised price source {kind}")
 
-    def sources_signature(self, key: str) -> str:
-        return json.dumps([o["sources"] for o in self.oracles(key)], sort_keys=True)
-
     def reach(self, provider: str, key: str, stack: tuple = ()) -> float:
         """u_P(key): how far `provider` alone can move the accepted price of `key`."""
         if key in stack:
@@ -232,23 +216,21 @@ class Oracles:
                 moved = min(max(legs), min(legs) * tolerance)
         if moved <= 1:
             return 1.0
-        return min(moved, band_ratio(oracle))
+        return min(moved, span(oracle["min_sanity_price_wad"], oracle["max_sanity_price_wad"]))
 
     def leg_reach(self, provider: str, source: dict, stack: tuple = ()) -> float:
         (kind, body), = source.items()
         if kind == "Feed":
             return UNBOUNDED if feed_contract(body) == provider else 1.0
         if kind == "Scaled":
-            factor = factor_range(body) if feed_contract(body["factor"]) == provider else 1.0
+            factor = 1.0
+            if feed_contract(body["factor"]) == provider:
+                factor = span(body["min_factor_wad"], body["max_factor_wad"])
             return factor * self.reach(provider, key_id(body["quote"]), stack)
-        if kind == "AquariusLp":
+        if kind in ("AquariusLp", "AquariusStableLp"):
             reach_a = self.reach(provider, key_id(body["key_a"]), stack)
             reach_b = self.reach(provider, key_id(body["key_b"]), stack)
-            return math.sqrt(reach_a * reach_b)
-        if kind == "AquariusStableLp":
-            reach_a = self.reach(provider, key_id(body["key_a"]), stack)
-            reach_b = self.reach(provider, key_id(body["key_b"]), stack)
-            return max(reach_a, reach_b)
+            return math.sqrt(reach_a * reach_b) if kind == "AquariusLp" else max(reach_a, reach_b)
         raise ConfigError(f"unrecognised price source {kind}")
 
 
@@ -315,9 +297,9 @@ def evaluate(network: str, markets_doc: dict, spokes_doc: dict, include_disabled
             c_key = oracles.market_key[c_name]
             for d_name in debts:
                 d_key = oracles.market_key[d_name]
-                if c_key == d_key or oracles.sources_signature(c_key) == oracles.sources_signature(
-                    d_key
-                ):
+                if [o["sources"] for o in oracles.oracles(c_key)] == [
+                    o["sources"] for o in oracles.oracles(d_key)
+                ]:
                     continue
                 for provider in sorted(oracles.contracts(c_key) | oracles.contracts(d_key)):
                     pairs.append(
@@ -361,9 +343,6 @@ class Exception_:
         return (self.network, self.spoke, self.collateral, self.debt, self.provider)
 
 
-FORMAT = "`network spoke collateral debt provider finding-id max-product reason`"
-
-
 def parse_exceptions(text: str, origin: str = "exceptions") -> list[Exception_]:
     out: list[Exception_] = []
     seen: set[tuple] = set()
@@ -373,7 +352,7 @@ def parse_exceptions(text: str, origin: str = "exceptions") -> list[Exception_]:
             continue
         fields = line.split(None, 7)
         if len(fields) < 8:
-            raise ConfigError(f"{origin}:{number}: expected {FORMAT}")
+            raise ConfigError(f"{origin}:{number}: expected `network spoke collateral debt provider finding-id max-product reason`")
         *head, raw_max, reason = fields
         try:
             max_product = float(raw_max)

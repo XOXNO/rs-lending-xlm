@@ -29,23 +29,11 @@ def redstone(feed_id):
     }
 
 
-def reflector(symbol, contract=REFLECTOR):
+def reflector(asset, contract=REFLECTOR, tag="Symbol"):
     return {
         "Feed": {
             "provider": {
-                "Reflector": {"contract": contract, "asset": {"Symbol": symbol}, "read_mode": {"Twap": 3}}
-            },
-            "decimals": 14,
-            "max_stale_seconds": 3600,
-        }
-    }
-
-
-def reflector_stellar(asset, contract=REFLECTOR_DEX):
-    return {
-        "Feed": {
-            "provider": {
-                "Reflector": {"contract": contract, "asset": {"Stellar": asset}, "read_mode": {"Twap": 3}}
+                "Reflector": {"contract": contract, "asset": {tag: asset}, "read_mode": {"Twap": 3}}
             },
             "decimals": 14,
             "max_stale_seconds": 3600,
@@ -90,7 +78,7 @@ PYUSD = oracle(
     [
         {
             "Scaled": {
-                "factor": reflector_stellar("ADDR_PYUSD")["Feed"],
+                "factor": reflector("ADDR_PYUSD", REFLECTOR_DEX, "Stellar")["Feed"],
                 "quote": {"Token": "ADDR_USDC"},
                 "min_factor_wad": str(95 * WAD // 100),
                 "max_factor_wad": str(105 * WAD // 100),

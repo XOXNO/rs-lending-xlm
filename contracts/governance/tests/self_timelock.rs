@@ -135,6 +135,23 @@ fn update_delay_shortens_to_the_floor_through_the_timelock_but_not_below() {
 }
 
 #[test]
+fn propose_grant_curator_role_is_accepted() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (admin, _gov_id, gov) = register(&env, 10);
+    let salt = zero_salt(&env);
+    let id = gov.propose(
+        &admin,
+        &AdminOperation::GrantGovRole(RoleArgs {
+            account: Address::generate(&env),
+            role: Symbol::new(&env, "CURATOR"),
+        }),
+        &salt,
+    );
+    assert_eq!(gov.get_operation_state(&id), OperationState::Waiting);
+}
+
+#[test]
 #[should_panic(expected = "Error(Contract, #41)")]
 fn propose_grant_governance_role_rejects_unknown_role() {
     let env = Env::default();

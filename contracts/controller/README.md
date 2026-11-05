@@ -23,8 +23,8 @@ drops the `Env` argument.
 
 **Owner** (`#[only_owner]`). After deployment the owner is the governance
 contract. Most owner calls go through the governance timelock. A GUARDIAN can
-call `pause`, `set_spoke_asset_flags`, `create_hub` and `add_spoke` through
-governance with no delay
+call `pause` and `set_spoke_asset_flags` through governance with no delay.
+`create_hub` and `add_spoke` through governance require `CURATOR_ROLE`
 ([`timelock/immediate.rs`](../governance/src/timelock/immediate.rs)).
 
 **Global pause** (`#[when_not_paused]`). Every user entrypoint stops during a

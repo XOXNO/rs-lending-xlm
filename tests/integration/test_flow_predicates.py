@@ -539,7 +539,7 @@ gov_await_ready() { echo "await $1" >> "$1.log"; echo Ready; }'''
             self.assertEqual(result.returncode,0,result.stderr)
             calls=(Path(d)/'calls').read_text().splitlines()
         self.assertEqual(calls[0],'inv gov_propose_grant_guardian')
-        self.assertLess(calls.index('inv gov_propose_grant_guardian'),calls.index('inv gov_create_hub'))
+        self.assertLess(calls.index('inv gov_propose_grant_guardian'),calls.index('inv gov_propose_unpause'))
         self.assertEqual(calls.count('inv gov_propose_grant_guardian'),1)
         self.assertLess(calls.index('await op_gov_propose_grant_guardian'),calls.index('inv gov_execute_grant_guardian'))
 

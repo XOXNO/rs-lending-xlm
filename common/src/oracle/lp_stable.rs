@@ -41,28 +41,26 @@ fn solve_stable_d(env: &Env, xa_wad: i128, xb_wad: i128, amp: u128) -> Result<U2
 
     let n = U256::from_u32(env, N_COINS);
     let one = U256::from_u32(env, 1);
-    // `d_p` divides by one reserve and then the other. The first quotient's
-    // truncation is multiplied by `d / (2 * second reserve)`, so dividing by the
-    // larger reserve first lets it outgrow the exit test below and the
-    // iteration cycles. Dividing by the smaller reserve first keeps it at a
-    // unit or two.
     let x_smaller = U256::from_u128(env, xa_wad.min(xb_wad) as u128);
     let x_larger = U256::from_u128(env, xa_wad.max(xb_wad) as u128);
 
     let sum = x_smaller.add(&x_larger);
     let ann = U256::from_u128(env, amp).mul(&n);
 
-    // Every iterate is at most 2 * sum (< 2^116), so `d * d`, `ann * sum` and
-    // `(ann - 1) * d` fit. A fitting `d_p * d` bounds `d_p` below 2^254 once
-    // x_larger >= 2 (x_larger = 1 keeps every value tiny), so the sums and
-    // `3 * d_p` fit: only `d_p * d` and the numerator's `* d` can exceed U256.
     let mut d = sum.clone();
     for _ in 0..MAX_D_ITERATIONS {
         let d_p = d.mul(&d).div(&x_smaller.mul(&n));
-        let d_p = checked_mul(&d_p, &d)?.div(&x_larger.mul(&n));
+        let d_p = d_p
+            .checked_mul(&d)
+            .ok_or(OracleError::InvalidPrice)?
+            .div(&x_larger.mul(&n));
 
         let d_prev = d.clone();
-        let numerator = checked_mul(&ann.mul(&sum).add(&n.mul(&d_p)), &d)?;
+        let numerator = ann
+            .mul(&sum)
+            .add(&n.mul(&d_p))
+            .checked_mul(&d)
+            .ok_or(OracleError::InvalidPrice)?;
         let denominator = ann.sub(&one).mul(&d).add(&n.add(&one).mul(&d_p));
         d = numerator.div(&denominator);
 
@@ -76,11 +74,6 @@ fn solve_stable_d(env: &Env, xa_wad: i128, xb_wad: i128, amp: u128) -> Result<U2
         }
     }
     Err(OracleError::InvalidPrice)
-}
-
-/// `a * b`, or `InvalidPrice` where `U256` would overflow and trap the host.
-fn checked_mul(a: &U256, b: &U256) -> Result<U256, OracleError> {
-    a.checked_mul(b).ok_or(OracleError::InvalidPrice)
 }
 
 /// Computes the fair-value price of one LP share, in WAD (1e18) scale, for a

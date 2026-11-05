@@ -134,8 +134,11 @@ pub async fn scrape_once(
             }
         }
 
-        let oracle_labels = [net, market.asset_strkey.as_str(), market.symbol.as_str()];
-        metrics.remove_oracle_config_and_freshness(&oracle_labels);
+        metrics.remove_oracle_config_and_freshness(&[
+            net,
+            market.asset_strkey.as_str(),
+            market.symbol.as_str(),
+        ]);
         if let Some(agg_id) = &aggregator_id {
             publish_oracle_config_and_freshness(
                 client,

@@ -2,7 +2,9 @@ use common::constants::{BPS, MIN_BORROWABLE_ASSET_DECIMALS, RAY, WAD};
 use common::errors::{CollateralError, GenericError};
 use common::math::fp::{Bps, Ray, Wad};
 use common::math::fp_core::{div_by_int_half_up, mul_div_ceil, mul_div_floor};
-use common::rates::{position_value_floor, resolve_withdrawal, unscale_borrow_ceil};
+use common::rates::{
+    position_value_floor, resolve_withdrawal, unscale_borrow_ceil, unscale_supply_floor,
+};
 use common::types::{
     Account, AccountPositionRaw, DebtPosition, HubAssetKey, HubPayment, LiquidationResult,
     PaymentTuple, RepayEntry, SeizeEntry,
@@ -646,10 +648,12 @@ pub(crate) fn scale_seizures_to_received(
             GenericError::InvalidPayments
         );
         let scaled_amount = mul_div_floor(env, entry.scaled_amount, num, den);
-        // A full close's half-up amount can exceed `ratio * held`; the shares cannot.
-        let shares_amount = Ray::from(scaled_amount)
-            .mul_floor(env, Ray::from(entry.market_index.supply_index))
-            .to_asset_floor(env, entry.feed.asset_decimals);
+        let shares_amount = unscale_supply_floor(
+            env,
+            Ray::from(scaled_amount),
+            Ray::from(entry.market_index.supply_index),
+            entry.feed.asset_decimals,
+        );
         let amount = mul_div_floor(env, entry.amount, num, den).min(shares_amount);
         scaled.push_back(SeizeEntry {
             amount,

@@ -23,6 +23,7 @@ MODE_PATHS: dict[str, tuple[str, ...]] = {
         "/contracts/xoxno-oracle/",
         "/contracts/position-nft/",
         "/contracts/defindex-strategy/",
+        "/contracts/curator/",
         "/common/",
     ),
 }

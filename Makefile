@@ -112,7 +112,7 @@ FUZZ_DIR := tests/fuzz
 CONTRACTS := pool controller governance
 
 
-WASM_SIZE_CONTRACTS := pool controller governance common flash_loan_receiver defindex_strategy price_aggregator position_nft
+WASM_SIZE_CONTRACTS := pool controller governance common flash_loan_receiver defindex_strategy price_aggregator position_nft curator
 
 
 
@@ -144,6 +144,7 @@ CONTROLLER_WASM_HASH_FILE ?= target/controller_wasm_hash.txt
 PRICE_AGGREGATOR_WASM_HASH_FILE ?= target/price_aggregator_wasm_hash.txt
 PRICE_AGGREGATOR_UPGRADE_WASM_HASH_FILE ?= target/price_aggregator_upgrade_wasm_hash.txt
 POSITION_NFT_WASM_HASH_FILE ?= target/position_nft_wasm_hash.txt
+CURATOR_WASM_HASH_FILE ?= target/curator_wasm_hash.txt
 POSITION_NFT_URI ?= https://api.xoxno.com/user/lending/image/
 POSITION_NFT_NAME ?= XOXNO Lending Position
 POSITION_NFT_SYMBOL ?= XLEND
@@ -550,6 +551,7 @@ coverage-merged:
 	@set -o pipefail; cargo llvm-cov test -p xoxno-oracle --no-report --no-fail-fast $(COV_IGNORE) 2>&1 | tail -5
 	@set -o pipefail; cargo llvm-cov test -p position-nft --no-report --no-fail-fast $(COV_IGNORE) 2>&1 | tail -5
 	@set -o pipefail; cargo llvm-cov test -p defindex-strategy --no-report --no-fail-fast $(COV_IGNORE) 2>&1 | tail -5
+	@set -o pipefail; cargo llvm-cov test -p curator --no-report --no-fail-fast $(COV_IGNORE) 2>&1 | tail -5
 	@-$(COV_RUN_HARNESS); harness_status=$$?; \
 	cargo llvm-cov report --lcov --output-path $(COV_DIR)/merged.lcov.info $(COV_IGNORE) >/dev/null; \
 	python3 scripts/coverage_report.py \
@@ -1337,6 +1339,43 @@ upgrade-position-nft: _preflight-controller _preflight-governance $(CORE_WASM)
 	NETWORK=$(NETWORK) SIGNER=$(SIGNER) bash $(CONFIG_DIR)/script.sh upgradePositionNftHash $$HASH
 
 
+deploy-curator: _preflight-governance deploy-artifacts
+	@if [ -n "$(RELEASE_TAG)" ]; then echo "curator.wasm is not in the release set; deploy it without RELEASE_TAG"; exit 1; fi
+	@echo "=== Deploying curator on $(NETWORK) ==="
+	@echo "Signer: $(SIGNER)"
+	@GOV=$$(jq -r '.["$(NETWORK)"].governance // empty' $(CONFIG_DIR)/networks.json); \
+	if [ -z "$$GOV" ]; then echo "governance is missing from $(CONFIG_DIR)/networks.json"; exit 1; fi; \
+	OWNER=$${CURATOR_OWNER:-$(SIGNER_ADDRESS)}; \
+	echo "Owner: $$OWNER"; \
+	echo "Governance: $$GOV"; \
+	stellar contract deploy \
+		--wasm $(DEPLOY_DIR)/curator.wasm \
+		$(SOURCE_FLAG) \
+		--network $(NETWORK) \
+		--alias curator \
+		-- --owner $$OWNER --governance $$GOV > target/curator_id.txt
+	@CUR=$$(tail -n1 target/curator_id.txt); \
+	echo "Curator: $$CUR"; \
+	TMP_JSON=$$(mktemp); \
+	jq '.["$(NETWORK)"].curator = "'$$CUR'"' \
+		$(CONFIG_DIR)/networks.json > $$TMP_JSON && mv $$TMP_JSON $(CONFIG_DIR)/networks.json; \
+	echo "Next: make $(NETWORK) grantGovRole $$CUR CURATOR, then PROPOSER and CANCELLER"
+
+
+upgrade-curator: _preflight-governance deploy-artifacts
+	@if [ -n "$(RELEASE_TAG)" ]; then echo "curator.wasm is not in the release set; upgrade it without RELEASE_TAG"; exit 1; fi
+	@echo "=== Upgrading curator on $(NETWORK) ==="
+	@echo "Signer: $(SIGNER)"
+	@stellar contract upload \
+		--wasm $(DEPLOY_DIR)/curator.wasm \
+		$(SOURCE_FLAG) \
+		--network $(NETWORK) > $(CURATOR_WASM_HASH_FILE); \
+	HASH=$$(cat $(CURATOR_WASM_HASH_FILE)); \
+	echo "New curator WASM hash: $$HASH"
+	@HASH=$$(cat $(CURATOR_WASM_HASH_FILE)); \
+	NETWORK=$(NETWORK) SIGNER=$(SIGNER) bash $(CONFIG_DIR)/script.sh upgradeCuratorHash $$HASH
+
+
 upgrade-price-aggregator: _preflight-governance $(CORE_WASM)
 	@echo "=== Upgrading price aggregator on $(NETWORK) ==="
 	@echo "Signer: $(SIGNER)"
@@ -1959,13 +1998,14 @@ POSITIONAL_ACCOUNT_MARKET_ACTIONS := getCollateral getBorrow maxWithdraw maxSupp
 POSITIONAL_ACCOUNT_ROLE_ACTIONS := hasRole grantGovRole revokeGovRole
 ORACLE_PROBE_ACTIONS := queryReflector queryReflectorPrice queryReflectorTwap queryRedStone queryChainlink
 VARARG_ACTIONS := updateIndexes claimRevenue supply borrow withdraw getLiquidationEstimate \
-	claimAggregatorAdminFees claimAggregatorReferralFees sweepAggregatorBalance tightenAssetFlags relaxAssetFlags
+	claimAggregatorAdminFees claimAggregatorReferralFees sweepAggregatorBalance tightenAssetFlags relaxAssetFlags \
+	suspendCuratorRegistrar resumeCuratorRegistrar reassignCuratorHub reassignCuratorSpoke setCuratorRegistrarAdmin
 
 
 
 MAKEFILE_ACTIONS := deploy upgradeController upgradeGovernance upgradePool upgradePositionNft upgradePriceAggregator upgradeAll \
                     deployFlashReceiver fundFlashReceiver testFlashReceiver deployAggregator deployOracleAdapter prepayRent setup resume \
-                    upgradeAggregator upgradeOracleAdapter upgradeOracleAdapterFull
+                    upgradeAggregator upgradeOracleAdapter upgradeOracleAdapterFull deployCurator upgradeCurator
 
 ALL_ACTIONS := $(SIMPLE_ACTIONS) $(POSITIONAL_MARKET_ACTIONS) $(POSITIONAL_ID_ACTIONS) \
                $(POSITIONAL_ID_ASSET_ACTIONS) $(POSITIONAL_ACCOUNT_ACTIONS) \
@@ -1998,6 +2038,8 @@ define NETWORK_DISPATCH
 				upgradePool)       $(MAKE) --no-print-directory upgrade-pool NETWORK=$(1) SIGNER=$(SIGNER) ;; \
 		upgradePositionNft) $(MAKE) --no-print-directory upgrade-position-nft NETWORK=$(1) SIGNER=$(SIGNER) ;; \
 				upgradePriceAggregator) $(MAKE) --no-print-directory upgrade-price-aggregator NETWORK=$(1) SIGNER=$(SIGNER) ;; \
+				deployCurator)      $(MAKE) --no-print-directory deploy-curator NETWORK=$(1) SIGNER=$(SIGNER) CURATOR_OWNER=$(CURATOR_OWNER) ;; \
+				upgradeCurator)     $(MAKE) --no-print-directory upgrade-curator NETWORK=$(1) SIGNER=$(SIGNER) ;; \
 				upgradeAll)         $(MAKE) --no-print-directory upgrade-all NETWORK=$(1) SIGNER=$(SIGNER) ;; \
 				deployFlashReceiver) $(MAKE) --no-print-directory deploy-flash-loan-receiver NETWORK=$(1) SIGNER=$(SIGNER) ;; \
 				fundFlashReceiver)  $(MAKE) --no-print-directory fund-flash-loan-receiver NETWORK=$(1) SIGNER=$(SIGNER) FLASH_MARKET=$(FLASH_MARKET) FLASH_RECEIVER_FUND=$(FLASH_RECEIVER_FUND) ;; \
@@ -2212,6 +2254,16 @@ help-deploy:
 	$(call H2,Upgrades (timelocked))
 	$(call NOTE,make <n> upgradeController | upgradeGovernance | upgradePool | upgradePriceAggregator | upgradeAll)
 	$(call NOTE,RELEASE_TAG=v1.0.1 make mainnet upgradeAll    (attested release WASM, not a local build))
+	$(call BLANK)
+	$(call H2,Curator registry)
+	$(call ROW,make <n> deployCurator,deploy; CURATOR_OWNER=G... (default: signer))
+	$(call ROW,make <n> upgradeCurator,timelocked sensitive UpgradeCurator)
+	$(call ROW,make <n> grantGovRole <curator> CURATOR,also PROPOSER and CANCELLER)
+	$(call ROW,make <n> suspendCuratorRegistrar <id>,GUARDIAN; immediate)
+	$(call ROW,make <n> resumeCuratorRegistrar <id>,owner; timelocked sensitive)
+	$(call ROW,make <n> reassignCuratorHub <hub> <id|none>,owner; timelocked sensitive)
+	$(call ROW,make <n> reassignCuratorSpoke <spoke> <id|none>,owner; timelocked sensitive)
+	$(call ROW,make <n> setCuratorRegistrarAdmin <id> <G...>,owner; timelocked sensitive)
 	$(call BLANK)
 	$(call H2,Mainnet env (optional))
 	$(call NOTE,AGGREGATOR_CONTRACT=C... ACCUMULATOR_CONTRACT=G... make mainnet setup)

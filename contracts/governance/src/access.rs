@@ -25,8 +25,13 @@ pub(crate) const EXECUTOR_ROLE: &str = "EXECUTOR";
 /// Role that may call `cancel`.
 pub(crate) const CANCELLER_ROLE: &str = "CANCELLER";
 
-/// Role that may call `pause`, `set_spoke_asset_flags`, `create_hub` and `add_spoke`.
+/// Role that may call `pause`, `set_spoke_asset_flags`,
+/// `deactivate_position_manager`, and `revoke_blend_pool`.
 pub(crate) const GUARDIAN_ROLE: &str = "GUARDIAN";
+
+/// Grantable role for the curator contract. Construction and ownership
+/// transfer do not give it to the owner.
+pub(crate) const CURATOR_ROLE: &str = "CURATOR";
 
 /// Returns the five default operational role symbols (oracle, proposer,
 /// executor, canceller, guardian).
@@ -40,12 +45,12 @@ pub(crate) fn default_operational_roles(env: &Env) -> [Symbol; 5] {
     ]
 }
 
-/// Panics with `GenericError::InvalidRole` unless `role` is one of the
-/// default operational roles.
+/// Panics with `GenericError::InvalidRole` unless `role` is a default
+/// operational role or `CURATOR`.
 pub(crate) fn require_known_governance_role(env: &Env, role: &Symbol) {
     assert_with_error!(
         env,
-        default_operational_roles(env).contains(role),
+        default_operational_roles(env).contains(role) || *role == Symbol::new(env, CURATOR_ROLE),
         GenericError::InvalidRole
     );
 }

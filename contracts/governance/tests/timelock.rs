@@ -412,6 +412,45 @@ fn owner_role_cannot_be_revoked() {
 
 #[test]
 #[should_panic(expected = "Error(Contract, #44)")]
+fn non_owner_cannot_propose_curator_registrar_suspension() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let delay = 10u32;
+    let (admin, controller, gov) = register_with_controller(&env, delay);
+    let proposer = grant_role_via_timelock(&env, &gov, &admin, delay, PROPOSER_ROLE, 1);
+
+    gov.propose(
+        &proposer,
+        &AdminOperation::SuspendCuratorRegistrar(controller, 1, true),
+        &BytesN::<32>::from_array(&env, &[3u8; 32]),
+    );
+}
+
+#[test]
+fn non_owner_cannot_propose_curator_takeover_operations() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let delay = 10u32;
+    let (admin, controller, gov) = register_with_controller(&env, delay);
+    let proposer = grant_role_via_timelock(&env, &gov, &admin, delay, PROPOSER_ROLE, 1);
+
+    for op in [
+        AdminOperation::ReassignCuratorHub(controller.clone(), 1, None),
+        AdminOperation::ReassignCuratorSpoke(controller.clone(), 1, Some(2)),
+        AdminOperation::SetCuratorRegistrarAdmin(controller.clone(), 1, Address::generate(&env)),
+    ] {
+        let result = gov.try_propose(&proposer, &op, &BytesN::<32>::from_array(&env, &[3u8; 32]));
+        assert_eq!(
+            result,
+            Err(Ok(soroban_sdk::Error::from_contract_error(
+                GenericError::NotAuthorized as u32
+            )))
+        );
+    }
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #44)")]
 fn non_owner_cannot_propose_ownership_transfer() {
     let env = Env::default();
     env.mock_all_auths();

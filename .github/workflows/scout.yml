@@ -75,6 +75,7 @@ jobs:
             contracts/position-nft
             contracts/swap-aggregator
             contracts/xoxno-oracle
+            contracts/curator
           exclude: dos-unexpected-revert-with-storage
           output-format: json
           output-dir: target/scout-audit

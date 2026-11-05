@@ -7,7 +7,7 @@
 //! on these methods rather than on the delegates, so the check runs at the
 //! contract entry point before any state is touched.
 
-use common::types::{AssetOracle, HubAssetKey, OracleTolerance, PriceKey};
+use common::types::{AssetOracle, HubAssetKey, MarketParamsRaw, OracleTolerance, PriceKey};
 
 use governance_interface::{AdminOperation, GovernanceInterface};
 
@@ -130,7 +130,7 @@ impl GovernanceInterface for Governance {
 
     /// Tightens the paused, frozen, and no-seize flags for `hub_asset` in spoke
     /// `spoke_id`; clearing a set flag fails. Requires the caller to hold the
-    /// guardian role.
+    /// guardian role or the curator role.
     fn set_spoke_asset_flags(
         env: Env,
         caller: Address,
@@ -152,15 +152,53 @@ impl GovernanceInterface for Governance {
     }
 
     /// Creates a new hub on the controller and returns its id. Requires the
-    /// caller to hold the guardian role.
+    /// caller to hold the curator role.
     fn create_hub(env: Env, caller: Address) -> u32 {
         immediate::create_hub(&env, &caller)
     }
 
     /// Creates a new spoke on the controller and returns its id. Requires
-    /// the caller to hold the guardian role.
+    /// the caller to hold the curator role.
     fn add_spoke(env: Env, caller: Address) -> u32 {
         immediate::add_spoke(&env, &caller)
+    }
+
+    /// Registers `params.asset_id` on the deployed pool under `hub_id` and
+    /// returns that pool's address. Requires the curator role.
+    fn create_liquidity_pool(
+        env: Env,
+        caller: Address,
+        hub_id: u32,
+        params: MarketParamsRaw,
+    ) -> Address {
+        immediate::create_liquidity_pool(&env, &caller, hub_id, &params)
+    }
+
+    /// Sets both caps of a spoke listing to zero and freezes it, keeping every
+    /// other field. Requires the caller to hold the curator role.
+    fn close_spoke_asset(env: Env, caller: Address, spoke_id: u32, hub_asset: HubAssetKey) {
+        immediate::close_spoke_asset(&env, &caller, spoke_id, &hub_asset)
+    }
+
+    /// Suspends `registrar` on `curator`, which must hold the curator role.
+    /// Requires the caller to hold the guardian role; resuming stays timelocked.
+    fn suspend_curator_registrar(env: Env, caller: Address, curator: Address, registrar: u32) {
+        immediate::suspend_curator_registrar(&env, &caller, &curator, registrar)
+    }
+
+    /// Lowers the supply or borrow cap of a spoke listing and keeps every other
+    /// field. Requires the caller to hold the curator role.
+    fn lower_spoke_asset_caps(
+        env: Env,
+        caller: Address,
+        spoke_id: u32,
+        hub_asset: HubAssetKey,
+        supply_cap: i128,
+        borrow_cap: i128,
+    ) {
+        immediate::lower_spoke_asset_caps(
+            &env, &caller, spoke_id, &hub_asset, supply_cap, borrow_cap,
+        )
     }
 
     /// Deactivates a position manager on the controller. Requires the caller

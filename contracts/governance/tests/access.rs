@@ -6,6 +6,18 @@ use crate::test_support::fresh_governance;
 use crate::{constants, GovernanceClient};
 
 #[test]
+fn constructor_does_not_grant_curator_role() {
+    let env = Env::default();
+    let admin = Address::generate(&env);
+    let contract_id = env.register(
+        Governance,
+        (admin.clone(), constants::TIMELOCK_MIN_DELAY_LEDGERS),
+    );
+    let client = GovernanceClient::new(&env, &contract_id);
+    assert!(!client.has_role(&admin, &Symbol::new(&env, CURATOR_ROLE)));
+}
+
+#[test]
 fn constructor_grants_oracle_role_to_admin() {
     let env = Env::default();
     let admin = Address::generate(&env);

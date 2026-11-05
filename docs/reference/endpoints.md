@@ -212,12 +212,16 @@ Constructor `(admin: Address, min_delay: u32)` initializes the owner, access-con
 | `hash_operation(target: Address, function: Symbol, args: Vec<Val>, predecessor: BytesN<32>, salt: BytesN<32>) -> BytesN<32>` | Open view / resolver |
 | `resolve_oracle_tolerance(tolerance: u32) -> OracleTolerance` | Open view / resolver |
 | `resolve_asset_oracle(key: PriceKey, oracle: AssetOracle) -> AssetOracle` | Open view / resolver |
-| `propose(proposer: Address, op: AdminOperation, salt: BytesN<32>) -> BytesN<32>` | PROPOSER_ROLE; the proposer must also be the current owner for ownership transfers, code upgrades (`UpgradeGov`, `UpgradeController`, `UpgradePool`, `UpgradePositionNft`, `UpgradePriceAggregator`, `MigrateController`), the timelock minimum delay (`UpdateGovDelay`), price and swap sources (`SetPriceAggregator`, `ConfigureAssetOracle`, `EditOracleTolerance`, `SetSwapAggregator`), `ApproveBlendPool`, `SetAccumulator` and `GrantGovRole`; `RevokeGovRole` cannot target the proposer or the owner |
+| `propose(proposer: Address, op: AdminOperation, salt: BytesN<32>) -> BytesN<32>` | PROPOSER_ROLE; the proposer must also be the current owner for ownership transfers, code upgrades (`UpgradeGov`, `UpgradeController`, `UpgradePool`, `UpgradePositionNft`, `UpgradePriceAggregator`, `UpgradeCurator`, `MigrateController`), curator registrar control (`SuspendCuratorRegistrar`, `ReassignCuratorHub`, `ReassignCuratorSpoke`, `SetCuratorRegistrarAdmin`), the timelock minimum delay (`UpdateGovDelay`), price and swap sources (`SetPriceAggregator`, `ConfigureAssetOracle`, `EditOracleTolerance`, `SetSwapAggregator`), `ApproveBlendPool`, `SetAccumulator` and `GrantGovRole`; `RevokeGovRole` cannot target the proposer or the owner |
 | `pause(caller: Address)` | GUARDIAN_ROLE; immediate |
-| `set_spoke_asset_flags(caller: Address, spoke_id: u32, hub_asset: HubAssetKey, paused: bool, frozen: bool, no_seize: bool)` | GUARDIAN_ROLE; immediate tightening only |
+| `set_spoke_asset_flags(caller: Address, spoke_id: u32, hub_asset: HubAssetKey, paused: bool, frozen: bool, no_seize: bool)` | GUARDIAN_ROLE or CURATOR_ROLE; immediate tightening only |
 | `set_sanity_band(caller: Address, key: PriceKey, min_wad: i128, max_wad: i128)` | ORACLE_ROLE; immediate tightening only |
-| `create_hub(caller: Address) -> u32` | GUARDIAN_ROLE; immediate |
-| `add_spoke(caller: Address) -> u32` | GUARDIAN_ROLE; immediate |
+| `create_hub(caller: Address) -> u32` | CURATOR_ROLE; immediate |
+| `add_spoke(caller: Address) -> u32` | CURATOR_ROLE; immediate |
+| `create_liquidity_pool(caller: Address, hub_id: u32, params: MarketParamsRaw) -> Address` | CURATOR_ROLE; immediate; registers `params.asset_id` on the deployed pool |
+| `lower_spoke_asset_caps(caller: Address, spoke_id: u32, hub_asset: HubAssetKey, supply_cap: i128, borrow_cap: i128)` | CURATOR_ROLE; immediate, lowering only (`SpokeAssetCapsNotLowered` otherwise). Other listing edits use the timelocked `EditAssetInSpoke` operation |
+| `close_spoke_asset(caller: Address, spoke_id: u32, hub_asset: HubAssetKey)` | CURATOR_ROLE; immediate. Zero caps and `frozen`, every other field kept |
+| `suspend_curator_registrar(caller: Address, curator: Address, registrar: u32)` | GUARDIAN_ROLE; immediate, suspension only. `curator` must hold CURATOR_ROLE |
 | `deactivate_position_manager(caller: Address, manager: Address)` | GUARDIAN_ROLE; immediate, deactivation only |
 | `revoke_blend_pool(caller: Address, pool: Address)` | GUARDIAN_ROLE; immediate, revocation only |
 | `revoke_role_immediate(account: Address, role: Symbol)` | Owner; only guardian/oracle roles |

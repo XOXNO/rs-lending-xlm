@@ -12,8 +12,8 @@ the other documents do not say.
 
 | Path | Contents |
 |---|---|
-| `contracts/` | Deployable contracts: controller, pool, governance, position-nft, price-aggregator, swap-aggregator, defindex-strategy, xoxno-oracle |
-| `interfaces/` | `#[contractclient]` declarations. Six of the eight contracts. `defindex-strategy` has none (it consumes `interfaces/controller`); the `xoxno-oracle` client lives in `common/src/oracle/providers/xoxno.rs` with the other oracle providers |
+| `contracts/` | Deployable contracts: controller, pool, governance, position-nft, price-aggregator, swap-aggregator, defindex-strategy, xoxno-oracle, curator |
+| `interfaces/` | `#[contractclient]` declarations. Six of the nine contracts. `defindex-strategy` has none (it consumes `interfaces/controller`); the `xoxno-oracle` client lives in `common/src/oracle/providers/xoxno.rs` with the other oracle providers; `curator` has none (governance calls it by function name) |
 | `common/` | Shared math, rates, oracle, types, TTL, errors, validation |
 | `mock/` | Test doubles: mock-oracle, mock-redstone, flash-loan-receiver, flash-position-receiver, script-runner |
 | `tests/test-harness/` | Integration tests. Sub-suites: controller, pool, governance, oracle, strategy, composition, fuzz, meta |

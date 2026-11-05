@@ -46,9 +46,29 @@ minimum to 12 ledgers on testnet and mainnet. Verify the deployed minimum and
 its review window before funding. Raising the configured minimum and changing a
 compiled tier floor are different actions.
 
-GUARDIAN can immediately pause, tighten listing flags, create empty hubs
-or spokes, deactivate a position manager, and revoke a Blend pool. ORACLE can immediately narrow sanity bands. The owner can revoke
-those two hot roles immediately and perform one-time deployment bootstrap.
+GUARDIAN can immediately pause, tighten listing flags, deactivate a
+position manager, and revoke a Blend pool. CURATOR_ROLE can immediately
+create an empty hub or spoke, register a market on the deployed pool, lower
+a listing's supply or borrow cap, and tighten listing flags. Every other
+listing change, new listings included, waits for the timelock. The constructor does not
+grant CURATOR_ROLE to the owner, and an ownership transfer does not move it.
+A registrar can halt its own listings at once; only a timelocked
+`RelaxSpokeAssetFlags` clears a flag. GUARDIAN suspends a registrar at once
+with `suspend_curator_registrar`; resuming is the owner-proposed sensitive
+`SuspendCuratorRegistrar`. A suspended registrar's curator calls revert, so it
+cannot halt a listing again after a relaxation, and its cap grants stop
+admitting listings. Anyone can then cancel its queued proposals through the
+curator, which holds CANCELLER for that. Sensitive
+owner-proposed operations move its hubs and spokes to another registrar or to
+none (`ReassignCuratorHub`, `ReassignCuratorSpoke`) and replace its admin
+(`SetCuratorRegistrarAdmin`). A grant is valid only while its grantor owns the
+hub. A hub owner limits a grantee at once: it revokes the grant, cancels the
+grantee's queued proposals against its hub, and closes the grantee's listing of
+its asset (zero caps and `frozen`; exits stay open). Revoking CURATOR_ROLE from
+the curator contract stops every registrar.
+ORACLE can immediately narrow sanity bands. The owner can revoke the
+guardian and oracle roles immediately and perform one-time deployment
+bootstrap.
 Reopening, global position-manager changes, and ordinary upgrades use delayed
 operations. Controller construction and upgrade pause the controller. Pool,
 position NFT, price aggregator and governance upgrades do not pause lending.

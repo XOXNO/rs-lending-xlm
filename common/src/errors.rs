@@ -273,6 +273,10 @@ pub enum SpokeError {
     /// changes nothing does not advance the flags epoch, so a guardian cannot keep a
     /// pending `relax_spoke_asset_flags` from ever matching.
     SpokeAssetFlagsUnchanged = 320,
+
+    /// `lower_spoke_asset_caps` raises a cap or names the caps the listing already holds,
+    /// or `close_spoke_asset` names a listing that is already closed.
+    SpokeAssetCapsNotLowered = 321,
 }
 
 /// Error codes for flash-loan execution and repayment failures.

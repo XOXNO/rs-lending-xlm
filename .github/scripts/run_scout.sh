@@ -14,6 +14,7 @@ contracts=(
   contracts/position-nft/Cargo.toml
   contracts/swap-aggregator/Cargo.toml
   contracts/xoxno-oracle/Cargo.toml
+  contracts/curator/Cargo.toml
 )
 
 format="${SCOUT_OUTPUT_FORMAT:-md}"

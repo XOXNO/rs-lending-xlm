@@ -1,17 +1,23 @@
 //! Governance actions that execute immediately, bypassing the timelock delay.
 //! Each entry point except `revoke_role_immediate` authenticates the caller and
 //! checks a required role through `begin_immediate` before forwarding to the
-//! controller or price aggregator.
+//! controller or price aggregator. `set_spoke_asset_flags` accepts the guardian
+//! or curator role directly.
 //! `revoke_role_immediate` is instead owner-gated at the contract entry point
 //! (`#[only_owner]`) and only restricts which role argument may be revoked.
 
-use common::errors::GenericError;
-use common::types::{HubAssetKey, PriceKey};
+use common::errors::{GenericError, SpokeError};
+use common::ttl::renew_instance;
+use common::types::{HubAssetKey, MarketParamsRaw, PriceKey, SpokeAssetArgs, SpokeAssetConfig};
+use controller_interface::ControllerClient;
 
-use soroban_sdk::{assert_with_error, Address, Env, Symbol};
+use soroban_sdk::{assert_with_error, vec, Address, Env, IntoVal, Symbol};
 
-use crate::access::{self, GUARDIAN_ROLE, ORACLE_ROLE};
+use stellar_access::access_control;
+
+use crate::access::{self, CURATOR_ROLE, GUARDIAN_ROLE, ORACLE_ROLE};
 use crate::timelock::*;
+use crate::{storage, validate};
 
 /// Pauses the controller. Requires the caller to hold `GUARDIAN_ROLE`.
 pub(crate) fn pause(env: &Env, caller: &Address) {
@@ -20,7 +26,7 @@ pub(crate) fn pause(env: &Env, caller: &Address) {
 }
 
 /// Tightens the paused, frozen, and no-seize flags for `hub_asset` in the given spoke.
-/// Requires the caller to hold `GUARDIAN_ROLE`. The controller rejects clearing a set
+/// Requires `GUARDIAN_ROLE` or `CURATOR_ROLE`. The controller rejects clearing a set
 /// flag with `SpokeAssetFlagRelaxation` (INV-AUTH-04).
 pub(crate) fn set_spoke_asset_flags(
     env: &Env,
@@ -31,7 +37,11 @@ pub(crate) fn set_spoke_asset_flags(
     frozen: bool,
     no_seize: bool,
 ) {
-    begin_immediate(env, caller, GUARDIAN_ROLE);
+    renew_instance(env);
+    caller.require_auth();
+    if access_control::has_role(env, caller, &Symbol::new(env, CURATOR_ROLE)).is_none() {
+        access_control::ensure_role(env, &Symbol::new(env, GUARDIAN_ROLE), caller);
+    }
     controller_client(env).set_spoke_asset_flags(&spoke_id, hub_asset, &paused, &frozen, &no_seize);
 }
 
@@ -50,17 +60,131 @@ pub(crate) fn set_sanity_band(
 }
 
 /// Creates a new hub on the controller and returns its id. Requires the caller to
-/// hold `GUARDIAN_ROLE`.
+/// hold `CURATOR_ROLE`.
 pub(crate) fn create_hub(env: &Env, caller: &Address) -> u32 {
-    begin_immediate(env, caller, GUARDIAN_ROLE);
+    begin_immediate(env, caller, CURATOR_ROLE);
     controller_client(env).create_hub()
 }
 
 /// Creates a new spoke on the controller and returns its id. Requires the caller
-/// to hold `GUARDIAN_ROLE`.
+/// to hold `CURATOR_ROLE`.
 pub(crate) fn add_spoke(env: &Env, caller: &Address) -> u32 {
-    begin_immediate(env, caller, GUARDIAN_ROLE);
+    begin_immediate(env, caller, CURATOR_ROLE);
     controller_client(env).add_spoke()
+}
+
+/// Registers an asset market on the deployed pool under `hub_id`. Returns that
+/// pool's address. Requires `CURATOR_ROLE`.
+pub(crate) fn create_liquidity_pool(
+    env: &Env,
+    caller: &Address,
+    hub_id: u32,
+    params: &MarketParamsRaw,
+) -> Address {
+    begin_immediate(env, caller, CURATOR_ROLE);
+    validate::asset::validate_new_market(env, &params.asset_id, params);
+    controller_client(env).create_liquidity_pool(&hub_id, &params.asset_id, params)
+}
+
+/// Lowers the supply or borrow cap of a listing and keeps every other field.
+/// Requires `CURATOR_ROLE`. Any other edit is the timelocked `EditAssetInSpoke`.
+pub(crate) fn lower_spoke_asset_caps(
+    env: &Env,
+    caller: &Address,
+    spoke_id: u32,
+    hub_asset: &HubAssetKey,
+    supply_cap: i128,
+    borrow_cap: i128,
+) {
+    begin_immediate(env, caller, CURATOR_ROLE);
+    validate::asset::validate_spoke_cap_args(env, supply_cap, borrow_cap);
+    let current = spoke_asset(env, spoke_id, hub_asset);
+    assert_with_error!(
+        env,
+        supply_cap <= current.supply_cap
+            && borrow_cap <= current.borrow_cap
+            && (supply_cap < current.supply_cap || borrow_cap < current.borrow_cap),
+        SpokeError::SpokeAssetCapsNotLowered
+    );
+    rewrite_listing(
+        env,
+        spoke_id,
+        hub_asset,
+        &current,
+        supply_cap,
+        borrow_cap,
+        current.frozen,
+    );
+}
+
+/// Sets both caps of a listing to zero and freezes it, keeping every other
+/// field. Requires `CURATOR_ROLE`.
+pub(crate) fn close_spoke_asset(
+    env: &Env,
+    caller: &Address,
+    spoke_id: u32,
+    hub_asset: &HubAssetKey,
+) {
+    begin_immediate(env, caller, CURATOR_ROLE);
+    let current = spoke_asset(env, spoke_id, hub_asset);
+    assert_with_error!(
+        env,
+        current.supply_cap != 0 || current.borrow_cap != 0 || !current.frozen,
+        SpokeError::SpokeAssetCapsNotLowered
+    );
+    rewrite_listing(env, spoke_id, hub_asset, &current, 0, 0, true);
+}
+
+/// Suspends `registrar` on `curator`. Requires `GUARDIAN_ROLE`, and `curator`
+/// must hold `CURATOR_ROLE`.
+pub(crate) fn suspend_curator_registrar(
+    env: &Env,
+    caller: &Address,
+    curator: &Address,
+    registrar: u32,
+) {
+    begin_immediate(env, caller, GUARDIAN_ROLE);
+    assert_with_error!(
+        env,
+        access_control::has_role(env, curator, &Symbol::new(env, CURATOR_ROLE)).is_some(),
+        GenericError::NotAuthorized
+    );
+    env.invoke_contract::<()>(
+        curator,
+        &Symbol::new(env, "set_registrar_suspended"),
+        vec![env, registrar.into_val(env), true.into_val(env)],
+    );
+}
+
+fn spoke_asset(env: &Env, spoke_id: u32, hub_asset: &HubAssetKey) -> SpokeAssetConfig {
+    ControllerClient::new(env, &storage::get_controller(env)).get_spoke_asset(&spoke_id, hub_asset)
+}
+
+fn rewrite_listing(
+    env: &Env,
+    spoke_id: u32,
+    hub_asset: &HubAssetKey,
+    current: &SpokeAssetConfig,
+    supply_cap: i128,
+    borrow_cap: i128,
+    frozen: bool,
+) {
+    controller_client(env).edit_asset_in_spoke(&SpokeAssetArgs {
+        hub_id: hub_asset.hub_id,
+        asset: hub_asset.asset.clone(),
+        spoke_id,
+        can_collateral: current.is_collateralizable,
+        can_borrow: current.is_borrowable,
+        paused: current.paused,
+        frozen,
+        no_seize: current.no_seize,
+        ltv: current.loan_to_value,
+        threshold: current.liquidation_threshold,
+        bonus: current.liquidation_bonus,
+        liquidation_fees: current.liquidation_fees,
+        supply_cap,
+        borrow_cap,
+    });
 }
 
 /// Deactivates `manager` on the controller. Requires the caller to hold

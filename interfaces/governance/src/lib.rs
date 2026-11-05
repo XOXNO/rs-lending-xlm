@@ -143,6 +143,27 @@ pub enum AdminOperation {
     ConfigureAssetOracle(ConfigureAssetOracleArgs),
 
     RelaxSpokeAssetFlags(RelaxSpokeAssetFlagsArgs),
+
+    /// Replace the curator contract Wasm. The address is the curator; the hash
+    /// is the new code. Sensitive delay, owner-proposed.
+    UpgradeCurator(Address, BytesN<32>),
+
+    /// Suspend (`true`) or resume (`false`) a registrar on the curator contract.
+    /// The address is the curator, the `u32` is the registrar id. Sensitive
+    /// delay, owner-proposed.
+    SuspendCuratorRegistrar(Address, u32, bool),
+
+    /// Bind a hub id to a curator registrar, or unbind it with `None`. The
+    /// address is the curator. Sensitive delay, owner-proposed.
+    ReassignCuratorHub(Address, u32, Option<u32>),
+
+    /// Bind a spoke id to a curator registrar, or unbind it with `None`. The
+    /// address is the curator. Sensitive delay, owner-proposed.
+    ReassignCuratorSpoke(Address, u32, Option<u32>),
+
+    /// Replace a curator registrar's admin. The first address is the curator.
+    /// Sensitive delay, owner-proposed.
+    SetCuratorRegistrarAdmin(Address, u32, Address),
 }
 
 #[contractclient(name = "GovernanceClient")]
@@ -206,6 +227,26 @@ pub trait GovernanceInterface {
     fn create_hub(env: Env, caller: Address) -> u32;
 
     fn add_spoke(env: Env, caller: Address) -> u32;
+
+    fn create_liquidity_pool(
+        env: Env,
+        caller: Address,
+        hub_id: u32,
+        params: MarketParamsRaw,
+    ) -> Address;
+
+    fn close_spoke_asset(env: Env, caller: Address, spoke_id: u32, hub_asset: HubAssetKey);
+
+    fn suspend_curator_registrar(env: Env, caller: Address, curator: Address, registrar: u32);
+
+    fn lower_spoke_asset_caps(
+        env: Env,
+        caller: Address,
+        spoke_id: u32,
+        hub_asset: HubAssetKey,
+        supply_cap: i128,
+        borrow_cap: i128,
+    );
 
     fn deactivate_position_manager(env: Env, caller: Address, manager: Address);
 

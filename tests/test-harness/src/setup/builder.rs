@@ -348,6 +348,25 @@ impl LendingTestBuilder {
             );
             let market_decimals = token_decimals;
 
+            if pm.configure_oracle {
+                mock_reflector_client.set_price(&asset_address, &pm.price_wad);
+
+                let oracle = crate::oracle::config::reflector_primary_anchor_config(
+                    &env,
+                    &mock_reflector_address,
+                    &asset_address,
+                    pm.price_wad,
+                    DEFAULT_TOLERANCE.tolerance_bps,
+                );
+                gov.execute_immediate(
+                    &admin,
+                    &AdminOperation::ConfigureAssetOracle(ConfigureAssetOracleArgs {
+                        key: controller::types::PriceKey::Token(asset_address.clone()),
+                        oracle,
+                    }),
+                );
+            }
+
             let mut market_params = pm.params.to_market_params(&asset_address, market_decimals);
 
             market_params.is_flashloanable = pm.config.is_flashloanable;
@@ -375,25 +394,6 @@ impl LendingTestBuilder {
                     market_decimals,
                 )),
             );
-
-            if pm.configure_oracle {
-                mock_reflector_client.set_price(&asset_address, &pm.price_wad);
-
-                let oracle = crate::oracle::config::reflector_primary_anchor_config(
-                    &env,
-                    &mock_reflector_address,
-                    &asset_address,
-                    pm.price_wad,
-                    DEFAULT_TOLERANCE.tolerance_bps,
-                );
-                gov.execute_immediate(
-                    &admin,
-                    &AdminOperation::ConfigureAssetOracle(ConfigureAssetOracleArgs {
-                        key: controller::types::PriceKey::Token(asset_address.clone()),
-                        oracle,
-                    }),
-                );
-            }
 
             let liquidity_amount = f64_to_i128(pm.initial_liquidity, market_decimals);
             if pm.shortfall_bps != 0 || pm.extra_bps != 0 || pm.transfer_hook {

@@ -434,6 +434,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e2931af7e13dc045d8e9d26afccc6fa115d64e115c9c84b1166288b46f6782c2"
 
 [[package]]
+name = "curator"
+version = "0.1.0"
+dependencies = [
+ "common",
+ "controller",
+ "governance",
+ "governance-interface",
+ "soroban-sdk",
+]
+
+[[package]]
 name = "curve25519-dalek"
 version = "4.1.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"

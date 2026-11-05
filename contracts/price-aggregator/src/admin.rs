@@ -35,7 +35,6 @@ fn attest_sources(env: &Env, key: &PriceKey, oracle: &AssetOracle) {
 
             PriceSource::AquariusLp(lp) => aquarius::attest(env, key, oracle, lp, false),
             PriceSource::AquariusStableLp(lp) => aquarius::attest(env, key, oracle, lp, true),
-            // Curve pool binding is checked when `set_oracle` probes the LP source.
             PriceSource::CurveStableLp(_) => {}
         }
     }

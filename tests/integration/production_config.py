@@ -188,12 +188,9 @@ def fixture_price(root, key):
                 pool = next(p for p in fixtures['curve_pools'] if p['contract'] == spec['pool'])
                 assert pool['coins'] == spec['coins']
                 normalized = [int(a) * 10**(18 - d) for a, d in zip(pool['amounts'], pool['coin_decimals'])]
-                # One balanced first deposit: D is the normalized sum exactly and
-                # mints D shares, so virtual_price = D * WAD // supply.
+                # One balanced first deposit mints D shares, so virtual_price is exactly WAD.
                 assert len(set(normalized)) == 1 and normalized[0] > 0, 'Curve fixture must be one balanced deposit'
-                d = supply = sum(normalized)
-                virtual_price = d * 10**18 // supply
-                value = virtual_price * min(resolve({'Token': c}, stack + (k,)) for c in spec['coins']) // 10**18
+                value = min(resolve({'Token': c}, stack + (k,)) for c in spec['coins'])
             else:
                 assert kind in ('AquariusLp', 'AquariusStableLp')
                 pool = next(p['snapshot'] for p in fixtures['pools'] if p['contract'] == spec['pool'])
@@ -319,7 +316,7 @@ def materialize(source, output, mapping, network, only=None):
                 lp = s['CurveStableLp']
                 low = min(prices[json.dumps({'Token':c}, sort_keys=True)] for c in lp['coins'])
                 # About $1e8 per coin in whole tokens, so every coin amount is exact.
-                per_coin = 10**26 * 10**18 // low // 10**18 * 10**18
+                per_coin = 10**26 // low * 10**18
                 assert per_coin > 0 and len(lp['coins'])*per_coin*low // 10**18 >= int(lp['min_pool_value_wad']), \
                     f'Curve fixture for {m["name"]} is below its liquidity floor'
                 coin_decimals = [decimals[c] for c in lp['coins']]

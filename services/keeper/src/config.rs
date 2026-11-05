@@ -272,29 +272,26 @@ impl KeeperConfig {
         .into_iter()
         .flatten()
         .collect();
-        for (name, address) in [
+        let named = [
             (
                 "redstone_adapter",
                 self.contracts.redstone_adapter.as_deref(),
             ),
             ("swap_router", self.contracts.swap_router.as_deref()),
-        ] {
-            if let Some(address) = address {
-                contract_id_from_strkey(address)
-                    .with_context(|| format!("config.contracts.{name}"))?;
-                if !kept.insert(address) {
-                    return Err(anyhow!(
-                        "config.contracts.{name} repeats a contract already kept alive: {address}"
-                    ));
-                }
-            }
-        }
-        for (i, extra) in self.contracts.extra_instances.iter().enumerate() {
-            contract_id_from_strkey(extra)
-                .with_context(|| format!("config.contracts.extra_instances[{i}]"))?;
-            if !kept.insert(extra.as_str()) {
+        ]
+        .into_iter()
+        .filter_map(|(name, address)| Some((name.to_string(), address?)));
+        let extra = self
+            .contracts
+            .extra_instances
+            .iter()
+            .enumerate()
+            .map(|(i, address)| (format!("extra_instances[{i}]"), address.as_str()));
+        for (name, address) in named.chain(extra) {
+            contract_id_from_strkey(address).with_context(|| format!("config.contracts.{name}"))?;
+            if !kept.insert(address) {
                 return Err(anyhow!(
-                    "config.contracts.extra_instances[{i}] repeats a contract already kept alive: {extra}"
+                    "config.contracts.{name} repeats a contract already kept alive: {address}"
                 ));
             }
         }

@@ -79,8 +79,12 @@ flow_governance() {
         --proposer "$ADMIN_ADDR" --op "$grant_op" \
         --salt "$GOV_SALT_GRANT_GUARDIAN" | tr -d '"[:space:]')
 
-    inv gov_create_hub "$ADMIN" "$GOVERNANCE" -- create_hub --caller "$ADMIN_ADDR" >/dev/null || return 1
-    inv gov_add_spoke "$ADMIN" "$GOVERNANCE" -- add_spoke --caller "$ADMIN_ADDR" >/dev/null || return 1
+    # Hub and spoke creation is the CURATOR role. The constructor does not
+    # grant it to the owner, so the owner's guardian role is not enough.
+    xfail gov_create_hub_not_curator 'Error(Contract, #2000)' "$ADMIN" "$GOVERNANCE" -- create_hub \
+        --caller "$ADMIN_ADDR"
+    xfail gov_add_spoke_not_curator 'Error(Contract, #2000)' "$ADMIN" "$GOVERNANCE" -- add_spoke \
+        --caller "$ADMIN_ADDR"
     local gov_ctrl
     gov_ctrl=$(view gov_controller_view "$GOVERNANCE" -- controller | tr -d '"[:space:]')
     if [ "$gov_ctrl" != "$GOV_CONTROLLER" ]; then

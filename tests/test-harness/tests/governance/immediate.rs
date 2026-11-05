@@ -270,11 +270,21 @@ fn sanity_band_input_and_role_gates() {
 }
 
 #[test]
-fn guardian_creates_hub_and_spoke_immediately() {
+fn curator_creates_hub_and_spoke_immediately() {
     let t = LendingTest::new().build();
     let gov = t.gov_iface_client();
     let admin = t.admin();
     let stranger = Address::generate(&t.env);
+    let curator_role = Symbol::new(&t.env, "CURATOR");
+
+    assert_contract_error(flatten(gov.try_create_hub(&admin)), errors::UNAUTHORIZED);
+    t.gov_client().execute_immediate(
+        &admin,
+        &AdminOperation::GrantGovRole(RoleArgs {
+            account: admin.clone(),
+            role: curator_role,
+        }),
+    );
 
     let hub_id = gov.create_hub(&admin);
     assert!(hub_id >= 1);
@@ -285,6 +295,90 @@ fn guardian_creates_hub_and_spoke_immediately() {
 
     assert_contract_error(flatten(gov.try_create_hub(&stranger)), errors::UNAUTHORIZED);
     assert_contract_error(flatten(gov.try_add_spoke(&stranger)), errors::UNAUTHORIZED);
+}
+
+#[test]
+fn curator_lowers_caps_immediately_and_cannot_raise_them() {
+    let t = LendingTest::new().with_market(usdc_preset()).build();
+    let gov = t.gov_iface_client();
+    let admin = t.admin();
+    let key = hub_asset(t.resolve_asset("USDC"));
+    let before = t.ctrl_client().get_spoke_asset(&HARNESS_SPOKE, &key);
+    let (supply, borrow) = (before.supply_cap, before.borrow_cap);
+    assert!(supply > 0);
+
+    assert_contract_error(
+        flatten(gov.try_lower_spoke_asset_caps(
+            &admin,
+            &HARNESS_SPOKE,
+            &key,
+            &(supply - 1),
+            &borrow,
+        )),
+        errors::UNAUTHORIZED,
+    );
+    t.gov_client().execute_immediate(
+        &admin,
+        &AdminOperation::GrantGovRole(RoleArgs {
+            account: admin.clone(),
+            role: Symbol::new(&t.env, "CURATOR"),
+        }),
+    );
+
+    gov.lower_spoke_asset_caps(&admin, &HARNESS_SPOKE, &key, &(supply - 1), &borrow);
+    let after = t.ctrl_client().get_spoke_asset(&HARNESS_SPOKE, &key);
+    assert_eq!(after.supply_cap, supply - 1);
+    assert_eq!(after.borrow_cap, borrow);
+    assert_eq!(after.loan_to_value, before.loan_to_value);
+    assert_eq!(after.liquidation_threshold, before.liquidation_threshold);
+    assert_eq!(after.liquidation_bonus, before.liquidation_bonus);
+    assert_eq!(after.is_borrowable, before.is_borrowable);
+
+    for (s, b) in [
+        (supply, borrow),
+        (supply - 1, borrow),
+        (supply - 2, borrow + 1),
+    ] {
+        assert_contract_error(
+            flatten(gov.try_lower_spoke_asset_caps(&admin, &HARNESS_SPOKE, &key, &s, &b)),
+            errors::SPOKE_ASSET_CAPS_NOT_LOWERED,
+        );
+    }
+}
+
+#[test]
+fn curator_closes_a_listing_immediately_and_exits_still_work() {
+    let mut t = LendingTest::new().with_market(usdc_preset()).build();
+    t.supply(ALICE, "USDC", 100.0);
+    let gov = t.gov_iface_client();
+    let admin = t.admin();
+    let key = hub_asset(t.resolve_asset("USDC"));
+    let before = t.ctrl_client().get_spoke_asset(&HARNESS_SPOKE, &key);
+
+    assert_contract_error(
+        flatten(gov.try_close_spoke_asset(&admin, &HARNESS_SPOKE, &key)),
+        errors::UNAUTHORIZED,
+    );
+    t.gov_client().execute_immediate(
+        &admin,
+        &AdminOperation::GrantGovRole(RoleArgs {
+            account: admin.clone(),
+            role: Symbol::new(&t.env, "CURATOR"),
+        }),
+    );
+    gov.close_spoke_asset(&admin, &HARNESS_SPOKE, &key);
+
+    let after = t.ctrl_client().get_spoke_asset(&HARNESS_SPOKE, &key);
+    assert_eq!((after.supply_cap, after.borrow_cap), (0, 0));
+    assert!(after.frozen && !after.paused && !after.no_seize);
+    assert_eq!(after.loan_to_value, before.loan_to_value);
+    assert_eq!(after.liquidation_threshold, before.liquidation_threshold);
+    assert_contract_error(
+        flatten(gov.try_close_spoke_asset(&admin, &HARNESS_SPOKE, &key)),
+        errors::SPOKE_ASSET_CAPS_NOT_LOWERED,
+    );
+    assert_contract_error(t.try_supply(ALICE, "USDC", 1.0), errors::SPOKE_ASSET_FROZEN);
+    t.withdraw(ALICE, "USDC", 10.0);
 }
 
 #[test]

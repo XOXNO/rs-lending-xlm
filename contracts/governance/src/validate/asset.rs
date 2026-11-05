@@ -2,7 +2,7 @@
 //! per-account position limits, market creation parameters, and spoke cap arguments.
 
 use common::constants::{MAX_ASSET_DECIMALS, MIN_ASSET_DECIMALS, POSITION_LIMIT_MAX};
-use common::errors::{CollateralError, GenericError};
+use common::errors::{CollateralError, GenericError, OracleError};
 use common::types::{MarketParamsRaw, PositionLimits, PriceKey};
 use price_aggregator_interface::PriceAggregatorClient;
 use soroban_sdk::{assert_with_error, panic_with_error, token, Address, Env};
@@ -37,6 +37,30 @@ pub(crate) fn validate_position_limits(env: &Env, limits: &PositionLimits) {
     );
 }
 
+/// Panics with `OracleError::OracleNotConfigured` unless the price aggregator
+/// stores an oracle for `asset`.
+pub(crate) fn require_asset_oracle(env: &Env, asset: &Address) {
+    if !storage::has_price_aggregator(env) {
+        panic_with_error!(env, OracleError::OracleNotConfigured);
+    }
+    let configured = PriceAggregatorClient::new(env, &storage::get_price_aggregator(env))
+        .oracle(&PriceKey::Token(asset.clone()));
+    assert_with_error!(env, configured.is_some(), OracleError::OracleNotConfigured);
+}
+
+/// Validates a new market for `asset`: a live token, [`validate_market_creation`]
+/// at its listed decimals, then a stored oracle.
+pub(crate) fn validate_new_market(env: &Env, asset: &Address, params: &MarketParamsRaw) {
+    let token_decimals = validate_and_fetch_token_decimals(env, asset);
+    validate_market_creation(
+        env,
+        asset,
+        params,
+        listed_token_decimals(env, asset, token_decimals),
+    );
+    require_asset_oracle(env, asset);
+}
+
 /// Returns the decimals `token` is priced in: the `asset_decimals` of the
 /// aggregator's stored oracle for `PriceKey::Token(token)` when one exists,
 /// otherwise the live `token_decimals`.
@@ -66,13 +90,11 @@ pub(crate) fn validate_market_creation(
         params.asset_decimals == token_decimals,
         GenericError::InvalidAsset
     );
-
     assert_with_error!(
         env,
         (MIN_ASSET_DECIMALS..=MAX_ASSET_DECIMALS).contains(&params.asset_decimals),
         GenericError::InvalidAsset
     );
-
     params.verify(env);
 }
 

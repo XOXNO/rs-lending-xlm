@@ -258,10 +258,9 @@ pub fn decode_chainlink_round(value: &ScVal) -> Result<PriceObservation> {
     let Some(ScVal::U64(_)) = map_field(value, "round_id") else {
         return Err(anyhow!("Chainlink Round.round_id missing"));
     };
-    let Some(ScVal::U64(ts)) = map_field(value, "timestamp") else {
-        return Err(anyhow!("Chainlink Round.timestamp missing"));
-    };
-    Ok(PriceObservation { feed_ts_secs: *ts })
+    let feed_ts_secs = field_u64(value, "timestamp")
+        .ok_or_else(|| anyhow!("Chainlink Round.timestamp missing"))?;
+    Ok(PriceObservation { feed_ts_secs })
 }
 
 #[cfg(test)]

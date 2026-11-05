@@ -70,6 +70,7 @@ pub mod codes {
     pub const SPOKE_ASSET_SEIZURE_HALTED: u32 = SpokeError::SpokeAssetSeizureHalted as u32;
     pub const SPOKE_FLAGS_EPOCH_MISMATCH: u32 = SpokeError::SpokeFlagsEpochMismatch as u32;
     pub const SPOKE_ASSET_FLAGS_UNCHANGED: u32 = SpokeError::SpokeAssetFlagsUnchanged as u32;
+    pub const SPOKE_ASSET_CAPS_NOT_LOWERED: u32 = SpokeError::SpokeAssetCapsNotLowered as u32;
     pub const SPOKE_ASSET_IN_USE: u32 = SpokeError::SpokeAssetInUse as u32;
 
     pub const FLASH_LOAN_ONGOING: u32 = FlashLoanError::FlashLoanOngoing as u32;
