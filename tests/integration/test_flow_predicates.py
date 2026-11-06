@@ -1,6 +1,7 @@
 """Fault injection for risk snapshots, NFT enumeration and route headers."""
 import csv
 import json
+import re
 import subprocess
 import unittest
 import tempfile
@@ -542,6 +543,31 @@ gov_await_ready() { echo "await $1" >> "$1.log"; echo Ready; }'''
         self.assertLess(calls.index('inv gov_propose_grant_guardian'),calls.index('inv gov_propose_unpause'))
         self.assertEqual(calls.count('inv gov_propose_grant_guardian'),1)
         self.assertLess(calls.index('await op_gov_propose_grant_guardian'),calls.index('inv gov_execute_grant_guardian'))
+
+    def test_xfail_patterns_escape_regex_groups(self):
+        pat=re.compile(r"xfail(?:_sim)?\s+\S+\s+'([^']*)'")
+        for f in sorted((HERE/'flows').glob('*.sh')):
+            for m in pat.finditer(f.read_text()):
+                self.assertNotRegex(m.group(1),r'(?<!\\)\(',f'{f.name}: {m.group(1)}')
+
+    def test_governance_flow_emits_every_required_action(self):
+        body='''ADMIN=admin ALICE=alice DAVE_ADDR=GDAVE GOVERNANCE=GOV GOV_CONTROLLER=CTRL PA_HASH=x LOG="$1"
+phase() { :; }; pay_vec() { echo '[]'; }; gov_scval_args() { echo '[]'; }
+gov_assert_scheduled() { view "$1" "$GOVERNANCE" -- get_operation_state >/dev/null; }
+price_key_token() { echo '{}'; }; is_contract_id() { :; }; gov_await_ready() { echo Ready; }
+inv() { echo "ok $1" >> "$LOG"; echo "op_$1"; }
+xfail() { echo "xfail $1" >> "$LOG"; }
+view() { echo "read $1" >> "$LOG"; echo 5; }
+record() { echo "$2 $1" >> "$LOG"; }
+_assert_fail() { echo "FAIL $1" >> "$LOG"; return 1; }
+flow_governance'''
+        with tempfile.TemporaryDirectory() as d:
+            result=shell('flows/governance.sh',body,d+'/calls')
+            self.assertEqual(result.returncode,0,result.stderr)
+            emitted=set((Path(d)/'calls').read_text().splitlines())
+        required=next(c for c in json.loads((HERE/'cases.json').read_text()) if c['id']=='flow_governance')['required_actions']
+        missing=[f"{a['status']} {a['label']}" for a in required if a['method']!='assert' and f"{a['status']} {a['label']}" not in emitted]
+        self.assertEqual(missing,[])
 
     def test_governance_schedule_uses_tier_delay_of_each_proposal(self):
         body='''ADMIN=admin ALICE=alice DAVE_ADDR=GDAVE GOVERNANCE=GOV GOV_CONTROLLER=CTRL

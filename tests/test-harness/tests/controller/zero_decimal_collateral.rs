@@ -7,8 +7,9 @@
 use common::types::{HubAssetKey, InterestRateModel, LiquidationEstimate, SeizeMode};
 use common::validation::max_cap_for_decimals;
 use controller::constants::{RAY, WAD};
+use controller::types::{AccountPositionRaw, ControllerKey};
 use governance::op::{AdminOperation, CreatePoolArgs, SpokeAssetArgs, UpgradePoolParamsArgs};
-use soroban_sdk::{token, vec, Address, Error, TryFromVal, Vec};
+use soroban_sdk::{token, vec, Address, Error, Map, TryFromVal, Vec};
 use test_harness::{
     errors, usd, usd_cents, usdc_preset, xlm_preset, AssetConfigPreset, LendingTest, MarketPreset,
     DEFAULT_ASSET_CONFIG, DEFAULT_MARKET_PARAMS, HARNESS_HUB,
@@ -796,6 +797,59 @@ fn zdc_whole_unit_leg_is_its_accounts_only_supply_position() {
         .liquidate(id, debt, SeizeMode::Credit(receiver))
         .unwrap_err();
     assert_eq!(err, limit, "credit cannot add LIQ beside the stable");
+}
+
+/// A fresh credit receiver is held to the same isolation as a supply: seizing
+/// a whole-unit leg together with a second collateral leg is refused.
+#[test]
+fn zdc_fresh_credit_receiver_cannot_take_a_whole_unit_leg_beside_another() {
+    let mut z = setup(nav(1_000));
+    let admin = z.t.admin();
+    z.t.gov_client().execute_immediate(
+        &admin,
+        &AdminOperation::EditAssetInSpoke(SpokeAssetArgs {
+            hub_id: HARNESS_HUB,
+            asset: z.usdc.clone(),
+            spoke_id: z.spoke,
+            can_collateral: true,
+            can_borrow: true,
+            paused: false,
+            frozen: false,
+            no_seize: false,
+            ltv: 7_500,
+            threshold: 8_000,
+            bonus: 500,
+            liquidation_fees: 0,
+            supply_cap: USDC_CAP_RAW,
+            borrow_cap: USDC_CAP_RAW,
+        }),
+    );
+    let id = open(&mut z, "carol", 10, 1_000, 5_800);
+    let usdc_key = z.usdc_key();
+    z.t.env.as_contract(&z.t.controller_address(), || {
+        let key = ControllerKey::SupplyPositions(id);
+        let mut legs: Map<HubAssetKey, AccountPositionRaw> =
+            z.t.env.storage().persistent().get(&key).unwrap();
+        legs.set(
+            usdc_key,
+            AccountPositionRaw {
+                scaled_amount: RAY / 100,
+                liquidation_threshold: 8_000,
+                liquidation_bonus: 500,
+                loan_to_value: 7_500,
+                liquidation_fees: 0,
+            },
+        );
+        z.t.env.storage().persistent().set(&key, &legs);
+    });
+    z.t.set_price(LIQ, nav(800));
+    assert!(z.t.can_be_liquidated_by_id(id));
+    let debt = z.debt_raw(id);
+    let err = z.liquidate(id, debt, SeizeMode::Credit(0)).unwrap_err();
+    assert_eq!(
+        err,
+        Error::from_contract_error(errors::POSITION_LIMIT_EXCEEDED)
+    );
 }
 
 /// Isolation binds the account holding the whole-unit leg, not its spoke: an

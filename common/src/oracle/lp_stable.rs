@@ -244,13 +244,16 @@ mod tests {
         }
     }
 
-    /// Covers the reserve cap and, at 10^15 : 10^3 tokens, a pool whose first
-    /// Newton step overflows `U256`, which must not trap the host.
+    /// Covers a reserve whose WAD normalisation overflows `i128`, one that
+    /// lands above `MAX_NORMALIZED_RESERVE_WAD`, the cap itself at one unit
+    /// over, and, at 10^15 : 10^3 tokens, a pool whose first Newton step
+    /// overflows `U256`, which must not trap the host.
     #[test]
     fn absurd_reserve_errors_not_panics() {
         let env = Env::default();
         for (reserve_a, reserve_b, amp) in [
             (i128::MAX, 1_000_000_000, 1500),
+            (10i128.pow(24), 1_000_000_000, 100),
             (10i128.pow(22), 10i128.pow(10), 100),
         ] {
             let err = fair_stable_lp_price_wad(
@@ -263,6 +266,10 @@ mod tests {
             .unwrap_err();
             assert_eq!(err, OracleError::InvalidPrice);
         }
+        assert_eq!(
+            solve_stable_d(&env, MAX_NORMALIZED_RESERVE_WAD as i128 + 1, WAD, 100),
+            Err(OracleError::InvalidPrice)
+        );
         let (big, small) = (10i128.pow(33), 10i128.pow(21));
         for (xa, xb) in [(big, small), (small, big)] {
             assert_eq!(

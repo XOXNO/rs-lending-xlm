@@ -315,8 +315,6 @@ shell('stellar() { echo tx; }; curl() { return 7; }; ! sim_probe bad admin c -- 
 # Failed or nonnumeric balance cannot become zero.
 for body in ['return 1', 'echo null', 'echo malformed']:
     shell(f'view() {{ {body}; }}; ! balance token owner')
-# A failed mutation leg is never replayed by its outer wrapper.
-shell('n=0; leg() { n=$((n+1)); return 1; }; ! retry_leg leg; [ "$n" = 1 ]')
 # A phase cannot report pass after ignoring a failed action, even if a later
 # action with the same label succeeds. Earlier cases stay outside this range.
 for status in ['FAIL', 'UNEXPECTED-OK']:

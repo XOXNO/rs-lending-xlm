@@ -52,7 +52,9 @@ create an empty hub or spoke, register a market on the deployed pool, lower
 a listing's supply or borrow cap, and tighten listing flags. Every other
 listing change, new listings included, waits for the timelock. The constructor does not
 grant CURATOR_ROLE to the owner, and an ownership transfer does not move it.
-A registrar can halt its own listings at once; only a timelocked
+Governance is the curator registry's only owner: it opens registrars through
+the owner-proposed sensitive `RegisterCuratorRegistrar`, and no other wallet
+can. A registrar can halt its own listings at once; only a timelocked
 `RelaxSpokeAssetFlags` clears a flag. GUARDIAN suspends a registrar at once
 with `suspend_curator_registrar`; resuming is the owner-proposed sensitive
 `SuspendCuratorRegistrar`. A suspended registrar's curator calls revert, so it
@@ -64,8 +66,10 @@ none (`ReassignCuratorHub`, `ReassignCuratorSpoke`) and replace its admin
 (`SetCuratorRegistrarAdmin`). A grant is valid only while its grantor owns the
 hub. A hub owner limits a grantee at once: it revokes the grant, cancels the
 grantee's queued proposals against its hub, and closes the grantee's listing of
-its asset (zero caps and `frozen`; exits stay open). Revoking CURATOR_ROLE from
-the curator contract stops every registrar.
+its asset (zero caps and `frozen`; existing pause and seizure restrictions
+remain). Revoking CURATOR_ROLE stops the registry's immediate governance calls,
+not its PROPOSER authority or already queued operations. Suspension and
+cancellation remain separate incident actions.
 ORACLE can immediately narrow sanity bands. The owner can revoke the
 guardian and oracle roles immediately and perform one-time deployment
 bootstrap.
@@ -428,9 +432,9 @@ seizure, 5 seconds after the last accrual) used 107.7M of 400M CPU, 15.1M of
 41.9M memory, 212 of 400 footprint entries, 0 of 200 disk read entries and 42
 of 200 writes. The replay still is not production: both feed providers (the
 RedStone primary and the Chainlink anchor) are `mock_redstone.wasm`, every coin
-and debt asset is the minimal `production_fixture.wasm` token, and the test
-prints usage without asserting a ceiling. Re-measure with the production
-RedStone adapter, Chainlink proxy and listed token executables before treating
+and debt asset is the minimal `production_fixture.wasm` token. The test asserts
+all eight fixture resource ceilings in `MAINNET_LIMITS`. Re-measure with the
+production RedStone adapter, Chainlink proxy and listed token executables before treating
 107.7M as a production bound; real feed and token contracts can cost more. The
 limits compared are the live mainnet settings read on 2026-11-02 with
 `stellar network settings`: `tx_max_instructions` 400,000,000,

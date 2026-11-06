@@ -25,8 +25,8 @@ enum Key {
     Base,
     Decimals,
     Resolution,
-    Spot,
-    History,
+    Spot(ReflectorAsset),
+    History(ReflectorAsset),
     Feed(String),
     ShortBulk,
     MaxAge,
@@ -65,6 +65,7 @@ impl FuzzReflector {
         base: ReflectorAsset,
         decimals: u32,
         resolution: u32,
+        asset: ReflectorAsset,
         spot: Option<ReflectorPriceData>,
         history: Option<Vec<ReflectorPriceData>>,
         panics: bool,
@@ -72,8 +73,8 @@ impl FuzzReflector {
         set(&env, Key::Base, &base);
         set(&env, Key::Decimals, &decimals);
         set(&env, Key::Resolution, &resolution);
-        set(&env, Key::Spot, &spot);
-        set(&env, Key::History, &history);
+        set(&env, Key::Spot(asset.clone()), &spot);
+        set(&env, Key::History(asset), &history);
         set(&env, Key::Panics, &panics);
     }
 
@@ -92,18 +93,18 @@ impl FuzzReflector {
         get(&env, Key::Resolution).unwrap()
     }
 
-    pub fn lastprice(env: Env, _asset: ReflectorAsset) -> Option<ReflectorPriceData> {
+    pub fn lastprice(env: Env, asset: ReflectorAsset) -> Option<ReflectorPriceData> {
         guard(&env);
-        get::<Option<ReflectorPriceData>>(&env, Key::Spot).flatten()
+        get::<Option<ReflectorPriceData>>(&env, Key::Spot(asset)).flatten()
     }
 
     pub fn prices(
         env: Env,
-        _asset: ReflectorAsset,
+        asset: ReflectorAsset,
         _records: u32,
     ) -> Option<Vec<ReflectorPriceData>> {
         guard(&env);
-        get::<Option<Vec<ReflectorPriceData>>>(&env, Key::History).flatten()
+        get::<Option<Vec<ReflectorPriceData>>>(&env, Key::History(asset)).flatten()
     }
 }
 

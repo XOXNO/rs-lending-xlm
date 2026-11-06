@@ -15,14 +15,9 @@ impl Curator {
         ops::upgrade(&env, &wasm_hash)
     }
 
-    /// Stores the protocol owner and the governance contract to call.
-    pub fn __constructor(env: Env, owner: Address, governance: Address) {
-        storage::init(&env, &owner, &governance);
-    }
-
-    /// Returns the protocol owner.
-    pub fn owner(env: Env) -> Address {
-        storage::owner(&env)
+    /// Stores the governance contract that owns this registry.
+    pub fn __constructor(env: Env, governance: Address) {
+        storage::init(&env, &governance);
     }
 
     /// Returns the governance contract this registry calls.
@@ -99,9 +94,11 @@ impl Curator {
         ops::reassign_spoke(&env, spoke_id, registrar)
     }
 
-    /// Opens a registrar. Protocol owner only.
-    pub fn register_registrar(env: Env, caller: Address, admin: Address) -> u32 {
-        ops::register_registrar(&env, &caller, &admin)
+    /// Opens a registrar run by `admin` and returns its id. Only the stored
+    /// governance contract can authorize it, through the owner-proposed
+    /// sensitive timelock.
+    pub fn register_registrar(env: Env, admin: Address) -> u32 {
+        ops::register_registrar(&env, &admin)
     }
 
     /// Replaces the registrar admin.
@@ -112,16 +109,6 @@ impl Curator {
     /// Replaces `account`'s role bits. Zero clears them.
     pub fn set_roles(env: Env, caller: Address, registrar: u32, account: Address, bits: u32) {
         ops::set_roles(&env, &caller, registrar, &account, bits)
-    }
-
-    /// Binds an existing hub id to `registrar`. Protocol owner only.
-    pub fn adopt_hub(env: Env, caller: Address, hub_id: u32, registrar: u32) {
-        ops::adopt_hub(&env, &caller, hub_id, registrar)
-    }
-
-    /// Binds an existing spoke id to `registrar`. Protocol owner only.
-    pub fn adopt_spoke(env: Env, caller: Address, spoke_id: u32, registrar: u32) {
-        ops::adopt_spoke(&env, &caller, spoke_id, registrar)
     }
 
     /// Creates a hub and binds the returned id to `registrar`.

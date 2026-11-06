@@ -4,7 +4,6 @@
 use common::errors::GenericError;
 use common::ttl::renew_instance;
 use common::types::{HubAssetKey, MarketParamsRaw, SpokeAssetArgs};
-use common::validation::validate_risk_bounds;
 use governance_interface::{AdminOperation, GovernanceClient};
 use soroban_sdk::{assert_with_error, panic_with_error, Address, BytesN, ContractExecutable, Env};
 
@@ -69,8 +68,8 @@ fn require_known(env: &Env, registrar: u32) {
     }
 }
 
-pub(crate) fn register_registrar(env: &Env, caller: &Address, admin: &Address) -> u32 {
-    auth::require_owner(env, caller);
+pub(crate) fn register_registrar(env: &Env, admin: &Address) -> u32 {
+    require_governance(env);
     let registrar = storage::next_registrar(env);
     storage::set_registrar_admin(env, registrar, admin);
     registrar
@@ -85,18 +84,6 @@ pub(crate) fn set_roles(env: &Env, caller: &Address, registrar: u32, account: &A
     auth::require_admin(env, caller, registrar);
     auth::require_role_bits(env, bits);
     storage::set_role_bits(env, registrar, account, bits);
-}
-
-pub(crate) fn adopt_hub(env: &Env, caller: &Address, hub_id: u32, registrar: u32) {
-    auth::require_owner(env, caller);
-    auth::require_registrar(env, registrar);
-    assign_hub(env, hub_id, registrar);
-}
-
-pub(crate) fn adopt_spoke(env: &Env, caller: &Address, spoke_id: u32, registrar: u32) {
-    auth::require_owner(env, caller);
-    auth::require_registrar(env, registrar);
-    assign_spoke(env, spoke_id, registrar);
 }
 
 pub(crate) fn create_hub(env: &Env, caller: &Address, registrar: u32) -> u32 {
@@ -186,7 +173,6 @@ pub(crate) fn set_cap_grant(
         grant.supply_cap >= 0 && grant.borrow_cap >= 0,
         CuratorError::GrantExceeded
     );
-    validate_risk_bounds(env, grant.ltv, grant.threshold, grant.bonus);
     storage::set_cap_grant(env, registrar, grantee, hub_id, spoke_id, asset, grant);
 }
 
@@ -337,7 +323,8 @@ fn require_grant(env: &Env, registrar: u32, args: &SpokeAssetArgs) {
         && (!args.can_borrow || grant.can_borrow)
         && args.ltv <= grant.ltv
         && args.threshold <= grant.threshold
-        && args.bonus <= grant.bonus;
+        && args.bonus <= grant.bonus
+        && args.liquidation_fees <= grant.liquidation_fees;
     assert_with_error!(env, within, CuratorError::GrantExceeded);
 }
 

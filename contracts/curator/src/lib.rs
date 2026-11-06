@@ -1,6 +1,6 @@
-//! Registrar registry. Governance remains the controller's owner. This
-//! contract is the address that holds the governance `CURATOR` role, and
-//! `PROPOSER` when a registrar queues an edit.
+//! Registrar registry owned by governance, which opens registrars and moves
+//! hubs and spokes through its timelock. This contract is the address that
+//! holds the governance `CURATOR`, `PROPOSER` and `CANCELLER` roles.
 
 #![no_std]
 #![allow(clippy::too_many_arguments)]
@@ -55,12 +55,13 @@ pub struct CapGrant {
     pub threshold: u32,
     /// Maximum liquidation bonus, in BPS, a grantee may set for this hub asset.
     pub bonus: u32,
+    /// Maximum liquidation fee, in BPS, a grantee may set for this hub asset.
+    pub liquidation_fees: u32,
 }
 
 #[contracttype]
 #[derive(Clone)]
 pub(crate) enum DataKey {
-    Owner,
     Governance,
     NextRegistrar,
     RegistrarAdmin(u32),

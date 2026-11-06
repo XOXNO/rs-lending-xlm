@@ -120,13 +120,11 @@ position-nft::approve_for_all | caller-auth | INV-AUTH-02 | owner.require_auth a
 # owner, that registrar's admin, or the named role bit. A registrar mutates
 # only a hub or spoke it owns. A queued foreign-hub listing must fit a grant.
 # ---------------------------------------------------------------------------
-curator::register_registrar | caller-auth | INV-AUTH-02 | caller.require_auth plus the stored owner check. Only the protocol owner opens a registrar.
+curator::register_registrar | caller-auth | INV-AUTH-02 | The stored governance address must authorize. Governance reaches it only through the owner-proposed sensitive RegisterCuratorRegistrar timelock.
 curator::set_admin | caller-auth | INV-AUTH-02 | caller.require_auth plus the registrar-admin check. Only that admin replaces the admin.
 curator::upgrade | caller-auth | INV-AUTH-02 | The stored governance address must authorize. Governance reaches it only through the owner-proposed sensitive UpgradeCurator timelock. A zero hash is rejected.
 curator::set_registrar_suspended | caller-auth | INV-AUTH-02 | The stored governance address must authorize. Governance reaches it only through the owner-proposed sensitive SuspendCuratorRegistrar timelock. An unknown registrar is rejected.
 curator::set_roles | caller-auth | INV-AUTH-02 | caller.require_auth plus the registrar-admin check. Bits outside the known mask are rejected.
-curator::adopt_hub | caller-auth | INV-AUTH-02 | caller.require_auth plus the protocol-owner check. Binds an unowned hub id to an existing registrar.
-curator::adopt_spoke | caller-auth | INV-AUTH-02 | caller.require_auth plus the protocol-owner check. Binds an unowned spoke id to an existing registrar.
 curator::create_hub | caller-auth | INV-AUTH-02 | caller.require_auth plus admin or ROLE_SPOKE. The returned controller id is stored for that registrar.
 curator::add_spoke | caller-auth | INV-AUTH-02 | caller.require_auth plus admin or ROLE_SPOKE. The returned controller id is stored for that registrar.
 curator::create_market | caller-auth | INV-AUTH-02 | caller.require_auth plus ROLE_MARKET, and the hub must belong to that registrar.

@@ -295,20 +295,26 @@ fn build_feed(
             } else {
                 None
             };
-            let contract = reg.contract(env, kind.slot(), |e| e.register(FuzzReflector, ()));
-            FuzzReflectorClient::new(env, &contract).setup(
-                &base,
-                &decimals,
-                &resolution,
-                &spot,
-                &history,
-                &panics,
-            );
             let asset = match f.base_sel >> 4 {
                 14 => OracleAssetRef::Symbol(Symbol::new(env, "XLM")),
                 15 => OracleAssetRef::String(String::from_str(env, "XLM")),
                 _ => OracleAssetRef::Stellar(Address::generate(env)),
             };
+            let stored_under = match &asset {
+                OracleAssetRef::Stellar(address) => ReflectorAsset::Stellar(address.clone()),
+                OracleAssetRef::Symbol(symbol) => ReflectorAsset::Other(symbol.clone()),
+                OracleAssetRef::String(_) => ReflectorAsset::Other(Symbol::new(env, "XLM")),
+            };
+            let contract = reg.contract(env, kind.slot(), |e| e.register(FuzzReflector, ()));
+            FuzzReflectorClient::new(env, &contract).setup(
+                &base,
+                &decimals,
+                &resolution,
+                &stored_under,
+                &spot,
+                &history,
+                &panics,
+            );
             let read_mode = if kind == Kind::ReflectorTwap {
                 OracleReadMode::Twap(records)
             } else {
@@ -942,12 +948,14 @@ fuzz_target!(|i: In| {
         !(admitted && shape == 8 && i.lp.corrupt % 16 >= 7),
         "set_oracle admitted a corrupt Curve pool"
     );
-    if admitted && cfg.has_lp_source() {
-        let q = quote(&env, &agg, &key).expect("an admitted LP oracle must quote");
-        assert!(
-            q.valid,
-            "set_oracle admitted an LP oracle that does not price: {q:?}"
-        );
+    if admitted {
+        let q = quote(&env, &agg, &key).expect("an admitted oracle must quote without a host error");
+        if cfg.has_lp_source() {
+            assert!(
+                q.valid,
+                "set_oracle admitted an LP oracle that does not price: {q:?}"
+            );
+        }
     }
 
     let batch = [k0.clone(), k1.clone(), key.clone()];

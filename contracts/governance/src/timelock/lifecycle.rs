@@ -57,6 +57,7 @@ pub(crate) fn propose(
         | AdminOperation::ReassignCuratorHub(_, _, _)
         | AdminOperation::ReassignCuratorSpoke(_, _, _)
         | AdminOperation::SetCuratorRegistrarAdmin(_, _, _)
+        | AdminOperation::RegisterCuratorRegistrar(_, _)
         | AdminOperation::MigrateController(_)
         | AdminOperation::UpdateGovDelay(_)
         | AdminOperation::SetPriceAggregator(_)

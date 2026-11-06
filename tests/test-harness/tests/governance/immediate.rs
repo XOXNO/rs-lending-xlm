@@ -1,8 +1,9 @@
 use governance::op::{AdminOperation, RelaxSpokeAssetFlagsArgs, RoleArgs};
 use soroban_sdk::testutils::Address as _;
-use soroban_sdk::{Address, Symbol};
+use soroban_sdk::{map, vec, Address, IntoVal, Map, Symbol, TryFromVal, Val, Vec};
 use test_harness::{
-    assert_contract_error, errors, hub_asset, usd, usdc_preset, LendingTest, ALICE, HARNESS_SPOKE,
+    assert_contract_error, errors, hub_asset, usd, usdc_preset, LendingTest, ALICE,
+    DEFAULT_MARKET_PARAMS, HARNESS_HUB, HARNESS_SPOKE,
 };
 
 fn flatten<T, C>(
@@ -338,12 +339,20 @@ fn curator_lowers_caps_immediately_and_cannot_raise_them() {
         (supply, borrow),
         (supply - 1, borrow),
         (supply - 2, borrow + 1),
+        (supply + 1, borrow - 1),
     ] {
         assert_contract_error(
             flatten(gov.try_lower_spoke_asset_caps(&admin, &HARNESS_SPOKE, &key, &s, &b)),
             errors::SPOKE_ASSET_CAPS_NOT_LOWERED,
         );
     }
+
+    gov.lower_spoke_asset_caps(&admin, &HARNESS_SPOKE, &key, &(supply - 1), &(borrow - 1));
+    let after = t.ctrl_client().get_spoke_asset(&HARNESS_SPOKE, &key);
+    assert_eq!(
+        (after.supply_cap, after.borrow_cap),
+        (supply - 1, borrow - 1)
+    );
 }
 
 #[test]
@@ -435,4 +444,227 @@ fn owner_revokes_role_immediately() {
         let result = gov.try_revoke_role_immediate(&admin, &Symbol::new(&t.env, role));
         assert_contract_error(flatten(result), errors::INVALID_ROLE);
     }
+}
+
+fn register_curator(t: &LendingTest) -> Address {
+    let path = "target/wasm32v1-none/release/curator.wasm";
+    let bytes = std::fs::read(path)
+        .or_else(|_| std::fs::read(format!("../{path}")))
+        .or_else(|_| std::fs::read(format!("../../{path}")))
+        .expect("curator WASM not found. Run 'make build' first.");
+    let curator = t.env.register(bytes.as_slice(), (t.governance.clone(),));
+    for role in ["CURATOR", "PROPOSER", "CANCELLER"] {
+        t.gov_client().execute_immediate(
+            &t.admin,
+            &AdminOperation::GrantGovRole(RoleArgs {
+                account: curator.clone(),
+                role: Symbol::new(&t.env, role),
+            }),
+        );
+    }
+    curator
+}
+
+fn open_registrar(t: &LendingTest, curator: &Address, admin: &Address) -> u32 {
+    let id = t.gov_client().execute_immediate(
+        &t.admin,
+        &AdminOperation::RegisterCuratorRegistrar(curator.clone(), admin.clone()),
+    );
+    u32::try_from_val(&t.env, &id).unwrap()
+}
+
+fn curator_call<T: TryFromVal<soroban_sdk::Env, Val>>(
+    t: &LendingTest,
+    curator: &Address,
+    func: &str,
+    args: Vec<Val>,
+) -> T {
+    t.env
+        .invoke_contract(curator, &Symbol::new(&t.env, func), args)
+}
+
+fn try_curator_call(
+    t: &LendingTest,
+    curator: &Address,
+    func: &str,
+    args: Vec<Val>,
+) -> Result<(), soroban_sdk::Error> {
+    match t.env.try_invoke_contract::<(), soroban_sdk::Error>(
+        curator,
+        &Symbol::new(&t.env, func),
+        args,
+    ) {
+        Ok(_) => Ok(()),
+        Err(Ok(err)) => Err(err),
+        Err(Err(_)) => panic!("expected contract error, got InvokeError"),
+    }
+}
+
+#[test]
+fn curator_registrar_lowers_caps_and_tightens_flags_on_its_spoke() {
+    let t = LendingTest::new().with_market(usdc_preset()).build();
+    let env = &t.env;
+    let curator = register_curator(&t);
+    let radmin = Address::generate(env);
+    let r = open_registrar(&t, &curator, &radmin);
+    t.gov_client().execute_immediate(
+        &t.admin,
+        &AdminOperation::ReassignCuratorSpoke(curator.clone(), HARNESS_SPOKE, Some(r)),
+    );
+    let key = hub_asset(t.resolve_asset("USDC"));
+    let before = t.ctrl_client().get_spoke_asset(&HARNESS_SPOKE, &key);
+    let (supply, borrow) = (before.supply_cap, before.borrow_cap);
+    let caps = |s: i128, b: i128| -> Vec<Val> {
+        vec![
+            env,
+            radmin.into_val(env),
+            r.into_val(env),
+            HARNESS_SPOKE.into_val(env),
+            key.into_val(env),
+            s.into_val(env),
+            b.into_val(env),
+        ]
+    };
+
+    curator_call::<()>(&t, &curator, "lower_caps", caps(supply - 1, borrow));
+    let after = t.ctrl_client().get_spoke_asset(&HARNESS_SPOKE, &key);
+    assert_eq!((after.supply_cap, after.borrow_cap), (supply - 1, borrow));
+    assert_eq!(after.loan_to_value, before.loan_to_value);
+    assert_contract_error(
+        try_curator_call(&t, &curator, "lower_caps", caps(supply, borrow)),
+        errors::SPOKE_ASSET_CAPS_NOT_LOWERED,
+    );
+
+    let flags = |paused: bool| -> Vec<Val> {
+        vec![
+            env,
+            radmin.into_val(env),
+            r.into_val(env),
+            HARNESS_SPOKE.into_val(env),
+            key.into_val(env),
+            paused.into_val(env),
+            false.into_val(env),
+            false.into_val(env),
+        ]
+    };
+    curator_call::<()>(&t, &curator, "tighten_flags", flags(true));
+    let after = t.ctrl_client().get_spoke_asset(&HARNESS_SPOKE, &key);
+    assert!(after.paused && !after.frozen && !after.no_seize);
+    assert_contract_error(
+        try_curator_call(&t, &curator, "tighten_flags", flags(true)),
+        errors::SPOKE_ASSET_FLAGS_UNCHANGED,
+    );
+}
+
+#[test]
+fn curator_hub_owner_closes_a_grantee_listing_and_drops_the_grant() {
+    let t = LendingTest::new().with_market(usdc_preset()).build();
+    let env = &t.env;
+    let curator = register_curator(&t);
+    let (hub_admin, spoke_admin) = (Address::generate(env), Address::generate(env));
+    let hub_owner = open_registrar(&t, &curator, &hub_admin);
+    let spoke_owner = open_registrar(&t, &curator, &spoke_admin);
+    t.gov_client().execute_immediate(
+        &t.admin,
+        &AdminOperation::ReassignCuratorHub(curator.clone(), HARNESS_HUB, Some(hub_owner)),
+    );
+    t.gov_client().execute_immediate(
+        &t.admin,
+        &AdminOperation::ReassignCuratorSpoke(curator.clone(), HARNESS_SPOKE, Some(spoke_owner)),
+    );
+    let usdc = t.resolve_asset("USDC");
+    let key = hub_asset(usdc.clone());
+    let grant: Map<Symbol, Val> = map![
+        env,
+        (Symbol::new(env, "supply_cap"), 1_000i128.into_val(env)),
+        (Symbol::new(env, "borrow_cap"), 1_000i128.into_val(env)),
+        (Symbol::new(env, "can_collateral"), true.into_val(env)),
+        (Symbol::new(env, "can_borrow"), true.into_val(env)),
+        (Symbol::new(env, "ltv"), 5_000u32.into_val(env)),
+        (Symbol::new(env, "threshold"), 8_000u32.into_val(env)),
+        (Symbol::new(env, "bonus"), 500u32.into_val(env)),
+        (Symbol::new(env, "liquidation_fees"), 1_000u32.into_val(env)),
+    ];
+    curator_call::<()>(
+        &t,
+        &curator,
+        "set_cap_grant",
+        vec![
+            env,
+            hub_admin.into_val(env),
+            hub_owner.into_val(env),
+            spoke_owner.into_val(env),
+            HARNESS_HUB.into_val(env),
+            HARNESS_SPOKE.into_val(env),
+            usdc.into_val(env),
+            grant.into_val(env),
+        ],
+    );
+    let read_grant = || -> Option<Map<Symbol, Val>> {
+        curator_call(
+            &t,
+            &curator,
+            "cap_grant",
+            vec![
+                env,
+                spoke_owner.into_val(env),
+                HARNESS_HUB.into_val(env),
+                HARNESS_SPOKE.into_val(env),
+                usdc.into_val(env),
+            ],
+        )
+    };
+    assert!(read_grant().is_some());
+
+    curator_call::<()>(
+        &t,
+        &curator,
+        "close_listing",
+        vec![
+            env,
+            hub_admin.into_val(env),
+            hub_owner.into_val(env),
+            HARNESS_SPOKE.into_val(env),
+            key.into_val(env),
+        ],
+    );
+    let after = t.ctrl_client().get_spoke_asset(&HARNESS_SPOKE, &key);
+    assert_eq!((after.supply_cap, after.borrow_cap), (0, 0));
+    assert!(after.frozen && !after.paused && !after.no_seize);
+    assert!(read_grant().is_none());
+}
+
+#[test]
+fn curator_registrar_creates_a_market_in_its_hub() {
+    let t = LendingTest::new().with_market(usdc_preset()).build();
+    let env = &t.env;
+    let curator = register_curator(&t);
+    let radmin = Address::generate(env);
+    let r = open_registrar(&t, &curator, &radmin);
+    let hub: u32 = curator_call(
+        &t,
+        &curator,
+        "create_hub",
+        vec![env, radmin.into_val(env), r.into_val(env)],
+    );
+    assert_ne!(hub, HARNESS_HUB);
+    let owner: Option<u32> =
+        curator_call(&t, &curator, "hub_registrar", vec![env, hub.into_val(env)]);
+    assert_eq!(owner, Some(r));
+
+    let usdc = t.resolve_asset("USDC");
+    let params = DEFAULT_MARKET_PARAMS.to_market_params(&usdc, 7);
+    let pool: Address = curator_call(
+        &t,
+        &curator,
+        "create_market",
+        vec![
+            env,
+            radmin.into_val(env),
+            r.into_val(env),
+            hub.into_val(env),
+            params.into_val(env),
+        ],
+    );
+    assert_eq!(pool, t.markets["USDC"].pool);
 }

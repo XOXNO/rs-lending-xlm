@@ -196,10 +196,11 @@ optimize: build
 
 deploy-artifacts: optimize
 	@mkdir -p $(DEPLOY_DIR)
-	@for contract in $(WASM_SIZE_CONTRACTS); do \
+	@set -e; for contract in $(WASM_SIZE_CONTRACTS); do \
 		src="$(OPTIMIZED_DIR)/$$contract.wasm"; \
 		dst="$(DEPLOY_DIR)/$$contract.wasm"; \
-		python3 scripts/strip_spec_docs.py "$$src" "$$dst" || cp "$$src" "$$dst"; \
+		rm -f "$$dst"; \
+		python3 scripts/strip_spec_docs.py "$$src" "$$dst"; \
 	done
 	@$(MAKE) --no-print-directory _wasm-manifest DEPLOY=1
 	@echo ""
@@ -552,7 +553,7 @@ coverage-merged:
 	@set -o pipefail; cargo llvm-cov test -p position-nft --no-report --no-fail-fast $(COV_IGNORE) 2>&1 | tail -5
 	@set -o pipefail; cargo llvm-cov test -p defindex-strategy --no-report --no-fail-fast $(COV_IGNORE) 2>&1 | tail -5
 	@set -o pipefail; cargo llvm-cov test -p curator --no-report --no-fail-fast $(COV_IGNORE) 2>&1 | tail -5
-	@-$(COV_RUN_HARNESS); harness_status=$$?; \
+	@$(COV_RUN_HARNESS); harness_status=$$?; set -e; \
 	cargo llvm-cov report --lcov --output-path $(COV_DIR)/merged.lcov.info $(COV_IGNORE) >/dev/null; \
 	python3 scripts/coverage_report.py \
 		$(COV_DIR)/merged.lcov.info \
@@ -575,6 +576,7 @@ docs-check:
 	python3 scripts/test_check_doc_symbols.py
 	python3 scripts/check_doc_links.py
 	python3 scripts/check_doc_symbols.py
+	python3 scripts/gen_skill_addresses.py --check
 
 
 fmt:
@@ -617,6 +619,10 @@ access-control-check:
 	@python3 scripts/check_access_control.py
 
 ops-script-check:
+	@python3 scripts/test_script_tools.py
+	@python3 .github/scripts/test_scanner_scripts.py
+	@python3 certora/scripts/test_focused_wasm.py
+	@bash certora/scripts/test-run-local-ci.sh
 	@bash -n configs/script.sh
 	@bash scripts/check_spoke_script_guards.sh
 	@bash scripts/check_setup_wave.sh
@@ -1339,21 +1345,21 @@ upgrade-position-nft: _preflight-controller _preflight-governance $(CORE_WASM)
 	NETWORK=$(NETWORK) SIGNER=$(SIGNER) bash $(CONFIG_DIR)/script.sh upgradePositionNftHash $$HASH
 
 
-deploy-curator: _preflight-governance deploy-artifacts
-	@if [ -n "$(RELEASE_TAG)" ]; then echo "curator.wasm is not in the release set; deploy it without RELEASE_TAG"; exit 1; fi
+_curator-no-release-tag:
+	$(if $(RELEASE_TAG),$(error curator.wasm is not in the release set; deploy or upgrade it without RELEASE_TAG))
+
+deploy-curator: _curator-no-release-tag _preflight-governance deploy-artifacts
 	@echo "=== Deploying curator on $(NETWORK) ==="
 	@echo "Signer: $(SIGNER)"
 	@GOV=$$(jq -r '.["$(NETWORK)"].governance // empty' $(CONFIG_DIR)/networks.json); \
 	if [ -z "$$GOV" ]; then echo "governance is missing from $(CONFIG_DIR)/networks.json"; exit 1; fi; \
-	OWNER=$${CURATOR_OWNER:-$(SIGNER_ADDRESS)}; \
-	echo "Owner: $$OWNER"; \
-	echo "Governance: $$GOV"; \
+	echo "Owner: governance $$GOV"; \
 	stellar contract deploy \
 		--wasm $(DEPLOY_DIR)/curator.wasm \
 		$(SOURCE_FLAG) \
 		--network $(NETWORK) \
 		--alias curator \
-		-- --owner $$OWNER --governance $$GOV > target/curator_id.txt
+		-- --governance $$GOV > target/curator_id.txt
 	@CUR=$$(tail -n1 target/curator_id.txt); \
 	echo "Curator: $$CUR"; \
 	TMP_JSON=$$(mktemp); \
@@ -1362,8 +1368,7 @@ deploy-curator: _preflight-governance deploy-artifacts
 	echo "Next: make $(NETWORK) grantGovRole $$CUR CURATOR, then PROPOSER and CANCELLER"
 
 
-upgrade-curator: _preflight-governance deploy-artifacts
-	@if [ -n "$(RELEASE_TAG)" ]; then echo "curator.wasm is not in the release set; upgrade it without RELEASE_TAG"; exit 1; fi
+upgrade-curator: _curator-no-release-tag _preflight-governance deploy-artifacts
 	@echo "=== Upgrading curator on $(NETWORK) ==="
 	@echo "Signer: $(SIGNER)"
 	@stellar contract upload \
@@ -1999,7 +2004,8 @@ POSITIONAL_ACCOUNT_ROLE_ACTIONS := hasRole grantGovRole revokeGovRole
 ORACLE_PROBE_ACTIONS := queryReflector queryReflectorPrice queryReflectorTwap queryRedStone queryChainlink
 VARARG_ACTIONS := updateIndexes claimRevenue supply borrow withdraw getLiquidationEstimate \
 	claimAggregatorAdminFees claimAggregatorReferralFees sweepAggregatorBalance tightenAssetFlags relaxAssetFlags \
-	suspendCuratorRegistrar resumeCuratorRegistrar reassignCuratorHub reassignCuratorSpoke setCuratorRegistrarAdmin
+	suspendCuratorRegistrar resumeCuratorRegistrar reassignCuratorHub reassignCuratorSpoke setCuratorRegistrarAdmin \
+	registerCuratorRegistrar
 
 
 
@@ -2038,7 +2044,7 @@ define NETWORK_DISPATCH
 				upgradePool)       $(MAKE) --no-print-directory upgrade-pool NETWORK=$(1) SIGNER=$(SIGNER) ;; \
 		upgradePositionNft) $(MAKE) --no-print-directory upgrade-position-nft NETWORK=$(1) SIGNER=$(SIGNER) ;; \
 				upgradePriceAggregator) $(MAKE) --no-print-directory upgrade-price-aggregator NETWORK=$(1) SIGNER=$(SIGNER) ;; \
-				deployCurator)      $(MAKE) --no-print-directory deploy-curator NETWORK=$(1) SIGNER=$(SIGNER) CURATOR_OWNER=$(CURATOR_OWNER) ;; \
+				deployCurator)      $(MAKE) --no-print-directory deploy-curator NETWORK=$(1) SIGNER=$(SIGNER) ;; \
 				upgradeCurator)     $(MAKE) --no-print-directory upgrade-curator NETWORK=$(1) SIGNER=$(SIGNER) ;; \
 				upgradeAll)         $(MAKE) --no-print-directory upgrade-all NETWORK=$(1) SIGNER=$(SIGNER) ;; \
 				deployFlashReceiver) $(MAKE) --no-print-directory deploy-flash-loan-receiver NETWORK=$(1) SIGNER=$(SIGNER) ;; \
@@ -2256,9 +2262,10 @@ help-deploy:
 	$(call NOTE,RELEASE_TAG=v1.0.1 make mainnet upgradeAll    (attested release WASM, not a local build))
 	$(call BLANK)
 	$(call H2,Curator registry)
-	$(call ROW,make <n> deployCurator,deploy; CURATOR_OWNER=G... (default: signer))
+	$(call ROW,make <n> deployCurator,deploy; governance is the only owner)
 	$(call ROW,make <n> upgradeCurator,timelocked sensitive UpgradeCurator)
 	$(call ROW,make <n> grantGovRole <curator> CURATOR,also PROPOSER and CANCELLER)
+	$(call ROW,make <n> registerCuratorRegistrar <G...>,owner; timelocked sensitive)
 	$(call ROW,make <n> suspendCuratorRegistrar <id>,GUARDIAN; immediate)
 	$(call ROW,make <n> resumeCuratorRegistrar <id>,owner; timelocked sensitive)
 	$(call ROW,make <n> reassignCuratorHub <hub> <id|none>,owner; timelocked sensitive)
@@ -2321,7 +2328,7 @@ help-ops:
 	$(call NOTE,Spoke ID = CONFIG id from spokes.json (mapped through networks.json spoke_ids); onchain:N for a raw id)
 	$(call BLANK)
 	$(call H2,Positions)
-	$(call ROW,make <n> supply USDC 1000000000,100 USDC @ 7 dec -> account 0)
+	$(call ROW,make <n> supply USDC 1000000000 0 1,new account in config spoke 1; both IDs required)
 	$(call ROW,make <n> borrow USDC 100000000 ACCOUNT,direct borrow (no swap))
 	$(call ROW,make <n> withdraw USDC 100000000 ACCOUNT,0 amount = withdraw all)
 	$(call BLANK)

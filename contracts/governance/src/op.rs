@@ -374,13 +374,12 @@ pub(crate) fn resolve_op(env: &Env, op: &AdminOperation) -> ResolvedOperation {
         ),
         AdminOperation::UpgradeCurator(curator, hash) => {
             validate::require_nonzero_wasm_hash(env, hash);
-            validate::require_contract_address(env, curator, GenericError::NotSmartContract);
-            ResolvedOperation {
-                target: curator.clone(),
-                function: Symbol::new(env, "upgrade"),
-                args: vec![env, hash.clone().into_val(env)],
-                delay_tier: DelayTier::Sensitive,
-            }
+            curator_operation(
+                env,
+                curator,
+                "upgrade",
+                vec![env, hash.clone().into_val(env)],
+            )
         }
         AdminOperation::SuspendCuratorRegistrar(curator, registrar, suspended) => {
             curator_operation(
@@ -401,6 +400,12 @@ pub(crate) fn resolve_op(env: &Env, op: &AdminOperation) -> ResolvedOperation {
             curator,
             "reassign_spoke",
             vec![env, id.into_val(env), registrar.into_val(env)],
+        ),
+        AdminOperation::RegisterCuratorRegistrar(curator, admin) => curator_operation(
+            env,
+            curator,
+            "register_registrar",
+            vec![env, admin.into_val(env)],
         ),
         AdminOperation::SetCuratorRegistrarAdmin(curator, registrar, admin) => curator_operation(
             env,
@@ -536,7 +541,8 @@ pub(crate) fn apply_self_op(env: &Env, op: &AdminOperation) {
         | AdminOperation::SuspendCuratorRegistrar(_, _, _)
         | AdminOperation::ReassignCuratorHub(_, _, _)
         | AdminOperation::ReassignCuratorSpoke(_, _, _)
-        | AdminOperation::SetCuratorRegistrarAdmin(_, _, _) => {
+        | AdminOperation::SetCuratorRegistrarAdmin(_, _, _)
+        | AdminOperation::RegisterCuratorRegistrar(_, _) => {
             panic_with_error!(env, GenericError::InternalError)
         }
     }

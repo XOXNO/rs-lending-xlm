@@ -74,6 +74,48 @@
     "scope": "ownership acceptance after delay and role migration"
   },
   {
+    "id": "governance_close_listing",
+    "execution": "controlled-ledger",
+    "methods": ["governance.close_spoke_asset"],
+    "test": "immediate::curator_closes_a_listing_immediately_and_exits_still_work",
+    "scope": "Native governance/controller with mocked auth; rejects owner without CURATOR, closes caps/freezes listing after grant, rejects repeated closure and supply, permits withdrawal"
+  },
+  {
+    "id": "governance_create_market",
+    "execution": "controlled-ledger",
+    "methods": ["governance.create_liquidity_pool"],
+    "test": "immediate::curator_registrar_creates_a_market_in_its_hub",
+    "scope": "Real curator WASM forwards create_market to native governance.create_liquidity_pool and controller with mocked auth; verifies registrar hub ownership and returned pool; successful call only, not endpoint rejection coverage"
+  },
+  {
+    "id": "governance_guardian_reduces_access",
+    "execution": "controlled-ledger",
+    "methods": ["governance.deactivate_position_manager", "governance.revoke_blend_pool"],
+    "test": "tests::guardian_deactivates_a_manager_and_revokes_a_blend_pool_immediately",
+    "scope": "Native governance/controller with mocked auth; manager active and Blend pool approved before calls, stranger calls reject without state change, guardian removes both permissions"
+  },
+  {
+    "id": "governance_lower_caps",
+    "execution": "controlled-ledger",
+    "methods": ["governance.lower_spoke_asset_caps"],
+    "test": "immediate::curator_lowers_caps_immediately_and_cannot_raise_them",
+    "scope": "Native governance/controller with mocked auth; rejects owner without CURATOR, lowers one/both caps after grant preserving risk fields, rejects unchanged caps and either cap increase"
+  },
+  {
+    "id": "governance_suspend_registrar",
+    "execution": "controlled-ledger",
+    "methods": ["governance.suspend_curator_registrar"],
+    "test": "guardian_suspends_a_registrar_immediately",
+    "scope": "Native governance/curator/controller with mocked auth; guardian immediately suspends registrar, target lacking CURATOR rejects with contract error 44"
+  },
+  {
+    "id": "governance_suspend_registrar_auth",
+    "execution": "controlled-ledger",
+    "methods": ["governance.suspend_curator_registrar"],
+    "test": "only_a_guardian_suspends_a_registrar_immediately",
+    "scope": "Native governance/curator/controller with mocked auth; non-guardian rejects with contract error 2000 and registrar remains active"
+  },
+  {
     "id": "price_aggregator_upgrade",
     "execution": "controlled-ledger",
     "methods": [

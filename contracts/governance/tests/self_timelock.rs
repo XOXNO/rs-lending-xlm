@@ -21,7 +21,7 @@ fn propose_update_delay_schedules_waiting_operation() {
 
 #[test]
 #[should_panic(expected = "Error(Contract, #39)")]
-fn propose_update_delay_rejects_shortening_below_the_floor() {
+fn propose_update_delay_rejects_a_decrease_that_lands_below_the_floor() {
     let env = Env::default();
     env.mock_all_auths();
     let (admin, _gov_id, gov) = register(&env, 10);

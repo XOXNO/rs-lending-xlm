@@ -342,9 +342,6 @@ with `... failed on all N RPC endpoints`.
 - `inspect_ttls --config <path>` (env `KEEPER_CONFIG`, default
   `/etc/keeper/testnet.yaml`): read-only. Prints the discovered surface and
   per-class TTL counts. Submits nothing.
-- `prove_permissionless --mnemonic <words> [--rpc …] [--passphrase …] [--controller …] [--derivation-path …]`:
-  submits one `ExtendFootprintTtl` on the controller instance to show that TTL
-  extension needs no contract role.
 - `prepay_rent --config <path> [--secret-env PREPAY_SECRET] [--dry-run]`:
   spends funds. It runs one discovery pass, plans a restore for every lapsed
   entry and an extend for every live entry, whatever its TTL, with no per-tick

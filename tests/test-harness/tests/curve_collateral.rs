@@ -6,7 +6,8 @@
 //! instructions are not metered. The figures are a lower bound: SAC coins,
 //! single-source coin oracles and one debt leg.
 //! `curve_lp_liquidation_worst_case_all_wasm` measures the worst case with every
-//! contract on the path as WASM, custom-WASM coins and two-source WASM feeds.
+//! contract on the path as WASM, custom-WASM coins and two-source WASM feeds,
+//! and asserts each figure against the mainnet per-transaction limits.
 
 #[path = "../../../contracts/swap-aggregator/tests/fixtures/curve/factory.rs"]
 mod curve;
@@ -388,11 +389,13 @@ fn curve_three_coin_collateral_lifecycle() {
     assert_eq!(lp_token.balance(&vault), deposit - seized);
     assert!(ctrl.get_total_borrow_usd(&account) < debt_before);
 
-    if ctrl.get_total_borrow_usd(&account) > 0 {
-        token::StellarAssetClient::new(env, &debt_asset).mint(&borrower, &COIN);
-        ctrl.repay(&borrower, &account, &vec![env, (debt, COIN)]);
-        assert_eq!(ctrl.get_total_borrow_usd(&account), 0);
-    }
+    assert!(
+        ctrl.get_total_borrow_usd(&account) > 0,
+        "partial liquidation must leave debt to repay"
+    );
+    token::StellarAssetClient::new(env, &debt_asset).mint(&borrower, &COIN);
+    ctrl.repay(&borrower, &account, &vec![env, (debt, COIN)]);
+    assert_eq!(ctrl.get_total_borrow_usd(&account), 0);
     let before_withdraw = lp_token.balance(&borrower);
     let withdrawals = ctrl.withdraw(
         &borrower,
@@ -486,7 +489,7 @@ const MAINNET_LIMITS: [(&str, u64); 8] = [
 /// the controller, pool, position NFT and price aggregator switch to the deploy
 /// WASMs and each liquidation replays from one ledger snapshot with
 /// source-account auth, as in `meta/bench_liquidate_max_positions.rs`. Prints
-/// usage against the mainnet per-transaction limits; asserts no ceiling.
+/// usage against the mainnet per-transaction limits and asserts each one.
 #[test]
 fn curve_lp_liquidation_worst_case_all_wasm() {
     const PAY: i128 = 100 * 10_000_000;
@@ -635,6 +638,7 @@ fn curve_lp_liquidation_worst_case_all_wasm() {
                 "  {name:<18} {used:>11} / {limit:>11}  ({:>5.1}%)",
                 used as f64 * 100.0 / *limit as f64
             );
+            assert!(used <= *limit, "{name}");
         }
         std::println!(
             "  read entries: disk={} memory={}; budget cpu={} mem={}",

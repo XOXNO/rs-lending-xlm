@@ -318,8 +318,6 @@ get_cex_oracle() { get_network_value "reflector_cex_oracle"; }
 get_dex_oracle() { get_network_value "reflector_dex_oracle"; }
 get_fx_oracle()  { get_network_value "reflector_fx_oracle"; }
 
-get_oracle() { get_cex_oracle; }
-
 get_redstone_adapter() {
     get_network_value "redstone_adapter_contract"
 }
@@ -1003,11 +1001,9 @@ min_delay_ledgers() {
     local gov min_delay
     gov=$(get_governance)
     min_delay=$(stellar contract invoke --instruction-leeway "${INSTRUCTION_LEEWAY:-20000000}" --id "$gov" $SOURCE_FLAG --network "$NETWORK" --send=no \
-        -- get_min_delay | tr -d '"' | tr -d '[:space:]')
-    if [ -z "$min_delay" ] || [ "$min_delay" = "null" ]; then
-        echo "0"
-        return
-    fi
+        -- get_min_delay) || die "cannot read the live timelock delay"
+    min_delay=$(printf '%s' "$min_delay" | tr -d '"[:space:]')
+    case "$min_delay" in ''|*[!0-9]*) die "invalid live timelock delay: ${min_delay}" ;; esac
     echo "$min_delay"
 }
 
@@ -1017,7 +1013,7 @@ await_max_wait_seconds() {
         return
     fi
     local delay
-    delay=$(min_delay_ledgers)
+    delay=$(min_delay_ledgers) || exit 1
 
     echo $(( delay * 6 + 7200 ))
 }
@@ -1051,7 +1047,7 @@ await_op_ready() {
     local op_id=$1
     local started_at ready_ledger current state max_wait waited unset_seen unread_seen sleep_s
     started_at=$(date +%s)
-    max_wait=$(await_max_wait_seconds)
+    max_wait=$(await_max_wait_seconds) || exit 1
     unset_seen=0
     unread_seen=0
 
@@ -1173,8 +1169,10 @@ execute_op() {
         fi
         if [ "$kind" = "price_aggregator" ] && [ "$function" = "set_oracle" ] \
             && [ "$(jq -r '.resolve.view_fn' "$path")" = "resolve_asset_oracle" ]; then
-            preflight_chainlink_sources "oracle op ${op_id}" \
-                "$(jq -c '.resolve.args.oracle // .resolve.args.cfg' "$path")" || return $?
+            local op_cfg_json
+            op_cfg_json=$(jq -c '.resolve.args.oracle // .resolve.args.cfg' "$path")
+            refuse_unreviewed_curve_hash "oracle op ${op_id}" "$op_cfg_json"
+            preflight_chainlink_sources "oracle op ${op_id}" "$op_cfg_json" || return $?
         fi
     else
         args_json=$(jq -c '.args' "$path")
@@ -2170,6 +2168,11 @@ ensure_asset_in_spoke() {
         category_json=$(fetch_spoke_json "$category_id")
     fi
     if printf '%s' "$category_json" | jq -e --arg asset "$asset_address" '.assets[$asset] != null' >/dev/null; then
+        local live_listing paused frozen no_seize
+        live_listing=$(printf '%s' "$category_json" | jq -c --arg asset "$asset_address" '.assets[$asset]')
+        paused=$(resolve_spoke_flag paused "$config_category_id" "$asset_name" "$live_listing") || exit 1
+        frozen=$(resolve_spoke_flag frozen "$config_category_id" "$asset_name" "$live_listing") || exit 1
+        no_seize=$(resolve_spoke_flag no_seize "$config_category_id" "$asset_name" "$live_listing") || exit 1
         if printf '%s' "$category_json" | jq -e \
             --arg asset "$asset_address" \
             --argjson can_collateral "$can_collateral" \
@@ -2178,6 +2181,7 @@ ensure_asset_in_spoke() {
             --argjson threshold "$threshold" \
             --argjson bonus "$bonus" \
             --argjson liquidation_fees "$liquidation_fees" \
+            --argjson paused "$paused" --argjson frozen "$frozen" --argjson no_seize "$no_seize" \
             --arg supply_cap "$supply_cap" \
             --arg borrow_cap "$borrow_cap" \
             '.assets[$asset].is_collateralizable == $can_collateral and
@@ -2186,6 +2190,9 @@ ensure_asset_in_spoke() {
              .assets[$asset].liquidation_threshold == $threshold and
              .assets[$asset].liquidation_bonus == $bonus and
              .assets[$asset].liquidation_fees == $liquidation_fees and
+             .assets[$asset].paused == $paused and
+             .assets[$asset].frozen == $frozen and
+             .assets[$asset].no_seize == $no_seize and
              (.assets[$asset].supply_cap | tostring) == $supply_cap and
              (.assets[$asset].borrow_cap | tostring) == $borrow_cap' >/dev/null; then
             echo "Asset ${asset_name} already configured in Spoke category ${category_id}."
@@ -2747,8 +2754,10 @@ set_accumulator() {
 supply_position() {
     local market=$1
     local amount_raw=$2
-    local account_id=${3:-0}
-    local spoke_id=${4:-0}
+    local account_id=${3:?account id required (0 creates a new account)}
+    local spoke_id
+    spoke_id=$(resolve_spoke_arg "${4:-}") || exit 1
+    [ "$spoke_id" -ge 1 ] 2>/dev/null || die "supply requires an on-chain spoke id >= 1"
 
     local ctrl
     ctrl=$(get_controller)
@@ -2763,7 +2772,7 @@ supply_position() {
 
     echo "=== supply ==="
     echo "  Account:  $account_id  (0 = create new)"
-    echo "  Spoke:   $spoke_id  (0 = none)"
+    echo "  Spoke:    $spoke_id  (on-chain)"
     echo "  Asset:    $market ($asset_addr)"
     echo "  Amount:   $amount_raw"
     echo
@@ -2941,10 +2950,14 @@ schedule_configure_asset_oracle() {
         requires_current_abi=true
     fi
     agg=$(get_price_aggregator)
+    local resolve_err resolve_msg
+    resolve_err=$(mktemp)
     resolved_args=$(resolve_oracle_args_for resolve_asset_oracle "$agg" \
-        set_oracle "$key_json" "$cfg_json" 2>/dev/null) || resolved_args=""
+        set_oracle "$key_json" "$cfg_json" 2>"$resolve_err") || resolved_args=""
+    resolve_msg=$(tail -c 400 "$resolve_err" | tr '\n' ' ')
+    rm -f "$resolve_err"
     if [ "$requires_current_abi" = true ] && { [ -z "$resolved_args" ] || [ "$resolved_args" = "null" ]; }; then
-        die "This oracle configuration requires compatible governance and price-aggregator deployments; run 'make ${NETWORK} upgradeAll' first"
+        die "configure oracle ${label}: governance resolve_asset_oracle failed: ${resolve_msg}. A missing view means the deployments predate this config; run 'make ${NETWORK} upgradeAll'"
     fi
     if [ -n "$resolved_args" ] && [ "$resolved_args" != "null" ]; then
         read -r salt_use known_id state gen < <(probe_salt_generations "$agg" set_oracle "$resolved_args" "$salt")
@@ -3634,7 +3647,7 @@ get_curator() {
 }
 
 require_registrar_id() {
-    [[ "$1" =~ ^[0-9]+$ ]] || die "registrar, hub and spoke ids must be unsigned integers, got '$1'"
+    [[ "$1" =~ ^[0-9]{1,10}$ ]] && (( 10#$1 <= 4294967295 )) || die "registrar, hub and spoke ids must fit u32, got '$1'"
 }
 
 # Proposes the curator-targeted `variant` with the curator address as its first
@@ -3693,6 +3706,15 @@ reassign_curator_cmd() {
     local owner=$4
     [ -n "$id" ] && [ -n "$owner" ] || die "Usage: $0 ${variant} <id> <registrar_id|none>"
     require_registrar_id "$id"
+    case "$target_fn" in
+        reassign_spoke)
+            fetch_spoke_json "$id" >/dev/null 2>&1 || die "spoke ${id} does not exist on the controller"
+            ;;
+        reassign_hub)
+            jq -e --argjson id "$id" '[.. | objects | .hub_id? | select(. == $id)] | length > 0' "$SPOKES_FILE" >/dev/null \
+                || die "hub ${id} is not a configured hub_id in ${SPOKES_FILE}"
+            ;;
+    esac
     local owner_json owner_arg
     if [ "$owner" = "none" ]; then
         owner_json=null
@@ -3706,6 +3728,15 @@ reassign_curator_cmd() {
         "$(jq -nc --argjson i "$id" --argjson o "$owner_arg" '[{u32:$i},$o]')" \
         "$variant" "$id" "$owner_json"
     echo "Curator ${target_fn} ${id} -> ${owner} scheduled."
+}
+
+register_curator_registrar_cmd() {
+    local admin=$1
+    [ -n "$admin" ] || die "Usage: $0 registerCuratorRegistrar <admin_address>"
+    schedule_curator_op register_curator_registrar register_registrar \
+        "$(jq -nc --arg a "$admin" '[{address:$a}]')" \
+        RegisterCuratorRegistrar "$(jq -nc --arg a "$admin" '$a')"
+    echo "Curator registrar for ${admin} scheduled; the id is the execute result."
 }
 
 set_curator_registrar_admin_cmd() {
@@ -3852,7 +3883,7 @@ unpause_protocol() {
             echo "Refusing to unpause mainnet: timelock_min_delay_ledgers is not configured in networks.json." >&2
             return 1
         fi
-        current=$(min_delay_ledgers)
+        current=$(min_delay_ledgers) || exit 1
         if [ "$current" -lt "$floor" ]; then
             echo "Refusing to unpause mainnet: on-chain timelock delay ${current} < production floor ${floor} ledgers." >&2
             echo "Raise it first, then unpause:  make mainnet updateDelay ${floor}" >&2
@@ -4136,15 +4167,11 @@ show_info() {
 
 check_delay() {
     local live cfg
-    live=$(min_delay_ledgers)
+    live=$(min_delay_ledgers) || exit 1
     cfg=$(get_network_value "timelock_min_delay_ledgers")
+    case "$cfg" in ''|*[!0-9]*) die "timelock_min_delay_ledgers must be configured as a nonnegative integer" ;; esac
     echo "Timelock min delay: live=${live} ledgers, configured target=${cfg} ledgers" >&2
-    if [ -n "$cfg" ] && [ "$cfg" != "null" ] && [ "$live" -lt "$cfg" ] 2>/dev/null; then
-        cat >&2 <<EOF
-
-EOF
-    fi
-    return 0
+    [ "$live" -ge "$cfg" ] 2>/dev/null || die "live timelock delay is below the configured target; run updateDelay ${cfg}"
 }
 
 list_hubs() {
@@ -5393,8 +5420,8 @@ case "$1" in
         set_accumulator
         ;;
     "supply")
-        if [ -z "$2" ] || [ -z "$3" ]; then
-            echo "Usage: $0 supply <market> <amount_raw> [<account_id:0>] [<spoke_id:0>]" >&2
+        if [ -z "$2" ] || [ -z "$3" ] || [ -z "$4" ] || [ -z "$5" ]; then
+            echo "Usage: $0 supply <market> <amount_raw> <account_id:0=new> <config_spoke_id|onchain:N>" >&2
             list_markets >&2
             exit 1
         fi
@@ -5505,6 +5532,9 @@ case "$1" in
         ;;
     "setCuratorRegistrarAdmin")
         set_curator_registrar_admin_cmd "$2" "$3"
+        ;;
+    "registerCuratorRegistrar")
+        register_curator_registrar_cmd "$2"
         ;;
     "deployPool")
         schedule_deploy_pool "$2"
@@ -5727,7 +5757,7 @@ case "$1" in
         echo "Hubs / Spokes (writes):"
         echo "  Every spoke <id> is the CONFIG id from spokes.json; it is resolved to the on-chain id"
         echo "  through networks.json spoke_ids (the two differ). removeSpoke, removeAssetFromSpoke,"
-        echo "  setSpokeLiquidationCurve, getSpoke and getSpokeAsset also accept onchain:<n>."
+        echo "  setSpokeLiquidationCurve, getSpoke, getSpokeAsset and supply also accept onchain:<n>."
         echo "  listHubs                        Hubs referenced by config + on-chain mapping"
         echo "  createHub <id>                  Ensure hub exists (idempotent; ascending ids)"
         echo "  listSpokes                      List configured spoke categories (marks enabled=false)"
@@ -5737,6 +5767,7 @@ case "$1" in
         echo "  removeAssetFromSpoke <id> <m>   Timelocked remove_asset_from_spoke"
         echo "  removeSpoke <id>                Timelocked remove_spoke (deprecates category)"
         echo "  setupAllSpokes                  Idempotently configure enabled spokes/assets only"
+        echo "  supply <market> <amount_raw> <account_id:0=new> <spoke>  Explicit config spoke; existing accounts must match"
         echo ""
         echo "Timelock (admin writes are scheduled then executed after the delay):"
         echo "  Admin verbs (createMarket, configureMarketOracle, spoke,"
@@ -5764,7 +5795,7 @@ case "$1" in
         echo "Protocol control (writes, routed through governance):"
         echo "  pause                           GUARDIAN-immediate pause (caller = signer)"
         echo "  unpause                         Timelocked AdminOperation::Unpause (propose → await → execute)"
-        echo "  checkDelay                      Compare live timelock delay vs configured target"
+        echo "  checkDelay                      Fail if live timelock delay is below the configured target or unreadable"
         echo "  revokeBlendPool <C...>          Timelocked Blend-pool allow-list remove"
         echo "  setPositionLimits <s> <b>       Timelocked position limits (max supply/borrow positions)"
         echo "  setMinBorrowCollateralUsd <wad> Timelocked min borrow-collateral floor"
@@ -5801,6 +5832,7 @@ case "$1" in
         echo "  listOracleFeeds                Live feed index from the deployed xoxno_oracle_adapter"
         echo ""
         echo "Curator registry (deployCurator / upgradeCurator are make actions):"
+        echo "  registerCuratorRegistrar <admin>         owner; sensitive timelock"
         echo "  suspendCuratorRegistrar <id>             GUARDIAN; immediate"
         echo "  resumeCuratorRegistrar <id>              owner; sensitive timelock"
         echo "  reassignCuratorHub <hub> <id|none>       owner; sensitive timelock"

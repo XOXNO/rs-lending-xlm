@@ -743,7 +743,6 @@ flow_flash_position_gaps() {
     FP_COLS="$(pay_vec "$PRIMARY_HUB_ID" "$USDC_SAC" 1)"
     fp_run xfail flash_position_second_supply_limit_ex 'Error\(Contract, #109\)' || true
     FP_COLS="$(fp_collaterals "$FP_EXTEND_COLLATERAL")"
-    fp_restore_position_limits || true
     fp_restore_position_limits || return 1
 
     # Existing already has USDC debt; a second debt asset is a new borrow position.

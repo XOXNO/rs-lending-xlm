@@ -225,19 +225,22 @@ struct AdversarialPool;
 
 #[contractimpl]
 impl AdversarialPool {
-    pub fn __constructor(env: Env, coins: Vec<Address>) {
+    pub fn __constructor(env: Env, coins: Val) {
         env.storage()
             .instance()
             .set(&symbol_short!("coins"), &coins);
     }
 
     pub fn pool_info(env: Env) -> Map<Symbol, Val> {
-        let coins: Vec<Address> = env
+        let coins: Val = env
             .storage()
             .instance()
             .get(&symbol_short!("coins"))
             .unwrap();
-        Map::from_array(&env, [(symbol_short!("coins"), coins.into_val(&env))])
+        if coins.is_void() {
+            return Map::new(&env);
+        }
+        Map::from_array(&env, [(symbol_short!("coins"), coins)])
     }
 }
 
@@ -250,15 +253,27 @@ fn curve_rejects_invalid_coins_and_missing_route_token_before_exchange() {
     let absent = Address::generate(env);
     let own = Address::generate(env);
     // The first two lists hold both route tokens, so only `pool_tokens` can reject them.
-    for (pool, coins) in [
+    let coins: [(Address, Val); 6] = [
         (
             Address::generate(env),
-            vec![env, a.clone(), b.clone(), a.clone()],
+            vec![env, a.clone(), b.clone(), a.clone()].into_val(env),
         ),
-        (own.clone(), vec![env, a.clone(), b.clone(), own]),
-        (Address::generate(env), vec![env, a.clone(), absent.clone()]),
-        (Address::generate(env), vec![env, b.clone(), absent]),
-    ] {
+        (
+            own.clone(),
+            vec![env, a.clone(), b.clone(), own].into_val(env),
+        ),
+        (
+            Address::generate(env),
+            vec![env, a.clone(), absent.clone()].into_val(env),
+        ),
+        (
+            Address::generate(env),
+            vec![env, b.clone(), absent].into_val(env),
+        ),
+        (Address::generate(env), 7u32.into_val(env)),
+        (Address::generate(env), Val::VOID.into()),
+    ];
+    for (pool, coins) in coins {
         env.register_at(&pool, AdversarialPool, (&coins,));
         let before = fixture.state();
         let xdr = fixture.payload(alloc::vec![curve_hop(&pool, &a, &b)], 1);

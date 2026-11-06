@@ -6,7 +6,7 @@
 # Builds on x86-64 and arm64 Linux: install-stellar-cli.sh pins a release for each.
 
 # The Rust version that rust-toolchain.toml pins, so rustup adds only its targets and components below.
-FROM rust:1.95-bookworm
+FROM rust:1.95-bookworm@sha256:6258907abe69656e41cd992e0b705cdcfabcbbe3db374f92ed2d47121282d4a1
 ENV DEBIAN_FRONTEND=noninteractive
 RUN sed -i 's|http://deb.debian.org|https://deb.debian.org|g' /etc/apt/sources.list.d/debian.sources \
     && apt-get update && apt-get install -y --no-install-recommends python3 libdbus-1-3 libudev1 \

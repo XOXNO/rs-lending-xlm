@@ -164,6 +164,10 @@ pub enum AdminOperation {
     /// Replace a curator registrar's admin. The first address is the curator.
     /// Sensitive delay, owner-proposed.
     SetCuratorRegistrarAdmin(Address, u32, Address),
+
+    /// Open a curator registrar run by the second address. The first address
+    /// is the curator. Sensitive delay, owner-proposed.
+    RegisterCuratorRegistrar(Address, Address),
 }
 
 #[contractclient(name = "GovernanceClient")]

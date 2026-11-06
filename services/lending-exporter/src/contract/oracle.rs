@@ -18,13 +18,18 @@ pub enum OracleKind {
 pub struct OracleSource {
     pub kind: OracleKind,
     pub contract: String,
-
-    pub asset_ref: Option<ScVal>,
-
-    pub feed_id: Option<String>,
-    pub data_id: Option<ScVal>,
+    pub selector: OracleSelector,
     pub decimals: u32,
     pub max_stale_seconds: u64,
+}
+
+/// What the provider contract is asked for: a Reflector asset, a RedStone or
+/// Xoxno feed id, or a Chainlink data id.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum OracleSelector {
+    Asset(ScVal),
+    Feed(String),
+    Data(ScVal),
 }
 
 #[derive(Debug, Clone)]
@@ -152,9 +157,7 @@ fn decode_feed_source(value: &ScVal) -> Result<OracleSource> {
             Ok(OracleSource {
                 kind: OracleKind::Reflector,
                 contract,
-                asset_ref: Some(asset_ref),
-                feed_id: None,
-                data_id: None,
+                selector: OracleSelector::Asset(asset_ref),
                 decimals,
                 max_stale_seconds,
             })
@@ -171,9 +174,7 @@ fn decode_feed_source(value: &ScVal) -> Result<OracleSource> {
             Ok(OracleSource {
                 kind,
                 contract,
-                asset_ref: None,
-                feed_id: Some(feed_id),
-                data_id: None,
+                selector: OracleSelector::Feed(feed_id),
                 decimals,
                 max_stale_seconds,
             })
@@ -185,9 +186,7 @@ fn decode_feed_source(value: &ScVal) -> Result<OracleSource> {
             Ok(OracleSource {
                 kind: OracleKind::Chainlink,
                 contract,
-                asset_ref: None,
-                feed_id: None,
-                data_id: Some(data_id),
+                selector: OracleSelector::Data(data_id),
                 decimals,
                 max_stale_seconds,
             })
@@ -439,7 +438,7 @@ mod tests {
         let cfg = decode_oracle_config(&oracle).unwrap();
         assert_eq!(cfg.sources[0].kind, OracleKind::Chainlink);
         assert_eq!(cfg.sources[0].decimals, 18);
-        assert!(cfg.sources[0].data_id.is_some());
+        assert!(matches!(cfg.sources[0].selector, OracleSelector::Data(_)));
         assert_eq!(cfg.sources[0].max_stale_seconds, 93_600);
     }
 
@@ -552,11 +551,11 @@ mod tests {
 
         assert_eq!(cfg.sources[0].kind, OracleKind::Reflector);
         assert_eq!(cfg.sources[0].max_stale_seconds, 3600);
-        assert!(cfg.sources[0].asset_ref.is_some());
+        assert!(matches!(cfg.sources[0].selector, OracleSelector::Asset(_)));
 
         assert_eq!(cfg.sources[1].kind, OracleKind::RedStone);
         assert_eq!(cfg.sources[1].max_stale_seconds, 43200);
-        assert_eq!(cfg.sources[1].feed_id.as_deref(), Some("XLM"));
+        assert_eq!(cfg.sources[1].selector, OracleSelector::Feed("XLM".into()));
     }
 
     #[test]
@@ -590,7 +589,10 @@ mod tests {
         assert_eq!(cfg.source_count, 1);
         assert_eq!(cfg.sources.len(), 1);
         assert_eq!(cfg.sources[0].kind, OracleKind::RedStone);
-        assert_eq!(cfg.sources[0].feed_id.as_deref(), Some("SolvBTC/BTC"));
+        assert_eq!(
+            cfg.sources[0].selector,
+            OracleSelector::Feed("SolvBTC/BTC".into())
+        );
     }
 
     #[test]

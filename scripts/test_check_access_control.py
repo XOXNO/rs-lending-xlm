@@ -37,6 +37,9 @@ class TestOnlyCfgTest(unittest.TestCase):
             '#[cfg(not(feature = "testing"))]',
             '#[cfg(not(any(test, feature = "testing")))]',
             '#[cfg(feature = "certora")]',
+            '#[cfg(any(test, feature = "production"))]',
+            '#[cfg(any(feature = "testing", not(test)))]',
+            '#[cfg(feature = "production] #[cfg(test)]")]',
         ):
             self.assertFalse(ac.is_test_only({"cfg": cfg}), cfg)
 
@@ -54,6 +57,17 @@ class TestOnlyCfgTest(unittest.TestCase):
 
 
 class ContractimplDiscoveryTest(unittest.TestCase):
+    def test_array_returns_and_literal_delimiters_do_not_hide_functions(self):
+        src = '''#[contractimpl] impl X {
+            fn first() { let text = r##"} ) // /* fn fake() {"##; }
+            fn second() -> [u32; 1] { let ch = '}'; [1] }
+        }'''
+        eps = ac._entrypoints_in_file("x", "contracts/x/src/lib.rs", src)
+        self.assertEqual([fn["name"] for fn in eps], ["first", "second"])
+        self.assertEqual(set(ac.CallGraph([("contracts/x/src/lib.rs", src)]).by_name), {"first", "second"})
+        with self.assertRaises(ac.ParseError):
+            ac._entrypoints_in_file("x", "contracts/x/src/lib.rs", "#[contractimpl] impl X { fn ok() {} fn missing(); }")
+
     def test_contracttrait_nft_mutators_are_discovered_as_caller_auth(self):
         eps = by_key(classified())
         for name in NFT_MUTATORS:
@@ -114,6 +128,44 @@ class ContractimplDiscoveryTest(unittest.TestCase):
 
 
 class GuardPatternTest(unittest.TestCase):
+    def test_literal_text_cannot_supply_authorization_or_call_edges(self):
+        graph = ac.CallGraph([("contracts/x/src/lib.rs",
+                              'fn guard() { enforce_owner_auth(&env); } '
+                              'fn note() { let text = "enforce_owner_auth(&env);"; }')])
+        for literal in (
+            '"enforce_owner_auth(&env); guard(); }"',
+            'r###"enforce_owner_auth(&env); guard(); \\" }"###',
+            'b"enforce_owner_auth(&env); guard();"',
+            'c"enforce_owner_auth(&env); guard();"',
+        ):
+            fn = {"contract": "x", "name": "entry", "attrs": [], "cfg": "",
+                  "body": f"{{ note(); let text = {literal}; env.storage().instance().set(&1, &2); }}"}
+            ac.classify([fn], graph)
+            self.assertEqual(fn["category"], "UNGATED-MUTATOR", literal)
+
+    def test_storage_parameters_aliases_and_array_return_helpers_are_writes(self):
+        for storage in ("Instance", "soroban_sdk::storage::Persistent<'_>", "Temporary"):
+            for body in ("store.set(&1, &2);", "let a = store; let b = &a; b.remove(&1);"):
+                src = f"#[contractimpl] impl X {{ fn entry(store: &{storage}) {{ {body} }} }}"
+                eps = ac._entrypoints_in_file("x", "contracts/x/src/lib.rs", src)
+                ac.classify(eps, ac.CallGraph([]))
+                self.assertEqual(eps[0]["category"], "UNGATED-MUTATOR", src)
+        src = "fn write(env: &Env) -> [u32; 1] { env.storage().instance().set(&1, &2); [1] }"
+        fn = {"contract": "x", "name": "entry", "attrs": [], "cfg": "", "body": "{ write(&env); }"}
+        ac.classify([fn], ac.CallGraph([("contracts/x/src/lib.rs", src)]))
+        self.assertEqual(fn["category"], "UNGATED-MUTATOR")
+        self.assertTrue(ac.storage_writes("let a = env.storage().instance(); let b = a; b.set(&1, &2);"))
+        self.assertFalse(ac.storage_writes("fn read(store: &Instance) { store.get::<_, u32>(&1); store.extend_ttl(1, 2); }"))
+
+    def test_write_walk_has_no_depth_cutoff_and_stops_at_cycles(self):
+        src = " ".join(f"fn helper{i}() {{ helper{i + 1}(); }}" for i in range(15))
+        src += " fn helper15() { env.storage().instance().set(&1, &2); helper0(); }"
+        fn = {"contract": "x", "name": "entry", "attrs": [], "cfg": "", "body": "{ helper0(); }"}
+        graph = ac.CallGraph([("contracts/x/src/lib.rs", src)])
+        ac.classify([fn], graph)
+        self.assertEqual(fn["category"], "UNGATED-MUTATOR")
+        self.assertFalse(graph.reaches(fn["body"], "x", ac.OWNER_PATTERNS))
+
     def test_owner_patterns_match_the_locked_oz_name(self):
         for text in ("ownable::enforce_owner_auth(&e);", "enforce_owner_auth(env);"):
             self.assertTrue(any(p.search(text) for p in ac.OWNER_PATTERNS), text)
@@ -138,6 +190,33 @@ class GuardPatternTest(unittest.TestCase):
         }
         ac.classify([fn], graph)
         self.assertEqual(fn["category"], "UNGATED-MUTATOR")
+
+    def test_a_turbofish_invoke_contract_is_an_arbitrary_target(self):
+        graph = ac.CallGraph(
+            [
+                (
+                    "contracts/x/src/lib.rs",
+                    "fn begin_immediate(env: &Env) { access_control::ensure_role(env, &role, &caller); }",
+                )
+            ]
+        )
+        fn = {
+            "contract": "x",
+            "name": "entry",
+            "attrs": [],
+            "cfg": "",
+            "body": "fn entry(env: Env, t: Address, s: Symbol, args: Vec<Val>) { "
+            "begin_immediate(&env); env.invoke_contract::<()>(&t, &s, args); }",
+        }
+        ac.classify([fn], graph)
+        real = by_key(classified())
+        self.assertTrue(fn["mutates"])
+        self.assertEqual(fn["category"], real["governance::pause"]["category"])
+        self.assertTrue(real["governance::suspend_curator_registrar"]["mutates"])
+        self.assertEqual(
+            real["governance::suspend_curator_registrar"]["category"],
+            real["governance::pause"]["category"],
+        )
 
     def test_execute_operation_readiness_is_timelock_evidence(self):
         path = os.path.join("contracts", "governance", "src", "timelock", "mod.rs")
@@ -170,6 +249,22 @@ class DeclarationFileTest(unittest.TestCase):
         self.assertIn("controller::supply", self.load("INV-AUTH-03"))
         with self.assertRaises(ac.AllowlistError):
             self.load("INV-AUTH-03, INV-STRAT-99")
+
+
+class DependencyRevisionTest(unittest.TestCase):
+    def test_manifest_and_lock_must_both_match_reviewed_revision(self):
+        ac.check_dependency_revision()
+        with tempfile.TemporaryDirectory() as root:
+            for changed in ("Cargo.toml", "Cargo.lock"):
+                for name in ("Cargo.toml", "Cargo.lock"):
+                    with open(os.path.join(ac.REPO_ROOT, name), encoding="utf-8") as fh:
+                        content = fh.read()
+                    if name == changed:
+                        content = content.replace(ac.REVIEWED_OZ_REV, "0" * 40)
+                    with open(os.path.join(root, name), "w", encoding="utf-8") as fh:
+                        fh.write(content)
+                with self.assertRaises(ac.ParseError, msg=changed):
+                    ac.check_dependency_revision(root)
 
 
 if __name__ == "__main__":

@@ -6,15 +6,10 @@ use soroban_sdk::{panic_with_error, Address, BytesN, Env, IntoVal, TryFromVal, V
 
 use crate::{CapGrant, DataKey};
 
-pub(crate) fn init(env: &Env, owner: &Address, governance: &Address) {
-    env.storage().instance().set(&DataKey::Owner, owner);
+pub(crate) fn init(env: &Env, governance: &Address) {
     env.storage()
         .instance()
         .set(&DataKey::Governance, governance);
-}
-
-pub(crate) fn owner(env: &Env) -> Address {
-    env.storage().instance().get(&DataKey::Owner).unwrap()
 }
 
 pub(crate) fn governance(env: &Env) -> Address {
@@ -38,7 +33,13 @@ fn read<V>(env: &Env, key: &DataKey) -> Option<V>
 where
     V: TryFromVal<Env, Val>,
 {
-    env.storage().persistent().get(key)
+    let value: Option<V> = env.storage().persistent().get(key);
+    if value.is_some() {
+        env.storage()
+            .persistent()
+            .extend_ttl(key, TTL_THRESHOLD_SHARED, TTL_BUMP_SHARED);
+    }
+    value
 }
 
 fn write<V>(env: &Env, key: &DataKey, value: &V)

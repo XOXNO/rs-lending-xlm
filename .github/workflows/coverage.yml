@@ -29,7 +29,7 @@ env:
   # the Makefile's `coverage-merged`, or MODE_PATHS["merged"] in
   # scripts/coverage_report.py). A baseline measured under a different scope
   # is not comparable, and comparing it reports a delta that never happened.
-  COV_CACHE_PREFIX: cov-baseline-main-v2
+  COV_CACHE_PREFIX: cov-baseline-main-v3
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}

@@ -438,6 +438,8 @@ fn non_owner_cannot_propose_curator_takeover_operations() {
         AdminOperation::ReassignCuratorHub(controller.clone(), 1, None),
         AdminOperation::ReassignCuratorSpoke(controller.clone(), 1, Some(2)),
         AdminOperation::SetCuratorRegistrarAdmin(controller.clone(), 1, Address::generate(&env)),
+        AdminOperation::RegisterCuratorRegistrar(controller.clone(), Address::generate(&env)),
+        AdminOperation::UpgradeCurator(controller.clone(), BytesN::from_array(&env, &[7u8; 32])),
     ] {
         let result = gov.try_propose(&proposer, &op, &BytesN::<32>::from_array(&env, &[3u8; 32]));
         assert_eq!(

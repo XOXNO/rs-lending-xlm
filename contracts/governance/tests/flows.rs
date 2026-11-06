@@ -719,9 +719,10 @@ fn guardian_set_spoke_asset_flags_reaches_controller_listing_check() {
     register_native_controller(&env, &gov_id, &gov);
     let guardian = Address::generate(&env);
     grant_incident_role(&env, &admin, &gov, &guardian, GUARDIAN_ROLE);
-    grant_incident_role(&env, &admin, &gov, &guardian, crate::access::CURATOR_ROLE);
+    let curator = Address::generate(&env);
+    grant_incident_role(&env, &admin, &gov, &curator, crate::access::CURATOR_ROLE);
 
-    let spoke_id = gov.add_spoke(&guardian);
+    let spoke_id = gov.add_spoke(&curator);
     gov.set_spoke_asset_flags(
         &guardian,
         &spoke_id,

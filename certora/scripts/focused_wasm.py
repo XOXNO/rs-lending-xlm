@@ -25,6 +25,7 @@ _ROOT_INPUTS = (
     "Makefile",
     "certora/scripts/focused_wasm.py",
     "vendor/cvlr-log",
+    "vendor/cvlr-soroban",
 )
 
 def _inputs(*extra: str) -> tuple[str, ...]:
@@ -43,6 +44,7 @@ BASE_INPUTS: dict[str, tuple[str, ...]] = {
         "common/Cargo.toml",
         "common/src",
         "interfaces/pool",
+        "certora/common/spec",
         "certora/pool/spec",
         "certora/shared/summaries",
     ),
@@ -54,6 +56,8 @@ BASE_INPUTS: dict[str, tuple[str, ...]] = {
         "interfaces/controller",
         "interfaces/pool",
         "interfaces/price-aggregator",
+        "interfaces/swap-aggregator",
+        "interfaces/position-nft",
         "certora/controller/harness",
         "certora/controller/spec",
         "certora/shared/summaries",

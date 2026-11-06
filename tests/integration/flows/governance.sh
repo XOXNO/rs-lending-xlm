@@ -9,6 +9,7 @@ GOV_SALT_UNPAUSE="77777777777777777777777777777777777777777777777777777777777777
 GOV_SALT_SELF_SENSITIVE="8888888888888888888888888888888888888888888888888888888888888888"
 GOV_SALT_CANCELLER_RESET="9999999999999999999999999999999999999999999999999999999999999999"
 GOV_SALT_GRANT_GUARDIAN="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+GOV_SALT_GRANT_CURATOR="bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
 GOV_SENSITIVE_MIN_DELAY=12
 
 gov_state() {
@@ -78,12 +79,16 @@ flow_governance() {
     op_grant=$(inv gov_propose_grant_guardian "$ADMIN" "$GOVERNANCE" -- propose \
         --proposer "$ADMIN_ADDR" --op "$grant_op" \
         --salt "$GOV_SALT_GRANT_GUARDIAN" | tr -d '"[:space:]')
+    local curator_op op_curator
+    curator_op='{"GrantGovRole":{"account":"'"$ADMIN_ADDR"'","role":"CURATOR"}}'
+    op_curator=$(inv gov_propose_grant_curator "$ADMIN" "$GOVERNANCE" -- propose \
+        --proposer "$ADMIN_ADDR" --op "$curator_op" --salt "$GOV_SALT_GRANT_CURATOR" | tr -d '"[:space:]')
 
     # Hub and spoke creation is the CURATOR role. The constructor does not
     # grant it to the owner, so the owner's guardian role is not enough.
-    xfail gov_create_hub_not_curator 'Error(Contract, #2000)' "$ADMIN" "$GOVERNANCE" -- create_hub \
+    xfail gov_create_hub_not_curator 'Error\(Contract, #2000\)' "$ADMIN" "$GOVERNANCE" -- create_hub \
         --caller "$ADMIN_ADDR"
-    xfail gov_add_spoke_not_curator 'Error(Contract, #2000)' "$ADMIN" "$GOVERNANCE" -- add_spoke \
+    xfail gov_add_spoke_not_curator 'Error\(Contract, #2000\)' "$ADMIN" "$GOVERNANCE" -- add_spoke \
         --caller "$ADMIN_ADDR"
     local gov_ctrl
     gov_ctrl=$(view gov_controller_view "$GOVERNANCE" -- controller | tr -d '"[:space:]')
@@ -206,6 +211,16 @@ xfail gov_set_controller_absent 'set_controller|unknown|not found|No such' \
 "$ADMIN" "$GOVERNANCE" -- set_controller --addr "$CONTROLLER"
 
     flow_gov_recovery_and_roles "$grant_op" "$op_grant"
+
+    local curator_st
+    curator_st=$(gov_await_ready "$op_curator")
+    if [ "$curator_st" != "Ready" ] && [ "$curator_st" != "Done" ]; then
+        _assert_fail gov_curator_grant_ready "grant op $op_curator never reached Ready ($curator_st)"
+    fi
+    inv gov_execute_grant_curator "$ADMIN" "$GOVERNANCE" -- execute_self \
+        --executor null --op "$curator_op" --salt "$GOV_SALT_GRANT_CURATOR" >/dev/null
+    inv gov_create_hub "$ADMIN" "$GOVERNANCE" -- create_hub --caller "$ADMIN_ADDR" >/dev/null
+    inv gov_add_spoke "$ADMIN" "$GOVERNANCE" -- add_spoke --caller "$ADMIN_ADDR" >/dev/null
 
     inv gov_pause "$ADMIN" "$GOVERNANCE" -- pause --caller "$ADMIN_ADDR" >/dev/null
     # governance `pause` is a guardian action that pauses the controller, not

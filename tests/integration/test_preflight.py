@@ -67,6 +67,8 @@ raw.mkdir(parents=True, exist_ok=True)
             self.assertTrue(all(before[c + '.wasm'] == b'\0asm\1\0\0\0\0\x0f\x0econtractspecv0' for c in CONTRACTS))
             result = build('fixtures')
             self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertTrue((base / 'target/optimized/curator.wasm').is_file())
+            self.assertTrue((base / 'custom target/wasm32v1-none/release/curator.wasm').is_file())
             self.assertEqual(before, {p.name: p.read_bytes() for p in candidates.iterdir()})
             fixtures = base / 'artifacts/wasm/fixtures'
             self.assertEqual(len(list(fixtures.glob('*.wasm'))), 6)

@@ -134,11 +134,6 @@ pub async fn scrape_once(
             }
         }
 
-        metrics.remove_oracle_config_and_freshness(&[
-            net,
-            market.asset_strkey.as_str(),
-            market.symbol.as_str(),
-        ]);
         if let Some(agg_id) = &aggregator_id {
             publish_oracle_config_and_freshness(
                 client,
@@ -693,7 +688,11 @@ async fn publish_oracle_config_and_freshness(
     decimals: Option<u32>,
 ) {
     let olabels = [net, market.asset_strkey.as_str(), market.symbol.as_str()];
-    let Some(config) = read_oracle_config(client, metrics, net, market, aggregator_id).await else {
+    let Ok(config) = read_oracle_config(client, metrics, net, market, aggregator_id).await else {
+        return;
+    };
+    metrics.remove_oracle_config_and_freshness(&olabels);
+    let Some(config) = config else {
         return;
     };
 
@@ -794,8 +793,8 @@ async fn read_oracle_config(
     net: &str,
     market: &ResolvedMarket,
     aggregator_id: &[u8; 32],
-) -> Option<oracle::OracleConfig> {
-    let key = asset_oracle_ledger_key(aggregator_id, &market.asset_id).ok()?;
+) -> Result<Option<oracle::OracleConfig>, ()> {
+    let key = asset_oracle_ledger_key(aggregator_id, &market.asset_id).map_err(|_| ())?;
     let entries = match client.get_ledger_entries(std::slice::from_ref(&key)).await {
         Ok(e) => e,
         Err(e) => {
@@ -804,20 +803,20 @@ async fn read_oracle_config(
                 .with_label_values(&[net, "get_ledger_entries"])
                 .inc();
             debug!(target: "exporter.collector", asset = %market.asset_strkey, error = %e, "oracle config read failed");
-            return None;
+            return Err(());
         }
     };
-    let value = entries.into_iter().next()?.value?;
-    let LedgerEntryData::ContractData(cd) = value else {
-        return None;
+    let Some(LedgerEntryData::ContractData(cd)) = entries.into_iter().next().and_then(|e| e.value)
+    else {
+        return Ok(None);
     };
-    decode_or_count(
+    Ok(decode_or_count(
         metrics,
         net,
         "oracle_config",
         &market.asset_strkey,
         oracle::decode_oracle_config(&cd.val),
-    )
+    ))
 }
 
 async fn read_feed_timestamp(
@@ -828,9 +827,8 @@ async fn read_feed_timestamp(
     source: &oracle::OracleSource,
 ) -> Option<u64> {
     let contract = crate::keys::contract_id_from_strkey(&source.contract).ok()?;
-    match source.kind {
-        oracle::OracleKind::Reflector => {
-            let asset_ref = source.asset_ref.as_ref()?;
+    match &source.selector {
+        oracle::OracleSelector::Asset(asset_ref) => {
             let arg = oracle::oracle_asset_ref_to_reflector_arg(asset_ref).ok()?;
             let scv = read_view(
                 client,
@@ -853,8 +851,7 @@ async fn read_feed_timestamp(
             .flatten()
             .map(|o| o.feed_ts_secs)
         }
-        oracle::OracleKind::RedStone | oracle::OracleKind::Xoxno => {
-            let feed = source.feed_id.as_ref()?;
+        oracle::OracleSelector::Feed(feed) => {
             let arg = oracle::feed_id_arg(feed).ok()?;
             let scv = read_view(
                 client,
@@ -876,8 +873,7 @@ async fn read_feed_timestamp(
             )
             .map(|o| o.feed_ts_secs)
         }
-        oracle::OracleKind::Chainlink => {
-            let data_id = source.data_id.clone()?;
+        oracle::OracleSelector::Data(data_id) => {
             let scv = read_view(
                 client,
                 metrics,
@@ -886,7 +882,7 @@ async fn read_feed_timestamp(
                 &market.asset_strkey,
                 &contract,
                 "latest_round",
-                vec![data_id, ScVal::U32(source.decimals)],
+                vec![data_id.clone(), ScVal::U32(source.decimals)],
             )
             .await?;
             decode_or_count(
@@ -1342,6 +1338,17 @@ mod spoke_asset_tests {
         body: String,
     ) -> ([(header::HeaderName, &'static str); 1], String) {
         let req: Value = serde_json::from_str(&body).unwrap();
+        if req["method"] == "getLedgerEntries" {
+            let resp = if phase.load(Ordering::SeqCst) == RPC_DOWN {
+                json!({"jsonrpc": "2.0", "id": req["id"].clone(), "error": {"code": -32603, "message": "down"}})
+            } else {
+                json!({"jsonrpc": "2.0", "id": req["id"].clone(), "result": {"entries": [], "latestLedger": 1}})
+            };
+            return (
+                [(header::CONTENT_TYPE, "application/json")],
+                resp.to_string(),
+            );
+        }
         let tx = req["params"]["transaction"].as_str().unwrap();
         let TransactionEnvelope::Tx(env) =
             TransactionEnvelope::from_xdr_base64(tx, Limits::none()).unwrap()
@@ -1456,6 +1463,40 @@ mod spoke_asset_tests {
             .await;
         }
 
+        async fn publish_oracle(&self, phase: u8) {
+            self.phase.store(phase, Ordering::SeqCst);
+            publish_oracle_config_and_freshness(
+                &self.client,
+                &self.metrics,
+                "testnet",
+                &self.contracts.markets[0],
+                0,
+                &[9u8; 32],
+                Some(DECIMALS),
+            )
+            .await;
+        }
+
+        fn oracle_series(&self) -> Vec<(String, f64)> {
+            self.metrics
+                .registry
+                .gather()
+                .iter()
+                .flat_map(|f| {
+                    f.get_metric()
+                        .iter()
+                        .filter(|m| {
+                            let l = m.get_label();
+                            l.iter()
+                                .any(|l| l.get_name() == "asset" && l.get_value() == "CASSET")
+                                && l.iter().all(|l| l.get_name() != "hub_id")
+                        })
+                        .map(|m| (f.get_name().to_string(), m.get_gauge().get_value()))
+                        .collect::<Vec<_>>()
+                })
+                .collect()
+        }
+
         fn spoke_asset_series(&self) -> Vec<(String, f64)> {
             self.metrics
                 .registry
@@ -1504,6 +1545,33 @@ mod spoke_asset_tests {
 
     fn near(v: Option<f64>, want: f64) -> bool {
         v.is_some_and(|v| (v - want).abs() < 1e-9)
+    }
+
+    /// L-6: an RPC failure on the oracle config read keeps the last scrape's
+    /// oracle series; a successful read that finds no config removes them.
+    #[tokio::test]
+    async fn failed_oracle_config_read_keeps_the_last_oracle_series() {
+        let f = fixture(46).await;
+        f.metrics
+            .oracle_max_stale_seconds
+            .with_label_values(&["testnet", "CASSET", "SYM"])
+            .set(900.0);
+
+        f.publish_oracle(RPC_DOWN).await;
+        assert_eq!(
+            f.oracle_series(),
+            vec![("lending_oracle_max_stale_seconds".to_string(), 900.0)]
+        );
+        assert_eq!(
+            f.counter(
+                "lending_exporter_rpc_errors_total",
+                &[("op", "get_ledger_entries")]
+            ),
+            1.0
+        );
+
+        f.publish_oracle(LISTED).await;
+        assert_eq!(f.oracle_series(), vec![]);
     }
 
     #[tokio::test]

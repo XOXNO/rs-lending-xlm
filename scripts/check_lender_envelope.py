@@ -124,7 +124,10 @@ def span(low, high) -> float:
 
 def tolerance_ratio(oracle: dict) -> float:
     """Widest leg ratio a half-up `upper_ratio_bps` comparison admits."""
-    return (oracle["tolerance"]["upper_ratio_bps"] + 0.5) / BPS
+    bps = oracle["tolerance"]["upper_ratio_bps"]
+    if bps <= BPS:
+        raise ConfigError(f"upper_ratio_bps {bps} must exceed {BPS}")
+    return (bps + 0.5) / BPS
 
 
 def feed_contract(feed: dict) -> str:
@@ -467,8 +470,9 @@ def main(argv=None) -> int:
         pairs = []
         for network in args.networks:
             pairs += evaluate_network(args.config_dir, network, args.include_disabled)
-    except (ConfigError, OSError) as err:
-        print(f"lender-envelope: error: {err}", file=sys.stderr)
+    except (ConfigError, OSError, KeyError, TypeError, ValueError) as err:
+        shown = err if isinstance(err, (ConfigError, OSError)) else repr(err)
+        print(f"lender-envelope: error: {shown}", file=sys.stderr)
         return 2
 
     undeclared, accepted, stale, worse, loose = judge(pairs, exceptions, set(args.networks))

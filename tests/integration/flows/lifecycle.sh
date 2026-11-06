@@ -276,13 +276,13 @@ debt_after_borrow=$(view debt_usdc_alice "$CONTROLLER" -- get_borrow_amount \
             return 1
         fi
     }
-    retry_leg leg_borrow_again
+    leg_borrow_again
     leg_repay_cross_account() {
         lifecycle_inv repay_cross_account "$BOB" "$CONTROLLER" -- repay \
             --caller "$BOB_ADDR" --account_id "$acct" \
             --payments "$(pay_vec "$PRIMARY_HUB_ID" "$USDC_SAC" 130000000)" >/dev/null
     }
-    retry_leg leg_repay_cross_account
+    leg_repay_cross_account
 
     lifecycle_inv withdraw_partial "$ALICE" "$CONTROLLER" -- withdraw \
         --caller "$ALICE_ADDR" --account_id "$acct" \
@@ -300,7 +300,7 @@ usdc_coll=$(view coll_usdc_alice "$CONTROLLER" -- get_collateral_amount \
             --caller "$ALICE_ADDR" --account_id "$acct" \
             --withdrawals "$(pay_vec "$PRIMARY_HUB_ID" "$XLM_SAC" 0 "$USDC_SAC" 0)" --to null >/dev/null
     }
-    retry_leg leg_withdraw_full_bulk
+    leg_withdraw_full_bulk
 
     # Amount 0 withdraws the full position, so both legs must end at zero.
     assert_int_view_eq withdraw_xlm_drained 0 get_collateral_amount \

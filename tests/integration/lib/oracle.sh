@@ -27,19 +27,22 @@ deploy_mock_redstone() {
 }
 
 set_mock_price() {
-    local sac="$1" price="$2" label="${3:-set_px_${sac:0:6}}"
+    local sac="$1" price="$2"
+    local label="${3:-set_px_${sac:0:6}}"
     inv "$label" "${E2E_SRC:-$ADMIN}" "$MOCK" -- set_price \
         --asset "{\"Stellar\":\"$sac\"}" --price_wad "$price" >/dev/null
 }
 
 set_rs_price() {
-    local feed="$1" price="$2" label="${3:-set_rs_${feed}}"
+    local feed="$1" price="$2"
+    local label="${3:-set_rs_${feed}}"
     inv "$label" "${E2E_SRC:-$ADMIN}" "$MOCKRS" -- set_price \
         --feed_id "$feed" --price_wad "$price" >/dev/null
 }
 
 dual_px() {
-    local sac="$1" feed="$2" price="$3" label="${4:-dual_px_${feed}}"
+    local sac="$1" feed="$2" price="$3"
+    local label="${4:-dual_px_${feed}}"
     set_mock_price "$sac" "$price" "${label}_p"
     set_rs_price "$feed" "$price" "${label}_a"
 }

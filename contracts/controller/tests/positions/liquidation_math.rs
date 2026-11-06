@@ -200,6 +200,22 @@ fn a_dust_priced_leg_saturates_the_seizure_to_the_held_balance() {
     );
 }
 
+/// A held balance just under i128::MAX RAY against a saturated request must not
+/// read a bonus off the saturation ceiling.
+#[test]
+fn a_saturated_request_below_principal_pays_no_bonus_or_fee() {
+    let env = Env::default();
+    let leg = LegSpec {
+        amount: 1_650_000_000_000_000_000,
+        price_wad: 10_000_000,
+        bonus_bps: 500,
+        ..LegSpec::mainnet_xlm(1)
+    };
+    let e = single_leg(&env, leg, 5 * WAD, 500).get_unchecked(0);
+    assert_eq!(e.amount, 1_650_000_000_000_000_000);
+    assert_eq!((e.bonus_scaled, e.protocol_fee), (0, 0));
+}
+
 fn stroops(tokens: i128) -> i128 {
     tokens * 10_000_000
 }
@@ -454,6 +470,30 @@ fn process_excess_payment_spans_legs_with_pro_rata_split() {
     let kept = repaid.get_unchecked(0);
     assert_eq!(kept.amount, stroops(80));
     assert_eq!(kept.usd_wad, 80 * WAD);
+}
+
+/// A ceiling-capped leg credited at floor value keeps ceil(backed value), not
+/// a floor-ratio share of the ceiling count.
+#[test]
+fn process_excess_payment_keeps_the_ceiling_of_the_backed_value() {
+    let env = Env::default();
+    let mut entry = repay_entry(&env, 3, 24 * WAD / 10);
+    entry.feed.asset_decimals = 0;
+    let mut repaid = Vec::new(&env);
+    repaid.push_back(entry);
+    let mut refunds = Vec::new(&env);
+
+    process_excess_payment(
+        &env,
+        &mut repaid,
+        &mut refunds,
+        Wad::from(15 * WAD / 10),
+        false,
+    );
+
+    let kept = repaid.get_unchecked(0);
+    assert_eq!((kept.amount, kept.usd_wad), (1, WAD));
+    assert_eq!(refunds.get_unchecked(0).amount, 2);
 }
 
 #[test]

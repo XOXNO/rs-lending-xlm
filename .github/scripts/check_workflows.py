@@ -21,19 +21,21 @@ RUNS_ON = re.compile(r"^    runs-on:[ \t]*(.*(?:\n      .*)*)", re.MULTILINE)
 JOB_IF = re.compile(r"^    if:[ \t]*(.*(?:\n      .*)*)", re.MULTILINE)
 HOSTED = re.compile(r"^['\"]?(?:ubuntu|windows|macos)-[A-Za-z0-9._-]+['\"]?$")
 EVENT_IS = re.compile(r"github\.event_name\s*==\s*'([a-z_]+)'")
+QUOTED = re.compile(r"'(?:[^']|'')*'")
 FORK_GUARD = "github.event.pull_request.head.repo.full_name == github.repository"
 NOT_PULL_REQUEST = "github.event_name != 'pull_request'"
 
 
 def split_top(cond: str, op: str) -> list:
     """Splits `cond` on `op` outside parentheses."""
+    unquoted = QUOTED.sub(lambda match: "".ljust(len(match[0])), cond)
     parts, depth, start, i = [], 0, 0, 0
     while i < len(cond):
-        if cond[i] == "(":
+        if unquoted[i] == "(":
             depth += 1
-        elif cond[i] == ")":
+        elif unquoted[i] == ")":
             depth -= 1
-        elif depth == 0 and cond.startswith(op, i):
+        elif depth == 0 and unquoted.startswith(op, i):
             parts.append(cond[start:i])
             start = i + len(op)
             i = start
@@ -49,7 +51,7 @@ def strip_parens(text: str) -> str:
         inner = text[1:-1]
         depth = 0
         balanced = True
-        for ch in inner:
+        for ch in QUOTED.sub("", inner):
             depth += ch == "("
             depth -= ch == ")"
             if depth < 0:
@@ -76,13 +78,10 @@ def guarded(cond: str) -> bool:
     clauses = split_top(cond, "||")
     if clauses == [NOT_PULL_REQUEST, FORK_GUARD]:
         return True
-    if len(clauses) == 1 and FORK_GUARD in split_top(clauses[0], "&&"):
-        return True
     return all(
-        EVENT_IS.search(clause)
-        and "pull_request" not in clause
-        and "!" not in clause
-        and FORK_GUARD not in clause
+        FORK_GUARD in split_top(clause, "&&")
+        or any(EVENT_IS.fullmatch(term) and "pull_request" not in term
+               for term in split_top(clause, "&&"))
         for clause in clauses
     ) and bool(cond)
 

@@ -28,13 +28,13 @@ the other documents do not say.
 
 `make help` is the index. `make help-build`, `help-verify`, `help-deploy`,
 `help-ops`, `help-views`, `help-oracle`, `help-aggregator`, `help-all` are the
-topic pages. There are 133 targets — read the index before you invent a
-command.
+topic pages. Read the index before you invent a command. Script gates need
+Python 3.11 or newer; CI pins Python 3.12.
 
 Check ladder, narrowest first:
 
     make fmt-check                      # cargo fmt --all -- --check
-    make access-control-check           # source-only, no build, about 1 second
+    make access-control-check           # source-only, no build
     make docs-check                     # doc links + doc symbols
     make test-match PATTERN=<substring> # focused harness tests
     make clippy                         # --all-targets -D warnings
@@ -81,6 +81,10 @@ to 28.
 
 ## Units
 
+Reuse `common/src/math/` for new or changed arithmetic. Any exception needs
+two independent agents to review the concrete code and approve why reuse does
+not fit. Never remove invariants, security checks, or validations to cut LOC.
+
 Keep the unit boundary explicit. Never mix these in one expression:
 
 | Unit | Used for |
@@ -112,7 +116,7 @@ is convenient. See [ADR-0003](docs/explanation/decisions.md#adr-0003).
   the live `paused`/`frozen`/`no_seize` flags through a listing edit. Every
   `configs/script.sh` verb must be in a Makefile action list (the
   `upgrade*Hash` verbs are internal), and every forwarded make verb needs a
-  script arm (`scripts/check_script_verbs.sh`). Offline, about 1 second.
+  script arm (`scripts/check_script_verbs.sh`). These checks run offline.
 - `python3 .github/scripts/check_workflows.py` — same job. Every `uses:` in a
   workflow pins a full commit SHA, the Static Gates workflow keeps no `paths`
   filter, and every self-hosted job that can run on `pull_request` carries the

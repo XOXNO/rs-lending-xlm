@@ -362,22 +362,42 @@ mod tests {
         let base = KeeperConfig::load(&path).unwrap();
         let mut config = base.clone();
         config.contracts.redstone_adapter = Some("CABC".into());
-        assert!(config.validate().is_err());
+        assert!(config
+            .validate()
+            .unwrap_err()
+            .to_string()
+            .contains("redstone_adapter"));
         let mut config = base.clone();
         config.contracts.swap_router = Some("CABC".into());
-        assert!(config.validate().is_err());
+        assert!(config
+            .validate()
+            .unwrap_err()
+            .to_string()
+            .contains("swap_router"));
         let mut config = base.clone();
         config.contracts.swap_router = config.contracts.redstone_adapter.clone();
-        assert!(config.validate().is_err());
+        assert!(config
+            .validate()
+            .unwrap_err()
+            .to_string()
+            .contains("swap_router"));
         let mut config = base.clone();
         config.contracts.redstone_adapter = Some(config.contracts.controller.clone());
-        assert!(config.validate().is_err());
+        assert!(config
+            .validate()
+            .unwrap_err()
+            .to_string()
+            .contains("redstone_adapter"));
         let mut config = base;
         config
             .contracts
             .extra_instances
             .push(config.contracts.swap_router.clone().unwrap());
-        assert!(config.validate().is_err());
+        assert!(config
+            .validate()
+            .unwrap_err()
+            .to_string()
+            .contains("extra_instances["));
     }
 
     #[test]

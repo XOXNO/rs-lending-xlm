@@ -21,18 +21,19 @@ format="${SCOUT_OUTPUT_FORMAT:-md}"
 out_dir="${SCOUT_OUTPUT_DIR:-target/scout-audit}"
 repo_root="$(pwd)"
 
-out_dir_abs="$(python3 -c 'import os,sys; print(os.path.realpath(sys.argv[1]))' "$repo_root/$out_dir")"
+out_dir_abs="$(python3 -c 'import os,sys; print(os.path.realpath(sys.argv[1]))' "$out_dir")"
 case "$out_dir_abs" in
-  "$repo_root"/*) ;;
+  "$repo_root"/target/scout-audit|"$repo_root"/target/scout-audit/*) ;;
   *)
-    echo "Refusing to clean Scout output outside repository: $out_dir_abs" >&2
+    echo "Refusing to clean Scout output outside target/scout-audit: $out_dir_abs" >&2
     exit 1
     ;;
 esac
 
 work_dir="$(mktemp -d)"
 file_list="$(mktemp)"
-trap 'rm -rf "$work_dir"; rm -f "$file_list"' EXIT
+raw_file_list="$(mktemp)"
+trap 'rm -rf "$work_dir"; rm -f "$file_list" "$raw_file_list"' EXIT
 rm -rf "$out_dir_abs"
 mkdir -p "$out_dir_abs" "$HOME/.scout-audit/telemetry"
 printf DONOTTRACK >"$HOME/.scout-audit/telemetry/user_id.txt"
@@ -46,7 +47,12 @@ export SOROBAN_SDK_BUILD_SYSTEM_SUPPORTS_SPEC_SHAKING_V2=1
 # Do not use `tar --exclude` here: bsdtar strips the leading './' before it
 # matches, so '*/target' misses the top-level 'target' and the whole build
 # cache gets staged.
-git ls-files -z --cached --others --exclude-standard >"$file_list"
+git ls-files -z --cached --others --exclude-standard >"$raw_file_list"
+while IFS= read -r -d '' path; do
+  if [ -f "$path" ] || [ -L "$path" ]; then
+    printf '%s\0' "$path"
+  fi
+done <"$raw_file_list" >"$file_list"
 if [ ! -s "$file_list" ]; then
   echo "Refusing to run: git produced an empty source file list" >&2
   exit 1

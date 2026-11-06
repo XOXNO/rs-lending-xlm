@@ -5,8 +5,9 @@ use common::errors::OracleError;
 use common::math::fp_core::mul_div_floor_saturating;
 use common::oracle::providers::curve::CurvePoolClient;
 use common::types::{CurveStableLpSource, PriceKey};
-use soroban_sdk::{token, Env, Executable};
+use soroban_sdk::{Env, Executable};
 
+use super::aquarius::token_decimals;
 use crate::{engine, observation::OracleObservation, session::Session};
 
 /// Returns a client for `lp.pool` only if the pool still matches its
@@ -39,7 +40,7 @@ fn bound_pool<'a>(
     for (i, coin) in lp.coins.iter().enumerate() {
         let decimals = info.coin_decimals.get(i as u32)?;
         if decimals > 18
-            || token::Client::new(env, &coin).try_decimals().ok()?.ok()? != decimals
+            || token_decimals(env, &coin)? != decimals
             || info.rates.get(i as u32)? != 10i128.pow(36 - decimals)
         {
             return None;

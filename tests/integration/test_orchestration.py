@@ -181,6 +181,13 @@ with tempfile.TemporaryDirectory() as directory:
     base=Path(directory)
     scripts,env,wasms=orchestrator(base,LANE_TIMEOUT='60s',E2E_LANE_STAGGER='29')
     env['E2E_LANES']='agg-core stress'
+    stagger_marker=base/'stagger.pid'
+    env['STAGGER_PID']=str(stagger_marker)
+    (base/'bin/sleep').write_text('''#!/bin/bash
+[ "$1" != 29 ] || echo "$$" > "$STAGGER_PID"
+exec /bin/sleep "$@"
+''')
+    (base/'bin/sleep').chmod(0o755)
     (scripts/'full_e2e.sh').write_text('''#!/bin/bash
 echo "lane $RUN_TS" >> "$STELLAR_CALLS"
 run="$INTEG_DIR/runs/$RUN_TS"
@@ -196,9 +203,11 @@ wait "$child"
     process=subprocess.Popen(['bash',str(scripts/'parallel_e2e.sh')],env=env,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True)
     marker=base/'runs/fixture-stress/child.pid'
     for _ in range(1000):
-        if marker.exists():break
+        if marker.exists() and stagger_marker.exists():break
         if process.poll() is not None:raise AssertionError(process.communicate())
         time.sleep(.02)
+    assert marker.exists() and stagger_marker.exists(), 'lane and stagger processes did not start'
+    stagger_pid=int(stagger_marker.read_text())
     time.sleep(.5)
     cancelled=time.monotonic()
     process.send_signal(signal.SIGTERM)
@@ -206,9 +215,14 @@ wait "$child"
     assert process.returncode==130 and time.monotonic()-cancelled<10,(process.returncode,err)
     assert 'other lanes start in 29s' in err and "launching lane 'agg-core'" not in err,err
     for _ in range(100):
-        if subprocess.run(['pgrep','-fx','sleep 29'],capture_output=True).returncode==1:break
+        try:
+            os.kill(stagger_pid,0)
+        except ProcessLookupError:
+            break
+        except PermissionError as error:
+            raise RuntimeError(f'cannot inspect tracked stagger process {stagger_pid}') from error
         time.sleep(.02)
-    else:raise AssertionError('the stagger sleep outlives the cancelled orchestrator')
+    else:raise AssertionError(f'the stagger sleep {stagger_pid} outlives the cancelled orchestrator')
     assert not (base/'runs/fixture-agg-core').exists() and 'lane fixture-agg-core' not in (base/'calls').read_text()
     assert 'incomplete' in (base/'runs/fixture-stress/cases.tsv').read_text()
 print('Cancellation during the stagger delay stops at once, reaps started lanes and never starts the rest')

@@ -408,7 +408,7 @@ pub(crate) fn calculate_seized_collateral(
         let share = asset_value.div(env, total_collateral);
         let seizure_for_asset_usd = total_seizure_usd.mul(env, share);
 
-        let seizure_amount_wad = seizure_for_asset_usd.div(env, feed.price);
+        let mut seizure_amount_wad = seizure_for_asset_usd.div(env, feed.price);
         // Exact WAD-to-RAY upscale. A dust price can push it past i128; the
         // saturated request then caps at the held balance.
         let mut seizure_ray = Ray::from(seizure_amount_wad.raw().saturating_mul(RAY / WAD));
@@ -420,10 +420,12 @@ pub(crate) fn calculate_seized_collateral(
             if repayment.repays_all_debt {
                 let whole = seizure_ray.to_asset_ceil(env, feed.asset_decimals);
                 seizure_ray = Ray::from_asset(env, whole, feed.asset_decimals).min(actual_ray);
+                seizure_amount_wad = seizure_ray.to_wad(env);
             } else {
                 let whole = seizure_ray.to_asset_floor(env, feed.asset_decimals);
                 seizure_ray = Ray::from_asset(env, whole, feed.asset_decimals);
-                let whole_usd = seizure_ray.to_wad(env).mul(env, feed.price);
+                seizure_amount_wad = seizure_ray.to_wad(env);
+                let whole_usd = seizure_amount_wad.mul(env, feed.price);
                 if seizure_for_asset_usd > whole_usd {
                     unseized_usd = unseized_usd
                         .checked_add(env, seizure_for_asset_usd.checked_sub(env, whole_usd));
@@ -448,7 +450,12 @@ pub(crate) fn calculate_seized_collateral(
 
         // Derive principal before the cap; dividing the capped seizure would
         // invent a fee-bearing bonus where collateral no longer covers repayment.
-        let base_ray = seizure_ray.div_floor(env, one_plus_bonus.to_ray(env));
+        let base_ray = Ray::from(
+            seizure_amount_wad
+                .div_floor(env, one_plus_bonus)
+                .raw()
+                .saturating_mul(RAY / WAD),
+        );
         // A cap below principal leaves no bonus; avoid negative subtraction.
         let bonus_ray = if capped_ray > base_ray {
             capped_ray.checked_sub(env, base_ray)
@@ -670,10 +677,10 @@ pub(crate) fn scale_seizures_to_received(
 }
 
 /// Removes planned excess from the last repayment backward, recording unused
-/// inputs in `refunds`. A partial removal uses a floor-rounded ratio; with
-/// `keep_within_quote` it floors the kept amount instead, so the kept value
-/// never exceeds the quote, and drops a leg whose kept amount reaches zero.
-/// No tokens move.
+/// inputs in `refunds`. A partial removal keeps the ceiling of the backed
+/// value in token units; with `keep_within_quote` it floors the kept amount
+/// instead, so the kept value never exceeds the quote, and drops a leg whose
+/// kept amount reaches zero. No tokens move.
 fn process_excess_payment(
     env: &Env,
     repaid_tokens: &mut Vec<RepayEntry>,
@@ -702,11 +709,11 @@ fn process_excess_payment(
                     .to_token_floor(env, decimals)
                     .min(entry.amount)
             } else {
-                let ratio = remaining_excess_usd.div_floor(env, usd);
-                entry.amount
-                    - Wad::from_token(env, entry.amount, decimals)
-                        .mul_floor(env, ratio)
-                        .to_token_floor(env, decimals)
+                let kept_usd = usd.checked_sub(env, remaining_excess_usd);
+                let floor = kept_usd.div_floor(env, price).to_token_floor(env, decimals);
+                let covered =
+                    Wad::from_token(env, floor, decimals).mul_floor(env, price) >= kept_usd;
+                (if covered { floor } else { floor + 1 }).min(entry.amount)
             };
             // Never above the stored credit, which is floor-valued for a ceiling-capped leg.
             let new_usd = Wad::from_token(env, new_amount, decimals)

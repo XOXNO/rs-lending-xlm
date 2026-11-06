@@ -1,6 +1,5 @@
 //! Caller checks. The registrar admin holds every role bit.
 
-use common::errors::GenericError;
 use common::ttl::renew_instance;
 use soroban_sdk::{assert_with_error, panic_with_error, Address, Env};
 
@@ -10,15 +9,6 @@ use crate::{CuratorError, ROLE_MASK};
 fn authenticate(env: &Env, caller: &Address) {
     renew_instance(env);
     caller.require_auth();
-}
-
-pub(crate) fn require_owner(env: &Env, caller: &Address) {
-    authenticate(env, caller);
-    assert_with_error!(
-        env,
-        caller == &storage::owner(env),
-        GenericError::NotAuthorized
-    );
 }
 
 pub(crate) fn require_registrar(env: &Env, registrar: u32) -> Address {
