@@ -65,7 +65,7 @@ jobs:
   pr-fuzz:
     if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
     name: Fuzz smoke (PR)
-    runs-on: self-hosted
+    runs-on: [self-hosted, xoxno]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -125,7 +125,7 @@ jobs:
   pr-proptest:
     if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
     name: Proptest smoke (PR)
-    runs-on: self-hosted
+    runs-on: [self-hosted, xoxno]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -164,7 +164,7 @@ jobs:
   miri:
     if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
     name: Miri pass (common fp_core)
-    runs-on: self-hosted
+    runs-on: [self-hosted, xoxno]
 
     env:
       RUSTUP_TOOLCHAIN: nightly
@@ -186,7 +186,7 @@ jobs:
   mutants-diff:
     if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
     name: Mutants (PR diff) ${{ matrix.shard }}
-    runs-on: self-hosted
+    runs-on: [self-hosted, xoxno]
     timeout-minutes: 360
     strategy:
       fail-fast: false
@@ -284,7 +284,7 @@ jobs:
   stellar-tool:
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     name: Prepare stellar-cli
-    runs-on: self-hosted
+    runs-on: [self-hosted, xoxno]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -307,7 +307,7 @@ jobs:
       (github.event_name == 'workflow_dispatch' &&
       (inputs.suite == 'mutants' || inputs.suite == 'all'))
     name: Prepare cargo-mutants
-    runs-on: self-hosted
+    runs-on: [self-hosted, xoxno]
     steps:
       - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
         with:
@@ -341,7 +341,7 @@ jobs:
     # these WASM fixtures. Build them once for all matrix cells.
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     name: Prepare wasm fixtures
-    runs-on: self-hosted
+    runs-on: [self-hosted, xoxno]
     needs: stellar-tool
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -404,7 +404,7 @@ jobs:
       (github.event_name == 'workflow_dispatch' &&
       (inputs.suite == 'fuzz' || inputs.suite == 'all'))
     name: Fuzz long (${{ matrix.target }})
-    runs-on: self-hosted
+    runs-on: [self-hosted, xoxno]
     needs: [stellar-tool, wasm-fixtures]
     timeout-minutes: 1440
     strategy:
@@ -503,7 +503,7 @@ jobs:
       (github.event_name == 'workflow_dispatch' &&
       (inputs.suite == 'proptest' || inputs.suite == 'all'))
     name: Proptest (${{ matrix.test }})
-    runs-on: self-hosted
+    runs-on: [self-hosted, xoxno]
     needs: [stellar-tool, wasm-fixtures]
     timeout-minutes: 1440
     strategy:
@@ -574,7 +574,7 @@ jobs:
       (inputs.suite == 'mutants' || inputs.suite == 'all'))
     name: Mutants (${{ matrix.target }}${{ matrix.suffix || '' }})
 
-    runs-on: self-hosted
+    runs-on: [self-hosted, xoxno]
     needs: [stellar-tool, mutants-tool, wasm-fixtures]
 
     timeout-minutes: 360

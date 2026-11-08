@@ -35,7 +35,7 @@ concurrency:
 jobs:
   certora-fast:
     name: Fast Certora Rules
-    runs-on: self-hosted
+    runs-on: [self-hosted, xoxno]
     timeout-minutes: ${{ fromJSON(inputs.job_timeout_minutes || '720') }}
 
     steps:
