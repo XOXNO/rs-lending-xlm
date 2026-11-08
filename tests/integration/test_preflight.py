@@ -20,7 +20,7 @@ class Preflight(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             base = Path(directory)
             for name in ('scripts/build_e2e_wasm.sh', 'scripts/strip_spec_docs.py',
-                         'tests/integration/artifacts.py'):
+                         'scripts/sdk_manifest.py', 'tests/integration/artifacts.py'):
                 target = base / name
                 target.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copyfile(ROOT / name, target)
@@ -73,6 +73,52 @@ raw.mkdir(parents=True, exist_ok=True)
             fixtures = base / 'artifacts/wasm/fixtures'
             self.assertEqual(len(list(fixtures.glob('*.wasm'))), 6)
             self.assertTrue(all(p.read_bytes() == b'\0asm\1\0\0\0\0\x0f\x0econtractspecv0' for p in fixtures.glob('*.wasm')))
+
+            mocks = {'mock_reflector': 'mock_oracle', 'mock_redstone': 'mock_redstone'}
+            default_release = base / 'target/wasm32v1-none/release'
+            default_release.mkdir(parents=True)
+            for crate in mocks.values():
+                (default_release / f'{crate}.wasm').write_bytes(b'DEFAULT mock sentinel')
+            outside = base / 'outside'
+            outside.mkdir()
+            sdk_cases = [
+                ('absolute', str(base / 'custom target'), base, b'UNOPTIMIZED'),
+                ('relative', 'custom target', outside, b'UNOPTIMIZED'),
+                ('default', None, outside, b'DEFAULT mock sentinel'),
+                ('missing', str(base / 'missing target'), base, None),
+                ('empty', '', base, None),
+            ]
+            for case, cargo_target, cwd, expected in sdk_cases:
+                with self.subTest(sdk_case=case):
+                    sdk_env = dict(env)
+                    if cargo_target is None:
+                        sdk_env.pop('CARGO_TARGET_DIR', None)
+                    else:
+                        sdk_env['CARGO_TARGET_DIR'] = cargo_target
+                    out = base / f'sdk-{case}'
+                    result = subprocess.run(
+                        [sys.executable, str(base / 'scripts/sdk_manifest.py'), str(out)],
+                        cwd=cwd, env=sdk_env, capture_output=True, text=True, timeout=10)
+                    if expected is None:
+                        self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+                        self.assertNotIn('wrote 7 files', result.stdout)
+                        self.assertFalse((out / 'sdk-manifest.json').exists())
+                        if case == 'empty':
+                            self.assertIn('CARGO_TARGET_DIR must not be empty', result.stderr)
+                            self.assertFalse(out.exists())
+                        continue
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    sdk_manifest = json.loads((out / 'sdk-manifest.json').read_text())
+                    self.assertEqual(set(sdk_manifest), {
+                        'controller', 'pool', 'position_nft', 'price_aggregator', 'governance',
+                        'mock_reflector', 'mock_redstone'})
+                    for name, crate in mocks.items():
+                        output = out / f'sdk-{name}.wasm'
+                        self.assertEqual(output.read_bytes(), expected)
+                        self.assertEqual(sdk_manifest[name]['sha256'], digest(output))
+                    for name in ('controller', 'pool', 'position_nft', 'price_aggregator', 'governance'):
+                        self.assertEqual((out / f'sdk-{name}.wasm').read_bytes(), before[f'{name}.wasm'])
+
             self.assertEqual(build('candidate', FAIL_BUILD='1').returncode, 23)
             self.assertEqual(build('fixtures', FAIL_BUILD='1').returncode, 23)
 
@@ -152,6 +198,88 @@ check_stellar_version
 ''', '_', str(ROOT / 'tests/integration/lib/core.sh'), minimum],
                     capture_output=True, text=True)
                 self.assertEqual(result.returncode == 0, success, result.stderr)
+
+
+    def test_candidate_abi_inspection_failures(self):
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            binaries = base / 'bin'
+            binaries.mkdir()
+            for name in ('python3', 'tr', 'basename', 'uname'):
+                (binaries / name).symlink_to(shutil.which(name))
+            scripts = base / 'scripts'
+            scripts.mkdir()
+            (scripts / 'check_access_control.py').write_text('''import os, sys
+assert sys.argv[1:] == ['--list-test-only']
+case = os.environ['ABI_CASE']
+if case == 'classifier_error': sys.exit('classifier failed')
+if case != 'classifier_empty':
+    print('governance:' + ('set_price_aggregator' if case == 'exempt' else 'execute_immediate'))
+''')
+            strings = binaries / 'strings'
+            emitter = f'#!{sys.executable}\n' + '''import os, signal, sys
+from pathlib import Path
+assert Path(sys.argv[1]).is_file()
+signal.signal(signal.SIGPIPE, signal.SIG_DFL)
+case = os.environ['ABI_CASE']
+if case == 'strings_error': sys.exit(23)
+word = b'execute_immediate\\n' if case in ('forbidden', 'large_forbidden', 'strings_forbidden_error') else b'benign\\n'
+os.write(1, word)
+if case == 'large_forbidden':
+    for _ in range(256): os.write(1, b'x' * 8192 + b'\\n')
+sys.exit(23 if case in ('strings_partial_error', 'strings_forbidden_error') else 0)
+'''
+            grep = binaries / 'grep'
+            grep.write_text(f'#!{sys.executable}\n' + f'''import os, sys
+case = os.environ['ABI_CASE']
+if case == 'grep_error': sys.exit(2)
+if case == 'grep_missing': sys.exit(127)
+os.execv({shutil.which('grep')!r}, [{shutil.which('grep')!r}] + sys.argv[1:])
+''')
+            grep.chmod(0o755)
+            artifacts = base / 'candidate with spaces'
+            artifacts.mkdir()
+            wasm = artifacts / 'governance.wasm'
+            bash_env = base / 'bash-env'
+            env = dict(os.environ, PATH=str(binaries))
+            for key in ('BASH_ENV', 'ENV', 'MAKEFLAGS', 'MFLAGS', 'GNUMAKEFLAGS', 'SHELLOPTS'):
+                env.pop(key, None)
+            cases = [
+                ('clean', True, 'OK   1 test-only'),
+                ('forbidden', False, 'exports test-only ABI'),
+                ('strings_error', False, 'cannot inspect'),
+                ('strings_partial_error', False, 'cannot inspect'),
+                ('strings_forbidden_error', False, 'cannot inspect'),
+                ('grep_error', False, 'symbol search failed'),
+                ('grep_missing', False, 'symbol search failed'),
+                ('large_forbidden', False, 'exports test-only ABI'),
+                ('missing_strings', False, 'cannot inspect'),
+                ('missing_artifact', False, 'no deploy WASM'),
+                ('classifier_error', False, 'classifier failed'),
+                ('classifier_empty', False, 'reports no test-only entrypoints'),
+                ('exempt', True, 'OK   0 test-only'),
+            ]
+            for errexit, pipefail in ((False, False), (False, True), (True, False), (True, True)):
+                bash_env.write_text(('set -e\n' if errexit else 'set +e\n') + 'set ' + ('-o' if pipefail else '+o') + ' pipefail\n')
+                for case, success, marker in cases:
+                    with self.subTest(case=case, errexit=errexit, pipefail=pipefail):
+                        wasm.write_bytes(b'local ABI inspection fixture')
+                        strings.write_text(emitter)
+                        strings.chmod(0o755)
+                        if case == 'missing_strings':
+                            strings.unlink()
+                        if case == 'missing_artifact':
+                            wasm.unlink()
+                        result = subprocess.run(
+                            [MAKE, '--no-print-directory', '-f', str(ROOT / 'Makefile'),
+                             'candidate-testing-abi-check', f'DEPLOY_DIR={artifacts}',
+                             'WASM_ABI_EXEMPT_SYMBOLS=set_price_aggregator'],
+                            cwd=base, env=env | {'ABI_CASE': case, 'BASH_ENV': str(bash_env)},
+                            capture_output=True, text=True, timeout=10)
+                        self.assertEqual(result.returncode == 0, success, result.stdout + result.stderr)
+                        self.assertIn(marker, result.stdout + result.stderr)
+                        if not success:
+                            self.assertNotIn('OK   ', result.stdout)
 
 
 if __name__ == '__main__':

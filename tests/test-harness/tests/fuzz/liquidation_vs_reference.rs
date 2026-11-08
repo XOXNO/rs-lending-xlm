@@ -12,6 +12,40 @@ use test_harness::{hub_asset, LendingTest, ALICE, LIQUIDATOR};
 const ULP_BOUND_USD_WAD: i128 = 10;
 const ULP_BOUND_TOKENS: i128 = 50;
 
+fn within_reference_tolerance(
+    difference: i128,
+    reference_abs: i128,
+    absolute_bound: i128,
+    relative_scale: i128,
+) -> bool {
+    let relative_ok = reference_abs != 0 && difference * relative_scale <= reference_abs;
+    difference <= absolute_bound || relative_ok
+}
+
+#[test]
+fn reference_tolerance_requires_absolute_bound_for_zero() {
+    for (difference, reference_abs, absolute_bound, relative_scale, expected) in [
+        (0, 0, ULP_BOUND_USD_WAD, 1_000, true),
+        (10, 0, ULP_BOUND_USD_WAD, 1_000, true),
+        (11, 0, ULP_BOUND_USD_WAD, 1_000, false),
+        (10, 1, ULP_BOUND_USD_WAD, 1_000, true),
+        (11, 11_000, ULP_BOUND_USD_WAD, 1_000, true),
+        (12, 11_000, ULP_BOUND_USD_WAD, 1_000, false),
+        (0, 0, ULP_BOUND_TOKENS, 200, true),
+        (50, 0, ULP_BOUND_TOKENS, 200, true),
+        (51, 0, ULP_BOUND_TOKENS, 200, false),
+        (50, 1, ULP_BOUND_TOKENS, 200, true),
+        (51, 10_200, ULP_BOUND_TOKENS, 200, true),
+        (52, 10_200, ULP_BOUND_TOKENS, 200, false),
+    ] {
+        assert_eq!(
+            within_reference_tolerance(difference, reference_abs, absolute_bound, relative_scale),
+            expected,
+            "difference={difference} reference_abs={reference_abs} absolute_bound={absolute_bound} relative_scale={relative_scale}",
+        );
+    }
+}
+
 fn target_hf_wad() -> BigRational {
     let wad = BigRational::from_integer(BigInt::from(WAD));
     wad * BigRational::from_integer(BigInt::from(110))
@@ -130,13 +164,21 @@ fn run_liquidation_differential(
 
     let debt_diff = (prod_debt_reduction - ref_total_repaid_usd_wad).abs();
     let debt_ref_abs = ref_total_repaid_usd_wad.abs();
-    let debt_rel_ok = debt_ref_abs == 0 || debt_diff * 1_000 <= debt_ref_abs;
-    prop_assert!(debt_diff <= ULP_BOUND_USD_WAD || debt_rel_ok);
+    prop_assert!(within_reference_tolerance(
+        debt_diff,
+        debt_ref_abs,
+        ULP_BOUND_USD_WAD,
+        1_000,
+    ));
 
     let coll_diff = (prod_coll_reduction - ref_total_seized_usd_wad).abs();
     let coll_ref_abs = ref_total_seized_usd_wad.abs();
-    let coll_rel_ok = coll_ref_abs == 0 || coll_diff * 1_000 <= coll_ref_abs;
-    prop_assert!(coll_diff <= ULP_BOUND_USD_WAD || coll_rel_ok);
+    prop_assert!(within_reference_tolerance(
+        coll_diff,
+        coll_ref_abs,
+        ULP_BOUND_USD_WAD,
+        1_000,
+    ));
 
     let usdc_supply_after_tokens = if t.find_account_id(ALICE).is_some() {
         t.supply_balance_raw(ALICE, "USDC")
@@ -153,8 +195,12 @@ fn run_liquidation_differential(
 
     let usdc_diff = (prod_usdc_seized - ref_usdc_seized_i128).abs();
     let usdc_ref_abs = ref_usdc_seized_i128.abs();
-    let usdc_rel_ok = usdc_ref_abs == 0 || usdc_diff * 200 <= usdc_ref_abs;
-    prop_assert!(usdc_diff <= ULP_BOUND_TOKENS || usdc_rel_ok);
+    prop_assert!(within_reference_tolerance(
+        usdc_diff,
+        usdc_ref_abs,
+        ULP_BOUND_TOKENS,
+        200,
+    ));
 
     // The liquidation is a single transaction at a fixed timestamp, so the whole
     // revenue delta is the withheld fee.
@@ -167,9 +213,8 @@ fn run_liquidation_differential(
     let ref_usdc_fee_i128 = reference::bigrational_to_i128_half_up(ref_usdc_fee_tokens);
     let fee_diff = (prod_usdc_fee - ref_usdc_fee_i128).abs();
     let fee_ref_abs = ref_usdc_fee_i128.abs();
-    let fee_rel_ok = fee_ref_abs == 0 || fee_diff * 200 <= fee_ref_abs;
     prop_assert!(
-        fee_diff <= ULP_BOUND_TOKENS || fee_rel_ok,
+        within_reference_tolerance(fee_diff, fee_ref_abs, ULP_BOUND_TOKENS, 200),
         "protocol fee drift: production {} reference {}",
         prod_usdc_fee,
         ref_usdc_fee_i128

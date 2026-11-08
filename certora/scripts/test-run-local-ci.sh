@@ -26,6 +26,11 @@ case "$STUB_MODE" in
   violated) echo "Violated: $rule-Assertions"; exit 1 ;;
   timeout) echo "$rule-Assertions: Solver timed out"; exit 1 ;;
   unknown) echo "$rule-Assertions: Solver failed"; exit 1 ;;
+  sanity) printf 'Verified: %s-Assertions\nSANITY_FAILED\n' "$rule"; exit 0 ;;
+  unwind) printf 'Violated: %s-Assertions\nUnwinding condition in a loop\n' "$rule"; exit 1 ;;
+  killed) exit 124 ;;
+  subrule) printf 'Violated: %s-Assertions-rule_not_vacuous_tac\nVerified: %s-Assertions\n' "$rule" "$rule"; exit 0 ;;
+  other-rule) echo 'Verified: another_rule-Assertions'; exit 0 ;;
   crash) echo 'Exception in thread "main" java.io.IOException: Cannot run program "z3"'; exit 1 ;;
 esac
 EOF
@@ -60,6 +65,11 @@ expect verified-conf-rules 0 "-> VERIFIED" verified ""
 expect violated 1 "-> VIOLATED" violated "$rule"
 expect timeout 0 "-> TIMEOUT" timeout "$rule"
 expect solver-unknown 0 "-> UNKNOWN" unknown "$rule"
+expect sanity-before-verified 1 "-> SANITY_FAILED" sanity "$rule"
+expect unwind-before-violated 1 "-> UNWIND" unwind "$rule"
+expect wrapper-killed 0 "-> KILLED" killed "$rule"
+expect healthy-vacuity-subrule 0 "-> VERIFIED" subrule "$rule"
+expect different-rule-verdict 1 "-> ERROR" other-rule "$rule"
 expect prover-crash 1 "-> ERROR" crash "$rule"
 expect stale-log-runner-exits-early 1 "-> NO-VERDICT" stale "$rule" \
   CERTORA_LOCAL= CERTORA_PYTHON=/nonexistent

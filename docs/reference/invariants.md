@@ -69,10 +69,11 @@ only keep or narrow a band.
 
 ### INV-AUTH-05 — Delay updates cannot shorten the minimum below its floor
 
-Construction requires a nonzero minimum delay. Delay updates can increase it,
-up to 241920 ledgers, or decrease it, but never below 34560 ledgers
-(`TIMELOCK_MIN_DELAY_LEDGERS`, about 2 days); construction enforces neither
-bound. Only the owner can propose `UpdateGovDelay`, and a decrease takes effect
+Construction requires a nonzero minimum delay and enforces neither update bound.
+Every update is capped at 241920 ledgers. A decrease must remain at or above
+34560 ledgers (`TIMELOCK_MIN_DELAY_LEDGERS`, about 2 days); a smaller constructor
+delay can be kept or increased while still below that floor. Only the owner can
+propose `UpdateGovDelay`, and a decrease takes effect
 only after the current, longer delay has passed. Sensitive and Recovery
 delays also apply their compiled minimums.
 

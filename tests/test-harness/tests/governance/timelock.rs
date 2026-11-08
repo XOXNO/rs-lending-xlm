@@ -6,7 +6,7 @@ use soroban_sdk::testutils::{Address as _, Ledger as _};
 use soroban_sdk::{Address, BytesN, IntoVal, Symbol};
 use test_harness::{
     assert_contract_error, errors, map_try_ok_unit, reflector_primary_anchor_config, usd,
-    usdc_preset, LendingTest, DEFAULT_TOLERANCE,
+    usdc_preset, LendingTest,
 };
 
 const SET_POSITION_LIMITS: &str = "set_position_limits";
@@ -374,16 +374,14 @@ fn resolve_market_oracle_view_matches_scheduled_and_executes() {
 
     assert_harness_delay(&t);
 
-    let cfg = reflector_primary_anchor_config(
-        &t.env,
-        &t.mock_reflector,
-        &asset,
-        usd(1),
-        DEFAULT_TOLERANCE.tolerance_bps,
-    );
+    let cfg = reflector_primary_anchor_config(&t.env, &t.mock_reflector, &asset, usd(1), 600);
 
     let resolved =
         gov.resolve_asset_oracle(&controller::types::PriceKey::Token(asset.clone()), &cfg);
+    let before = t.market_oracle_config(&asset);
+    assert_ne!(before, resolved, "scheduled oracle must change setup state");
+    assert_eq!(before.tolerance.upper_ratio_bps, 10_500);
+    assert_eq!(resolved.tolerance.upper_ratio_bps, 10_600);
 
     let id = gov.propose(
         &admin,
@@ -435,9 +433,16 @@ fn resolve_oracle_tolerance_view_matches_scheduled_and_executes() {
 
     assert_harness_delay(&t);
 
-    let tolerance = DEFAULT_TOLERANCE.tolerance_bps;
+    let tolerance = 600;
 
     let resolved = gov.resolve_oracle_tolerance(&tolerance);
+    let before = t.market_oracle_config(&asset).tolerance;
+    assert_ne!(
+        before, resolved,
+        "scheduled tolerance must change setup state"
+    );
+    assert_eq!(before.upper_ratio_bps, 10_500);
+    assert_eq!(resolved.upper_ratio_bps, 10_600);
 
     let id = gov.propose(
         &admin,

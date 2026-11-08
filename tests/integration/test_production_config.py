@@ -130,6 +130,69 @@ prod_curve_pool_job "$3" "$4" 7 && prod_curve_seed "$5"
         self.assertEqual((chainlink['decimals'], chainlink['max_stale_seconds']), (18, 93_600))
         self.assertEqual(providers['RedStone']['provider']['RedStone']['nature'], 'Fundamental')
 
+    def test_operator_materializes_provider_registry_for_static_validation(self):
+        repo = Path(__file__).resolve().parents[2]
+        source = repo / 'configs/mainnet'
+        networks = load(repo / 'configs', 'networks.json')
+        roles = ('reflector_cex_oracle', 'reflector_dex_oracle', 'reflector_fx_oracle',
+                 'redstone_adapter_contract', 'chainlink_data_feeds_proxy', 'xoxno_oracle_adapter')
+        prefix = r'''
+set -uo pipefail
+source "$1"
+RUN_DIR="$2"; NETWORKS_FILE="$2/networks.json"
+GOV_CONTROLLER=CTRL; GOVERNANCE=GOV; ADMIN=admin; ADMIN_ADDR=owner
+PA_HASH=pa; OWNED_AGGREGATOR=router; RPC_URL=https://example.invalid; NETWORK_PASSPHRASE=testnet
+phase() { :; }; save_state() { printf -v "$1" '%s' "$2"; }
+inv() { echo '"PA"'; }; prod_propose() { return 1; }
+flow_production_operator && exit 9
+test -s "$RUN_DIR/config/networks.json"
+'''
+        validate = r'''
+export STELLAR_CALLS="$1/stellar.calls"
+stellar() {
+    printf '%s\n' "$*" >> "$STELLAR_CALLS"
+    [ "$1 $2" = 'keys public-key' ] || return 99
+    echo fixture
+}
+export -f stellar
+NETWORK=testnet CONFIG_ROOT="$1/config" OPS_ROOT="$1/ops" SIGNER=fixture bash "$2" validateConfigs
+'''
+        alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567'
+        for only in (None, CALLER_MARKETS, ('USDT0',)):
+            with self.subTest(only=only), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                (root / 'config').mkdir()
+                mapping = {address: 'C' + 'A' * 53 + alphabet[i // 32] + alphabet[i % 32]
+                           for i, address in enumerate(plan(source, only))}
+                materialize(source, root / 'config/testnet', mapping, 'testnet', only)
+                missing = dict(mapping)
+                del missing[networks['mainnet']['chainlink_data_feeds_proxy']]
+                with self.assertRaisesRegex(AssertionError, 'missing or extraneous fixture addresses'):
+                    materialize(source, root / 'invalid', missing, 'testnet', only)
+                (root / 'address-map.json').write_text(json.dumps(mapping))
+                (root / 'networks.json').write_text(json.dumps(networks))
+                result = subprocess.run(['bash', '-c', prefix, '_', str(repo / 'tests/integration/flows/production.sh'), directory],
+                                        capture_output=True, text=True)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                generated = load(root / 'config', 'networks.json')
+                for role in roles:
+                    self.assertEqual(generated['testnet'][role], mapping.get(networks['mainnet'][role]))
+                self.assertEqual(generated['mainnet'], networks['mainnet'])
+                expected = dict(networks['testnet'], rpc_url='https://example.invalid', network_passphrase='testnet',
+                                controller='CTRL', governance='GOV', price_aggregator='PA', aggregator='router',
+                                accumulator='owner', hub_ids={}, spoke_ids={},
+                                **{role: mapping.get(networks['mainnet'][role]) for role in roles})
+                self.assertEqual(generated['testnet'], expected)
+                reviewed = source / 'curve_reviewed_pools.json'
+                if reviewed.exists():
+                    self.assertEqual((root / 'config/testnet/curve_reviewed_pools.json').read_bytes(), reviewed.read_bytes())
+                result = subprocess.run(['bash', '-c', validate, '_', directory, str(repo / 'configs/script.sh')],
+                                        capture_output=True, text=True)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertNotIn('differs from networks.json', result.stderr)
+                self.assertNotIn('is none of networks.json', result.stderr)
+                self.assertEqual((root / 'stellar.calls').read_text().splitlines(), ['keys public-key fixture'])
+
     def test_operator_refreshes_expired_fixture_twap_after_setup(self):
         script = Path(__file__).resolve().parent / 'flows/production.sh'
         seeds = [dict(kind='Reflector', contract='R', asset={'Other': 'XLM'}, price='525000000000000000'),
@@ -184,6 +247,7 @@ flow_production_operator
             (root / 'config/testnet').mkdir(parents=True)
             (root / 'logs').mkdir()
             (root / 'networks.json').write_text('{"testnet":{}}')
+            (root / 'address-map.json').write_text('{}')
             fixtures = root / 'config/testnet/fixtures.json'
             fixtures.write_text(json.dumps({'seeds': seeds}))
             (root / 'config/testnet/markets.json').write_text(json.dumps({'markets': [dict(

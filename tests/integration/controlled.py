@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Bind existing Rust controlled-ledger tests to candidate evidence."""
+"""Check native regression logs and attach candidate metadata; WASM consumption is not attested."""
 import hashlib
 import json
 import re
@@ -29,7 +29,7 @@ def verify(proof, candidate, log=None):
     assert re.fullmatch(r'[0-9a-f]{64}', proof['log_sha256']), 'missing controlled log hash'
     if log is not None:
         assert hashlib.sha256(log.read_bytes()).hexdigest()==proof['log_sha256'], 'controlled log changed'
-    assert proof['candidate']==candidate and proof['status']=='pass', 'controlled tests used a different candidate'
+    assert proof['candidate']==candidate and proof['status']=='pass', 'controlled candidate stamp or status mismatch'
     assert proof['manifest_sha256']==hashlib.sha256(MANIFEST.read_bytes()).hexdigest(), 'controlled manifest changed'
     assert proof['cases']==json.loads(MANIFEST.read_text()), 'controlled case evidence incomplete'
 
@@ -39,4 +39,4 @@ if __name__=='__main__':
     proof=collect(log,json.loads((directory/'candidate.json').read_text()))
     shutil.copyfile(log,directory/'controlled-tests.log')
     (directory/'controlled.json').write_text(json.dumps(proof,indent=2)+'\n')
-    print(f'Controlled ledger proofs: {len(proof["cases"])} passed')
+    print(f'Controlled native regressions: {len(proof["cases"])} passed')

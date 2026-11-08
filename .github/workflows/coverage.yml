@@ -8,6 +8,7 @@ on:
       - "**/Cargo.*"
       - "Makefile"
       - "scripts/coverage_report.py"
+      - ".github/workflows/coverage.yml"
       - "!services/**"
   pull_request:
     branches: [main]
@@ -16,6 +17,7 @@ on:
       - "**/Cargo.*"
       - "Makefile"
       - "scripts/coverage_report.py"
+      - ".github/workflows/coverage.yml"
       - "!services/**"
   workflow_dispatch:
 
@@ -211,7 +213,7 @@ jobs:
 
             const body = [
               marker,
-              '## 📊 Merged line coverage',
+              '## 📊 Merged native line coverage',
               '',
               headline,
               '',
@@ -220,7 +222,7 @@ jobs:
               table,
               '</details>',
               '',
-              '<sub>Scope: `make coverage-merged` — excludes test-harness, certora, vendor. Baseline: latest `main` run.</sub>',
+              '<sub>Scope: `make coverage-merged` — includes test-only code under `src/`; excludes test-harness, certora, vendor. Baseline: latest `main` run.</sub>',
             ].join('\n');
 
             const { owner, repo } = context.repo;

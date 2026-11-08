@@ -210,3 +210,17 @@ fn test_utilization_zero_supplied() {
     let env = Env::default();
     assert_eq!(utilization(&env, Ray::from(50 * RAY), Ray::ZERO), Ray::ZERO);
 }
+
+#[test]
+fn test_annual_borrow_rate_region3_uncapped_with_valid_params() {
+    let env = Env::default();
+    let mut raw = make_test_params_raw(&env);
+    raw.slope3 = 500_000_000_000_000_000_000_000_000;
+    raw.verify(&env);
+    let params = MarketParams::from(&raw);
+    let utilization = Ray::from(900_000_000_000_000_000_000_000_000_i128);
+    assert_eq!(
+        calculate_annual_borrow_rate(&env, utilization, &params).raw(),
+        400_000_000_000_000_000_000_000_000
+    );
+}

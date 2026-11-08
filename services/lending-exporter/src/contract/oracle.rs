@@ -401,12 +401,17 @@ mod tests {
 
     #[test]
     fn decodes_redstone_min_of_timestamps_to_seconds() {
-        let m = map(vec![
-            ("package_timestamp", ScVal::U64(1_700_000_500_000)),
-            ("write_timestamp", ScVal::U64(1_700_000_000_000)),
-        ]);
-        let obs = decode_redstone_price(&m).unwrap();
-        assert_eq!(obs.feed_ts_secs, 1_700_000_000);
+        for (package_timestamp, write_timestamp) in [
+            (1_700_000_500_000, 1_700_000_000_000),
+            (1_700_000_000_000, 1_700_000_500_000),
+        ] {
+            let m = map(vec![
+                ("package_timestamp", ScVal::U64(package_timestamp)),
+                ("write_timestamp", ScVal::U64(write_timestamp)),
+            ]);
+            let obs = decode_redstone_price(&m).unwrap();
+            assert_eq!(obs.feed_ts_secs, 1_700_000_000);
+        }
     }
 
     #[test]

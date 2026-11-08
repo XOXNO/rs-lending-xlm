@@ -3228,8 +3228,8 @@ setup_all_markets() {
     fi
 
     for market_name in $markets; do
-        create_market "$market_name"
         configure_market_oracle "$market_name"
+        create_market "$market_name"
     done
     echo "=== All markets configured ==="
 }
@@ -3299,10 +3299,9 @@ setup_all_wave() {
     ( SOURCE_FLAG="--source ${sources[1]}"; NETWORKS_FILE="$snapshot"; setup_all_reference_oracles ) \
         >"$dir/refs.out" 2>"$dir/refs.err" &
     p_refs=$!
-    NETWORKS_FILE="$snapshot" WAVE_SOURCES="${sources[*]:2}" wave_each "$dir" create_market $markets
     wave_stream_wait "$dir" spokes "$p_spokes"
     wave_stream_wait "$dir" refs "$p_refs"
-    [ "$WAVE_FAILED" -eq 0 ] || die "wave setup failed in the market phase; logs in $dir"
+    [ "$WAVE_FAILED" -eq 0 ] || die "wave setup failed in the prerequisite phase; logs in $dir"
 
     AUTO_EXECUTE=0 WAVE_SOURCES="${sources[*]}" wave_each "$dir" configure_market_oracle $markets
     [ "$WAVE_FAILED" -eq 0 ] || die "wave setup failed while proposing market oracles; logs in $dir"
@@ -3323,6 +3322,12 @@ setup_all_wave() {
         done
     ) >"$dir/oracles.out" 2>"$dir/oracles.err" &
     p_exec=$!
+    wave_stream_wait "$dir" oracles "$p_exec"
+    [ "$WAVE_FAILED" -eq 0 ] || die "wave setup failed while executing market oracles; logs in $dir"
+
+    NETWORKS_FILE="$snapshot" WAVE_SOURCES="${sources[*]:2}" wave_each "$dir" create_market $markets
+    [ "$WAVE_FAILED" -eq 0 ] || die "wave setup failed in the market phase; logs in $dir"
+
     ( SOURCE_FLAG="--source ${sources[1]}"; configure_spoke_curves ) >"$dir/curves.out" 2>"$dir/curves.err" &
     p_curves=$!
     for cat_id in $spokes; do
@@ -3339,7 +3344,6 @@ setup_all_wave() {
     if [ "$WAVE_FAILED" -eq 0 ] && [ "${#items[@]}" -gt 0 ]; then
         WAVE_SOURCES="${sources[*]:2}" wave_each "$dir" ensure_asset_in_spoke "${items[@]}"
     fi
-    wave_stream_wait "$dir" oracles "$p_exec"
     wave_stream_wait "$dir" curves "$p_curves"
     [ "$WAVE_FAILED" -eq 0 ] || die "wave setup failed in the listing phase; logs in $dir"
     [ -n "${WAVE_LOG_DIR:-}" ] || rm -rf "$dir"

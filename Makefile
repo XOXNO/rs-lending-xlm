@@ -41,7 +41,7 @@ SHELL := /bin/bash
         build build-one optimize deploy-artifacts release-artifacts integration-wasm integration-preflight integration-validate integration-shellcheck integration-appendix certora-wasm wasm-artifacts \
         certora certora-list \
         test test-harness test-verbose test-one test-match test-pool \
-        miri-common miri-pool miri-controller miri-all \
+        miri-common miri-all \
         coverage coverage-controller coverage-pool coverage-price-aggregator coverage-merged \
         docs-check fmt fmt-check clippy clippy-contracts clippy-fuzz scout scout-host scout-strict \
         access-control-check \
@@ -50,7 +50,7 @@ SHELL := /bin/bash
         cbm-reindex cbm-index \
         _mutants-check _mutants-harness-prepare \
         mutants mutants-math mutants-rates mutants-pool-interest mutants-common mutants-pool \
-        mutants-governance mutants-governance-oracle-probe mutants-diff \
+        mutants-governance mutants-curator mutants-diff \
         mutants-controller-core mutants-controller-context mutants-controller-positions \
         mutants-controller-strategies mutants-controller-views \
         mutants-aggregator mutants-oracle-adapter mutants-swap-aggregator \
@@ -675,12 +675,22 @@ candidate-testing-abi-check:
 			echo "FAIL: $$contract has test-only entrypoint '$$sym' but no deploy WASM: $$wasm"; \
 			status=1; continue; \
 		fi; \
-		if strings "$$wasm" | grep -qw "$$sym"; then \
+		if ! symbols=$$(strings "$$wasm"); then \
+			echo "FAIL: cannot inspect $$wasm with strings"; \
+			status=1; continue; \
+		fi; \
+		if grep -qw "$$sym" <<< "$$symbols"; then \
 			echo "FAIL: $$(basename $$wasm) exports test-only ABI '$$sym'"; \
 			echo "  The $$contract/testing feature leaked into the deployable build."; \
 			status=1; \
 		else \
-			checked=$$((checked+1)); \
+			result=$$?; \
+			if [ "$$result" -ne 1 ]; then \
+				echo "FAIL: symbol search failed for $$wasm ($$sym)"; \
+				status=1; \
+			else \
+				checked=$$((checked+1)); \
+			fi; \
 		fi; \
 	done; \
 	if [ "$$status" -eq 0 ]; then \
@@ -798,13 +808,10 @@ MUTANTS_TEST_TOOL_ARGS = $(if $(MUTANTS_TEST_TOOL),--test-tool=$(MUTANTS_TEST_TO
 
 
 
-# Named for the pass they belong to, not for their shape: the shard flag must
-# be applied exactly once per target (see run_mutants_two_pass), so a call site
-# passing the wrong one is a coverage bug that nothing else catches.
-MUTANTS_RUN_ARGS_ITERATE = $(MUTANTS_JOB_ARGS) \
+# The runner saves each pass and restricts retries to that pass's missed/timeout names.
+MUTANTS_RUN_ARGS = $(MUTANTS_SHARD_ARGS) $(MUTANTS_JOB_ARGS) \
 	$(MUTANTS_JOBSERVER_ARGS) $(MUTANTS_TEST_TOOL_ARGS) \
 	$(MUTANTS_FILTER) $(MUTANTS_EXTRA_ARGS)
-MUTANTS_RUN_ARGS = $(MUTANTS_SHARD_ARGS) $(MUTANTS_RUN_ARGS_ITERATE)
 MUTANTS_POOL_WASM := $(abspath $(RELEASE_DIR)/pool.wasm)
 MUTANTS_CONTROLLER_WASM := $(abspath $(RELEASE_DIR)/controller.wasm)
 MUTANTS_PRICE_AGGREGATOR_WASM := $(abspath $(RELEASE_DIR)/price_aggregator.wasm)
@@ -822,84 +829,27 @@ MUTANTS_ENV = PROPTEST_CASES=1 PROPTEST_RNG_SEED=0 \
 	SWAP_AGGREGATOR_WASM_PATH="$(MUTANTS_SWAP_AGGREGATOR_WASM)"
 
 define run_mutants
-	@count=$$(cargo mutants $(1) $(MUTANTS_FILTER) --list | wc -l); \
-		[ "$$count" -gt 0 ] || { echo "No mutants matched scope: $(1)"; exit 1; }; \
-		echo "Mutation scope: $$count mutants"
-	$(MUTANTS_ENV) cargo mutants $(MUTANTS_RUN_MODE) $(1) \
+	$(MUTANTS_ENV) python3 scripts/run_mutants.py --label "$@" -- \
+		$(MUTANTS_RUN_MODE) $(1) --minimum-test-timeout $(MUTANTS_TIMEOUT) $(MUTANTS_RUN_ARGS)
+endef
+
+# Test-package choices stay explicit here; the runner owns retry selection and status handling.
+define run_mutants_two_pass
+	$(MUTANTS_ENV) python3 scripts/run_mutants.py --label "$@" \
+		--pass='$(2)' --pass='$(3)' -- $(MUTANTS_RUN_MODE) $(1) \
 		--minimum-test-timeout $(MUTANTS_TIMEOUT) $(MUTANTS_RUN_ARGS)
 endef
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-# Sharding rule for every multi-pass macro below: `--shard k/N` partitions the
-# mutant list that cargo-mutants generates, so apply it exactly once, on pass 1
-# (the widest pass). The later passes run under `--iterate`, whose list is the
-# previous pass's missed/timeout set; sharding that set again drops mutants.
-#
-# Pass 1 compiles and tests every mutant in scope and dominates the runtime, so
-# sharding it splits most of the cost. Each shard owns one slice end to end, and
-# the union over shards equals an unsharded run.
-define run_mutants_two_pass
-	@count=$$(cargo mutants $(1) $(MUTANTS_FILTER) --list | wc -l); \
-		[ "$$count" -gt 0 ] || { echo "No mutants matched scope: $(1)"; exit 1; }; \
-		echo "Mutation scope: $$count mutants (two-pass)"
-	@status=0; \
-		$(MUTANTS_ENV) GITHUB_ACTIONS=false cargo mutants $(MUTANTS_RUN_MODE) $(1) $(2) \
-			--minimum-test-timeout $(MUTANTS_TIMEOUT) $(MUTANTS_RUN_ARGS) \
-			|| status=$$?; \
-		case $$status in 0|2|3) ;; *) exit $$status;; esac
-	@if [ -s mutants.out/missed.txt ] || [ -s mutants.out/timeout.txt ]; then \
-		$(MUTANTS_ENV) cargo mutants $(MUTANTS_RUN_MODE) --iterate $(1) $(3) \
-			--minimum-test-timeout $(MUTANTS_TIMEOUT) $(MUTANTS_RUN_ARGS_ITERATE); \
-	else \
-		echo "Full-suite pass skipped: package tests resolved every mutant"; \
-	fi
-endef
-
-
-
-
-
-
-
 define run_mutants_three_pass
-	@count=$$(cargo mutants $(1) $(MUTANTS_FILTER) --list | wc -l); \
-		[ "$$count" -gt 0 ] || { echo "No mutants matched scope: $(1)"; exit 1; }; \
-		echo "Mutation scope: $$count mutants (three-pass)"
-	@status=0; \
-		$(MUTANTS_ENV) GITHUB_ACTIONS=false cargo mutants $(MUTANTS_RUN_MODE) $(1) $(2) \
-			--minimum-test-timeout $(MUTANTS_TIMEOUT) $(MUTANTS_RUN_ARGS) \
-			|| status=$$?; \
-		case $$status in 0|2|3) ;; *) exit $$status;; esac
-	@if [ -s mutants.out/missed.txt ] || [ -s mutants.out/timeout.txt ]; then \
-		status=0; \
-		$(MUTANTS_ENV) GITHUB_ACTIONS=false cargo mutants $(MUTANTS_RUN_MODE) --iterate $(1) $(3) \
-			--minimum-test-timeout $(MUTANTS_TIMEOUT) $(MUTANTS_RUN_ARGS_ITERATE) \
-			|| status=$$?; \
-		case $$status in 0|2|3) ;; *) exit $$status;; esac; \
-	else \
-		echo "Native-consumer pass skipped: package tests resolved every mutant"; \
-	fi
-	@if [ -s mutants.out/missed.txt ] || [ -s mutants.out/timeout.txt ]; then \
-		$(MUTANTS_ENV) cargo mutants $(MUTANTS_RUN_MODE) --iterate $(1) $(4) \
-			--minimum-test-timeout $(MUTANTS_TIMEOUT) $(MUTANTS_RUN_ARGS_ITERATE); \
-	else \
-		echo "Integration pass skipped: native tests resolved every mutant"; \
-	fi
+	$(MUTANTS_ENV) python3 scripts/run_mutants.py --label "$@" \
+		--pass='$(2)' --pass='$(3)' --pass='$(4)' -- $(MUTANTS_RUN_MODE) $(1) \
+		--minimum-test-timeout $(MUTANTS_TIMEOUT) $(MUTANTS_RUN_ARGS)
 endef
 
 _mutants-check:
+	@python3 -c 'import tomllib' >/dev/null 2>&1 || { \
+		echo "Mutation targets require Python 3.11+ (tomllib)."; exit 1; \
+	}
 	@command -v cargo-mutants >/dev/null 2>&1 || { \
 		echo "cargo-mutants not installed. Install with:"; \
 		echo "  cargo install cargo-mutants --version $(CARGO_MUTANTS_VERSION) --locked"; \
@@ -952,7 +902,7 @@ mutants: mutants-common mutants-pool mutants-governance \
          mutants-controller-context mutants-controller-positions \
          mutants-controller-strategies mutants-controller-views \
          mutants-aggregator mutants-oracle-adapter mutants-defindex-strategy \
-         mutants-swap-aggregator mutants-position-nft
+         mutants-swap-aggregator mutants-position-nft mutants-curator
 
 
 mutants-math: _mutants-check
@@ -1024,10 +974,9 @@ mutants-controller-views: _mutants-harness-prepare
 
 
 mutants-diff: _mutants-harness-prepare
-	@[ -s "$(MUTANTS_DIFF_FILE)" ] || { echo "Empty diff; nothing to mutate."; exit 0; }
-
-
-	$(MUTANTS_ENV) cargo mutants $(MUTANTS_RUN_MODE) --in-diff "$(MUTANTS_DIFF_FILE)" \
+	@[ -s "$(MUTANTS_DIFF_FILE)" ] || { echo "Empty diff; nothing to mutate."; exit 0; }; \
+	$(MUTANTS_ENV) python3 scripts/run_mutants.py --label "$@" --allow-empty -- \
+		$(MUTANTS_RUN_MODE) --in-diff "$(MUTANTS_DIFF_FILE)" \
 		--test-workspace true \
 		--minimum-test-timeout $(MUTANTS_TIMEOUT) \
 		$(MUTANTS_JOB_ARGS) $(MUTANTS_SHARD_ARGS) $(MUTANTS_JOBSERVER_ARGS) \
@@ -1055,6 +1004,9 @@ mutants-defindex-strategy: _mutants-harness-prepare
 
 mutants-position-nft: _mutants-check
 	$(call run_mutants,--package position-nft --test-package position-nft)
+
+mutants-curator: _mutants-check
+	$(call run_mutants,--package curator --test-package curator)
 
 
 
@@ -1193,6 +1145,10 @@ proptest-one:
 	  echo "proptest-one requires TEST=<substring>; omitting it runs the whole fuzz suite."; \
 	  echo "Use 'make proptest' if that is what you want."; \
 	  exit 2; }
+	@tests=$$($(PROPTEST_ENV) cargo test --release -p test-harness --test fuzz $(TEST) -- --list) || exit $$?; \
+	  printf '%s\n' "$$tests" | grep -q ': test$$' || { \
+	    echo "proptest-one TEST=$(TEST) matched no tests."; \
+	    exit 2; }
 	@$(PROPTEST_ENV) cargo test --release -p test-harness --test fuzz $(TEST) -- --test-threads=1
 
 

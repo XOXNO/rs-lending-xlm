@@ -139,10 +139,11 @@
     "execution": "controlled-ledger",
     "methods": [
       "controller.supply",
-      "controller.borrow"
+      "controller.borrow",
+      "controller.repay"
     ],
     "test": "account_ttl_regression::test_one_sided_activity_renews_both_side_ttls",
-    "scope": "95-day account TTL renewal with one-sided activity"
+    "scope": "Supply/borrow setup; supply and repay each renew both position-map TTLs after separate 95-day aging"
   },
   {
     "id": "credit_5coll_5debt_ledger_drift",

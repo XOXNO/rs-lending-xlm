@@ -107,6 +107,15 @@ mod tests {
         assert_eq!(sync.params.asset_decimals, 7);
         assert_eq!(sync.params.reserve_factor_bps, 1000);
         assert!(sync.params.is_flashloanable);
+        assert_eq!(sync.params.flashloan_fee_bps, 9);
+        assert_eq!(sync.params.max_borrow_rate_ray, 123);
+        assert_eq!(sync.params.base_borrow_rate_ray, 1);
+        assert_eq!(sync.params.slope1_ray, 2);
+        assert_eq!(sync.params.slope2_ray, 3);
+        assert_eq!(sync.params.slope3_ray, 4);
+        assert_eq!(sync.params.mid_utilization_ray, 5);
+        assert_eq!(sync.params.optimal_utilization_ray, 6);
+        assert_eq!(sync.params.max_utilization_ray, 7);
         assert_eq!(sync.last_timestamp, 1_700_000_000);
     }
 }

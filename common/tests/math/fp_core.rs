@@ -160,6 +160,25 @@ fn test_mul_div_floor_rounds_toward_negative_infinity() {
 }
 
 #[test]
+fn test_positive_widened_floor_avoids_remainder_host_call() {
+    use soroban_sdk::testutils::budget::ContractCostType;
+
+    let env = Env::default();
+    let mut budget = env.cost_estimate().budget();
+    assert!(
+        RAY.checked_mul(RAY).is_none(),
+        "fixture must widen the product"
+    );
+    budget.reset_tracker();
+
+    assert_eq!(mul_div_floor(&env, RAY, RAY, RAY), RAY);
+    assert!(
+        budget.tracker(ContractCostType::Int256Div).iterations <= 1,
+        "nonnegative floor should not compute a remainder"
+    );
+}
+
+#[test]
 fn test_mul_div_ceil_rounds_toward_positive_infinity() {
     let env = Env::default();
 
@@ -172,6 +191,43 @@ fn test_mul_div_ceil_rounds_toward_positive_infinity() {
 
     assert_eq!(mul_div_ceil(&env, 7, 1, -3), -2);
     assert_eq!(mul_div_ceil(&env, -7, 1, -3), 3);
+}
+
+#[test]
+fn test_signed_widened_mul_div_rounding_matches_literal_fixtures() {
+    let env = Env::default();
+    for (x, y, d, floor, ceil) in [
+        (
+            -100_000_000_000_000_000_000i128,
+            100_000_000_000_000_000_000,
+            100_000_000_000_000_000_000,
+            -100_000_000_000_000_000_000,
+            -100_000_000_000_000_000_000,
+        ),
+        (
+            -100_000_000_000_000_000_000,
+            100_000_000_000_000_000_000,
+            300_000_000_000_000_000_000,
+            -33_333_333_333_333_333_334,
+            -33_333_333_333_333_333_333,
+        ),
+        (
+            -100_000_000_000_000_000_000,
+            -100_000_000_000_000_000_000,
+            -300_000_000_000_000_000_000,
+            -33_333_333_333_333_333_334,
+            -33_333_333_333_333_333_333,
+        ),
+    ] {
+        assert!(x.checked_mul(y).is_none(), "fixture must widen the product");
+        assert_eq!(mul_div_floor(&env, x, y, d), floor, "floor {x} {y} {d}");
+        assert_eq!(mul_div_ceil(&env, x, y, d), ceil, "ceil {x} {y} {d}");
+        assert_eq!(
+            mul_div_floor_saturating(&env, x, y, d),
+            floor,
+            "saturating floor {x} {y} {d}"
+        );
+    }
 }
 
 #[test]
@@ -584,4 +640,18 @@ fn test_rescale_variants_match_their_pre_refactor_bodies() {
             );
         }
     }
+}
+
+#[test]
+fn test_small_mul_div_floor_and_ceil_need_no_host_division() {
+    use soroban_sdk::testutils::budget::ContractCostType;
+
+    let env = Env::default();
+    let mut budget = env.cost_estimate().budget();
+    budget.reset_tracker();
+
+    assert_eq!(mul_div_floor(&env, 7, 1, 3), 2);
+    assert_eq!(mul_div_ceil(&env, 7, 1, 3), 3);
+    let divisions = budget.tracker(ContractCostType::Int256Div).iterations;
+    assert_eq!(divisions, 0);
 }

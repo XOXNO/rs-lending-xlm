@@ -28,6 +28,9 @@ Install the Rust toolchain and targets from `rust-toolchain.toml`, and Stellar
 CLI with `make install-stellar-cli`. Run `make build` before the tests: they
 load contract WASM from `target/`.
 
+Mutation targets also require Python 3.11+ and the pinned cargo-mutants version
+checked by `make _mutants-check`.
+
     make build
     make test
     make help

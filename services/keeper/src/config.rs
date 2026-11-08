@@ -543,6 +543,22 @@ mod tests {
 
         let blank = rpc("urls: [https://a.example, \"  \"]\npassphrase: p\n").expect("parses");
         assert!(blank.urls.iter().any(|u| u.trim().is_empty()));
+
+        let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("config/mainnet.yaml");
+        let mut config = KeeperConfig::load(&path).expect("shipped config validates");
+        config.rpc = cfg;
+        assert!(config
+            .validate()
+            .unwrap_err()
+            .to_string()
+            .contains("config.rpc.url lists no endpoint"));
+
+        config.rpc = blank;
+        assert!(config
+            .validate()
+            .unwrap_err()
+            .to_string()
+            .contains("config.rpc.url[1] is empty"));
     }
 
     fn contracts(gov_line: &str) -> ContractsConfig {

@@ -112,6 +112,7 @@ LOG_DIR="$2"; mode="$3"; AGGREGATOR_API=unused; AGGREGATOR_MIN_LEDGER=101
 _assert_fail() { echo "$*" >> "$LOG_DIR/failures"; return 1; }
 sleep() { :; }
 curl() {
+    [[ "${!#}" = *'&platform=aggregator' ]] || return 7
     local n=0 ledger=100 hops='[{}]'
     [ ! -f "$LOG_DIR/count" ] || n=$(cat "$LOG_DIR/count")
     n=$((n+1)); echo "$n" > "$LOG_DIR/count"

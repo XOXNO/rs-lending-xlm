@@ -105,10 +105,17 @@ then `flash-b`.
 | `prod-caller` | the same operator on the filtered config (8 markets and reference BTC, policies from `configs/mainnet`); 7/8/9/18 decimal round trips, Chainlink + RedStone USDT0, XOXNO-backed borrowing, contract caller and authority chain | disposable policy/wallet roots; `production_config.py --only caller` fixtures |
 | `sdk` | supply/borrow/repay/withdraw, routed multiply, Blend, events/error mapping/delayed signing | published SDK 1.0.221 and Stellar SDK 16.3.0; fresh contracts |
 
+Production replay maps provider registry roles through the same fixture address
+map as market policies; the operator validator keeps its provider checks.
+Fresh setup executes reference and token-oracle configuration before market
+creation; dependent oracle execution follows the market configuration order.
+Failed operator commands retain known signing hashes and fetch their receipts
+while preserving the original command failure.
+
 `cases.json` defines required terminal cases and action predicates, qualified by
 contract role and execution type. Its `lanes` field selects the cases each lane
 runs; `run_case` skips the others, and `test_release_gate.py` pins the map.
-`abi-coverage.json` maps all 218 candidate exports, including generated NFT
+`abi-coverage.json` maps all candidate exports, including generated NFT
 methods and constructors, to required actions or justified controlled tests. Nested-call mappings are source-traced; they are
 not runtime host call traces. `abi_coverage.py` compares actual WASM exports.
 
@@ -146,7 +153,8 @@ host operation and receipt return/event hash before recovering the result;
 the original CLI status and output remain in attempt evidence.
 
 Funding swaps share a checkout-wide file lock from quote acquisition through
-receipt confirmation. Quote snapshots must reach the RPC ledger observed after
+receipt confirmation. Quotes request `platform=aggregator` for Soroban composition.
+Quote snapshots must reach the RPC ledger observed after
 acquiring the lock. A cancelled or unresolved funding operation leaves
 `runs/.external-funding.<RUN_TS>.pending.json`; later funding with that RUN_TS
 (the same lane, or an `E2E_RESUME` of it) fails before quoting. Other lanes and
@@ -180,7 +188,9 @@ CI uploads detailed evidence on failure. `state.env` is local execution state;
 reports omit private key material. Native XLM financial deltas account for actual
 committed network fees. Raw token/share arithmetic uses integers, including
 18-decimal values; exact rounding predicates use committed indexes, not later
-projected view indexes.
+projected view indexes. Full liquidation closes distinguish ceiling-rounded
+cash payment from floor-valued debt-share credit; principal floors in WAD
+before conversion to RAY. Exact balance and share assertions remain required.
 
 ## Controlled time and acceptance limits
 
@@ -188,6 +198,9 @@ projected view indexes.
 expiry/recovery, dust-close footprint stability, account TTL and host auto-restore. These are controlled-ledger
 proofs, not multiweek testnet observations. The long-idle test compares paths
 sharing the accrual routine; it is not independent reference arithmetic.
+The collector checks native test names/results and stamps the supplied candidate
+metadata. It does not attest per-test WASM consumption; loaders may use native
+contracts or raw release images, and the curator image is outside this stamp.
 `integration-sdk-validate` tests native RPC restore preparation, a refreshed
 source sequence and malformed simulations offline. It does not claim live
 archival/restoration or automatic restore orchestration by the published SDK.
@@ -213,12 +226,12 @@ The harness pins 1.0.221 and checks all four published ESM/CJS root/lending
 entrypoints for the native 20M request, returned resources/fee, unsigned output,
 and unchanged invocation. Error mapping is checked offline and live. Local SDK substitutions remain forbidden.
 
-Live acceptance remains outstanding for newly added predicates and branches.
-Complete liquidation, stress and flash smokes passed their 15, 12 and 11 cases. The SDK
-lifecycle, routed strategy and Blend passed financial checks; its earlier
-error-mapping and instruction-budget failures require a fresh run with SDK 1.0.221. These smokes used
-uncommitted harness snapshots and do
-not satisfy final-SHA acceptance. Submitted Reflector
+The 2026-11-06 local run `audit-20261106-204146` passed all thirteen lane
+gates and the final collector: 114 case executions covering all 60 manifest
+cases. It used a frozen snapshot with uncommitted harness changes. Final-SHA
+and release-workflow acceptance remain outstanding.
+
+Submitted Reflector
 storage-footprint races (for example release run 36260155105, attempt 2,
 `sdk_borrow`) are retried once under the rule above; every other
 storage-footprint failure stays sticky. Fresh complete runs

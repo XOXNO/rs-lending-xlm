@@ -332,7 +332,7 @@ fn band_partial_and_full_close_are_both_profitable_for_the_liquidator() {
 /// A flash-loan callback cannot reach any controller entrypoint.
 ///
 /// The call stack is controller -> pool -> receiver -> controller. Cross-contract
-/// calls default to `ContractReentryMode::Prohibited` (soroban-env-host 27.0.1,
+/// calls default to `ContractReentryMode::Prohibited` (soroban-env-host 28.0.2,
 /// `src/host/frame.rs`), and re-entry into a contract already on the context
 /// stack returns `Error(Context, InvalidAction)`.
 ///

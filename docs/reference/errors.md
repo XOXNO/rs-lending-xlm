@@ -234,11 +234,11 @@ Reflector runtime TWAP errors, including 212, 219 and 222, make the source leg u
 
 ## Relevant inherited errors
 
-OpenZeppelin stellar-contracts revision `fbfde388e1b72afa93d6b1c922067879b20e81db` supplies the NFT, authorization and timelock helpers. A deployed contract can raise both its own errors and these overlapping inherited codes. An error declaration does not make an unexported extension callable.
+OpenZeppelin stellar-contracts revision `59b98f8e127f0e877a3870e8eb82fa282a4aadf3` supplies the NFT, authorization and timelock helpers. A deployed contract can raise both its own errors and these overlapping inherited codes. An error declaration does not make an unexported extension callable.
 
 | Namespace | Codes and handling |
 | --- | --- |
-| NFT ownership/approval | 200 NonExistentToken: use live id; 201 IncorrectOwner: correct from; 202 InsufficientApproval: authorize spender; 203 InvalidApprover: owner/operator required; 204 InvalidLiveUntilLedger: valid expiry. |
+| NFT ownership/approval | 200 NonExistentToken: use live id; 201 IncorrectOwner: correct from; 202 InsufficientApproval: authorize spender; 203 InvalidApprover: owner/operator required; 204 InvalidLiveUntilLedger: nonzero expiry must be from the current ledger through its maximum live-until bound; 0 revokes. |
 | NFT accounting/metadata | 205 MathOverflow, 206 TokenIDsAreDepleted: report exhaustion/state; 208 TokenNotFoundInOwnerList, 209 TokenNotFoundInGlobalList: valid index; 210 UnsetMetadata: initialize; 211 BaseUriMaxLenExceeded, 213 NameMaxLenExceeded, 214 SymbolMaxLenExceeded: shorten metadata. 207 InvalidAmount and 212 InvalidRoyaltyAmount belong to unused consecutive/royalty extensions. |
 | Pausable | 1000 EnforcedPause: operation is pause-gated; 1001 ExpectedPause: unpause requires paused state. |
 | Ownable | 2100 OwnerNotSet: missing owner; 2101 TransferInProgress: only `renounce_ownership` raises it, and no contract in this tree exports that call; 2102 OwnerAlreadySet: helper rejects repeated initialization. Role-transfer errors below cover pending-owner state; auth can raise host errors. |

@@ -91,7 +91,7 @@ for manifest in "${contracts[@]}"; do
     --exclude "$scout_exclude" \
     --output-format "$format" \
     --output-path "$out" \
-    -- --locked >"$log" 2>&1; then
+    -- --locked >"$log" 2>&1 || [ ! -f "$out" ] || [ ! -s "$out" ]; then
     echo "Scout failed for $manifest; see $log" >&2
     incomplete=$((incomplete + 1))
     continue

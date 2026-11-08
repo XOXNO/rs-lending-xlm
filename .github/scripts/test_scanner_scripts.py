@@ -109,6 +109,47 @@ class ScannerScripts(unittest.TestCase):
                                     env={**env, "GIT_EXIT": str(status)}, capture_output=True, text=True)
             self.assertEqual(result.returncode, status or 1)
 
+    def test_scout_requires_complete_reports(self):
+        contracts = sorted(path.split("/")[1] for path in scope.IN_SCOPE if path.startswith("contracts/"))
+        manifests = [f"contracts/{crate}/Cargo.toml" for crate in contracts] + ["common/Cargo.toml"]
+        for manifest in manifests:
+            path = self.work / manifest
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text('crate-type = ["cdylib", "rlib"]\n')
+        listed = self.work / "git-files"
+        listed.write_bytes(b"\0".join(path.encode() for path in manifests) + b"\0")
+        detectors = self.work / "detectors"
+        (detectors / "nightly").mkdir(parents=True)
+        self.stub("git", 'cat "$SCOUT_FILE_LIST"\n')
+        self.stub("cargo", '''out=
+while [ "$#" -gt 0 ]; do
+    if [ "$1" = --output-path ]; then out="$2"; shift; fi
+    shift
+done
+printf '%s\\n' "${out##*/}" >> "$SCOUT_CALLS"
+case "$SCOUT_REPORT_MODE" in
+    missing) exit 0 ;;
+    empty) : > "$out"; exit 0 ;;
+    partial) [ "${out##*/}" != curator.json ] || exit 0 ;;
+    cargo-failure) exit 42 ;;
+    incomplete) printf 'Compilation errors\\n' > "$out"; exit 0 ;;
+esac
+printf '%s\\n' '{"summary":{"by_severity":{}},"findings":[]}' > "$out"
+''')
+        calls = self.work / "cargo-calls"
+        for mode in ("complete", "missing", "empty", "partial", "cargo-failure", "incomplete"):
+            with self.subTest(mode=mode):
+                calls.unlink(missing_ok=True)
+                result = self.run_script("run_scout.sh", SCOUT_SOURCE_DIR=str(detectors),
+                    SCOUT_FILE_LIST=str(listed), SCOUT_CALLS=str(calls), SCOUT_REPORT_MODE=mode,
+                    SCOUT_OUTPUT_FORMAT="json", SCOUT_STRICT="1")
+                self.assertEqual(result.returncode == 0, mode == "complete", result.stdout + result.stderr)
+                self.assertEqual(sorted(calls.read_text().splitlines()), [f"{crate}.json" for crate in contracts])
+                if mode == "complete":
+                    reports = list((self.work / "target/scout-audit").glob("*.json"))
+                    self.assertEqual(len(reports), len(contracts))
+                    self.assertTrue(all(report.stat().st_size > 0 for report in reports))
+
 
 if __name__ == "__main__":
     unittest.main()

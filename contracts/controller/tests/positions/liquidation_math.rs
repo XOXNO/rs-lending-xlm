@@ -276,7 +276,20 @@ fn liquidation_plan_validate_rejects_repay_sum_mismatch() {
 fn liquidation_plan_validate_rejects_zero_seize_amount() {
     let env = Env::default();
     let mut seized = Vec::new(&env);
-    seized.push_back(seize_entry(&env, 0, 0));
+    let mut entry = seize_entry(&env, 0, 0);
+    entry.scaled_amount = 1;
+    seized.push_back(entry);
+    plan_with(&env, 5 * WAD, seized).validate(&env);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #34)")]
+fn liquidation_plan_validate_rejects_zero_seize_shares() {
+    let env = Env::default();
+    let mut seized = Vec::new(&env);
+    let mut entry = seize_entry(&env, 1, 0);
+    entry.scaled_amount = 0;
+    seized.push_back(entry);
     plan_with(&env, 5 * WAD, seized).validate(&env);
 }
 

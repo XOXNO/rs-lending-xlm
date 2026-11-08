@@ -1,5 +1,5 @@
 use controller::types::{
-    AccountMeta, AccountPositionRaw, ControllerKey, DebtPositionRaw, PositionMode,
+    AccountMeta, AccountPositionRaw, ControllerKey, DebtPositionRaw, HubAssetKey, PositionMode,
 };
 use soroban_sdk::testutils::Address as _;
 use soroban_sdk::xdr::{
@@ -7,6 +7,7 @@ use soroban_sdk::xdr::{
     LedgerEntryExt, LedgerKey, LedgerKeyContractData, Limits, ScAddress, ScVal, WriteXdr,
 };
 use soroban_sdk::{Address, Env, IntoVal, Map, TryFromVal, Val};
+use test_harness::helpers::{hub_asset, HARNESS_HUB};
 
 fn scval_of<T: IntoVal<Env, Val>>(env: &Env, v: T) -> ScVal {
     let val: Val = v.into_val(env);
@@ -92,29 +93,41 @@ fn print_storage_sizes() {
         scval_of(&env, meta_spoke),
     );
 
-    println!("---- SupplyPositions: Map<Address, AccountPositionRaw> ----");
+    println!("---- SupplyPositions: Map<HubAssetKey, AccountPositionRaw> ----");
     for n in 0..=4u32 {
-        let mut m: Map<Address, AccountPositionRaw> = Map::new(&env);
+        let mut m: Map<HubAssetKey, AccountPositionRaw> = Map::new(&env);
         for _ in 0..n {
-            m.set(Address::generate(&env), pos());
+            m.set(hub_asset(Address::generate(&env)), pos());
+        }
+        let value = scval_of(&env, m);
+        let decoded = Map::<HubAssetKey, AccountPositionRaw>::try_from_val(&env, &value).unwrap();
+        assert_eq!(decoded.len(), n);
+        for (key, _) in decoded {
+            assert_eq!(key.hub_id, HARNESS_HUB);
         }
         sizes(
             &format!("SupplyPositions ({} assets)", n),
             scval_of(&env, ControllerKey::SupplyPositions(id)),
-            scval_of(&env, m),
+            value,
         );
     }
 
-    println!("---- BorrowPositions: Map<Address, DebtPositionRaw> ----");
+    println!("---- BorrowPositions: Map<HubAssetKey, DebtPositionRaw> ----");
     for n in 0..=4u32 {
-        let mut m: Map<Address, DebtPositionRaw> = Map::new(&env);
+        let mut m: Map<HubAssetKey, DebtPositionRaw> = Map::new(&env);
         for _ in 0..n {
-            m.set(Address::generate(&env), debt());
+            m.set(hub_asset(Address::generate(&env)), debt());
+        }
+        let value = scval_of(&env, m);
+        let decoded = Map::<HubAssetKey, DebtPositionRaw>::try_from_val(&env, &value).unwrap();
+        assert_eq!(decoded.len(), n);
+        for (key, _) in decoded {
+            assert_eq!(key.hub_id, HARNESS_HUB);
         }
         sizes(
             &format!("BorrowPositions ({} assets)", n),
             scval_of(&env, ControllerKey::BorrowPositions(id)),
-            scval_of(&env, m),
+            value,
         );
     }
 

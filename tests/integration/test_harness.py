@@ -453,7 +453,12 @@ state='{"state":{"supply_index":"1000000000000000000000000000","borrow_index":"1
 pre='[{"market":{"scaled_amount":"1000000000000000000000000000000"}},{"market":{"scaled_amount":"600000000000000000000000000000"}}]'
 [ "$(liquidation_reference "$pre" "$state" "$state" 1000000000)" = '1000000000 1666571428 2380000' ] || exit 1
 pre='[{"market":{"scaled_amount":"833342857200000000000000000000"}},{"market":{"scaled_amount":"500000000000000000000000000000"}}]'
-[ "$(liquidation_reference "$pre" "$state" "$state" 6000000000)" = '5000000000 8332857142 11899999' ] || exit 1
+[ "$(liquidation_reference "$pre" "$state" "$state" 6000000000)" = '5000000000 8332857142 11900000' ] || exit 1
+# Fractional indexed debt: cash settles at ceil, seizure credits floor-valued shares.
+pre='[{"market":{"scaled_amount":"833342857200000000000000000000"}},{"market":{"scaled_amount":"499999985642454731292915433774"}}]'
+debt='{"state":{"borrow_index":"1000000042184084348923941158"}}'
+[ "$(liquidation_reference "$pre" "$state" "$debt" 6000000000)" = '5000000068 8332857255 11900000' ] || exit 1
+[ "$(liquidation_reference "$pre" "$state" "$debt" 5000000067)" = '5000000067 8332857254 11900000' ] || exit 1
 ''')
 # Wrong-share debt retirement cannot be hidden by correct token transfers.
 shell('''
@@ -482,7 +487,7 @@ xfail unauthorized 'Missing signing key for account victim' bob contract -- with
 # fractional native units retained by the first leg and spent by the next.
 R=10**27
 seized=166657142857142857143000000000
-fee=238000000000000000000204012
+fee=238000000000000000010000000
 stamp=dict(liquidation_threshold=7500,liquidation_bonus=800,liquidation_fees=100)
 credit_before=[{'market':dict(stamp,scaled_amount=str(1000*R))},{'debt':{'scaled_amount':str(600*R)}}]
 credit_after=deepcopy(credit_before); credit_after[0]['market']['scaled_amount']=str(1000*R-seized)
@@ -506,7 +511,7 @@ credit_check(existing,True)
 second=deepcopy(credit_values)
 second[0]=deepcopy(credit_after); second[1]=deepcopy(credit_after)
 second_seized=83328571428571428571000000000
-second_fee=118999999999999999999387966
+second_fee=119000000000000000000000000
 second[1][0]['market']['scaled_amount']=str(1000*R-seized-second_seized)
 second[1][1]['debt']['scaled_amount']=str(450*R)
 second[2]=deepcopy(receiver_after)

@@ -74,6 +74,9 @@ def write_report(lcov_path: Path, report_path: Path, mode: str) -> tuple[int, in
     lines = [
         f"# Stellar Lending Protocol — {mode.capitalize()} Coverage Report",
         "",
+        "Native source line coverage. Includes test-only code under `src/`; "
+        "does not measure assertion strength or production WASM execution.",
+        "",
         "| File | Lines | Hit | Miss | Coverage |",
         "|------|-------|-----|------|----------|",
     ]

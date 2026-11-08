@@ -15,7 +15,7 @@ write_report() {
         echo '| status | count | meaning |'
         echo '|---|---|---|'
         awk -F'\t' 'NR>1 {c[$4]++} END {
-            m["ok"]="transaction succeeded on-chain";
+            m["ok"]="successful action; execution kind in evidence.tsv";
             m["read"]="read-only view (simulated, no tx)";
             m["xfail"]="reverted exactly as the test expected";
             m["sim-ok"]="budget probe: fits in the per-tx budget";

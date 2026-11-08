@@ -26,4 +26,5 @@ fn position_value_floor_and_ceil_bound_half_up() {
     let ceil = position_value_ceil(&env, scaled, index, price);
     assert!(floor <= half);
     assert!(half <= ceil);
+    assert_eq!(ceil.raw(), 1_866_666_666_666_666_667);
 }

@@ -1170,19 +1170,36 @@ fn test_flash_loan_rejects_direct_non_owner_pool_call() {
     enable_flashloan(&t);
     let receiver = t.env.register(PoolFlashLoanReceiver, ());
     let attacker = Address::generate(&t.env);
+    let amount = 1_0000000i128;
+    let data = Bytes::new(&t.env);
+    let fee = common::math::fp::Bps::from(100).flash_loan_fee_on(&t.env, amount);
+    token::StellarAssetClient::new(&t.env, &t.asset).mint(&receiver, &fee);
     let no_auths: [SorobanAuthorizationEntry; 0] = [];
 
     let result = client.set_auths(&no_auths).try_flash_loan(
         &hub(&t.asset),
         &attacker,
         &receiver,
-        &1_0000000i128,
-        &Bytes::new(&t.env),
+        &amount,
+        &data,
     );
 
     assert!(
         result.is_err(),
         "direct pool flash loan without owner/controller auth must fail"
+    );
+
+    assert_eq!(
+        result.unwrap_err().expect("SDK host error value"),
+        Error::from_type_and_code(
+            soroban_sdk::xdr::ScErrorType::Context,
+            soroban_sdk::xdr::ScErrorCode::InvalidAction,
+        )
+    );
+
+    assert_eq!(
+        client.flash_loan(&hub(&t.asset), &attacker, &receiver, &amount, &data),
+        fee
     );
 }
 
@@ -1766,8 +1783,24 @@ fn test_claim_revenue_rejects_utilization_above_max_after_revenue_burn() {
         state.cash = 10_0000000i128;
     });
 
+    let state_before = t.state_snapshot();
+    let tok = token::Client::new(&t.env, &t.asset);
+    let pool_balance_before = tok.balance(&t.pool);
+    let admin_balance_before = tok.balance(&t.admin);
+    let transfers_before = count_first_topic(&t.env.events().all(), "transfer");
+
     let result = flatten_contract_result(client.try_claim_revenue(&hub(&t.asset)));
     assert_contract_error(result, CollateralError::UtilizationAboveMax as u32);
+
+    let state_after = t.state_snapshot();
+    assert_pool_state_eq(&state_after, &state_before);
+    assert_eq!(state_after.cash, state_before.cash);
+    assert_eq!(tok.balance(&t.pool), pool_balance_before);
+    assert_eq!(tok.balance(&t.admin), admin_balance_before);
+    assert_eq!(
+        count_first_topic(&t.env.events().all(), "transfer"),
+        transfers_before
+    );
 }
 
 #[test]
@@ -2673,15 +2706,30 @@ fn test_create_market_rejects_non_owner() {
     let t = TestSetup::new();
     let client = t.client();
     let asset_b = Address::generate(&t.env);
+    let params = market_params(&asset_b);
     let no_auths: [SorobanAuthorizationEntry; 0] = [];
 
     let result = client
         .set_auths(&no_auths)
-        .try_create_market(&0u32, &market_params(&asset_b));
+        .try_create_market(&0u32, &params);
 
     assert!(
         result.is_err(),
         "create_market without owner auth must fail"
+    );
+
+    assert_eq!(
+        result.unwrap_err().expect("SDK host error value"),
+        Error::from_type_and_code(
+            soroban_sdk::xdr::ScErrorType::Context,
+            soroban_sdk::xdr::ScErrorCode::InvalidAction,
+        )
+    );
+
+    client.create_market(&0u32, &params);
+    assert_eq!(
+        client.get_sync_data(&hub(&asset_b)).params.asset_id,
+        asset_b
     );
 }
 

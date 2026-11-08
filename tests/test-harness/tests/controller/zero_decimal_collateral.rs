@@ -427,7 +427,16 @@ fn sweep(nav_cents: i128, sizes: &[i128]) -> std::vec::Vec<(i128, Option<LiqOutc
 #[test]
 fn zdc_transfer_liquidation_sweep_nav_1000() {
     let rows = sweep(100_000, &[10, 20, 50, 100, 1_000]);
+    assert_eq!(
+        rows.iter().filter(|(_, out)| out.is_some()).count(),
+        5,
+        "every debt-sized sweep offer must settle"
+    );
     for (n, out) in rows.iter().filter_map(|(n, o)| o.as_ref().map(|o| (n, o))) {
+        assert!(
+            out.paid_usdc_raw > 0 && out.debt_after < out.debt_before,
+            "{n}: {out:?}"
+        );
         assert!(out.got_units > 0, "{n} units: every settled call seizes");
         assert_eq!(
             out.units_before,
@@ -440,7 +449,17 @@ fn zdc_transfer_liquidation_sweep_nav_1000() {
 #[test]
 fn zdc_transfer_liquidation_sweep_nav_1() {
     let rows = sweep(100, &[10, 20, 50, 100, 1_000, 10_000]);
+    assert_eq!(
+        rows.iter().filter(|(_, out)| out.is_some()).count(),
+        6,
+        "every debt-sized sweep offer must settle"
+    );
     for (n, out) in rows.iter().filter_map(|(n, o)| o.as_ref().map(|o| (n, o))) {
+        assert!(out.got_units > 0, "{n} units: every settled call seizes");
+        assert!(
+            out.paid_usdc_raw > 0 && out.debt_after < out.debt_before,
+            "{n}: {out:?}"
+        );
         assert_eq!(out.units_before, out.units_after + out.got_units, "{n}");
     }
 }

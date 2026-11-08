@@ -262,6 +262,8 @@ Account ids are NFT token ids: the NFT uses `u32`, and the controller exposes th
 
 `token_uri` reads stored base URI, appends token id and `?isStatic=true&chain=STELLAR`; it requires an existing token. No generic metadata setter, ownership setter or Burnable burn_from is exported.
 
+Nonzero approval expiries must be no earlier than the current ledger and cannot exceed its maximum live-until ledger; `0` revokes an approval.
+
 ## Swap aggregator
 
 Constructor `(admin: Address)` sets the router owner. The sender authorizes `execute_strategy`. Its XDR payload carries a validated, packed instruction stream of swaps and Aquarius LP burns and mints. A Curve swap leg also mints LP when its output is the pool, and burns LP to one coin when its input is the pool. The router applies fees, checks its output balance against the route minimum, then transfers and returns the payout amount.
@@ -389,4 +391,4 @@ Constructor takes `asset: Address` and `init_args: Vec<Val> = [controller: Addre
 - [Pool ABI](../../interfaces/pool/src/lib.rs), [implementation](../../contracts/pool/src/lib.rs); [governance ABI](../../interfaces/governance/src/lib.rs), [implementation](../../contracts/governance/src/api.rs), [immediate authority](../../contracts/governance/src/timelock/immediate.rs).
 - [NFT implementation](../../contracts/position-nft/src/contract.rs); [router ABI](../../interfaces/swap-aggregator/src/lib.rs), [implementation](../../contracts/swap-aggregator/src/lib.rs); [price ABI](../../interfaces/price-aggregator/src/lib.rs).
 - [XOXNO oracle](../../contracts/xoxno-oracle/src/lib.rs), [admin](../../contracts/xoxno-oracle/src/admin.rs), [reads](../../contracts/xoxno-oracle/src/reads.rs), [submit](../../contracts/xoxno-oracle/src/submit.rs); [adapter](../../contracts/defindex-strategy/src/lib.rs).
-- Generated NFT/default ownership semantics use OpenZeppelin stellar-contracts revision `fbfde388e1b72afa93d6b1c922067879b20e81db`, pinned in [Cargo.toml](../../Cargo.toml).
+- Generated NFT/default ownership semantics use OpenZeppelin stellar-contracts revision `59b98f8e127f0e877a3870e8eb82fa282a4aadf3`, pinned in [Cargo.toml](../../Cargo.toml).

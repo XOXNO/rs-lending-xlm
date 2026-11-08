@@ -19,10 +19,21 @@ fn two_positions_then_limit_of_one() -> LendingTest {
 #[test]
 fn a_held_asset_can_still_be_topped_up_after_the_limit_drops_below_the_count() {
     let mut t = two_positions_then_limit_of_one();
+    let account = t.account_id(ALICE);
+    let before = t.supply_balance_raw_for(account, "USDC");
     t.try_supply(ALICE, "USDC", 100.0)
         .expect("top-up opens no slot");
+    let after_owner = t.supply_balance_raw_for(account, "USDC");
+    assert!(
+        after_owner > before,
+        "owner top-up must credit ALICE's USDC position"
+    );
     t.try_supply_to_account(CAROL, ALICE, "USDC", 1.0)
         .expect("third-party top-up opens no slot");
+    assert!(
+        t.supply_balance_raw_for(account, "USDC") > after_owner,
+        "third-party top-up must credit ALICE's USDC position"
+    );
 }
 
 #[test]

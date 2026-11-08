@@ -604,8 +604,7 @@ fn test_mixed_adapter_groups() {
 }
 
 #[test]
-#[should_panic(expected = "Error(Contract, #3)")]
-fn test_committed_bulk_failure_reverts_on_missing_anchor() {
+fn test_committed_bulk_missing_anchor_is_unsafe_price() {
     let mut t = LendingTest::new().standard_two_asset().build();
 
     let redstone = register_redstone_adapter(&t, &[("USDC", usd(1)), ("ETH", usd(2000))]);
@@ -619,7 +618,15 @@ fn test_committed_bulk_failure_reverts_on_missing_anchor() {
         t.env.storage().temporary().remove(&key);
     });
 
-    let _ = t.total_collateral(ALICE);
+    let result = t
+        .ctrl_client()
+        .try_get_total_collateral_usd(&t.resolve_account_id(ALICE));
+    assert_eq!(
+        result,
+        Err(Ok(soroban_sdk::Error::from_contract_error(
+            errors::OracleError::UnsafePriceNotAllowed as u32,
+        )))
+    );
 }
 
 #[test]

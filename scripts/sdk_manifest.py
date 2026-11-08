@@ -11,6 +11,7 @@ Run after `make wasm-size-check`. Usage: sdk_manifest.py OUT_DIR
 """
 import hashlib
 import json
+import os
 import pathlib
 import sys
 
@@ -19,7 +20,8 @@ from strip_spec_docs import read_leb128
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 OPTIMIZED = ROOT / "target" / "optimized"
 DEPLOY = ROOT / "artifacts" / "wasm" / "deploy"
-RELEASE = ROOT / "target" / "wasm32v1-none" / "release"
+# Fixture builds run from the repository root.
+RELEASE = ROOT / os.environ.get("CARGO_TARGET_DIR", "target") / "wasm32v1-none" / "release"
 
 CONTRACTS = ["controller", "pool", "position_nft", "price_aggregator", "governance"]
 MOCKS = {"mock_reflector": "mock_oracle", "mock_redstone": "mock_redstone"}
@@ -39,6 +41,8 @@ def code_hash(data: bytes) -> str:
 
 
 def main() -> None:
+    if os.environ.get("CARGO_TARGET_DIR") == "":
+        sys.exit("sdk_manifest: CARGO_TARGET_DIR must not be empty")
     out = pathlib.Path(sys.argv[1])
     out.mkdir(parents=True, exist_ok=True)
     manifest = {}
