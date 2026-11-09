@@ -312,3 +312,44 @@ jobs:
           esac
           gh release upload "$RELEASE_TAG" dist/*.wasm dist/*.wasm.sha256 dist/sdk-manifest.json dist/candidate.json dist/distribution.json --clobber
           gh release edit "$RELEASE_TAG" --draft=false
+
+  # Publishes the released WASM to the Stellar Registry as xoxno/<contract>,
+  # testnet first, then mainnet. Each job verifies the assets' attestations
+  # from this workflow before publishing. The packages list is
+  # RELEASE_CONTRACTS (`env` isn't available to reusable-workflow inputs).
+  registry-publish-testnet:
+    name: Publish to Stellar Registry (testnet)
+    needs: publish
+    if: github.event_name != 'workflow_dispatch' || !inputs.dry_run
+    permissions:
+      contents: write
+    uses: stellar-registry/actions/.github/workflows/registry-publish-assets.yml@3c895388e1648aefcc9991308595f57d1c365d12 # v2.1.0
+    with:
+      release_tag: ${{ inputs.tag || github.ref_name }}
+      version: ${{ inputs.tag || github.ref_name }}
+      packages: controller pool governance price_aggregator position_nft defindex_strategy aggregator xoxno-oracle-adapter
+      name_prefix: "xoxno/"
+      network: testnet
+      attestation_signer_workflow: ${{ github.repository }}/.github/workflows/release.yml
+      environment: registry-testnet
+    secrets:
+      signing_key: ${{ secrets.REGISTRY_PUBLISH_SECRET_KEY }}
+      release_token: ${{ secrets.GITHUB_TOKEN }}
+
+  registry-publish-mainnet:
+    name: Publish to Stellar Registry (mainnet)
+    needs: registry-publish-testnet
+    permissions:
+      contents: write
+    uses: stellar-registry/actions/.github/workflows/registry-publish-assets.yml@3c895388e1648aefcc9991308595f57d1c365d12 # v2.1.0
+    with:
+      release_tag: ${{ inputs.tag || github.ref_name }}
+      version: ${{ inputs.tag || github.ref_name }}
+      packages: controller pool governance price_aggregator position_nft defindex_strategy aggregator xoxno-oracle-adapter
+      name_prefix: "xoxno/"
+      network: mainnet
+      attestation_signer_workflow: ${{ github.repository }}/.github/workflows/release.yml
+      environment: registry-mainnet
+    secrets:
+      signing_key: ${{ secrets.REGISTRY_PUBLISH_SECRET_KEY }}
+      release_token: ${{ secrets.GITHUB_TOKEN }}
