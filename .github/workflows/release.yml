@@ -317,9 +317,8 @@ jobs:
   # testnet first, then mainnet. Each job verifies the assets' attestations
   # from this workflow before publishing. The packages list is
   # RELEASE_CONTRACTS (`env` isn't available to reusable-workflow inputs).
-  # The keys are repository secrets: the caller resolves `secrets.*` before the
-  # called job enters its environment, so environment-only secrets arrive
-  # empty. The environments still apply their protection rules.
+  # REGISTRY_PUBLISH_SECRET_KEY can live only in each environment: GitHub
+  # resolves the reference in the called job, which runs in that environment.
   registry-publish-testnet:
     name: Publish to Stellar Registry (testnet)
     needs: publish
@@ -337,7 +336,7 @@ jobs:
       attestation_signer_workflow: ${{ github.repository }}/.github/workflows/release.yml
       environment: registry-testnet
     secrets:
-      signing_key: ${{ secrets.REGISTRY_TESTNET_SECRET_KEY }}
+      signing_key: ${{ secrets.REGISTRY_PUBLISH_SECRET_KEY }}
       release_token: ${{ secrets.GITHUB_TOKEN }}
 
   registry-publish-mainnet:
@@ -356,5 +355,5 @@ jobs:
       attestation_signer_workflow: ${{ github.repository }}/.github/workflows/release.yml
       environment: registry-mainnet
     secrets:
-      signing_key: ${{ secrets.REGISTRY_MAINNET_SECRET_KEY }}
+      signing_key: ${{ secrets.REGISTRY_PUBLISH_SECRET_KEY }}
       release_token: ${{ secrets.GITHUB_TOKEN }}
