@@ -128,7 +128,7 @@ fn test_flat_bonus_factor_stays_at_base() {
     t.assert_liquidatable(ALICE);
     assert!(t.total_collateral_raw(ALICE) > t.total_debt_raw(ALICE));
     assert!(t.health_factor_raw(ALICE) < WAD);
-    assert_eq!(quoted_usd_bonus_bps(&t, 1_000_0000000), 500);
+    assert_eq!(quoted_usd_bonus_bps(&t, 10_000_000_000), 500);
 
     let (_c, _d, ratio) = liquidate_measure(&mut t, "USD", 1_000.0, "VOL", 62.0);
 
