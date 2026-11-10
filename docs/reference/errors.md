@@ -56,7 +56,7 @@ SDK `try_` calls distinguish contract errors from host, authorization, storage, 
 | --- | --- | --- |
 | 100 `InsufficientCollateral` | A post-pool risk gate finds LTV collateral below debt or HF below 1 WAD. | Increase collateral or reduce debt; ordinary supply and repayment do not run this gate. |
 | 101 `HealthFactorTooHigh` | The account has no debt, or its health factor is at or above 1 WAD. | Liquidate only an eligible unhealthy position. |
-| 102 `HealthFactorTooLow` | A full risk-parameter refresh (`has_risks`) leaves the health factor below 1.05 WAD (`THRESHOLD_UPDATE_MIN_HF_RAW`). | Improve the health factor first. |
+| 102 `HealthFactorTooLow` | A full risk-parameter refresh (`has_risks`) lowers the health factor below both 1.05 WAD (`THRESHOLD_UPDATE_MIN_HF_RAW`) and its value before the refresh. | Improve the health factor first. |
 | 104 `NotCollateral` | The spoke listing does not allow the asset to be used as collateral. | Choose a collateral-enabled asset. |
 | 107 `AssetNotBorrowable` | The spoke listing does not allow the asset to be borrowed. | Choose a borrow-enabled asset. |
 | 109 `PositionLimitExceeded` | The new supply or borrow position would push the account past its configured position count, or place a supply leg below 3 decimals beside another supply position. | Close or consolidate positions. |

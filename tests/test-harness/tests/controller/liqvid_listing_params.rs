@@ -766,11 +766,7 @@ fn lqv_params_restamp_applies_lt_5300_only_above_the_gate() {
         (991, Ok(()), LT),
         (990, Ok(()), PREVIOUS_LT),
         (876, Ok(()), PREVIOUS_LT),
-        (
-            874,
-            Err(contract_error(errors::HEALTH_FACTOR_TOO_LOW)),
-            PREVIOUS_LT,
-        ),
+        (874, Ok(()), PREVIOUS_LT),
     ];
     let ids: Vec<u64> = cases
         .iter()

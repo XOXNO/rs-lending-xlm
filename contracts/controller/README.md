@@ -96,7 +96,7 @@ All of these stop during a global pause.
 | `renew_account(caller, account_id)` | Extends the account's storage TTL. Owner only |
 | `add_delegate(caller, account_id, delegate)` | Lets `delegate` act for the owner. `delegate` must be an active, governance-approved position manager |
 | `remove_delegate(caller, account_id, delegate)` | Revokes a delegate. Owner only |
-| `update_account_threshold(caller, has_risks, account_ids)` | Refreshes the LTV of each supply position. With `has_risks`, also refreshes liquidation parameters and requires a final health factor of at least 1.05 |
+| `update_account_threshold(caller, has_risks, account_ids)` | Refreshes the LTV of each supply position. With `has_risks`, also refreshes liquidation parameters and must not lower the health factor below both 1.05 and its value before the refresh |
 
 ### Maintenance
 

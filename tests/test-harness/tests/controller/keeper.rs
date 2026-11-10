@@ -1,8 +1,9 @@
 use crate::shared::{as_vec, count_topic, data_for_topic};
+use controller::constants::WAD;
 use controller::types::ControllerKey;
 use soroban_sdk::{testutils::Events, xdr::ScVal};
 use test_harness::{
-    assert_contract_error, days, errors, hub_asset, usd_cents, usdc_preset, HubAssetKey,
+    assert_contract_error, days, errors, hub_asset, usd, usd_cents, usdc_preset, HubAssetKey,
     LendingTest, ALICE, BOB, STABLECOIN_SPOKE,
 };
 
@@ -251,7 +252,7 @@ fn test_update_account_threshold_risky() {
 }
 
 #[test]
-fn test_update_account_threshold_rejects_low_hf() {
+fn test_update_account_threshold_accepts_unchanged_low_hf_account() {
     let mut t = LendingTest::new().standard_two_asset_dust_disabled();
 
     t.supply(ALICE, "USDC", 10_000.0);
@@ -260,9 +261,14 @@ fn test_update_account_threshold_rejects_low_hf() {
     let account_id = t.resolve_account_id(ALICE);
 
     t.set_price("USDC", usd_cents(78));
+    let stamps_before = supply_risk_fields(&t, account_id, "USDC");
+    let hf_before = t.health_factor_raw(ALICE);
+    assert!(hf_before < 1_050_000_000_000_000_000);
 
-    let result = t.try_update_account_threshold(true, &[account_id]);
-    assert_contract_error(result, errors::HEALTH_FACTOR_TOO_LOW);
+    t.update_account_threshold(true, &[account_id]);
+
+    assert_eq!(supply_risk_fields(&t, account_id, "USDC"), stamps_before);
+    assert_eq!(t.health_factor_raw(ALICE), hf_before);
 }
 
 #[test]
@@ -446,7 +452,7 @@ fn test_update_account_threshold_mixed_spokes_batch() {
 }
 
 #[test]
-fn test_update_account_threshold_rejects_bonus_raise_below_min_hf() {
+fn test_update_account_threshold_skips_bonus_raise_below_min_hf() {
     let mut t = LendingTest::new().standard_two_asset_dust_disabled();
 
     t.supply(ALICE, "USDC", 10_000.0);
@@ -457,14 +463,56 @@ fn test_update_account_threshold_rejects_bonus_raise_below_min_hf() {
     t.set_price("USDC", usd_cents(78));
     t.edit_asset_config("USDC", |c| c.liquidation_bonus = bonus_before + 500);
 
-    let result = t.try_update_account_threshold(true, &[account_id]);
-    assert_contract_error(result, errors::HEALTH_FACTOR_TOO_LOW);
+    let hf_before = t.health_factor_raw(ALICE);
+    t.update_account_threshold(true, &[account_id]);
 
     let (_, bonus_after, _) = supply_risk_fields(&t, account_id, "USDC");
     assert_eq!(
         bonus_after, bonus_before,
-        "the rejected batch must leave the stamp untouched"
+        "the gate must keep the stored bonus below 1.05"
     );
+    assert_eq!(t.health_factor_raw(ALICE), hf_before);
+}
+
+#[test]
+fn test_update_account_threshold_applies_lt_raise_below_min_hf() {
+    let mut t = LendingTest::new().three_asset_usdc_eth_wbtc().build();
+    t.supply(BOB, "USDC", 100_000.0);
+    t.supply(ALICE, "WBTC", 0.5);
+    t.borrow(ALICE, "USDC", 22_000.0);
+    let account_id = t.resolve_account_id(ALICE);
+
+    t.edit_asset_config("WBTC", |c| c.liquidation_threshold = 8_500);
+    t.set_price("WBTC", usd(53_000));
+    assert!(t.can_be_liquidated(ALICE));
+
+    t.update_account_threshold(true, &[account_id]);
+
+    let (lt, _, _) = supply_risk_fields(&t, account_id, "WBTC");
+    assert_eq!(lt, 8_500);
+    let hf = t.health_factor_raw(ALICE);
+    assert!(hf > WAD && hf < 1_050_000_000_000_000_000);
+    assert!(!t.can_be_liquidated(ALICE));
+}
+
+#[test]
+fn test_update_account_threshold_low_hf_account_does_not_revert_the_batch() {
+    let mut t = LendingTest::new().standard_two_asset_dust_disabled();
+    t.supply(ALICE, "USDC", 10_000.0);
+    t.borrow(ALICE, "ETH", 3.0);
+    t.supply(BOB, "USDC", 100_000.0);
+    t.borrow(BOB, "ETH", 1.0);
+    let alice_id = t.resolve_account_id(ALICE);
+    let bob_id = t.resolve_account_id(BOB);
+
+    t.set_price("USDC", usd_cents(78));
+    t.edit_asset_config("USDC", |c| c.loan_to_value = 7_000);
+
+    t.update_account_threshold(true, &[alice_id, bob_id]);
+
+    let (_, _, alice_ltv) = supply_risk_fields(&t, alice_id, "USDC");
+    let (_, _, bob_ltv) = supply_risk_fields(&t, bob_id, "USDC");
+    assert_eq!((alice_ltv, bob_ltv), (7_000, 7_000));
 }
 
 #[test]

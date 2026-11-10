@@ -414,9 +414,9 @@ See [numeric limits](../reference/formulas.md#numeric-limits).
 Position/route limits reduce work but do not prove every maximum-size operation
 fits deployed CPU, memory, footprint, and oracle-call budgets. Caller-supplied
 vectors still cost resources. A full-risk threshold refresh aborts the entire
-batch if an included account's final health factor is below 1.05. Isolate and
-investigate that account; no earlier updates from the failed batch persist.
-An LTV-only refresh has no such final gate.
+batch only if it lowers an included account's health factor below both 1.05
+and its value before the refresh. An account that is already below 1.05 does
+not abort the batch. An LTV-only refresh has no final gate.
 
 Curve LP sources accept at most 3 coins (`MAX_CURVE_COINS`). Under the default
 Soroban budget with mainnet per-invocation limits, the

@@ -281,8 +281,7 @@ withdrawal also refresh eligible liquidation parameters.
 
 `update_account_threshold` refreshes LTV. With `has_risks = true`, it also
 refreshes threshold, bonus, and fees. A change that favors liquidators requires
-hypothetical health factor of at least `1.05 WAD`. With `has_risks = true`, the final health factor must also meet that limit.
-Otherwise, the call fails with `HealthFactorTooLow`.
+hypothetical health factor of at least `1.05 WAD`. With `has_risks = true`, the call fails with `HealthFactorTooLow` only if the refresh lowers the health factor below both `1.05 WAD` and its value before the refresh.
 
 ```text
 for each supply position:
