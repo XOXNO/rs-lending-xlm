@@ -370,7 +370,8 @@ pub(crate) fn sum_repaid_usd(env: &Env, repaid_tokens: &Vec<RepayEntry>) -> Wad 
 /// separate exact share representation.
 ///
 /// A partial leg below `MIN_BORROWABLE_ASSET_DECIMALS` seizes whole units only:
-/// rounded up to the held balance when the plan repays all debt, down otherwise.
+/// rounded up to the next whole unit, capped at the held balance, when the plan
+/// repays all debt, down otherwise.
 /// Returns the seizures and the repayment USD that the dropped fractions no
 /// longer back, floored so the kept repayment rounds toward the protocol.
 pub(crate) fn calculate_seized_collateral(

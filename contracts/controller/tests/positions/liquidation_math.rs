@@ -2,7 +2,7 @@ use super::*;
 use crate::constants::{
     BAD_DEBT_USD_THRESHOLD, DEFAULT_HF_FOR_MAX_BONUS_WAD, DEFAULT_LIQUIDATION_BONUS_FACTOR_BPS,
     DEFAULT_LIQUIDATION_TARGET_HF_WAD, DEFAULT_MIN_BORROW_COLLATERAL_USD_WAD,
-    MAX_REASONABLE_PRICE_WAD, MIN_ASSET_DECIMALS, POSITION_LIMIT_MAX, WAD,
+    MAX_REASONABLE_PRICE_WAD, POSITION_LIMIT_MAX, WAD,
 };
 use crate::positions::liquidation::curve::{
     calculate_linear_bonus_with_target, max_hf_preserving_bonus_bps,
@@ -2472,7 +2472,7 @@ fn floor_sized_liquidation_profits_match_the_documented_table() {
     }
 }
 
-/// Nothing bounds an asset's *unit* value. `MIN_ASSET_DECIMALS` is
+/// Nothing bounds an asset's *unit* value. `MIN_BORROWABLE_ASSET_DECIMALS` is
 /// 3 and `validate_sanity_bounds` accepts a price up to
 /// `MAX_REASONABLE_PRICE_WAD` ($1e9 per whole token), so one base unit may be
 /// worth $1,000,000: two hundred thousand times the entire borrow floor. At that
@@ -2491,7 +2491,7 @@ fn an_expensive_low_decimal_collateral_makes_a_floor_sized_liquidation_seize_not
 
     let hostile = ListedCollateral {
         label: "3-decimal asset at the maximum reasonable price",
-        decimals: MIN_ASSET_DECIMALS,
+        decimals: MIN_BORROWABLE_ASSET_DECIMALS,
         price_wad: MAX_REASONABLE_PRICE_WAD,
         max_price_wad: MAX_REASONABLE_PRICE_WAD,
         bonus_bps: 900,
@@ -2499,12 +2499,12 @@ fn an_expensive_low_decimal_collateral_makes_a_floor_sized_liquidation_seize_not
     };
 
     // Listing validation admits both values.
-    assert_eq!(hostile.decimals, MIN_ASSET_DECIMALS);
+    assert_eq!(hostile.decimals, MIN_BORROWABLE_ASSET_DECIMALS);
     assert_eq!(hostile.price_wad, MAX_REASONABLE_PRICE_WAD);
 
     assert_eq!(
         unit_value_usd_wad(&hostile),
-        MAX_REASONABLE_PRICE_WAD / 10i128.pow(MIN_ASSET_DECIMALS)
+        MAX_REASONABLE_PRICE_WAD / 10i128.pow(MIN_BORROWABLE_ASSET_DECIMALS)
     );
     assert!(
         unprofitable_below_usd_wad(&hostile, 1) > floor,

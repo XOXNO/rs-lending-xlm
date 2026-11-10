@@ -455,7 +455,7 @@ offer reverts until accrual or a price move ends that state. See
 [whole-unit legs](formulas.md#bonus-and-target-repayment).
 
 Transfer mode burns shares and pays underlying after fees. The planned transfer
-fee never exceeds the whole token units paid above the leg's principal. Credit
+fee never exceeds the whole base units paid above the leg's principal. Credit
 mode splits seized shares exactly between receiver credit and a
 ceiling-rounded fee on bonus shares. The fee reclassifies existing supply as
 revenue, requires no collateral cash and reduces same-spoke usage only by the

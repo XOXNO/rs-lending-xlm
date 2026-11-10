@@ -179,7 +179,7 @@ The factor 598 makes the bonus exactly 10 % at `K`:
 
 | HF | Bonus (this listing) | Bonus (previous listing) |
 |---|---|---|
-| just below 1 | 688 bps | 2557 bps |
+| just below 1 | 688 bps | 2555 bps |
 | 0.99 | 719 bps | 2761 bps |
 | 0.95 | 844 bps | 3583 bps |
 | 0.90 | 1000 bps | 4611 bps |
