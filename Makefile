@@ -482,7 +482,8 @@ define COV_RUN_HARNESS
 	cp -R $(TEST_HARNESS_DIR)/test_snapshots/. "$$backup"/ 2>/dev/null || true; \
 	trap 'restore_snapshots' EXIT; \
 	set -o pipefail; \
-	cargo llvm-cov test -p test-harness --no-report --no-fail-fast $(COV_IGNORE) -- $(TEST_THREAD_FLAG) 2>&1 | tee $(COV_DIR)/harness.log | tail -20
+	cargo llvm-cov test -p test-harness --no-report --no-fail-fast $(COV_IGNORE) -- $(TEST_THREAD_FLAG) 2>&1 | tee $(COV_DIR)/harness.log | tail -20 \
+		|| { grep -E -A12 'panicked at|^failures:|Running tests/' $(COV_DIR)/harness.log | grep -v '\.\.\. ok$$' | head -300; false; }
 endef
 
 coverage-controller:
