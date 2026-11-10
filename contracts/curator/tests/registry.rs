@@ -1,10 +1,14 @@
 use common::constants::{RAY, TTL_BUMP_SHARED, TTL_THRESHOLD_SHARED};
 use common::types::{HubAssetKey, MarketParamsRaw};
+use curator::events::{
+    CapGrantEvent, HubRegistrarEvent, RegistrarAdminEvent, RolesEvent, SpokeRegistrarEvent,
+    SuspendedEvent,
+};
 use curator::{CapGrant, Curator, CuratorClient, CuratorError, ROLE_MARKET, ROLE_SPOKE};
 use governance::op::{AdminOperation, RelaxSpokeAssetFlagsArgs, RoleArgs, SpokeAssetArgs};
 use soroban_sdk::testutils::storage::Persistent as _;
-use soroban_sdk::testutils::{Address as _, Ledger as _};
-use soroban_sdk::{contracttype, Address, BytesN, Env, Symbol, TryFromVal};
+use soroban_sdk::testutils::{Address as _, Events as _, Ledger as _};
+use soroban_sdk::{contracttype, Address, BytesN, Env, Event as _, Symbol, TryFromVal};
 
 fn setup(env: &Env) -> (Address, CuratorClient<'_>) {
     env.mock_all_auths();
@@ -14,7 +18,7 @@ fn setup(env: &Env) -> (Address, CuratorClient<'_>) {
     let controller_id = env.register(controller::Controller, (gov_id.clone(),));
     gov.set_controller(&controller_id);
     let curator_id = env.register(Curator, (gov_id,));
-    for role in ["CURATOR", "PROPOSER", "CANCELLER"] {
+    for role in ["CURATOR", "PROPOSER"] {
         gov.execute_immediate(
             &owner,
             &AdminOperation::GrantGovRole(RoleArgs {
@@ -358,54 +362,6 @@ fn granted_pair(env: &Env) -> Pair<'_> {
 }
 
 #[test]
-fn anyone_cancels_a_suspended_registrars_queued_proposal() {
-    let env = Env::default();
-    let p = granted_pair(&env);
-    let op_id = p.curator.propose(
-        &p.other,
-        &p.second,
-        &relax(p.hub, p.spoke, p.asset.clone()),
-        &BytesN::from_array(p.env, &[4; 32]),
-    );
-    assert_eq!(p.curator.pending_proposal(&op_id), Some((p.second, p.hub)));
-    assert_eq!(
-        p.curator.try_cancel_suspended(&op_id),
-        Err(Ok(CuratorError::NotCancellable.into()))
-    );
-
-    suspend(p.env, &p.owner, &p.curator, p.second, true);
-    p.curator.cancel_suspended(&op_id);
-    assert_eq!(p.curator.pending_proposal(&op_id), None);
-    assert_eq!(
-        gov(p.env, &p.curator).get_operation_state(&op_id),
-        governance::OperationState::Unset
-    );
-}
-
-#[test]
-fn hub_owner_cancels_a_grantee_proposal_against_its_hub() {
-    let env = Env::default();
-    let p = granted_pair(&env);
-    let op_id = p.curator.propose(
-        &p.other,
-        &p.second,
-        &relax(p.hub, p.spoke, p.asset.clone()),
-        &BytesN::from_array(p.env, &[5; 32]),
-    );
-    assert_eq!(
-        p.curator
-            .try_cancel_grantee_proposal(&p.other, &p.second, &op_id),
-        Err(Ok(CuratorError::NotCancellable.into()))
-    );
-    p.curator
-        .cancel_grantee_proposal(&p.admin, &p.first, &op_id);
-    assert_eq!(
-        gov(p.env, &p.curator).get_operation_state(&op_id),
-        governance::OperationState::Unset
-    );
-}
-
-#[test]
 fn revoked_grant_blocks_a_grantee_relaxation_of_the_hub_asset() {
     let env = Env::default();
     let p = granted_pair(&env);
@@ -423,26 +379,6 @@ fn revoked_grant_blocks_a_grantee_relaxation_of_the_hub_asset() {
             &BytesN::from_array(p.env, &[6; 32]),
         ),
         Err(Ok(CuratorError::GrantMissing.into()))
-    );
-}
-
-#[test]
-fn a_third_registrar_cannot_close_the_listing() {
-    let env = Env::default();
-    let p = granted_pair(&env);
-    let stranger = Address::generate(p.env);
-    let third = register(p.env, &p.owner, &p.curator, &stranger);
-    assert_eq!(
-        p.curator.try_close_listing(
-            &stranger,
-            &third,
-            &p.spoke,
-            &HubAssetKey {
-                hub_id: p.hub,
-                asset: p.asset.clone()
-            },
-        ),
-        Err(Ok(CuratorError::NotListingParty.into()))
     );
 }
 
@@ -675,13 +611,13 @@ fn add_spoke_rejects_an_id_governance_already_bound() {
 }
 
 #[test]
-#[should_panic(expected = "Error(Contract, #807)")]
-fn lower_caps_rejects_an_unowned_spoke() {
+#[should_panic(expected = "Error(Contract, #805)")]
+fn tighten_flags_rejects_a_spoke_and_hub_the_registrar_does_not_own() {
     let env = Env::default();
     let (owner, curator) = setup(&env);
     let admin = Address::generate(&env);
     let registrar = register(&env, &owner, &curator, &admin);
-    curator.lower_caps(
+    curator.tighten_flags(
         &admin,
         &registrar,
         &9,
@@ -689,8 +625,28 @@ fn lower_caps_rejects_an_unowned_spoke() {
             hub_id: 1,
             asset: Address::generate(&env),
         },
-        &0,
-        &0,
+        &false,
+        &true,
+        &false,
+    );
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #809)")]
+fn a_hub_owner_cannot_pause_a_grantee_listing_of_its_asset() {
+    let env = Env::default();
+    let p = granted_pair(&env);
+    p.curator.tighten_flags(
+        &p.admin,
+        &p.first,
+        &p.spoke,
+        &HubAssetKey {
+            hub_id: p.hub,
+            asset: p.asset.clone(),
+        },
+        &true,
+        &false,
+        &false,
     );
 }
 
@@ -754,16 +710,6 @@ fn the_admin_hands_the_registrar_to_a_new_admin() {
 }
 
 #[test]
-fn cancel_suspended_rejects_an_unknown_proposal() {
-    let env = Env::default();
-    let (_owner, curator) = setup(&env);
-    assert_eq!(
-        curator.try_cancel_suspended(&BytesN::from_array(&env, &[11; 32])),
-        Err(Ok(CuratorError::NotCancellable.into()))
-    );
-}
-
-#[test]
 fn only_a_guardian_suspends_a_registrar_immediately() {
     let env = Env::default();
     let p = granted_pair(&env);
@@ -776,4 +722,192 @@ fn only_a_guardian_suspends_a_registrar_immediately() {
         Err(Ok(soroban_sdk::Error::from_contract_error(2000)))
     );
     assert!(!p.curator.registrar_suspended(&p.second));
+}
+
+#[test]
+fn every_registry_write_publishes_its_event() {
+    let env = Env::default();
+    let (owner, curator) = setup(&env);
+    let admin = Address::generate(&env);
+    let other = Address::generate(&env);
+    let operator = Address::generate(&env);
+    let asset = Address::generate(&env);
+    let me = curator.address.clone();
+    let published = |event: soroban_sdk::xdr::ContractEvent| {
+        assert!(
+            env.events().all().events().contains(&event),
+            "missing {event:?}"
+        );
+    };
+
+    let first = register(&env, &owner, &curator, &admin);
+    published(
+        RegistrarAdminEvent {
+            registrar: first,
+            admin: admin.clone(),
+        }
+        .to_xdr(&env, &me),
+    );
+    let second = register(&env, &owner, &curator, &other);
+    curator.set_roles(&admin, &first, &operator, &ROLE_MARKET);
+    published(
+        RolesEvent {
+            registrar: first,
+            account: operator,
+            bits: ROLE_MARKET,
+        }
+        .to_xdr(&env, &me),
+    );
+    let hub = curator.create_hub(&admin, &first);
+    published(
+        HubRegistrarEvent {
+            hub_id: hub,
+            registrar: Some(first),
+        }
+        .to_xdr(&env, &me),
+    );
+    let spoke = curator.add_spoke(&other, &second);
+    published(
+        SpokeRegistrarEvent {
+            spoke_id: spoke,
+            registrar: Some(second),
+        }
+        .to_xdr(&env, &me),
+    );
+    grant(&curator, &admin, first, second, hub, spoke, &asset);
+    published(
+        CapGrantEvent {
+            grantor: first,
+            grantee: second,
+            hub_id: hub,
+            spoke_id: spoke,
+            asset: asset.clone(),
+            grant: Some(CapGrant {
+                supply_cap: 1_000,
+                borrow_cap: 1_000,
+                can_collateral: true,
+                can_borrow: true,
+                ltv: 5_000,
+                threshold: 8_000,
+                bonus: 500,
+                liquidation_fees: 1_000,
+            }),
+        }
+        .to_xdr(&env, &me),
+    );
+    curator.revoke_cap_grant(&admin, &first, &second, &hub, &spoke, &asset);
+    published(
+        CapGrantEvent {
+            grantor: first,
+            grantee: second,
+            hub_id: hub,
+            spoke_id: spoke,
+            asset,
+            grant: None,
+        }
+        .to_xdr(&env, &me),
+    );
+    suspend(&env, &owner, &curator, second, true);
+    published(
+        SuspendedEvent {
+            registrar: second,
+            suspended: true,
+        }
+        .to_xdr(&env, &me),
+    );
+}
+
+fn replace_admin(p: &Pair<'_>, registrar: u32, admin: &Address) {
+    gov(p.env, &p.curator).execute_immediate(
+        &p.owner,
+        &AdminOperation::SetCuratorRegistrarAdmin(
+            p.curator.address.clone(),
+            registrar,
+            admin.clone(),
+        ),
+    );
+}
+
+#[test]
+fn a_forced_admin_change_drops_the_roles_the_old_admin_granted() {
+    let env = Env::default();
+    let p = granted_pair(&env);
+    let operator = Address::generate(p.env);
+    p.curator
+        .set_roles(&p.other, &p.second, &operator, &(ROLE_MARKET | ROLE_SPOKE));
+    suspend(p.env, &p.owner, &p.curator, p.second, true);
+    let fresh = Address::generate(p.env);
+    replace_admin(&p, p.second, &fresh);
+    suspend(p.env, &p.owner, &p.curator, p.second, false);
+
+    assert_eq!(p.curator.roles(&p.second, &operator), 0);
+    assert_eq!(
+        p.curator.try_add_spoke(&operator, &p.second),
+        Err(Ok(CuratorError::RoleMissing.into()))
+    );
+    assert_eq!(
+        p.curator.try_propose(
+            &operator,
+            &p.second,
+            &borrow_listing(p.hub, p.spoke, p.asset.clone()),
+            &BytesN::from_array(p.env, &[11; 32]),
+        ),
+        Err(Ok(CuratorError::RoleMissing.into()))
+    );
+
+    p.curator
+        .set_roles(&fresh, &p.second, &operator, &ROLE_SPOKE);
+    assert_eq!(p.curator.roles(&p.second, &operator), ROLE_SPOKE);
+    p.curator.add_spoke(&operator, &p.second);
+}
+
+#[test]
+fn a_forced_admin_change_drops_the_grants_the_old_admin_gave() {
+    let env = Env::default();
+    let p = granted_pair(&env);
+    let listing = |salt: u8| {
+        p.curator.try_propose(
+            &p.other,
+            &p.second,
+            &borrow_listing(p.hub, p.spoke, p.asset.clone()),
+            &BytesN::from_array(p.env, &[salt; 32]),
+        )
+    };
+    let admitted = listing(11);
+    assert_ne!(admitted, Err(Ok(CuratorError::GrantMissing.into())));
+    let fresh = Address::generate(p.env);
+    replace_admin(&p, p.first, &fresh);
+
+    assert!(p
+        .curator
+        .cap_grant(&p.second, &p.hub, &p.spoke, &p.asset)
+        .is_none());
+    assert_eq!(listing(12), Err(Ok(CuratorError::GrantMissing.into())));
+
+    grant(
+        &p.curator, &fresh, p.first, p.second, p.hub, p.spoke, &p.asset,
+    );
+    assert_eq!(listing(13), admitted);
+}
+
+#[test]
+fn a_voluntary_admin_handover_drops_roles_and_grants() {
+    let env = Env::default();
+    let p = granted_pair(&env);
+    let operator = Address::generate(p.env);
+    p.curator
+        .set_roles(&p.admin, &p.first, &operator, &ROLE_MARKET);
+    let fresh = Address::generate(p.env);
+    p.curator.set_admin(&p.admin, &p.first, &fresh);
+
+    assert_eq!(p.curator.roles(&p.first, &operator), 0);
+    assert_eq!(
+        p.curator
+            .try_create_market(&operator, &p.first, &p.hub, &market_params(&p.asset)),
+        Err(Ok(CuratorError::RoleMissing.into()))
+    );
+    assert!(p
+        .curator
+        .cap_grant(&p.second, &p.hub, &p.spoke, &p.asset)
+        .is_none());
 }

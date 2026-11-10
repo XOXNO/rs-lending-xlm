@@ -219,8 +219,6 @@ Constructor `(admin: Address, min_delay: u32)` initializes the owner, access-con
 | `create_hub(caller: Address) -> u32` | CURATOR_ROLE; immediate |
 | `add_spoke(caller: Address) -> u32` | CURATOR_ROLE; immediate |
 | `create_liquidity_pool(caller: Address, hub_id: u32, params: MarketParamsRaw) -> Address` | CURATOR_ROLE; immediate; registers `params.asset_id` on the deployed pool |
-| `lower_spoke_asset_caps(caller: Address, spoke_id: u32, hub_asset: HubAssetKey, supply_cap: i128, borrow_cap: i128)` | CURATOR_ROLE; immediate, lowering only (`SpokeAssetCapsNotLowered` otherwise). Other listing edits use the timelocked `EditAssetInSpoke` operation |
-| `close_spoke_asset(caller: Address, spoke_id: u32, hub_asset: HubAssetKey)` | CURATOR_ROLE; immediate. Zero caps and `frozen`, every other field kept |
 | `suspend_curator_registrar(caller: Address, curator: Address, registrar: u32)` | GUARDIAN_ROLE; immediate, suspension only. `curator` must hold CURATOR_ROLE |
 | `deactivate_position_manager(caller: Address, manager: Address)` | GUARDIAN_ROLE; immediate, deactivation only |
 | `revoke_blend_pool(caller: Address, pool: Address)` | GUARDIAN_ROLE; immediate, revocation only |

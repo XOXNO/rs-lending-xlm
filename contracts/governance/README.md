@@ -60,8 +60,6 @@ Recovery delay and cannot be cancelled.
 | `set_spoke_asset_flags(caller, spoke_id, hub_asset, paused, frozen, no_seize)` | `GUARDIAN` or `CURATOR_ROLE` | Tightens a listing's halt flags (see below) |
 | `create_hub(caller) -> u32`, `add_spoke(caller) -> u32` | `CURATOR_ROLE` | Creates a controller hub or spoke and returns its id |
 | `create_liquidity_pool(caller, hub_id, params) -> Address` | `CURATOR_ROLE` | Registers `params.asset_id` on the deployed pool and returns that pool's address |
-| `lower_spoke_asset_caps(caller, spoke_id, hub_asset, supply_cap, borrow_cap)` | `CURATOR_ROLE` | Lowers a listing's caps and keeps every other field; a raise or an unchanged pair reverts `SpokeAssetCapsNotLowered`. Every other listing edit stays on the timelock |
-| `close_spoke_asset(caller, spoke_id, hub_asset)` | `CURATOR_ROLE` | Sets both caps of a listing to zero and freezes it; other flags remain unchanged, so existing pause or seizure restrictions still apply. A listing already closed reverts `SpokeAssetCapsNotLowered` |
 | `suspend_curator_registrar(caller, curator, registrar)` | `GUARDIAN` | Suspends a registrar on a curator that holds `CURATOR_ROLE`. Resuming is the owner-proposed sensitive `SuspendCuratorRegistrar` |
 | `deactivate_position_manager(caller, manager)`, `revoke_blend_pool(caller, pool)` | `GUARDIAN` | Withdraws a position manager or a Blend migration source; activation and approval stay timelocked |
 | `set_sanity_band(caller, key, min_wad, max_wad)` | `ORACLE` | Narrows an aggregator price band; a wider band reverts `SanityBandMustTighten` |

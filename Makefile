@@ -1321,7 +1321,7 @@ deploy-curator: _curator-no-release-tag _preflight-governance deploy-artifacts
 	TMP_JSON=$$(mktemp); \
 	jq '.["$(NETWORK)"].curator = "'$$CUR'"' \
 		$(CONFIG_DIR)/networks.json > $$TMP_JSON && mv $$TMP_JSON $(CONFIG_DIR)/networks.json; \
-	echo "Next: make $(NETWORK) grantGovRole $$CUR CURATOR, then PROPOSER and CANCELLER"
+	echo "Next: make $(NETWORK) grantGovRole $$CUR CURATOR, then PROPOSER"
 
 
 upgrade-curator: _curator-no-release-tag _preflight-governance deploy-artifacts
@@ -2220,7 +2220,7 @@ help-deploy:
 	$(call H2,Curator registry)
 	$(call ROW,make <n> deployCurator,deploy; governance is the only owner)
 	$(call ROW,make <n> upgradeCurator,timelocked sensitive UpgradeCurator)
-	$(call ROW,make <n> grantGovRole <curator> CURATOR,also PROPOSER and CANCELLER)
+	$(call ROW,make <n> grantGovRole <curator> CURATOR,also PROPOSER)
 	$(call ROW,make <n> registerCuratorRegistrar <G...>,owner; timelocked sensitive)
 	$(call ROW,make <n> suspendCuratorRegistrar <id>,GUARDIAN; immediate)
 	$(call ROW,make <n> resumeCuratorRegistrar <id>,owner; timelocked sensitive)

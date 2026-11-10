@@ -21,8 +21,8 @@ not establish the safety of the local registry or determine its required delay.
 ## Current local decision
 
 Governance remains the controller owner. The curator registry has an immutable
-governance address and needs explicit governance `CURATOR`, `PROPOSER`, and
-`CANCELLER` grants. `CURATOR` is not a default constructor role. A registrar
+governance address and needs explicit governance `CURATOR` and `PROPOSER`
+grants. `CURATOR` is not a default constructor role. A registrar
 admin holds every registrar role and can replace its admin in one step; member
 accounts receive the `ROLE_MARKET`, `ROLE_SPOKE`, or `ROLE_FLAGS` bits.
 
@@ -52,12 +52,10 @@ remain timelocked. The registry does not expose an arbitrary immediate editor.
   registrar does not automatically cancel operations already queued in
   governance. Incident response must explicitly cancel those operations and,
   when needed, close the listing.
-- **Cancellation is implemented.** A hub owner uses `cancel_grantee_proposal`
-  against another registrar's recorded proposal for its hub. Anyone can call
-  `cancel_suspended` for a suspended registrar's recorded proposal. Both forward
-  through the registry's governance `CANCELLER` role. `pending_proposal` is
-  attribution metadata, not proof the governance operation is still queued;
-  execution or direct governance cancellation does not clear that registry row.
+- **Cancellation is governance-only.** The curator keeps no record of queued
+  proposals and exposes no cancel path; a registrar's queued operation is
+  stopped by a governance `CANCELLER` or expires. A hub owner limits a grantee
+  by revoking the grant and freezing the listing.
 - **Guardian containment and owner recovery differ.** A guardian can suspend a
   registrar immediately; resumption, registrar registration, reassignment,
   admin replacement, and curator upgrade require owner-proposed sensitive

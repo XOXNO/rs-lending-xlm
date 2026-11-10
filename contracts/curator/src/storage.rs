@@ -2,8 +2,12 @@
 
 use common::constants::{TTL_BUMP_SHARED, TTL_THRESHOLD_SHARED};
 use common::errors::GenericError;
-use soroban_sdk::{panic_with_error, Address, BytesN, Env, IntoVal, TryFromVal, Val};
+use soroban_sdk::{panic_with_error, Address, Env, IntoVal, TryFromVal, Val};
 
+use crate::events::{
+    CapGrantEvent, HubRegistrarEvent, RegistrarAdminEvent, RolesEvent, SpokeRegistrarEvent,
+    SuspendedEvent,
+};
 use crate::{CapGrant, DataKey};
 
 pub(crate) fn init(env: &Env, governance: &Address) {
@@ -52,25 +56,60 @@ where
         .extend_ttl(key, TTL_THRESHOLD_SHARED, TTL_BUMP_SHARED);
 }
 
-pub(crate) fn registrar_admin(env: &Env, registrar: u32) -> Option<Address> {
+fn registrar_row(env: &Env, registrar: u32) -> Option<(Address, u32)> {
     read(env, &DataKey::RegistrarAdmin(registrar))
 }
 
+pub(crate) fn registrar_admin(env: &Env, registrar: u32) -> Option<Address> {
+    registrar_row(env, registrar).map(|(admin, _)| admin)
+}
+
+fn admin_epoch(env: &Env, registrar: u32) -> u32 {
+    registrar_row(env, registrar).map_or(0, |(_, epoch)| epoch)
+}
+
+/// Stores `admin` under the next admin epoch. Roles and cap grants are bound
+/// to the epoch they were written in, so every admin change voids them.
 pub(crate) fn set_registrar_admin(env: &Env, registrar: u32, admin: &Address) {
-    write(env, &DataKey::RegistrarAdmin(registrar), admin);
+    let epoch = match registrar_row(env, registrar) {
+        Some((_, epoch)) => epoch
+            .checked_add(1)
+            .unwrap_or_else(|| panic_with_error!(env, GenericError::MathOverflow)),
+        None => 0,
+    };
+    write(
+        env,
+        &DataKey::RegistrarAdmin(registrar),
+        &(admin.clone(), epoch),
+    );
+    RegistrarAdminEvent {
+        registrar,
+        admin: admin.clone(),
+    }
+    .publish(env);
+}
+
+fn roles_key(env: &Env, registrar: u32, account: &Address) -> DataKey {
+    DataKey::Roles(registrar, admin_epoch(env, registrar), account.clone())
 }
 
 pub(crate) fn role_bits(env: &Env, registrar: u32, account: &Address) -> u32 {
-    read(env, &DataKey::Roles(registrar, account.clone())).unwrap_or(0)
+    read(env, &roles_key(env, registrar, account)).unwrap_or(0)
 }
 
 pub(crate) fn set_role_bits(env: &Env, registrar: u32, account: &Address, bits: u32) {
-    let key = DataKey::Roles(registrar, account.clone());
+    let key = roles_key(env, registrar, account);
     if bits == 0 {
         env.storage().persistent().remove(&key);
-        return;
+    } else {
+        write(env, &key, &bits);
     }
-    write(env, &key, &bits);
+    RolesEvent {
+        registrar,
+        account: account.clone(),
+        bits,
+    }
+    .publish(env);
 }
 
 pub(crate) fn is_suspended(env: &Env, registrar: u32) -> bool {
@@ -84,6 +123,11 @@ pub(crate) fn set_suspended(env: &Env, registrar: u32, suspended: bool) {
     } else {
         env.storage().persistent().remove(&key);
     }
+    SuspendedEvent {
+        registrar,
+        suspended,
+    }
+    .publish(env);
 }
 
 pub(crate) fn hub_registrar(env: &Env, hub_id: u32) -> Option<u32> {
@@ -92,6 +136,7 @@ pub(crate) fn hub_registrar(env: &Env, hub_id: u32) -> Option<u32> {
 
 pub(crate) fn set_hub_registrar(env: &Env, hub_id: u32, registrar: Option<u32>) {
     set_or_remove(env, &DataKey::HubRegistrar(hub_id), registrar);
+    HubRegistrarEvent { hub_id, registrar }.publish(env);
 }
 
 pub(crate) fn spoke_registrar(env: &Env, spoke_id: u32) -> Option<u32> {
@@ -100,6 +145,11 @@ pub(crate) fn spoke_registrar(env: &Env, spoke_id: u32) -> Option<u32> {
 
 pub(crate) fn set_spoke_registrar(env: &Env, spoke_id: u32, registrar: Option<u32>) {
     set_or_remove(env, &DataKey::SpokeRegistrar(spoke_id), registrar);
+    SpokeRegistrarEvent {
+        spoke_id,
+        registrar,
+    }
+    .publish(env);
 }
 
 fn set_or_remove(env: &Env, key: &DataKey, registrar: Option<u32>) {
@@ -109,7 +159,8 @@ fn set_or_remove(env: &Env, key: &DataKey, registrar: Option<u32>) {
     }
 }
 
-/// Returns the stored grant and the registrar that granted it.
+/// Returns the stored grant and the registrar that granted it. A grant written
+/// under an earlier admin of its grantor reads as absent.
 pub(crate) fn cap_grant(
     env: &Env,
     grantee: u32,
@@ -117,10 +168,11 @@ pub(crate) fn cap_grant(
     spoke_id: u32,
     asset: &Address,
 ) -> Option<(u32, CapGrant)> {
-    read(
+    let (grantor, epoch, grant): (u32, u32, CapGrant) = read(
         env,
         &DataKey::CapGrant(grantee, hub_id, spoke_id, asset.clone()),
-    )
+    )?;
+    (epoch == admin_epoch(env, grantor)).then_some((grantor, grant))
 }
 
 pub(crate) fn set_cap_grant(
@@ -135,12 +187,22 @@ pub(crate) fn set_cap_grant(
     write(
         env,
         &DataKey::CapGrant(grantee, hub_id, spoke_id, asset.clone()),
-        &(grantor, grant.clone()),
+        &(grantor, admin_epoch(env, grantor), grant.clone()),
     );
+    CapGrantEvent {
+        grantor,
+        grantee,
+        hub_id,
+        spoke_id,
+        asset: asset.clone(),
+        grant: Some(grant.clone()),
+    }
+    .publish(env);
 }
 
 pub(crate) fn remove_cap_grant(
     env: &Env,
+    grantor: u32,
     grantee: u32,
     hub_id: u32,
     spoke_id: u32,
@@ -149,19 +211,13 @@ pub(crate) fn remove_cap_grant(
     env.storage()
         .persistent()
         .remove(&DataKey::CapGrant(grantee, hub_id, spoke_id, asset.clone()));
-}
-
-/// Returns the proposing registrar and the hub of a queued curator proposal.
-pub(crate) fn pending(env: &Env, op_id: &BytesN<32>) -> Option<(u32, u32)> {
-    read(env, &DataKey::Pending(op_id.clone()))
-}
-
-pub(crate) fn set_pending(env: &Env, op_id: &BytesN<32>, registrar: u32, hub_id: u32) {
-    write(env, &DataKey::Pending(op_id.clone()), &(registrar, hub_id));
-}
-
-pub(crate) fn remove_pending(env: &Env, op_id: &BytesN<32>) {
-    env.storage()
-        .persistent()
-        .remove(&DataKey::Pending(op_id.clone()));
+    CapGrantEvent {
+        grantor,
+        grantee,
+        hub_id,
+        spoke_id,
+        asset: asset.clone(),
+        grant: None,
+    }
+    .publish(env);
 }

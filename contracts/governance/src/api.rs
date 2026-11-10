@@ -174,31 +174,10 @@ impl GovernanceInterface for Governance {
         immediate::create_liquidity_pool(&env, &caller, hub_id, &params)
     }
 
-    /// Sets both caps of a spoke listing to zero and freezes it, keeping every
-    /// other field. Requires the caller to hold the curator role.
-    fn close_spoke_asset(env: Env, caller: Address, spoke_id: u32, hub_asset: HubAssetKey) {
-        immediate::close_spoke_asset(&env, &caller, spoke_id, &hub_asset)
-    }
-
     /// Suspends `registrar` on `curator`, which must hold the curator role.
     /// Requires the caller to hold the guardian role; resuming stays timelocked.
     fn suspend_curator_registrar(env: Env, caller: Address, curator: Address, registrar: u32) {
         immediate::suspend_curator_registrar(&env, &caller, &curator, registrar)
-    }
-
-    /// Lowers the supply or borrow cap of a spoke listing and keeps every other
-    /// field. Requires the caller to hold the curator role.
-    fn lower_spoke_asset_caps(
-        env: Env,
-        caller: Address,
-        spoke_id: u32,
-        hub_asset: HubAssetKey,
-        supply_cap: i128,
-        borrow_cap: i128,
-    ) {
-        immediate::lower_spoke_asset_caps(
-            &env, &caller, spoke_id, &hub_asset, supply_cap, borrow_cap,
-        )
     }
 
     /// Deactivates a position manager on the controller. Requires the caller

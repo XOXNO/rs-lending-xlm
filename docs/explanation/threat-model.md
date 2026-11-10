@@ -59,15 +59,16 @@ can. A registrar can halt its own listings at once; only a timelocked
 with `suspend_curator_registrar`; resuming is the owner-proposed sensitive
 `SuspendCuratorRegistrar`. A suspended registrar's curator calls revert, so it
 cannot halt a listing again after a relaxation, and its cap grants stop
-admitting listings. Anyone can then cancel its queued proposals through the
-curator, which holds CANCELLER for that. Sensitive
+admitting listings. Its proposals already queued in governance are stopped by a
+governance CANCELLER or expire on their own. Sensitive
 owner-proposed operations move its hubs and spokes to another registrar or to
 none (`ReassignCuratorHub`, `ReassignCuratorSpoke`) and replace its admin
-(`SetCuratorRegistrarAdmin`). A grant is valid only while its grantor owns the
-hub. A hub owner limits a grantee at once: it revokes the grant, cancels the
-grantee's queued proposals against its hub, and closes the grantee's listing of
-its asset (zero caps and `frozen`; existing pause and seizure restrictions
-remain). Revoking CURATOR_ROLE stops the registry's immediate governance calls,
+(`SetCuratorRegistrarAdmin`). An admin change, forced or voluntary, voids the
+role bits and the cap grants that the registrar gave, so a replaced admin keeps
+no operator and no grantee. A grant is valid only while its grantor owns the
+hub. A hub owner limits a grantee at once: it revokes the grant and freezes the
+grantee's listing of its asset (`frozen` only; the spoke owner's pause and
+seizure flags stay as stored). Revoking CURATOR_ROLE stops the registry's immediate governance calls,
 not its PROPOSER authority or already queued operations. Suspension and
 cancellation remain separate incident actions.
 ORACLE can immediately narrow sanity bands. The owner can revoke the

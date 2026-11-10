@@ -42,7 +42,8 @@ impl Curator {
         ops::set_registrar_suspended(&env, registrar, suspended)
     }
 
-    /// Returns the stored role bits. The admin holds every bit even when this is zero.
+    /// Returns the role bits the current admin of `registrar` stored. The admin
+    /// holds every bit even when this is zero.
     pub fn roles(env: Env, registrar: u32, account: Address) -> u32 {
         storage::role_bits(&env, registrar, &account)
     }
@@ -57,7 +58,8 @@ impl Curator {
         storage::spoke_registrar(&env, spoke_id)
     }
 
-    /// Returns the cap grant `grantee` holds for `asset` of `hub_id` in `spoke_id`.
+    /// Returns the cap grant `grantee` holds for `asset` of `hub_id` in
+    /// `spoke_id`, or `None` when the admin of its grantor changed after the grant.
     pub fn cap_grant(
         env: Env,
         grantee: u32,
@@ -68,14 +70,9 @@ impl Curator {
         storage::cap_grant(&env, grantee, hub_id, spoke_id, &asset).map(|(_, grant)| grant)
     }
 
-    /// Returns the proposing registrar and the hub of a queued curator proposal.
-    pub fn pending_proposal(env: Env, op_id: BytesN<32>) -> Option<(u32, u32)> {
-        storage::pending(&env, &op_id)
-    }
-
-    /// Replaces the admin of `registrar`, suspended or not. Only the stored
-    /// governance contract can authorize it, through the owner-proposed
-    /// sensitive timelock.
+    /// Replaces the admin of `registrar`, suspended or not, and voids every
+    /// role and cap grant the registrar gave. Only the stored governance
+    /// contract can authorize it, through the owner-proposed sensitive timelock.
     pub fn force_set_admin(env: Env, registrar: u32, admin: Address) {
         ops::force_set_admin(&env, registrar, &admin)
     }
@@ -101,7 +98,8 @@ impl Curator {
         ops::register_registrar(&env, &admin)
     }
 
-    /// Replaces the registrar admin.
+    /// Replaces the registrar admin and voids every role and cap grant the
+    /// registrar gave.
     pub fn set_admin(env: Env, caller: Address, registrar: u32, new_admin: Address) {
         ops::set_admin(&env, &caller, registrar, &new_admin)
     }
@@ -132,22 +130,8 @@ impl Curator {
         ops::create_market(&env, &caller, registrar, hub_id, &params)
     }
 
-    /// Decreases a cap on a spoke `registrar` owns. Every other listing field is kept.
-    pub fn lower_caps(
-        env: Env,
-        caller: Address,
-        registrar: u32,
-        spoke_id: u32,
-        hub_asset: HubAssetKey,
-        supply_cap: i128,
-        borrow_cap: i128,
-    ) {
-        ops::lower_caps(
-            &env, &caller, registrar, spoke_id, &hub_asset, supply_cap, borrow_cap,
-        )
-    }
-
-    /// Raises halt flags on a spoke `registrar` owns.
+    /// Raises halt flags on a spoke `registrar` owns, or freezes a listing of a
+    /// hub asset `registrar` owns in another registrar's spoke.
     pub fn tighten_flags(
         env: Env,
         caller: Address,
@@ -190,28 +174,6 @@ impl Curator {
         asset: Address,
     ) {
         ops::revoke_cap_grant(&env, &caller, registrar, grantee, hub_id, spoke_id, &asset)
-    }
-
-    /// Sets both caps of a listing to zero and freezes it. `registrar` must own
-    /// the spoke or the listed hub; a hub owner also drops the grant behind it.
-    pub fn close_listing(
-        env: Env,
-        caller: Address,
-        registrar: u32,
-        spoke_id: u32,
-        hub_asset: HubAssetKey,
-    ) {
-        ops::close_listing(&env, &caller, registrar, spoke_id, &hub_asset)
-    }
-
-    /// Cancels a queued proposal of a suspended registrar. Anyone can call it.
-    pub fn cancel_suspended(env: Env, op_id: BytesN<32>) {
-        ops::cancel_suspended(&env, &op_id)
-    }
-
-    /// Cancels another registrar's queued proposal against a hub `registrar` owns.
-    pub fn cancel_grantee_proposal(env: Env, caller: Address, registrar: u32, op_id: BytesN<32>) {
-        ops::cancel_grantee_proposal(&env, &caller, registrar, &op_id)
     }
 
     /// Queues a new listing, a listing edit, a rate change, or a flag relaxation.

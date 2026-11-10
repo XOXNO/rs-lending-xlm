@@ -239,18 +239,7 @@ pub trait GovernanceInterface {
         params: MarketParamsRaw,
     ) -> Address;
 
-    fn close_spoke_asset(env: Env, caller: Address, spoke_id: u32, hub_asset: HubAssetKey);
-
     fn suspend_curator_registrar(env: Env, caller: Address, curator: Address, registrar: u32);
-
-    fn lower_spoke_asset_caps(
-        env: Env,
-        caller: Address,
-        spoke_id: u32,
-        hub_asset: HubAssetKey,
-        supply_cap: i128,
-        borrow_cap: i128,
-    );
 
     fn deactivate_position_manager(env: Env, caller: Address, manager: Address);
 

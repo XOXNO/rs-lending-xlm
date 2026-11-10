@@ -1,16 +1,17 @@
 //! Registrar registry owned by governance, which opens registrars and moves
 //! hubs and spokes through its timelock. This contract is the address that
-//! holds the governance `CURATOR`, `PROPOSER` and `CANCELLER` roles.
+//! holds the governance `CURATOR` and `PROPOSER` roles.
 
 #![no_std]
 #![allow(clippy::too_many_arguments)]
 
 mod api;
 mod auth;
+pub mod events;
 mod ops;
 mod storage;
 
-use soroban_sdk::{contract, contracterror, contractmeta, contracttype, Address, BytesN};
+use soroban_sdk::{contract, contracterror, contractmeta, contracttype, Address};
 
 /// Registers markets, lists assets, lowers caps, and queues listing edits.
 pub const ROLE_MARKET: u32 = 1;
@@ -37,8 +38,6 @@ pub enum CuratorError {
     GrantExceeded = 813,
     Unsupported = 814,
     RegistrarSuspended = 815,
-    NotListingParty = 816,
-    NotCancellable = 817,
 }
 
 /// Cap one registrar grants another for a single hub asset in one grantee spoke.
@@ -65,12 +64,11 @@ pub(crate) enum DataKey {
     Governance,
     NextRegistrar,
     RegistrarAdmin(u32),
-    Roles(u32, Address),
+    Roles(u32, u32, Address),
     HubRegistrar(u32),
     SpokeRegistrar(u32),
     CapGrant(u32, u32, u32, Address),
     Suspended(u32),
-    Pending(BytesN<32>),
 }
 
 contractmeta!(key = "name", val = "Lending Curator");

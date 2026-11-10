@@ -6,10 +6,9 @@
 //! `revoke_role_immediate` is instead owner-gated at the contract entry point
 //! (`#[only_owner]`) and only restricts which role argument may be revoked.
 
-use common::errors::{GenericError, SpokeError};
+use common::errors::GenericError;
 use common::ttl::renew_instance;
-use common::types::{HubAssetKey, MarketParamsRaw, PriceKey, SpokeAssetArgs, SpokeAssetConfig};
-use controller_interface::ControllerClient;
+use common::types::{HubAssetKey, MarketParamsRaw, PriceKey};
 
 use soroban_sdk::{assert_with_error, vec, Address, Env, IntoVal, Symbol};
 
@@ -17,7 +16,7 @@ use stellar_access::access_control;
 
 use crate::access::{self, CURATOR_ROLE, GUARDIAN_ROLE, ORACLE_ROLE};
 use crate::timelock::*;
-use crate::{storage, validate};
+use crate::validate;
 
 /// Pauses the controller. Requires the caller to hold `GUARDIAN_ROLE`.
 pub(crate) fn pause(env: &Env, caller: &Address) {
@@ -86,55 +85,6 @@ pub(crate) fn create_liquidity_pool(
     controller_client(env).create_liquidity_pool(&hub_id, &params.asset_id, params)
 }
 
-/// Lowers the supply or borrow cap of a listing and keeps every other field.
-/// Requires `CURATOR_ROLE`. Any other edit is the timelocked `EditAssetInSpoke`.
-pub(crate) fn lower_spoke_asset_caps(
-    env: &Env,
-    caller: &Address,
-    spoke_id: u32,
-    hub_asset: &HubAssetKey,
-    supply_cap: i128,
-    borrow_cap: i128,
-) {
-    begin_immediate(env, caller, CURATOR_ROLE);
-    validate::asset::validate_spoke_cap_args(env, supply_cap, borrow_cap);
-    let current = spoke_asset(env, spoke_id, hub_asset);
-    assert_with_error!(
-        env,
-        supply_cap <= current.supply_cap
-            && borrow_cap <= current.borrow_cap
-            && (supply_cap < current.supply_cap || borrow_cap < current.borrow_cap),
-        SpokeError::SpokeAssetCapsNotLowered
-    );
-    rewrite_listing(
-        env,
-        spoke_id,
-        hub_asset,
-        &current,
-        supply_cap,
-        borrow_cap,
-        current.frozen,
-    );
-}
-
-/// Sets both caps of a listing to zero and freezes it, keeping every other
-/// field. Requires `CURATOR_ROLE`.
-pub(crate) fn close_spoke_asset(
-    env: &Env,
-    caller: &Address,
-    spoke_id: u32,
-    hub_asset: &HubAssetKey,
-) {
-    begin_immediate(env, caller, CURATOR_ROLE);
-    let current = spoke_asset(env, spoke_id, hub_asset);
-    assert_with_error!(
-        env,
-        current.supply_cap != 0 || current.borrow_cap != 0 || !current.frozen,
-        SpokeError::SpokeAssetCapsNotLowered
-    );
-    rewrite_listing(env, spoke_id, hub_asset, &current, 0, 0, true);
-}
-
 /// Suspends `registrar` on `curator`. Requires `GUARDIAN_ROLE`, and `curator`
 /// must hold `CURATOR_ROLE`.
 pub(crate) fn suspend_curator_registrar(
@@ -154,37 +104,6 @@ pub(crate) fn suspend_curator_registrar(
         &Symbol::new(env, "set_registrar_suspended"),
         vec![env, registrar.into_val(env), true.into_val(env)],
     );
-}
-
-fn spoke_asset(env: &Env, spoke_id: u32, hub_asset: &HubAssetKey) -> SpokeAssetConfig {
-    ControllerClient::new(env, &storage::get_controller(env)).get_spoke_asset(&spoke_id, hub_asset)
-}
-
-fn rewrite_listing(
-    env: &Env,
-    spoke_id: u32,
-    hub_asset: &HubAssetKey,
-    current: &SpokeAssetConfig,
-    supply_cap: i128,
-    borrow_cap: i128,
-    frozen: bool,
-) {
-    controller_client(env).edit_asset_in_spoke(&SpokeAssetArgs {
-        hub_id: hub_asset.hub_id,
-        asset: hub_asset.asset.clone(),
-        spoke_id,
-        can_collateral: current.is_collateralizable,
-        can_borrow: current.is_borrowable,
-        paused: current.paused,
-        frozen,
-        no_seize: current.no_seize,
-        ltv: current.loan_to_value,
-        threshold: current.liquidation_threshold,
-        bonus: current.liquidation_bonus,
-        liquidation_fees: current.liquidation_fees,
-        supply_cap,
-        borrow_cap,
-    });
 }
 
 /// Deactivates `manager` on the controller. Requires the caller to hold
