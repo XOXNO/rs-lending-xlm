@@ -8,6 +8,7 @@ on:
       - "**/Cargo.*"
       - "Makefile"
       - "scripts/coverage_report.py"
+      - "scripts/strip_spec_docs.py"
       - ".github/workflows/coverage.yml"
       - "!services/**"
   pull_request:
@@ -17,6 +18,7 @@ on:
       - "**/Cargo.*"
       - "Makefile"
       - "scripts/coverage_report.py"
+      - "scripts/strip_spec_docs.py"
       - ".github/workflows/coverage.yml"
       - "!services/**"
   workflow_dispatch:
@@ -79,8 +81,8 @@ jobs:
         with:
           tool: sccache
 
-      - name: Build WASM fixtures (test-harness loads target/wasm32v1-none/release/pool.wasm)
-        run: make build
+      - name: Build WASM fixtures (target/wasm32v1-none/release and artifacts/wasm/deploy)
+        run: make deploy-artifacts
 
       - name: Run merged coverage
         run: make coverage-merged
@@ -143,8 +145,8 @@ jobs:
           key: cov-pr-${{ hashFiles('Cargo.lock') }}
           restore-keys: cov-pr-
 
-      - name: Build WASM fixtures (test-harness loads target/wasm32v1-none/release/pool.wasm)
-        run: make build
+      - name: Build WASM fixtures (target/wasm32v1-none/release and artifacts/wasm/deploy)
+        run: make deploy-artifacts
 
       - name: Run merged coverage (PR head)
         run: make coverage-merged
