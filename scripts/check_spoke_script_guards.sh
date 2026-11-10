@@ -927,18 +927,26 @@ echo 'transient RPC retries and unreadable op states: OK'
 # reassignCuratorHub/Spoke refuse ids the protocol does not have, and every
 # curator id must fit u32.
 cat > "$tmp/reassign.sh" <<EOF
+NETWORK=mainnet
+NETWORKS_FILE="$tmp/networks.json"
 SPOKES_FILE="$tmp/spokes.json"
 die() { echo "ERROR: \$*" >&2; exit 1; }
 fetch_spoke_json() { [ "\$1" = 4 ]; }
 schedule_curator_op() { echo "scheduled \$4 \$5 \$6"; }
+$(extract get_mapped_spoke_id)
+$(extract resolve_config_spoke_id)
+$(extract resolve_spoke_arg)
 $(extract require_registrar_id)
 $(extract reassign_curator_cmd)
 EOF
 reassign() { bash -c "source '$tmp/reassign.sh'; reassign_curator_cmd $1" 2>/dev/null; }
 case "$(reassign 'ReassignCuratorHub reassign_hub 1 none')" in 'scheduled ReassignCuratorHub 1 null'*) ;; *) fail 'a configured hub must be reassignable' ;; esac
-case "$(reassign 'ReassignCuratorSpoke reassign_spoke 4 7')" in 'scheduled ReassignCuratorSpoke 4 7'*) ;; *) fail 'an existing spoke must be reassignable' ;; esac
+case "$(reassign 'ReassignCuratorSpoke reassign_spoke 5 7')" in 'scheduled ReassignCuratorSpoke 4 7'*) ;; *) fail 'a config spoke id must be reassigned by its on-chain id' ;; esac
+case "$(reassign 'ReassignCuratorSpoke reassign_spoke onchain:4 7')" in 'scheduled ReassignCuratorSpoke 4 7'*) ;; *) fail 'a raw on-chain spoke id must be reassignable' ;; esac
 if reassign 'ReassignCuratorHub reassign_hub 9 none' >/dev/null; then fail 'an unconfigured hub id accepted'; fi
-if reassign 'ReassignCuratorSpoke reassign_spoke 5 none' >/dev/null; then fail 'a spoke the controller does not have accepted'; fi
-if reassign 'ReassignCuratorSpoke reassign_spoke 4 4294967296' >/dev/null; then fail 'a registrar id above u32 accepted'; fi
+if reassign 'ReassignCuratorSpoke reassign_spoke 4 none' >/dev/null; then fail 'an unmapped config spoke id accepted'; fi
+if reassign 'ReassignCuratorSpoke reassign_spoke 6 none' >/dev/null; then fail 'a spoke the controller does not have accepted'; fi
+if reassign 'ReassignCuratorSpoke reassign_spoke onchain:5 none' >/dev/null; then fail 'a raw spoke id the controller does not have accepted'; fi
+if reassign 'ReassignCuratorSpoke reassign_spoke 5 4294967296' >/dev/null; then fail 'a registrar id above u32 accepted'; fi
 if reassign 'ReassignCuratorHub reassign_hub 00000000001 none' >/dev/null; then fail 'an 11-digit id accepted'; fi
 echo 'curator reassign guards: OK'

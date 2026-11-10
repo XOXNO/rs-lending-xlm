@@ -3709,6 +3709,9 @@ reassign_curator_cmd() {
     local id=$3
     local owner=$4
     [ -n "$id" ] && [ -n "$owner" ] || die "Usage: $0 ${variant} <id> <registrar_id|none>"
+    if [ "$target_fn" = reassign_spoke ]; then
+        id=$(resolve_spoke_arg "$id") || exit 1
+    fi
     require_registrar_id "$id"
     case "$target_fn" in
         reassign_spoke)
@@ -5761,7 +5764,8 @@ case "$1" in
         echo "Hubs / Spokes (writes):"
         echo "  Every spoke <id> is the CONFIG id from spokes.json; it is resolved to the on-chain id"
         echo "  through networks.json spoke_ids (the two differ). removeSpoke, removeAssetFromSpoke,"
-        echo "  setSpokeLiquidationCurve, getSpoke, getSpokeAsset and supply also accept onchain:<n>."
+        echo "  setSpokeLiquidationCurve, reassignCuratorSpoke, getSpoke, getSpokeAsset and supply also"
+        echo "  accept onchain:<n>."
         echo "  listHubs                        Hubs referenced by config + on-chain mapping"
         echo "  createHub <id>                  Ensure hub exists (idempotent; ascending ids)"
         echo "  listSpokes                      List configured spoke categories (marks enabled=false)"
