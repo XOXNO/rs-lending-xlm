@@ -3,6 +3,7 @@
 //! the same position batch.
 
 use crate::shared::{as_vec, data_for_topic};
+use controller::constants::WAD;
 use soroban_sdk::testutils::Events;
 use soroban_sdk::xdr::ScVal;
 use soroban_sdk::TryFromVal;
@@ -125,4 +126,55 @@ fn a_borrow_without_a_stale_ltv_reports_no_param_update() {
     t.borrow(ALICE, "ETH", 0.5);
     t.borrow(ALICE, "ETH", 0.1);
     assert!(deposit_legs(&t).is_empty());
+}
+
+fn stored_wbtc_tuple(t: &LendingTest, account_id: u64) -> (u32, u32, u32, u32) {
+    let (supplies, _) = t.ctrl_client().get_account_positions(&account_id);
+    let p = supplies.get(hub_asset(t.resolve_asset("WBTC"))).unwrap();
+    (
+        p.loan_to_value,
+        p.liquidation_threshold,
+        p.liquidation_bonus,
+        p.liquidation_fees,
+    )
+}
+
+#[test]
+fn a_loosened_listing_restamps_ltv_and_threshold_together_on_borrow() {
+    let mut t = LendingTest::new().three_asset_usdc_eth_wbtc().build();
+    t.supply(BOB, "USDC", 100_000.0);
+    t.supply(ALICE, "WBTC", 0.5);
+    let account = t.account_id(ALICE);
+    t.edit_asset_config("WBTC", |c| {
+        c.loan_to_value = 8_000;
+        c.liquidation_threshold = 8_500;
+        c.liquidation_bonus = 400;
+    });
+
+    assert_eq!(
+        t.ctrl_client().get_ltv_collateral_usd(&account),
+        24_000 * WAD
+    );
+    t.borrow(ALICE, "USDC", 24_000.0);
+
+    assert_eq!(stored_wbtc_tuple(&t, account), (8_000, 8_500, 400, 1_200));
+    assert_eq!(t.health_factor_raw(ALICE), 1_062_500_000_000_000_000);
+    t.advance_time(5);
+    assert!(!t.can_be_liquidated(ALICE));
+}
+
+#[test]
+fn a_listing_edit_that_favors_liquidators_restamps_only_ltv_on_borrow() {
+    let mut t = LendingTest::new().three_asset_usdc_eth_wbtc().build();
+    t.supply(BOB, "USDC", 100_000.0);
+    t.supply(ALICE, "WBTC", 0.5);
+    let account = t.account_id(ALICE);
+    t.edit_asset_config("WBTC", |c| {
+        c.loan_to_value = 7_000;
+        c.liquidation_threshold = 7_600;
+    });
+
+    t.borrow(ALICE, "USDC", 1_000.0);
+
+    assert_eq!(stored_wbtc_tuple(&t, account), (7_000, 8_000, 500, 1_200));
 }

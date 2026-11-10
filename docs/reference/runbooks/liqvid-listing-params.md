@@ -387,10 +387,12 @@ stored values, not the live listing:
   the same time.
 
 Thus an `editAssetInSpoke` that lowers LT changes only the positions created
-after it and the positions that the controller refreshes. Every borrow and
-every withdrawal refreshes the stored LTV of each listed supply position
-without a condition. The stored LT, bonus and fee refresh together, and only
-in these paths:
+after it and the positions that the controller refreshes. Every borrow,
+withdrawal and account strategy refreshes the stored LTV of each listed supply
+position without a condition. In the same step it refreshes the stored LT,
+bonus and fee if the new values do not favour the liquidator. A change that
+favours the liquidator refreshes LT, bonus and fee together, and only in these
+paths:
 
 | Path | Code |
 |---|---|

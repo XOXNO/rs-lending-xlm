@@ -364,7 +364,8 @@ after pool mutations. With debt remaining, LTV-weighted collateral must cover
 debt, health factor must be at least one, and LTV-weighted collateral must meet
 any nonzero configured floor. Debt-free accounts skip these numerical gates.
 
-Listed LTV snapshots refresh before the shared gate. Listing and count checks
+Listed LTV snapshots refresh before the shared gate, together with a liquidation
+tuple that does not favor liquidators. Listing and count checks
 precede entry; spoke caps use returned pool deltas and revert the whole
 transaction on failure. Supply, repayment and liquidation do not universally
 apply this final gate.

@@ -275,7 +275,8 @@ Risk calculations use each position's stored `loan_to_value` and
 `liquidation_threshold`. Health factor uses the stored liquidation threshold.
 
 Borrow, withdrawal, and strategy risk checks refresh listed collateral LTV
-values first. `get_ltv_collateral_usd` does the same. Supply and non-liquidation
+values first, together with a liquidation tuple that does not favor
+liquidators. `get_ltv_collateral_usd` does the same. Supply and non-liquidation
 withdrawal also refresh eligible liquidation parameters.
 
 `update_account_threshold` refreshes LTV. With `has_risks = true`, it also

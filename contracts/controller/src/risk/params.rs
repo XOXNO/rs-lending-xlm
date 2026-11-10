@@ -42,6 +42,7 @@ pub(crate) fn refresh_supply_risk_params(
 
 /// Refreshes stored LTV snapshots in memory for listed supply assets, skipping
 /// unlisted assets, and buffers a `ParamUpd` delta for each changed leg.
+/// A liquidation tuple that does not favor liquidators refreshes with the LTV.
 /// Returns whether any position changed.
 pub(crate) fn restamp_listed_supply_ltv(cache: &mut Context, account: &mut Account) -> bool {
     let mut changed = false;
@@ -54,11 +55,15 @@ pub(crate) fn restamp_listed_supply_ltv(cache: &mut Context, account: &mut Accou
         let Some(raw) = account.supply_positions.get(hub_asset.clone()) else {
             continue;
         };
-        let mut position = AccountPosition::from(&raw);
-        if position.loan_to_value.raw() == config.loan_to_value.raw() {
+        let stored = AccountPosition::from(&raw);
+        let mut position = stored;
+        position.loan_to_value = config.loan_to_value;
+        if !favors_liquidator(&stored, &config) {
+            set_liquidation_params(&mut position, &config);
+        }
+        if position == stored {
             continue;
         }
-        position.loan_to_value = config.loan_to_value;
         update_or_remove_supply_position(account, &hub_asset, &position);
         if !changed {
             cache.fetch_market_indexes(&portfolio_hub_keys(
@@ -103,9 +108,14 @@ pub(crate) fn apply_gated_liquidation_params(
         return;
     }
 
-    position.liquidation_threshold = effective_config.liquidation_threshold;
-    position.liquidation_bonus = effective_config.liquidation_bonus;
-    position.liquidation_fees = effective_config.liquidation_fees;
+    set_liquidation_params(position, effective_config);
+}
+
+/// Copies the liquidation threshold, bonus, and fees from `config`.
+fn set_liquidation_params(position: &mut AccountPosition, config: &AssetConfig) {
+    position.liquidation_threshold = config.liquidation_threshold;
+    position.liquidation_bonus = config.liquidation_bonus;
+    position.liquidation_fees = config.liquidation_fees;
 }
 
 /// Detects a lower threshold or fee, or a higher bonus, than the stored tuple.

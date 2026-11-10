@@ -199,6 +199,9 @@ paths copy the listed tuple into the position. Each calls
   through `merge_withdraw_leg`.
 - `update_account_threshold` with `has_risks`, for each listed leg.
 
+A borrow, withdrawal or account strategy also copies a tuple that does not
+favor the liquidator, through `restamp_listed_supply_ltv`.
+
 The refresh applies a tuple that favors the liquidator (a lower threshold, a
 higher bonus or a lower fee) to an account with debt only if the health factor
 with the new threshold is at least 1.05. A supply reads that health factor
