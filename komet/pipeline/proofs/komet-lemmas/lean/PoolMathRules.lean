@@ -133,4 +133,27 @@ theorem mul_div_cancel (X C : Int) (h : C ≠ 0) : (X * C).tdiv C = X :=
 
 #print axioms mul_div_cancel
 
+-- [i256-shr1-limbs]  the 128-bit arithmetic shift right by one, recombined
+-- from its two u64 limbs (hi = (X - X mod 2^64) / 2^64, lo = X mod 2^64),
+-- is X /Int 2 for every X >= 0.
+theorem i256_shr1_limbs (X : Int) (h : 0 ≤ X) :
+    ((((X - X % 18446744073709551616).tdiv 18446744073709551616
+        - ((X - X % 18446744073709551616).tdiv 18446744073709551616) % 2).tdiv 2)
+        * 18446744073709551616)
+      + (((((X - X % 18446744073709551616).tdiv 18446744073709551616) % 2)
+          * 9223372036854775808)
+        + ((X % 18446744073709551616 - (X % 18446744073709551616) % 2).tdiv 2))
+      = X.tdiv 2 := by
+  have hlo0 : 0 ≤ X % 18446744073709551616 := Int.emod_nonneg _ (by decide)
+  have hlo1 : X % 18446744073709551616 < 18446744073709551616 := Int.emod_lt_of_pos _ (by decide)
+  have hhi : (X - X % 18446744073709551616).tdiv 18446744073709551616 = X / 18446744073709551616 := by
+    rw [Int.tdiv_eq_ediv_of_nonneg (by omega)]; omega
+  rw [hhi]
+  have hq0 : 0 ≤ X / 18446744073709551616 := Int.ediv_nonneg h (by decide)
+  rw [Int.tdiv_eq_ediv_of_nonneg (by omega), Int.tdiv_eq_ediv_of_nonneg (by omega),
+    Int.tdiv_eq_ediv_of_nonneg h]
+  omega
+
+#print axioms i256_shr1_limbs
+
 end PoolMathRules

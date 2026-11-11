@@ -289,4 +289,18 @@ module POOL-MATH-LEMMAS
     ((X:Int *Int C:Int) /Int C) => X
     requires C =/=Int 0
     [simplification, concrete(C), preserves-definedness]
+  // The i128/I256 shift right by one, recombined from its two u64 limbs
+  // (hi = (X - X mod 2^64) / 2^64, lo = X mod 2^64), is X /Int 2 for X >= 0.
+  // Seen in the half-up divisor term s/2 of the I256 utilization division.
+  rule [i256-shr1-limbs]:
+    ((((((X:Int -Int (X modInt 18446744073709551616)) /Int 18446744073709551616)
+         -Int (((X -Int (X modInt 18446744073709551616)) /Int 18446744073709551616) modInt 2))
+        /Int 2) *Int 18446744073709551616)
+     +Int (((((X -Int (X modInt 18446744073709551616)) /Int 18446744073709551616) modInt 2)
+            *Int 9223372036854775808)
+           +Int (((X modInt 18446744073709551616) -Int ((X modInt 18446744073709551616) modInt 2))
+                 /Int 2)))
+      => X /Int 2
+    requires 0 <=Int X
+    [simplification, preserves-definedness]
 endmodule
