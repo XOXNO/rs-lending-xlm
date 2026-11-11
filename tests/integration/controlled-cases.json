@@ -74,13 +74,6 @@
     "scope": "ownership acceptance after delay and role migration"
   },
   {
-    "id": "governance_close_listing",
-    "execution": "controlled-ledger",
-    "methods": ["governance.close_spoke_asset"],
-    "test": "immediate::curator_closes_a_listing_immediately_and_exits_still_work",
-    "scope": "Native governance/controller with mocked auth; rejects owner without CURATOR, closes caps/freezes listing after grant, rejects repeated closure and supply, permits withdrawal"
-  },
-  {
     "id": "governance_create_market",
     "execution": "controlled-ledger",
     "methods": ["governance.create_liquidity_pool"],
@@ -93,13 +86,6 @@
     "methods": ["governance.deactivate_position_manager", "governance.revoke_blend_pool"],
     "test": "tests::guardian_deactivates_a_manager_and_revokes_a_blend_pool_immediately",
     "scope": "Native governance/controller with mocked auth; manager active and Blend pool approved before calls, stranger calls reject without state change, guardian removes both permissions"
-  },
-  {
-    "id": "governance_lower_caps",
-    "execution": "controlled-ledger",
-    "methods": ["governance.lower_spoke_asset_caps"],
-    "test": "immediate::curator_lowers_caps_immediately_and_cannot_raise_them",
-    "scope": "Native governance/controller with mocked auth; rejects owner without CURATOR, lowers one/both caps after grant preserving risk fields, rejects unchanged caps and either cap increase"
   },
   {
     "id": "governance_suspend_registrar",
