@@ -11,6 +11,7 @@ mod bad_debt_index;
 mod bad_debt_netting_and_exit_timing;
 mod borrow;
 mod bulk_indexes;
+mod chained_decimal_amount_sweep;
 mod decimal_diversity;
 mod deprecated_spoke_liquidation_liveness;
 mod dust_threshold_and_decimal_floor;
