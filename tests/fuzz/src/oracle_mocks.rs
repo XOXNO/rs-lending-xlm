@@ -60,6 +60,7 @@ pub struct FuzzReflector;
 
 #[contractimpl]
 impl FuzzReflector {
+    #[allow(clippy::too_many_arguments)]
     pub fn setup(
         env: Env,
         base: ReflectorAsset,
