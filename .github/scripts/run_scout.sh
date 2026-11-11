@@ -69,7 +69,7 @@ if [ -z "$scout_source_dir" ]; then
   if [ ! -d "$scout_source_dir/.git" ]; then
     git clone -q --no-checkout https://github.com/mihaieremia/scout-audit.git "$scout_source_dir"
   fi
-  git -C "$scout_source_dir" fetch -q --depth 1 origin 26779da2e72880ba77ab796ee7f71a785ba315f3
+  git -C "$scout_source_dir" fetch -q --depth 1 origin 5fd254bd83fc0593f0d23ab5079a37a7ceac8499
   git -C "$scout_source_dir" checkout -q --detach FETCH_HEAD
 fi
 if [ ! -d "$scout_source_dir/nightly" ]; then

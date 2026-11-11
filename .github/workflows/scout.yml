@@ -48,7 +48,7 @@ jobs:
 
       - name: Warm Scout detector build
         continue-on-error: true
-        uses: mihaieremia/scout-audit@26779da2e72880ba77ab796ee7f71a785ba315f3 # v1.3.0
+        uses: mihaieremia/scout-audit@5fd254bd83fc0593f0d23ab5079a37a7ceac8499 # v1.3.1
         with:
           contracts: contracts/defindex-strategy
           exclude: dos-unexpected-revert-with-storage
@@ -60,7 +60,7 @@ jobs:
 
       - name: Run Scout
 
-        uses: mihaieremia/scout-audit@26779da2e72880ba77ab796ee7f71a785ba315f3 # v1.3.0
+        uses: mihaieremia/scout-audit@5fd254bd83fc0593f0d23ab5079a37a7ceac8499 # v1.3.1
         with:
           # Every deployable contract in the workspace. Mocks are test
           # doubles and are deliberately not audited. Keep in sync with the
