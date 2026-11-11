@@ -11444,11 +11444,10 @@
       {
         "label": "risk_full_low_hf",
         "method": "update_account_threshold",
-        "status": "xfail",
+        "status": "ok",
         "count": 1,
         "execution": [
-          "simulation",
-          "rejected_transaction"
+          "transaction"
         ],
         "contract": "controller"
       },

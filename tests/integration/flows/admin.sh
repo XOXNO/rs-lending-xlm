@@ -91,17 +91,20 @@ flow_risk_refresh() {
     assert_int_view_eq risk_hf_above 1050000000700000000 get_health_factor --account_id "$above" || return 1
     assert_int_view_eq risk_hf_held 1199999999200000000 get_health_factor --account_id "$below" || return 1
 
-    # An existing HF below 1.05 rejects the full batch, even when its adverse
-    # tuple is held. The preceding debt-free update must roll back as well.
+    # A full batch reaches an account with HF below 1.05. The debt-free
+    # account takes the whole tuple. The low-HF account holds its adverse
+    # liquidation tuple and takes only the LTV, so its HF does not move.
     inv risk_edit_rollback "$ADMIN" "$CONTROLLER" -- edit_asset_in_spoke \
         --input "$(spoke_args "$PRIMARY_HUB_ID" "$SAC_RISK" "$other" true true 5200 6800 1000 | jq -c '.liquidation_fees=25')" >/dev/null || return 1
-    xfail risk_full_low_hf 'Error\(Contract, #102\)' "$BOB" "$CONTROLLER" -- update_account_threshold \
-        --caller "$BOB_ADDR" --has_risks true --account_ids "[$free,$low]" || return 1
-    risk_assert_stamps risk_atomic_free "$free" "$SAC_RISK" '[5100,6900,800,60]' "$free_before" || return 1
-    risk_assert_stamps risk_atomic_low "$low" "$SAC_RISK" '[5100,8100,400,100]' "$low_before" || return 1
+    inv risk_full_low_hf "$BOB" "$CONTROLLER" -- update_account_threshold --caller "$BOB_ADDR" \
+        --has_risks true --account_ids "[$free,$low]" >/dev/null || return 1
+    risk_assert_stamps risk_atomic_free "$free" "$SAC_RISK" '[5200,6800,1000,25]' "$free_before" || return 1
+    risk_assert_stamps risk_atomic_low "$low" "$SAC_RISK" '[5200,8100,400,100]' "$low_before" || return 1
+    assert_int_view_eq risk_low_hf_held 1012500000000000000 get_health_factor --account_id "$low" || return 1
+    # A later LTV-only refresh of the same accounts changes nothing.
     inv risk_ltv_low_hf "$BOB" "$CONTROLLER" -- update_account_threshold --caller "$BOB_ADDR" \
         --has_risks false --account_ids "[$free,$low]" >/dev/null || return 1
-    risk_assert_stamps risk_ltv_low_hf_free "$free" "$SAC_RISK" '[5200,6900,800,60]' "$free_before" || return 1
+    risk_assert_stamps risk_ltv_low_hf_free "$free" "$SAC_RISK" '[5200,6800,1000,25]' "$free_before" || return 1
     risk_assert_stamps risk_ltv_low_hf_debt "$low" "$SAC_RISK" '[5200,8100,400,100]' "$low_before"
 }
 
