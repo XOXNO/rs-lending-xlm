@@ -303,4 +303,14 @@ module POOL-MATH-LEMMAS
       => X /Int 2
     requires 0 <=Int X
     [simplification, preserves-definedness]
+  // Instance of Komet's data.md rule getTagWithFlag(true, I256(_)) => 71
+  // (always-allocate: every I256 is a host object). The Booster refuses to
+  // erase a symbolic quotient N /Int D (not syntactically defined), which left
+  // the I256 utilization quotient's tag unevaluated; matching the quotient in
+  // the pattern binds only N and D and makes D =/=Int 0 an explicit,
+  // path-checked side condition, under which N /Int D is defined.
+  rule [i256-quotient-object-tag]:
+    getTagWithFlag(true, I256(_N:Int /Int D:Int)) => 71
+    requires D =/=Int 0
+    [simplification]
 endmodule

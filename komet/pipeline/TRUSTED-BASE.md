@@ -130,7 +130,7 @@ simplification.
 |---|---|---|
 | [`double-cli.k`](../pool-math/proofs/borrow-double/double-cli.k) (borrow-double) | 17 | [`DoubleCliRules.lean`](../pool-math/proofs/borrow-double/lean/DoubleCliRules.lean): one theorem per rule, stated in the rule's shape, from the 13 original lemma files |
 | [`arithmetic.k`](../pool-math/proofs/utilization/arithmetic.k) (utilization) | 39 = the 17 above (byte-identical) + 22 `utilization-*` | [`UtilizationRules.lean`](../pool-math/proofs/utilization/lean/UtilizationRules.lean): one theorem per `utilization-*` rule, from the 11 utilization lemma files |
-| [`pool-math-lemmas.k`](proofs/pool-math-lemmas.k) (every other pool-math proof run by this pipeline) | 50 = the 39 of `arithmetic.k` (byte-identical) + `mul-div-cancel`, `u64-xor-zero-right/left`, `u64-or-sign-bit`, `ray-identity-half-up`, `bool-word-and/or/xor/mod`, `u64-xor-and-sign(-ge)` | the files above + [`PoolMathRules.lean`](proofs/komet-lemmas/lean/PoolMathRules.lean) |
+| [`pool-math-lemmas.k`](proofs/pool-math-lemmas.k) (every other pool-math proof run by this pipeline) | 52 = the 39 of `arithmetic.k` (byte-identical) + `mul-div-cancel`, `u64-xor-zero-right/left`, `u64-or-sign-bit`, `ray-identity-half-up`, `bool-word-and/or/xor/mod`, `u64-xor-and-sign(-ge)`, `i256-shr1-limbs`, `i256-quotient-object-tag` | the files above + [`PoolMathRules.lean`](proofs/komet-lemmas/lean/PoolMathRules.lean); `i256-quotient-object-tag` is an instance of a Komet semantics rule (see Definedness) |
 
 Definedness: a rule marked `preserves-definedness` keeps every variable of its
 left side on its right side, and every division or modulus in it has a literal
@@ -139,6 +139,12 @@ only erasing rules are `integer-self-subtraction` (`I -Int I => 0`),
 `_X &Int 0 => 0` and the U64 range facts (`u64-xor-nonnegative`,
 `u64-xor-upper-bound`); none carries `preserves-definedness`, and the backend
 applies them only when the erased operand is syntactically defined.
+`i256-quotient-object-tag` (`getTagWithFlag(true, I256(N /Int D)) => 71`
+requires `D =/=Int 0`) is the Komet `data.md` rule
+`getTagWithFlag(true, I256(_)) => 71` restricted to a quotient operand. It
+erases `N` and `D`, which must each be syntactically defined, and its side
+condition makes the quotient itself defined; it carries no
+`preserves-definedness`.
 
 ## 4. What a passing proof does not cover
 
