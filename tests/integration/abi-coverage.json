@@ -1207,13 +1207,6 @@
   },
   {
     "contract": "governance",
-    "method": "close_spoke_asset",
-    "execution": "controlled-ledger",
-    "controlled_case": "governance_close_listing",
-    "scope": "Native governance/controller, mocked auth; CURATOR-gated closure zeroes caps and freezes listing, repeated closure rejects, existing withdrawal succeeds"
-  },
-  {
-    "contract": "governance",
     "method": "create_liquidity_pool",
     "execution": "controlled-ledger",
     "controlled_case": "governance_create_market",
@@ -1225,13 +1218,6 @@
     "execution": "controlled-ledger",
     "controlled_case": "governance_guardian_reduces_access",
     "scope": "Native governance/controller, mocked auth; stranger rejected without state change, guardian removes the active manager"
-  },
-  {
-    "contract": "governance",
-    "method": "lower_spoke_asset_caps",
-    "execution": "controlled-ledger",
-    "controlled_case": "governance_lower_caps",
-    "scope": "Native governance/controller, mocked auth; CURATOR-gated cap reductions preserve other risk fields, increases and unchanged caps reject"
   },
   {
     "contract": "governance",
