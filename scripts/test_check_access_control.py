@@ -252,18 +252,26 @@ class DeclarationFileTest(unittest.TestCase):
 
 
 class DependencyRevisionTest(unittest.TestCase):
-    def test_manifest_and_lock_must_both_match_reviewed_revision(self):
+    def test_manifest_and_lock_must_both_match_reviewed_release(self):
         ac.check_dependency_revision()
+        checksum = ac.REVIEWED_OZ_CHECKSUMS["stellar-tokens"]
+        pin = f'stellar-tokens = "={ac.REVIEWED_OZ_VERSION}"'
+        changes = (
+            ("Cargo.toml", pin, 'stellar-tokens = "=0.8.1"'),
+            ("Cargo.toml", pin, f'stellar-tokens = "{ac.REVIEWED_OZ_VERSION}"'),
+            ("Cargo.lock", checksum, "0" * 64),
+        )
         with tempfile.TemporaryDirectory() as root:
-            for changed in ("Cargo.toml", "Cargo.lock"):
+            for changed, old, new in changes:
                 for name in ("Cargo.toml", "Cargo.lock"):
                     with open(os.path.join(ac.REPO_ROOT, name), encoding="utf-8") as fh:
                         content = fh.read()
                     if name == changed:
-                        content = content.replace(ac.REVIEWED_OZ_REV, "0" * 40)
+                        self.assertIn(old, content)
+                        content = content.replace(old, new)
                     with open(os.path.join(root, name), "w", encoding="utf-8") as fh:
                         fh.write(content)
-                with self.assertRaises(ac.ParseError, msg=changed):
+                with self.assertRaises(ac.ParseError, msg=f"{changed}: {new}"):
                     ac.check_dependency_revision(root)
 
 

@@ -8,7 +8,7 @@ move.
 
 | | |
 | --- | --- |
-| Base standard | OpenZeppelin `stellar-tokens` 0.7.1 (git rev `59b98f8e`), non-fungible |
+| Base standard | OpenZeppelin `stellar-tokens` 0.8.0, non-fungible |
 | Extension | `Enumerable` (`type ContractType = Enumerable;`) with sequential ids |
 | Not used | `Consecutive`, `Burnable` |
 | Client | [`interfaces/position-nft`](../../interfaces/position-nft) |
@@ -65,7 +65,7 @@ Inherited unchanged from OpenZeppelin `NonFungibleToken` and
 | `approve_for_all(owner, operator, live_until_ledger)` | `owner` | Lets `operator` move all of `owner`'s positions; `0` revokes |
 | `owner_of(token_id)` | anyone | Current holder; panics `NonExistentToken` if never minted or burned |
 | `balance(account)` | anyone | Positions held by `account` |
-| `get_approved(token_id)`, `is_approved_for_all(owner, operator)` | anyone | Live approvals |
+| `get_approved(token_id)`, `is_approved_for_all(owner, operator)` | anyone | Live approvals; `get_approved` panics `NonExistentToken` if never minted or burned |
 | `name()`, `symbol()` | anyone | Collection metadata |
 | `total_supply()` | anyone | Live positions |
 | `get_owner_token_id(owner, index)` | anyone | Walks one holder's positions; pair with `balance` |

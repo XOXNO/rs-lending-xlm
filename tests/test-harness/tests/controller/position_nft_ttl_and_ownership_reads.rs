@@ -74,7 +74,7 @@ fn meta_ttl(t: &LendingTest, account_id: u64) -> u32 {
 /// INV-STOR-02b: the `Owner` entry and `AccountMeta` start on the same 120-day
 /// window.
 ///
-/// `set_user` stamps `AccountMeta` with the protocol window. `sequential_mint`
+/// `set_user` stamps `AccountMeta` with the protocol window. `Enumerable::mint`
 /// writes `Owner` at the network minimum TTL, and `mint` then lifts it with
 /// `extend_user_persistent_ttl` (`contracts/position-nft/src/contract.rs`).
 #[test]

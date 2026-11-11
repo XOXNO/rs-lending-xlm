@@ -1597,15 +1597,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "soroban-poseidon"
-version = "28.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9d3c971964bbff3b7f716b251e3cd8caa71ab4fbe33aa8fc845570dcdbe97582"
-dependencies = [
- "soroban-sdk",
-]
-
-[[package]]
 name = "soroban-sdk"
 version = "28.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1721,16 +1712,18 @@ checksum = "a2eb9349b6444b326872e140eb1cf5e7c522154d69e7a0ffb0fb81c06b37543f"
 
 [[package]]
 name = "stellar-access"
-version = "0.7.1"
-source = "git+https://github.com/OpenZeppelin/stellar-contracts.git?rev=59b98f8e127f0e877a3870e8eb82fa282a4aadf3#59b98f8e127f0e877a3870e8eb82fa282a4aadf3"
+version = "0.8.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8e5dc69bd3a6d260a5fba6541f0260d0bed3fbfcbb615d2fb00dc95bda94ceaf"
 dependencies = [
  "soroban-sdk",
 ]
 
 [[package]]
 name = "stellar-contract-utils"
-version = "0.7.1"
-source = "git+https://github.com/OpenZeppelin/stellar-contracts.git?rev=59b98f8e127f0e877a3870e8eb82fa282a4aadf3#59b98f8e127f0e877a3870e8eb82fa282a4aadf3"
+version = "0.8.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "642ca8d4cd845beebd617d51d0631dc3326914e33a4805d433d284d70e67015b"
 dependencies = [
  "soroban-sdk",
 ]
@@ -1759,16 +1752,18 @@ dependencies = [
 
 [[package]]
 name = "stellar-governance"
-version = "0.7.1"
-source = "git+https://github.com/OpenZeppelin/stellar-contracts.git?rev=59b98f8e127f0e877a3870e8eb82fa282a4aadf3#59b98f8e127f0e877a3870e8eb82fa282a4aadf3"
+version = "0.8.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4c341e8024a891522f4a61299cf7f714619a1b8c4e0c13ad61fae004f36a0f4a"
 dependencies = [
  "soroban-sdk",
 ]
 
 [[package]]
 name = "stellar-macros"
-version = "0.7.1"
-source = "git+https://github.com/OpenZeppelin/stellar-contracts.git?rev=59b98f8e127f0e877a3870e8eb82fa282a4aadf3#59b98f8e127f0e877a3870e8eb82fa282a4aadf3"
+version = "0.8.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a3b4e7bcf89602f2dd864df1b4ee43bf7b3321847f1ca82e382548f34a43bdc5"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -1798,10 +1793,10 @@ dependencies = [
 
 [[package]]
 name = "stellar-tokens"
-version = "0.7.1"
-source = "git+https://github.com/OpenZeppelin/stellar-contracts.git?rev=59b98f8e127f0e877a3870e8eb82fa282a4aadf3#59b98f8e127f0e877a3870e8eb82fa282a4aadf3"
+version = "0.8.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f1e8c79407082324265a4334e7a8201ac4c5a04f25657fadbaed7116e68bb3b5"
 dependencies = [
- "soroban-poseidon",
  "soroban-sdk",
  "stellar-contract-utils",
  "stellar-governance",
