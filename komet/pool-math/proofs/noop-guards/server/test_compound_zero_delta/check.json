@@ -1,0 +1,33 @@
+{
+ "admitted": false,
+ "bounded": [],
+ "circularity": false,
+ "covers": 1,
+ "edges": 1,
+ "errors": [],
+ "expect": "pass",
+ "failing": [],
+ "id": "test_compound_zero_delta",
+ "input_fingerprint": {
+  "claim": "1d83396870818ac2923762d27f30e56caf3d2539f3368661edd2486c491e68b7",
+  "definitions": {
+   "haskell": "a66ba5710a4bfe9569247ce0b4fa777812c2f1835a71434d5e5676eb9c934b98",
+   "llvm": "bc45d16cc07aa32904549e2086fc416b7eafa0c8c11afc9f9a47871d96610325"
+  },
+  "llvm_libraries": {
+   "interpreter.so": "94a466bd685ff2cafc270088ecbe22fbf434b9ec973389c3222d8e0e5f09881a"
+  },
+  "runner": "ac43e6cafd049c505f81b5e363968c509d656de5c9d57ab81c1eea091654a8e2"
+ },
+ "inputs_sha256": "768cc3838fae5ba55e8eba30aa108069bde391df519f519c74980bde13b21851",
+ "node_refutations": {},
+ "nodes": 3,
+ "pending": [],
+ "rewrite_steps": 463,
+ "splits": 0,
+ "status": "PASSED",
+ "stuck": [],
+ "subproof_ids": [],
+ "vacuous": [],
+ "verdict": "OK"
+}

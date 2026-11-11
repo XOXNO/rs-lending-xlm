@@ -1,0 +1,58 @@
+[
+ {
+  "proof": "noop-guards",
+  "id": "test_compound_zero_delta",
+  "expect": "pass",
+  "status": "PASSED",
+  "verdict": "OK",
+  "exit_code": 0,
+  "wall_seconds": 318,
+  "smt_timeout_ms": 5000,
+  "memory_peak_bytes": 3703480320,
+  "nodes": 3,
+  "rewrite_steps": 463,
+  "errors": []
+ },
+ {
+  "proof": "noop-guards",
+  "id": "test_compound_zero_delta_wrong",
+  "expect": "fail",
+  "status": "FAILED",
+  "verdict": "OK",
+  "exit_code": 1,
+  "wall_seconds": 222,
+  "smt_timeout_ms": 5000,
+  "memory_peak_bytes": 3673858048,
+  "nodes": 3,
+  "rewrite_steps": 302,
+  "errors": []
+ },
+ {
+  "proof": "noop-guards",
+  "id": "test_supply_zero_inputs",
+  "expect": "pass",
+  "status": "PASSED",
+  "verdict": "OK",
+  "exit_code": 0,
+  "wall_seconds": 91,
+  "smt_timeout_ms": 5000,
+  "memory_peak_bytes": 2793775104,
+  "nodes": 7,
+  "rewrite_steps": 1074,
+  "errors": []
+ },
+ {
+  "proof": "noop-guards",
+  "id": "test_supply_zero_inputs_wrong",
+  "expect": "fail",
+  "status": "FAILED",
+  "verdict": "OK",
+  "exit_code": 1,
+  "wall_seconds": 220,
+  "smt_timeout_ms": 5000,
+  "memory_peak_bytes": 3427565568,
+  "nodes": 3,
+  "rewrite_steps": 463,
+  "errors": []
+ }
+]

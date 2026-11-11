@@ -1,0 +1,58 @@
+[
+ {
+  "proof": "index-identity",
+  "id": "test_borrow_cap_sticky",
+  "expect": "pass",
+  "status": "PASSED",
+  "verdict": "OK",
+  "exit_code": 0,
+  "wall_seconds": 1343,
+  "smt_timeout_ms": 60000,
+  "memory_peak_bytes": 3212566528,
+  "nodes": 31,
+  "rewrite_steps": 5121,
+  "errors": []
+ },
+ {
+  "proof": "index-identity",
+  "id": "test_borrow_cap_sticky_wrong",
+  "expect": "fail",
+  "status": "FAILED",
+  "verdict": "OK",
+  "exit_code": 1,
+  "wall_seconds": 206,
+  "smt_timeout_ms": 60000,
+  "memory_peak_bytes": 2904399872,
+  "nodes": 4,
+  "rewrite_steps": 1572,
+  "errors": []
+ },
+ {
+  "proof": "index-identity",
+  "id": "test_borrow_index_identity",
+  "expect": "pass",
+  "status": "PASSED",
+  "verdict": "OK",
+  "exit_code": 0,
+  "wall_seconds": 1798,
+  "smt_timeout_ms": 60000,
+  "memory_peak_bytes": 2467250176,
+  "nodes": 35,
+  "rewrite_steps": 5217,
+  "errors": []
+ },
+ {
+  "proof": "index-identity",
+  "id": "test_borrow_index_identity_wrong",
+  "expect": "fail",
+  "status": "FAILED",
+  "verdict": "OK",
+  "exit_code": 1,
+  "wall_seconds": 206,
+  "smt_timeout_ms": 60000,
+  "memory_peak_bytes": 3082846208,
+  "nodes": 4,
+  "rewrite_steps": 1572,
+  "errors": []
+ }
+]

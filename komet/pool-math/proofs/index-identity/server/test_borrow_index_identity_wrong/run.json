@@ -1,0 +1,31 @@
+{
+ "image": "komet-prover:247c6bde25aa9aa0",
+ "id": "test_borrow_index_identity_wrong",
+ "expect": "fail",
+ "exit_code": 1,
+ "wall_seconds": 206,
+ "cap_seconds": 14400,
+ "started_utc": "2026-11-11T22:02:04Z",
+ "smt_timeout_ms": 60000,
+ "booster_rts": "",
+ "memory_limit": "5g",
+ "memory_peak_bytes": 3082846208,
+ "oom_killed": "false",
+ "outcome": "verdict",
+ "attempt": 1,
+ "resumed_from": null,
+ "command": [
+  "komet",
+  "prove",
+  "run",
+  "--always-allocate",
+  "--wasm",
+  "/out/input/pool_math_proof.wasm",
+  "--id",
+  "test_borrow_index_identity_wrong",
+  "--proof-dir",
+  "/out/proof",
+  "--extra-module",
+  "/out/input/pool-math-lemmas.k:POOL-MATH-LEMMAS"
+ ]
+}

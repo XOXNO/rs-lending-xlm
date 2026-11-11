@@ -1,0 +1,33 @@
+{
+ "admitted": false,
+ "bounded": [],
+ "circularity": false,
+ "covers": 8,
+ "edges": 15,
+ "errors": [],
+ "expect": "pass",
+ "failing": [],
+ "id": "test_borrow_cap_sticky",
+ "input_fingerprint": {
+  "claim": "bab51d97215f1ac8732e2b862c3299487cacf8a9c5d85f2c2d738f1d4b751a5b",
+  "definitions": {
+   "haskell": "a66ba5710a4bfe9569247ce0b4fa777812c2f1835a71434d5e5676eb9c934b98",
+   "llvm": "bc45d16cc07aa32904549e2086fc416b7eafa0c8c11afc9f9a47871d96610325"
+  },
+  "llvm_libraries": {
+   "interpreter.so": "94a466bd685ff2cafc270088ecbe22fbf434b9ec973389c3222d8e0e5f09881a"
+  },
+  "runner": "ac43e6cafd049c505f81b5e363968c509d656de5c9d57ab81c1eea091654a8e2"
+ },
+ "inputs_sha256": "e69607483823d93c85b7838439b2a6ab5ae1bd75e039f0a172a70168fe7ac8f2",
+ "node_refutations": {},
+ "nodes": 31,
+ "pending": [],
+ "rewrite_steps": 5121,
+ "splits": 7,
+ "status": "PASSED",
+ "stuck": [],
+ "subproof_ids": [],
+ "vacuous": [],
+ "verdict": "OK"
+}

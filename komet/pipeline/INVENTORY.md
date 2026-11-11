@@ -34,10 +34,10 @@ each proof README for numbers.
 | `test_ray_mul_floor_wrong` / `test_ray_mul_ceil_wrong` | — | `(RAY+1)^2/RAY` rounded the wrong way | same | never run (new) |
 | `test_ray_div_floor` / `test_ray_div_ceil` [ray-div-rounding] | x >= 2^64, d > 0, fits | exact floor / ceil of `x*RAY/d` | `Ray::div_floor`, `Ray::div_ceil` (ADR-0003 supply floor / debt ceil core) | never run (new) |
 | `test_ray_div_floor_wrong` / `test_ray_div_ceil_wrong` | — | `2^64*RAY/(3*RAY)` rounded the wrong way | same | never run (new) |
-| `test_wad_try_mul_negative` [noop-guards] | a < 0 or b < 0 (all i128) | `Wad::try_mul` is `None` | `Wad::try_mul` | never run (new) |
-| `test_wad_try_mul_negative_wrong` | — | `try_mul(-1, 0) == Some(0)` | same | never run (new) |
-| `test_from_asset_7_exact` [rescale-up] | product fits i128 (all signs) | `Ray::from_asset(a, 7) == a * 10^20` | `Ray::from_asset` → `rescale_half_up` | never run (new) |
-| `test_from_asset_7_wrong` | — | one unit is 10^19 | same | never run (new) |
+| `test_wad_try_mul_negative` [noop-guards] | a < 0 or b < 0 (all i128) | `Wad::try_mul` is `None` | `Wad::try_mul` | open: blocked (Z3 unknown on an `i128` word-OR path condition, 3,762 s) |
+| `test_wad_try_mul_negative_wrong` | — | `try_mul(-1, 0) == Some(0)` | same | control fails (server, not packed) |
+| `test_from_asset_7_exact` [rescale-up] | product fits i128 (all signs) | `Ray::from_asset(a, 7) == a * 10^20` | `Ray::from_asset` → `rescale_half_up` | open: stopped after 2,061 s, resumable |
+| `test_from_asset_7_wrong` | — | one unit is 10^19 | same | control fails (server, not packed) |
 | `test_widened_ceil` [controls] | — | `mul_div_ceil(RAY+1, RAY+1, RAY) == RAY+3` | `fp_core::mul_div_ceil` | concrete only |
 
 ### Rates and indexes (`pm`)
@@ -46,21 +46,21 @@ each proof README for numbers.
 |---|---|---|---|---|
 | `test_borrow_double` [borrow-double] | `RAY <= old <= 10^36` | `update_borrow_index(old, 2*RAY) == min(2*old, 10^36)` | `rates::update_borrow_index` | proved (Mac, historical); server re-proof: see §5 |
 | `test_borrow_double_wrong` | — | at `old = cap/2+1`, result is `2*old` | same | control fails (Mac) |
-| `test_borrow_index_identity` [index-identity] | `RAY <= old <= 10^36` | growth by RAY is the identity | same | never run (new) |
-| `test_borrow_index_identity_wrong` | — | `update(RAY+1, RAY) == RAY` | same | never run (new) |
-| `test_borrow_cap_sticky` [index-identity] | `RAY < factor <= 100*RAY` | `update(10^36, factor) == 10^36` | same | never run (new) |
-| `test_borrow_cap_sticky_wrong` | — | doubling at the cap gives `2*10^36` | same | never run (new) |
+| `test_borrow_index_identity` [index-identity] | `RAY <= old <= 10^36` | growth by RAY is the identity | same | proved (server) |
+| `test_borrow_index_identity_wrong` | — | `update(RAY+1, RAY) == RAY` | same | control fails (server) |
+| `test_borrow_cap_sticky` [index-identity] | `RAY < factor <= 100*RAY` | `update(10^36, factor) == 10^36` | same | proved (server) |
+| `test_borrow_cap_sticky_wrong` | — | doubling at the cap gives `2*10^36` | same | control fails (server) |
 | `test_borrow_index_bounds` [borrow-index] | `RAY <= old <= 10^36`, `RAY <= factor <= 8*RAY` | `old <= result <= 10^36` | same | concrete only |
 | `test_borrow_index_exact` [index-exact] | valid old, `factor >= RAY`, pre-cap result fits | exact half-up growth, then cap; `result >= old` | same | concrete only |
 | `test_supply_index_exact` [supply-index] | supplied >= 0, `10^24 <= old <= 10^36`, rewards >= 0, values fit | early returns exact; else `clamp(floor((oldVal+rewards)*RAY/supplied), old, 10^36)` | `rates::update_supply_index` | concrete only |
-| `test_supply_zero_inputs` [noop-guards] | supplied == 0 or rewards == 0 (all i128) | result == old | same | never run (new) |
-| `test_supply_zero_inputs_wrong` | — | `update(0, RAY, RAY) == RAY+1` | same | never run (new) |
+| `test_supply_zero_inputs` [noop-guards] | supplied == 0 or rewards == 0 (all i128) | result == old | same | proved (server) |
+| `test_supply_zero_inputs_wrong` | — | `update(0, RAY, RAY) == RAY+1` | same | control fails (server) |
 | `test_supply_rewards` [reward-conservation] | as supply-index | distributed + shortfall == rewards, both bounded | `update_supply_index`, `supply_index_reward_shortfall` | concrete only |
 | `test_interest_split` [interest-split] | valid monotone indexes, values fit, bps < 10000 | supplier + fee == accrued, fee = half-up bps share | `rates::calculate_supplier_rewards` | concrete only |
 | `test_fee_shares` [fee-shares] | fee, supplied >= 0, valid index | `clamp(floor(fee*RAY/index), 0, MAX - supplied)` | `rates::protocol_fee_shares` | concrete only |
 | `test_flash_fee` [flash-fee] | amount >= 0, every u32 rate, fits | half-up fee, minimum 1 for a positive rate | `Bps::flash_loan_fee_on` | concrete only |
-| `test_compound_zero_delta` [noop-guards] | every i128 rate | `compound_interest(rate, 0) == RAY` | `rates::compound_interest` | never run (new) |
-| `test_compound_zero_delta_wrong` | — | `compound(1, 0) == RAY+1` | same | never run (new) |
+| `test_compound_zero_delta` [noop-guards] | every i128 rate | `compound_interest(rate, 0) == RAY` | `rates::compound_interest` | proved (server) |
+| `test_compound_zero_delta_wrong` | — | `compound(1, 0) == RAY+1` | same | control fails (server) |
 | `test_utilization_bounds` [utilization] | `0 <= b <= s`, `s > 0` | `0 <= U <= RAY` | `rates::utilization` | concrete only |
 | `test_utilization_exact` [utilization] | b, s >= 0; s == 0 or b <= s | `U == 0` at s == 0; else exact half-up quotient in `[0, RAY]` | same | open (Mac: 39-rule module, not closed) |
 | `test_utilization_round_wrong` | — | `U(1, 2*RAY) == 0` | same | control fails (Mac) |
@@ -172,5 +172,42 @@ are covered by the `validation` and `oracle-time` features.
 
 ## 5. Server results
 
-Filled in as runs complete (verdict, nodes, rewrite steps, wall time, Wasm
-SHA-256, extra module).
+Every row below is committed evidence, re-checked by `make komet-verify` with
+the pinned prover image and extra module
+[`pool-math-lemmas.k`](proofs/pool-math-lemmas.k). Wasm SHA-256s are in each
+directory's `wasm.sha256`.
+
+| Evidence | Test | Expect | Status | Nodes | Steps | Wall s |
+|---|---|---|---|---|---|---|
+| [`komet/oracle-staleness/server`](../../komet/oracle-staleness/server/summary.json) | `test_fresh_never_stale` | pass | `PASSED` | 3 | 411 | 73 |
+| [`komet/oracle-staleness/server`](../../komet/oracle-staleness/server/summary.json) | `test_fresh_wrong` | fail | `FAILED` | 3 | 400 | 79 |
+| [`komet/pool-math/proofs/borrow-double/server`](../../komet/pool-math/proofs/borrow-double/server/summary.json) | `test_borrow_double` | pass | `PASSED` | 47 | 5,871 | 2,849 |
+| [`komet/pool-math/proofs/borrow-double/server`](../../komet/pool-math/proofs/borrow-double/server/summary.json) | `test_borrow_double_wrong` | fail | `FAILED` | 4 | 1,464 | 417 |
+| [`komet/pool-math/proofs/index-identity/server`](../../komet/pool-math/proofs/index-identity/server/summary.json) | `test_borrow_cap_sticky` | pass | `PASSED` | 31 | 5,121 | 1,343 |
+| [`komet/pool-math/proofs/index-identity/server`](../../komet/pool-math/proofs/index-identity/server/summary.json) | `test_borrow_cap_sticky_wrong` | fail | `FAILED` | 4 | 1,572 | 206 |
+| [`komet/pool-math/proofs/index-identity/server`](../../komet/pool-math/proofs/index-identity/server/summary.json) | `test_borrow_index_identity` | pass | `PASSED` | 35 | 5,217 | 1,798 |
+| [`komet/pool-math/proofs/index-identity/server`](../../komet/pool-math/proofs/index-identity/server/summary.json) | `test_borrow_index_identity_wrong` | fail | `FAILED` | 4 | 1,572 | 206 |
+| [`komet/pool-math/proofs/noop-guards/server`](../../komet/pool-math/proofs/noop-guards/server/summary.json) | `test_compound_zero_delta` | pass | `PASSED` | 3 | 463 | 318 |
+| [`komet/pool-math/proofs/noop-guards/server`](../../komet/pool-math/proofs/noop-guards/server/summary.json) | `test_compound_zero_delta_wrong` | fail | `FAILED` | 3 | 302 | 222 |
+| [`komet/pool-math/proofs/noop-guards/server`](../../komet/pool-math/proofs/noop-guards/server/summary.json) | `test_supply_zero_inputs` | pass | `PASSED` | 7 | 1,074 | 91 |
+| [`komet/pool-math/proofs/noop-guards/server`](../../komet/pool-math/proofs/noop-guards/server/summary.json) | `test_supply_zero_inputs_wrong` | fail | `FAILED` | 3 | 463 | 220 |
+| [`komet/pool-math/proofs/oracle-time/server`](../../komet/pool-math/proofs/oracle-time/server/summary.json) | `test_future_exact` | pass | `PASSED` | 3 | 428 | 225 |
+| [`komet/pool-math/proofs/oracle-time/server`](../../komet/pool-math/proofs/oracle-time/server/summary.json) | `test_future_wrong` | fail | `FAILED` | 3 | 90 | 196 |
+| [`komet/pool-math/proofs/oracle-time/server`](../../komet/pool-math/proofs/oracle-time/server/summary.json) | `test_stale_exact` | pass | `PASSED` | 3 | 540 | 233 |
+| [`komet/pool-math/proofs/oracle-time/server`](../../komet/pool-math/proofs/oracle-time/server/summary.json) | `test_stale_wrong` | fail | `FAILED` | 3 | 90 | 190 |
+| [`komet/pool-math/proofs/utilization/server-controls`](../../komet/pool-math/proofs/utilization/server-controls/summary.json) | `test_full_utilization` | pass | `PASSED` | 4 | 1,747 | 842 |
+| [`komet/pool-math/proofs/utilization/server-controls`](../../komet/pool-math/proofs/utilization/server-controls/summary.json) | `test_full_utilization_wrong` | fail | `FAILED` | 4 | 1,734 | 899 |
+| [`komet/pool-math/proofs/utilization/server-controls`](../../komet/pool-math/proofs/utilization/server-controls/summary.json) | `test_util_zero_supply` | pass | `PASSED` | 3 | 622 | 674 |
+| [`komet/pool-math/proofs/utilization/server-controls`](../../komet/pool-math/proofs/utilization/server-controls/summary.json) | `test_util_zero_supply_wrong` | fail | `FAILED` | 3 | 477 | 631 |
+| [`komet/pool-math/proofs/utilization/server-controls`](../../komet/pool-math/proofs/utilization/server-controls/summary.json) | `test_widened_ceil` | pass | `PASSED` | 4 | 1,167 | 970 |
+| [`komet/pool-math/proofs/validation/server`](../../komet/pool-math/proofs/validation/server/summary.json) | `test_liquidation_curve_accepts` | pass | `PASSED` | 47 | 1,506 | 870 |
+| [`komet/pool-math/proofs/validation/server`](../../komet/pool-math/proofs/validation/server/summary.json) | `test_liquidation_curve_rejects` | reject | `FAILED` | 19 | 1,595 | 527 |
+| [`komet/pool-math/proofs/validation/server`](../../komet/pool-math/proofs/validation/server/summary.json) | `test_risk_bounds_accepts` | pass | `PASSED` | 15 | 719 | 809 |
+| [`komet/pool-math/proofs/validation/server`](../../komet/pool-math/proofs/validation/server/summary.json) | `test_risk_bounds_reject_wrong` | fail | `FAILED` | 3 | 130 | 344 |
+| [`komet/pool-math/proofs/validation/server`](../../komet/pool-math/proofs/validation/server/summary.json) | `test_risk_bounds_rejects` | reject | `FAILED` | 11 | 768 | 928 |
+| [`komet/pool-math/proofs/validation/server`](../../komet/pool-math/proofs/validation/server/summary.json) | `test_twap_records_accepts` | pass | `PASSED` | 7 | 260 | 388 |
+| [`komet/pool-math/proofs/validation/server`](../../komet/pool-math/proofs/validation/server/summary.json) | `test_twap_records_reject_wrong` | fail | `FAILED` | 3 | 130 | 254 |
+| [`komet/pool-math/proofs/validation/server`](../../komet/pool-math/proofs/validation/server/summary.json) | `test_twap_records_rejects` | reject | `FAILED` | 11 | 319 | 459 |
+
+Runs that ended `blocked`, `stopped` or out of memory are not packed. Each
+one is recorded in its claim's §1 status.

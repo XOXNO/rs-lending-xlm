@@ -1,0 +1,35 @@
+{
+ "image": "komet-prover:247c6bde25aa9aa0",
+ "id": "test_supply_zero_inputs",
+ "expect": "pass",
+ "exit_code": 0,
+ "wall_seconds": 91,
+ "cap_seconds": 14400,
+ "started_utc": "2026-11-11T23:12:19Z",
+ "smt_timeout_ms": 5000,
+ "booster_rts": "",
+ "memory_limit": "5g",
+ "memory_peak_bytes": 2793775104,
+ "oom_killed": "false",
+ "outcome": "verdict",
+ "attempt": 2,
+ "resumed_from": {
+  "attempt": 1,
+  "nodes": 7,
+  "rewrite_steps": 1074
+ },
+ "command": [
+  "komet",
+  "prove",
+  "run",
+  "--always-allocate",
+  "--wasm",
+  "/out/input/pool_math_proof.wasm",
+  "--id",
+  "test_supply_zero_inputs",
+  "--proof-dir",
+  "/out/proof",
+  "--extra-module",
+  "/out/input/pool-math-lemmas.k:POOL-MATH-LEMMAS"
+ ]
+}
