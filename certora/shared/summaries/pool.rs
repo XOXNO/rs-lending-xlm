@@ -282,8 +282,10 @@ pub fn claim_revenue_summary(_env: &Env, _asset: &Address) -> PoolAmountMutation
 /// market.
 ///
 /// The rate-model fields mirror `InterestRateModel::verify`
-/// (`common/src/types/pool.rs`) exactly, because a stored market cannot hold a
-/// curve that failed it: non-negative base, monotone slopes up to
+/// (`common/src/types/pool.rs`), because a stored market cannot hold a curve
+/// that failed it. The one omitted check is
+/// `base_borrow_rate + slope1 + slope2 + slope3 <= max_borrow_rate`, so the
+/// domain is a sound superset: non-negative base, monotone slopes up to
 /// `max_borrow_rate`, `max_borrow_rate` in `(base, MAX_BORROW_RATE_RAY]`,
 /// `0 < mid_utilization < optimal_utilization < RAY`, `optimal_utilization <=
 /// max_utilization <= RAY`, `reserve_factor < BPS`, and `flashloan_fee <=

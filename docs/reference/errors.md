@@ -76,7 +76,7 @@ SDK `try_` calls distinguish contract errors from host, authorization, storage, 
 | 126 `MinBorrowCollateralNotMet` | LTV-weighted collateral is below the configured USD floor, or a collateral leg below 3 decimals holds under 2 whole units, while the account still has debt. | Supply more collateral or repay in full. |
 | 127 `UtilizationAboveMax` | Utilization after the operation exceeds the market's `max_utilization`. | Reduce the borrow or withdrawal size. |
 | 128 `BaseRateNegative` | The base borrow rate is negative. | Use a non-negative base rate. |
-| 129 `SlopeNonMonotonic` | Parameters violate base <= slope1 <= slope2 <= slope3 <= max. Slopes remain additive increments in pricing. | Fix the stored parameter ordering. |
+| 129 `SlopeNonMonotonic` | Parameters violate base <= slope1 <= slope2 <= slope3 <= max, or the rate at full utilization (base + slope1 + slope2 + slope3) exceeds max. Slopes remain additive increments in pricing. | Fix the stored parameter ordering, or raise max to at least the full-utilization rate. |
 | 130 `MaxRateBelowBase` | The max borrow rate is not strictly above the base rate. | Raise the max above the base rate. |
 | 131 `MaxBorrowRateTooHigh` | The max borrow rate exceeds `MAX_BORROW_RATE_RAY`. | Lower the max borrow rate. |
 | 132 `AssetDecimalsTooHigh` | Market decimals exceed 18, or a cap-rescale helper is given decimals above 27. | Use the supported market decimal domain. |

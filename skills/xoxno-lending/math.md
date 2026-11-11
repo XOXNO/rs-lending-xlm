@@ -149,7 +149,7 @@ else:                  rate = base + slope1 + slope2 + half_up(half_up((u − op
 rate = min(rate, max_borrow_rate)
 ```
 
-Each segment adds its full slope at the kink: `slope1` is the total rise from 0 to `mid`, `slope2` from `mid` to `optimal`, `slope3` from `optimal` to 100%. `max_borrow_rate ≤ MAX_BORROW_RATE_RAY = 2 RAY` (200% APR). The result is an **annual RAY fraction**; `get_borrow_rate` returns it as `i128`.
+Each segment adds its full slope at the kink: `slope1` is the total rise from 0 to `mid`, `slope2` from `mid` to `optimal`, `slope3` from `optimal` to 100%. `max_borrow_rate ≤ MAX_BORROW_RATE_RAY = 2 RAY` (200% APR), and validation requires `base + slope1 + slope2 + slope3 ≤ max_borrow_rate`, so the cap never flattens the curve before 100%. The result is an **annual RAY fraction**; `get_borrow_rate` returns it as `i128`.
 
 Worked example with illustrative parameters (not a live market; read live parameters with the pool's `get_sync_data`): base 0.005, slope1 0.03, slope2 0.095, slope3 1.0, mid 0.60, optimal 0.85, max 1.25 (all × RAY):
 

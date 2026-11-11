@@ -133,7 +133,9 @@ selection caps utilization at one RAY. The annual borrow curve has three joined
 linear regions: base plus slope1 up to mid utilization, slope2 up to optimal,
 then slope3 up to full utilization. Each slope contribution uses half-up
 multiplication followed by half-up division. The result cannot exceed the
-configured maximum, which is limited to 200% APR.
+configured maximum, which is limited to 200% APR. Parameter validation requires
+`base + slope1 + slope2 + slope3 <= max`, so the maximum never cuts the curve
+before full utilization.
 
 Accrual uses the per-millisecond rate `per_ms`. Pool borrow and deposit rate
 views return annual RAY fractions from stored indexes, without first accruing
