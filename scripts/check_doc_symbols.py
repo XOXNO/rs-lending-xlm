@@ -29,8 +29,9 @@ IDENT = re.compile(r"\b([A-Za-z_][A-Za-z0-9_]*)\b")
 
 # Non-Rust files that legitimately define names the docs cite: env vars live in
 # Dockerfiles and Compose files, Prometheus alert names in
-# services/*/ops/alerts.yml.
-EXTRA_SUFFIXES = (".toml", ".json", ".sh", ".py", ".yml", ".yaml")
+# services/*/ops/alerts.yml; Lean theorem names and K rule labels live in the
+# formal-proof sources under komet/.
+EXTRA_SUFFIXES = (".toml", ".json", ".sh", ".py", ".yml", ".yaml", ".lean", ".k")
 EXTRA_NAMES = ("Makefile", "Dockerfile")
 
 # Dependencies whose internal items the docs name directly. Their sources are
@@ -71,6 +72,13 @@ FILE_ALLOW = {
     # A compiler-rt intrinsic the prover models, cited while explaining i128
     # arithmetic in the WASM front-end.
     "certora/README.md": {"__modti3"},
+    # Formal-proof notes: `UNSAT` is the SMT solver's answer, `TermLike` the
+    # Haskell backend's term type, `mpz_*` GMP routines the backend calls.
+    "komet/README.md": {"UNSAT"},
+    "komet/pipeline/TRUSTED-BASE.md": {"UNSAT"},
+    "komet/pool-math/README.md": {"UNSAT"},
+    "komet/pool-math/proofs/utilization/README.md": {"TermLike"},
+    "komet/pool-math/proofs/utilization/left32-review.md": {"mpz_get_ui", "mpz_mul"},
 }
 
 

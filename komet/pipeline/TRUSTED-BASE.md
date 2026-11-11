@@ -99,7 +99,7 @@ Files under [`proofs/komet-lemmas/lean/`](proofs/komet-lemmas/lean/).
 | `full-mask-to-modulus` | `IntBitwiseLemmas.full_mask_to_modulus` |
 | `masked-or-zero-right`, `masked-or-zero-left` | `IntBitwiseLemmas.masked_or_zero_right`, `masked_or_zero_left` |
 | `masked-xor-sign-bit` | `IntBitwiseLemmas.masked_xor_sign_bit` |
-| `masked-complement-and-right`, `-left` | `IntBitwiseLemmas.masked_complement_and_right`, `_left` |
+| `masked-complement-and-right`, `-left` | `IntBitwiseLemmas.masked_complement_and_right`, `masked_complement_and_left` |
 | `constant-right-shift` | `IntBitwiseLemmas.constant_right_shift` |
 | `pack-bounded-low-word` | `IntBitwiseLemmas.pack_bounded_low_word` |
 | `pack-four-u64-limbs` | `IntBitwiseLemmas.pack_four_u64_limbs` |
@@ -111,7 +111,7 @@ Files under [`proofs/komet-lemmas/lean/`](proofs/komet-lemmas/lean/).
 | `project-u64-shift32` | `U64Lemmas.project_u64_shift32` |
 | `u64-pack-bounded-low32` | `U64Lemmas.u64_pack_bounded_low32` |
 | `reverse-min-width-comparison` | `HostObjectLemmas.reverse_min_width_comparison` |
-| `bounded-min-width-comparison-nonpositive`, `-above`, `-threshold` | `HostObjectLemmas.bounded_min_width_nonpositive`, `_above`, `_threshold` |
+| `bounded-min-width-comparison-nonpositive`, `-above`, `-threshold` | `HostObjectLemmas.bounded_min_width_nonpositive`, `bounded_min_width_above`, `bounded_min_width_threshold` |
 | `boolean-word-value` | `HostObjectLemmas.boolean_word_value` |
 | `bitwise-mk-hostval-then-mask` | `HostObjectLemmas.bitwise_mk_hostval_then_mask` |
 | `#getRange(SB, ADDR, 8) &Int (2^64-1) => #getRange(SB, ADDR, 8)` | `HostObjectLemmas.getRange8_mask` |

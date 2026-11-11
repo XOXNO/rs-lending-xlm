@@ -30,10 +30,10 @@ each proof README for numbers.
 | `test_floor_exact` [signed-floor] | divisor != 0, floor fits | `q*D <= x*y < (q+1)*D` (sign-normalised) | `fp_core::mul_div_floor` | concrete only |
 | `test_ceil_exact` [signed-ceil] | divisor != 0, ceil fits | `(q-1)*D < x*y <= q*D` | `fp_core::mul_div_ceil` | concrete only |
 | `test_saturating_floor` [signed-saturation] | divisor != 0 | floor, saturating at i128::MIN/MAX | `fp_core::mul_div_floor_saturating` | concrete only |
-| `test_ray_mul_floor` / `_ceil` [ray-mul-rounding] | x, y >= 2^64, result fits | exact floor / ceil of `x*y/RAY` (widened I256 path) | `Ray::mul_floor`, `Ray::mul_ceil` | never run (new) |
-| `test_ray_mul_floor_wrong` / `_ceil_wrong` | — | `(RAY+1)^2/RAY` rounded the wrong way | same | never run (new) |
-| `test_ray_div_floor` / `_ceil` [ray-div-rounding] | x >= 2^64, d > 0, fits | exact floor / ceil of `x*RAY/d` | `Ray::div_floor`, `Ray::div_ceil` (ADR-0003 supply floor / debt ceil core) | never run (new) |
-| `test_ray_div_floor_wrong` / `_ceil_wrong` | — | `2^64*RAY/(3*RAY)` rounded the wrong way | same | never run (new) |
+| `test_ray_mul_floor` / `test_ray_mul_ceil` [ray-mul-rounding] | x, y >= 2^64, result fits | exact floor / ceil of `x*y/RAY` (widened I256 path) | `Ray::mul_floor`, `Ray::mul_ceil` | never run (new) |
+| `test_ray_mul_floor_wrong` / `test_ray_mul_ceil_wrong` | — | `(RAY+1)^2/RAY` rounded the wrong way | same | never run (new) |
+| `test_ray_div_floor` / `test_ray_div_ceil` [ray-div-rounding] | x >= 2^64, d > 0, fits | exact floor / ceil of `x*RAY/d` | `Ray::div_floor`, `Ray::div_ceil` (ADR-0003 supply floor / debt ceil core) | never run (new) |
+| `test_ray_div_floor_wrong` / `test_ray_div_ceil_wrong` | — | `2^64*RAY/(3*RAY)` rounded the wrong way | same | never run (new) |
 | `test_wad_try_mul_negative` [noop-guards] | a < 0 or b < 0 (all i128) | `Wad::try_mul` is `None` | `Wad::try_mul` | never run (new) |
 | `test_wad_try_mul_negative_wrong` | — | `try_mul(-1, 0) == Some(0)` | same | never run (new) |
 | `test_from_asset_7_exact` [rescale-up] | product fits i128 (all signs) | `Ray::from_asset(a, 7) == a * 10^20` | `Ray::from_asset` → `rescale_half_up` | never run (new) |
@@ -66,7 +66,7 @@ each proof README for numbers.
 | `test_utilization_round_wrong` | — | `U(1, 2*RAY) == 0` | same | control fails (Mac) |
 | `test_util_zero_supply` [controls] | every i128 borrowed | `U(b, 0) == 0` | same | proved (Mac, historical; older semantics) |
 | `test_utilization_wrong` [controls] | `0 <= b <= s`, `s > 0` | `U < RAY` (false at full use) | same | concrete control |
-| `test_full_utilization` / `_wrong` [controls] | — | `U(RAY, RAY) == RAY` / `< RAY` | same | Mac diagnostic only |
+| `test_full_utilization` / `test_full_utilization_wrong` [controls] | — | `U(RAY, RAY) == RAY` / `< RAY` | same | Mac diagnostic only |
 
 ### Settlements (`pm`)
 
