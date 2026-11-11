@@ -30,6 +30,8 @@ mutants.out/
 mutants.out.old/
 **/mutants.out/
 **/mutants.out.old/
+mutants.passes/
+**/mutants.passes/
 # Agent brainstorm scratch
 docs/superpowers/
 .zed

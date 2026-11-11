@@ -7,7 +7,7 @@
 //! on these methods rather than on the delegates, so the check runs at the
 //! contract entry point before any state is touched.
 
-use common::types::{AssetOracle, HubAssetKey, OracleTolerance, PriceKey};
+use common::types::{AssetOracle, HubAssetKey, MarketParamsRaw, OracleTolerance, PriceKey};
 
 use governance_interface::{AdminOperation, GovernanceInterface};
 
@@ -130,7 +130,7 @@ impl GovernanceInterface for Governance {
 
     /// Tightens the paused, frozen, and no-seize flags for `hub_asset` in spoke
     /// `spoke_id`; clearing a set flag fails. Requires the caller to hold the
-    /// guardian role.
+    /// guardian role or the curator role.
     fn set_spoke_asset_flags(
         env: Env,
         caller: Address,
@@ -152,15 +152,32 @@ impl GovernanceInterface for Governance {
     }
 
     /// Creates a new hub on the controller and returns its id. Requires the
-    /// caller to hold the guardian role.
+    /// caller to hold the curator role.
     fn create_hub(env: Env, caller: Address) -> u32 {
         immediate::create_hub(&env, &caller)
     }
 
     /// Creates a new spoke on the controller and returns its id. Requires
-    /// the caller to hold the guardian role.
+    /// the caller to hold the curator role.
     fn add_spoke(env: Env, caller: Address) -> u32 {
         immediate::add_spoke(&env, &caller)
+    }
+
+    /// Registers `params.asset_id` on the deployed pool under `hub_id` and
+    /// returns that pool's address. Requires the curator role.
+    fn create_liquidity_pool(
+        env: Env,
+        caller: Address,
+        hub_id: u32,
+        params: MarketParamsRaw,
+    ) -> Address {
+        immediate::create_liquidity_pool(&env, &caller, hub_id, &params)
+    }
+
+    /// Suspends `registrar` on `curator`, which must hold the curator role.
+    /// Requires the caller to hold the guardian role; resuming stays timelocked.
+    fn suspend_curator_registrar(env: Env, caller: Address, curator: Address, registrar: u32) {
+        immediate::suspend_curator_registrar(&env, &caller, &curator, registrar)
     }
 
     /// Deactivates a position manager on the controller. Requires the caller

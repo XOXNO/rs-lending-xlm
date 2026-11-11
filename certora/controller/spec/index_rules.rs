@@ -53,7 +53,8 @@ fn hub0(asset: &Address) -> HubAssetKey {
 }
 
 /// A symbolic rate model, flash loans disabled, that admits every curve
-/// `MarketParamsRaw::verify` accepts. It omits the `slope3 <= max_borrow_rate` and
+/// `MarketParamsRaw::verify` accepts. It omits the `slope3 <= max_borrow_rate`,
+/// `base_borrow_rate + slope1 + slope2 + slope3 <= max_borrow_rate` and
 /// `max_borrow_rate > base_borrow_rate` checks and allows `asset_decimals` up to
 /// `RAY_DECIMALS`, so it also admits some models `verify` rejects.
 fn nondet_market_params(asset: &Address) -> MarketParamsRaw {

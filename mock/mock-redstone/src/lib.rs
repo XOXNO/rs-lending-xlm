@@ -33,11 +33,16 @@ pub struct MockRedStonePriceFeed;
 #[contractimpl]
 impl MockRedStonePriceFeed {
     pub fn set_chainlink_price(env: Env, data_id: BytesN<32>, price_wad: i128) {
+        let timestamp = env.ledger().timestamp();
+        Self::set_chainlink_round(env, data_id, price_wad, timestamp);
+    }
+
+    pub fn set_chainlink_round(env: Env, data_id: BytesN<32>, price_wad: i128, timestamp: u64) {
         assert_with_error!(&env, price_wad >= 0, MockRedStoneError::InvalidPrice);
         let round = ChainlinkRound {
             round_id: 1,
             answer: I256::from_i128(&env, price_wad),
-            timestamp: env.ledger().timestamp(),
+            timestamp,
         };
         env.storage()
             .persistent()

@@ -117,7 +117,8 @@ WASM, custom-WASM coins, two-source coin oracles and 5 debt legs, the worst case
 measured 107.7M CPU and 15.1M memory (`curve_lp_liquidation_worst_case_all_wasm`).
 That bench uses `mock_redstone.wasm` for both feed providers (the RedStone
 primary and the Chainlink anchor) and the minimal `production_fixture.wasm`
-token for every coin and debt asset. It prints usage and asserts no ceiling.
+token for every coin and debt asset. It asserts all eight fixture resource
+ceilings recorded in `MAINNET_LIMITS`.
 Re-measure with the production RedStone adapter, Chainlink proxy and listed
 token executables before treating the figure as a production bound. Live
 mainnet limits read on 2026-11-02 (`stellar network settings`):

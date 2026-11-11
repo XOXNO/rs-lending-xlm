@@ -140,7 +140,8 @@ make test-match PATTERN=liquidation
 
 Properties live in `fuzz/`. `make proptest` uses tuned per-property defaults;
 `PROPTEST_CASES` overrides the defaults of every randomized property (see
-`fuzz/config.rs`). The plain deterministic `#[test]` functions, such as the two
+`fuzz/config.rs`); zero is rejected to prevent runs without generated cases.
+The plain deterministic `#[test]` functions, such as the two
 auth matrices, ignore the variable. Use release builds for long runs.
 
 ```bash

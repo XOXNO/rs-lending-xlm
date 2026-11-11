@@ -15,9 +15,11 @@ PROPTEST_CASES=10000 cargo test --release -p test-harness --test fuzz -- --test-
 cargo test -p test-harness --test fuzz prop_liquidation_matches_bigrational_reference -- --test-threads=1
 ```
 
-`PROPTEST_CASES` overrides the per-property defaults of the randomized properties
+`PROPTEST_CASES` overrides the positive per-property defaults of the randomized properties
 (see `config.rs`); the deterministic `#[test]` functions, such as the two auth
-matrices, ignore it.
+matrices, ignore it. Zero is rejected to prevent runs without generated cases.
+
+`make proptest-one` rejects an empty filter or a filter that matches no tests.
 
 Run this suite serially. `make proptest` pins `--test-threads=1`; the rest of the
 harness suite runs at libtest's default of one thread per core.

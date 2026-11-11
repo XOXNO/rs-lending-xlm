@@ -165,20 +165,20 @@ mod tests {
 
     const TEST_PUBKEY: &str = "GDRXE2BQUC3AZNPVFSCEZ76NJ3WWL25FYFK6RGZGIEKWE4SOOHSUJUJ6";
 
-    fn fake_key() -> LedgerKey {
+    fn fake_key(id: u8) -> LedgerKey {
         LedgerKey::ContractData(LedgerKeyContractData {
-            contract: ScAddress::Contract(ContractId(Hash([0u8; 32]))),
+            contract: ScAddress::Contract(ContractId(Hash([id; 32]))),
             key: ScVal::LedgerKeyContractInstance,
             durability: ContractDataDurability::Persistent,
         })
     }
 
-    fn present(live_until: Option<u32>) -> LedgerEntryQuery {
+    fn present(id: u8, live_until: Option<u32>) -> LedgerEntryQuery {
         LedgerEntryQuery {
-            key: fake_key(),
+            key: fake_key(id),
             value: Some(LedgerEntryData::ContractData(ContractDataEntry {
                 ext: ExtensionPoint::V0,
-                contract: ScAddress::Contract(ContractId(Hash([0u8; 32]))),
+                contract: ScAddress::Contract(ContractId(Hash([id; 32]))),
                 key: ScVal::LedgerKeyContractInstance,
                 durability: ContractDataDurability::Persistent,
                 val: ScVal::Void,
@@ -189,7 +189,7 @@ mod tests {
 
     fn absent(live_until: Option<u32>) -> LedgerEntryQuery {
         LedgerEntryQuery {
-            key: fake_key(),
+            key: fake_key(0),
             value: None,
             live_until_ledger: live_until,
         }
@@ -201,7 +201,7 @@ mod tests {
             current_ledger: 100,
             ..Default::default()
         };
-        snap.instance_entries.push(present(Some(100 + 600_000)));
+        snap.instance_entries.push(present(0, Some(100 + 600_000)));
         let jobs = plan_extends(&snap, 14 * LEDGERS_PER_DAY).unwrap();
         assert_eq!(jobs.len(), 0);
     }
@@ -212,11 +212,26 @@ mod tests {
             current_ledger: 100,
             ..Default::default()
         };
-        for _ in 0..125 {
-            snap.persistent_entries.push(present(Some(100 + 1_000)));
+        for id in 0..125 {
+            snap.persistent_entries.push(present(id, Some(100 + 1_000)));
         }
         let jobs = plan_extends(&snap, 14 * LEDGERS_PER_DAY).unwrap();
         assert_eq!(jobs.len(), 3);
+        let extended: Vec<_> = jobs
+            .iter()
+            .flat_map(|job| {
+                let footprint = &job
+                    .initial_soroban_data
+                    .as_ref()
+                    .unwrap()
+                    .resources
+                    .footprint;
+                assert!((1..=60).contains(&footprint.read_only.len()));
+                assert!(footprint.read_write.is_empty());
+                footprint.read_only.iter().cloned()
+            })
+            .collect();
+        assert_eq!(extended, (0..125).map(fake_key).collect::<Vec<_>>());
     }
 
     #[test]
@@ -225,7 +240,7 @@ mod tests {
             current_ledger: 100,
             ..Default::default()
         };
-        snap.persistent_entries.push(present(Some(50)));
+        snap.persistent_entries.push(present(0, Some(50)));
         snap.persistent_entries.push(absent(Some(50)));
         let jobs = plan_extends(&snap, 14 * LEDGERS_PER_DAY).unwrap();
         assert_eq!(jobs.len(), 0);
@@ -237,12 +252,26 @@ mod tests {
             current_ledger: 1_000,
             ..Default::default()
         };
-        for _ in 0..125 {
-            snap.persistent_entries.push(present(Some(0)));
+        for id in 0..125 {
+            snap.persistent_entries.push(present(id, Some(0)));
         }
         let jobs = plan_restores(&snap, 14 * LEDGERS_PER_DAY).unwrap();
         assert_eq!(jobs.len(), 3);
         assert!(jobs.iter().all(|j| j.kind == TxKind::RestoreFootprint));
+        for job in &jobs {
+            let footprint = &job
+                .initial_soroban_data
+                .as_ref()
+                .unwrap()
+                .resources
+                .footprint;
+            assert!((1..=60).contains(&footprint.read_write.len()));
+            assert!(footprint.read_only.is_empty());
+        }
+        assert_eq!(
+            restored_keys(&jobs),
+            (0..125).map(fake_key).collect::<Vec<_>>()
+        );
     }
 
     #[test]
@@ -251,7 +280,7 @@ mod tests {
             current_ledger: 1_000,
             ..Default::default()
         };
-        snap.persistent_entries.push(present(Some(1_010)));
+        snap.persistent_entries.push(present(0, Some(1_010)));
         snap.persistent_entries.push(absent(Some(0)));
         let jobs = plan_restores(&snap, 14 * LEDGERS_PER_DAY).unwrap();
         assert_eq!(jobs.len(), 0);
@@ -263,8 +292,8 @@ mod tests {
             current_ledger: 1_000,
             ..Default::default()
         };
-        snap.persistent_entries.push(present(Some(0)));
-        snap.persistent_entries.push(present(Some(0)));
+        snap.persistent_entries.push(present(0, Some(0)));
+        snap.persistent_entries.push(present(0, Some(0)));
         let restores = plan_restores(&snap, 14 * LEDGERS_PER_DAY).unwrap();
         assert_eq!(restored_keys(&restores).len(), 2);
         let extends = plan_extends_for_keys(&restored_keys(&restores)).unwrap();

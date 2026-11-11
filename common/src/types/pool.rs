@@ -167,7 +167,8 @@ pub struct InterestRateModel {
 impl InterestRateModel {
     /// Validates that the rate curve is well-formed: a non-negative base rate, non-decreasing
     /// slopes up through the max borrow rate, a max rate within bounds and above the base
-    /// rate, a utilization breakpoint sequence that is strictly increasing through
+    /// rate, a curve whose rate at full utilization (`base + slope1 + slope2 + slope3`) stays
+    /// at or below the max rate, a utilization breakpoint sequence that is strictly increasing through
     /// `optimal_utilization` and non-decreasing to `max_utilization`
     /// (`0 < mid < optimal < RAY`, `optimal <= max <= RAY`), a reserve factor below 100%, and
     /// a flashloan fee within the configured maximum. Panics if any of these checks fails.
@@ -193,6 +194,11 @@ impl InterestRateModel {
             env,
             self.max_borrow_rate <= MAX_BORROW_RATE_RAY,
             CollateralError::MaxBorrowRateTooHigh
+        );
+        assert_with_error!(
+            env,
+            self.base_borrow_rate + self.slope1 + self.slope2 + self.slope3 <= self.max_borrow_rate,
+            CollateralError::SlopeNonMonotonic
         );
         assert_with_error!(
             env,

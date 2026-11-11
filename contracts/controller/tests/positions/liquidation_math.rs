@@ -2,7 +2,7 @@ use super::*;
 use crate::constants::{
     BAD_DEBT_USD_THRESHOLD, DEFAULT_HF_FOR_MAX_BONUS_WAD, DEFAULT_LIQUIDATION_BONUS_FACTOR_BPS,
     DEFAULT_LIQUIDATION_TARGET_HF_WAD, DEFAULT_MIN_BORROW_COLLATERAL_USD_WAD,
-    MAX_REASONABLE_PRICE_WAD, MIN_ASSET_DECIMALS, POSITION_LIMIT_MAX, WAD,
+    MAX_REASONABLE_PRICE_WAD, POSITION_LIMIT_MAX, WAD,
 };
 use crate::positions::liquidation::curve::{
     calculate_linear_bonus_with_target, max_hf_preserving_bonus_bps,
@@ -200,6 +200,22 @@ fn a_dust_priced_leg_saturates_the_seizure_to_the_held_balance() {
     );
 }
 
+/// A held balance just under i128::MAX RAY against a saturated request must not
+/// read a bonus off the saturation ceiling.
+#[test]
+fn a_saturated_request_below_principal_pays_no_bonus_or_fee() {
+    let env = Env::default();
+    let leg = LegSpec {
+        amount: 1_650_000_000_000_000_000,
+        price_wad: 10_000_000,
+        bonus_bps: 500,
+        ..LegSpec::mainnet_xlm(1)
+    };
+    let e = single_leg(&env, leg, 5 * WAD, 500).get_unchecked(0);
+    assert_eq!(e.amount, 1_650_000_000_000_000_000);
+    assert_eq!((e.bonus_scaled, e.protocol_fee), (0, 0));
+}
+
 fn stroops(tokens: i128) -> i128 {
     tokens * 10_000_000
 }
@@ -260,7 +276,20 @@ fn liquidation_plan_validate_rejects_repay_sum_mismatch() {
 fn liquidation_plan_validate_rejects_zero_seize_amount() {
     let env = Env::default();
     let mut seized = Vec::new(&env);
-    seized.push_back(seize_entry(&env, 0, 0));
+    let mut entry = seize_entry(&env, 0, 0);
+    entry.scaled_amount = 1;
+    seized.push_back(entry);
+    plan_with(&env, 5 * WAD, seized).validate(&env);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #34)")]
+fn liquidation_plan_validate_rejects_zero_seize_shares() {
+    let env = Env::default();
+    let mut seized = Vec::new(&env);
+    let mut entry = seize_entry(&env, 1, 0);
+    entry.scaled_amount = 0;
+    seized.push_back(entry);
     plan_with(&env, 5 * WAD, seized).validate(&env);
 }
 
@@ -454,6 +483,30 @@ fn process_excess_payment_spans_legs_with_pro_rata_split() {
     let kept = repaid.get_unchecked(0);
     assert_eq!(kept.amount, stroops(80));
     assert_eq!(kept.usd_wad, 80 * WAD);
+}
+
+/// A ceiling-capped leg credited at floor value keeps ceil(backed value), not
+/// a floor-ratio share of the ceiling count.
+#[test]
+fn process_excess_payment_keeps_the_ceiling_of_the_backed_value() {
+    let env = Env::default();
+    let mut entry = repay_entry(&env, 3, 24 * WAD / 10);
+    entry.feed.asset_decimals = 0;
+    let mut repaid = Vec::new(&env);
+    repaid.push_back(entry);
+    let mut refunds = Vec::new(&env);
+
+    process_excess_payment(
+        &env,
+        &mut repaid,
+        &mut refunds,
+        Wad::from(15 * WAD / 10),
+        false,
+    );
+
+    let kept = repaid.get_unchecked(0);
+    assert_eq!((kept.amount, kept.usd_wad), (1, WAD));
+    assert_eq!(refunds.get_unchecked(0).amount, 2);
 }
 
 #[test]
@@ -2419,7 +2472,7 @@ fn floor_sized_liquidation_profits_match_the_documented_table() {
     }
 }
 
-/// Nothing bounds an asset's *unit* value. `MIN_ASSET_DECIMALS` is
+/// Nothing bounds an asset's *unit* value. `MIN_BORROWABLE_ASSET_DECIMALS` is
 /// 3 and `validate_sanity_bounds` accepts a price up to
 /// `MAX_REASONABLE_PRICE_WAD` ($1e9 per whole token), so one base unit may be
 /// worth $1,000,000: two hundred thousand times the entire borrow floor. At that
@@ -2438,7 +2491,7 @@ fn an_expensive_low_decimal_collateral_makes_a_floor_sized_liquidation_seize_not
 
     let hostile = ListedCollateral {
         label: "3-decimal asset at the maximum reasonable price",
-        decimals: MIN_ASSET_DECIMALS,
+        decimals: MIN_BORROWABLE_ASSET_DECIMALS,
         price_wad: MAX_REASONABLE_PRICE_WAD,
         max_price_wad: MAX_REASONABLE_PRICE_WAD,
         bonus_bps: 900,
@@ -2446,12 +2499,12 @@ fn an_expensive_low_decimal_collateral_makes_a_floor_sized_liquidation_seize_not
     };
 
     // Listing validation admits both values.
-    assert_eq!(hostile.decimals, MIN_ASSET_DECIMALS);
+    assert_eq!(hostile.decimals, MIN_BORROWABLE_ASSET_DECIMALS);
     assert_eq!(hostile.price_wad, MAX_REASONABLE_PRICE_WAD);
 
     assert_eq!(
         unit_value_usd_wad(&hostile),
-        MAX_REASONABLE_PRICE_WAD / 10i128.pow(MIN_ASSET_DECIMALS)
+        MAX_REASONABLE_PRICE_WAD / 10i128.pow(MIN_BORROWABLE_ASSET_DECIMALS)
     );
     assert!(
         unprofitable_below_usd_wad(&hostile, 1) > floor,

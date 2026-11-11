@@ -281,17 +281,53 @@ fn test_global_sync_respects_chunk_boundary() {
         let state = PoolStateRaw {
             supplied: 100 * RAY,
             borrowed: 60 * RAY,
-            revenue: 0,
-            borrow_index: RAY,
-            supply_index: RAY,
-            last_timestamp: 0,
+            revenue: 7 * RAY,
+            borrow_index: 2 * RAY,
+            supply_index: 3 * RAY,
+            last_timestamp: 1_000,
             cash: 40_000_000,
         };
         let mut cache = t.fresh_cache(state);
+        let pool_state = |cache: &Cache| {
+            (
+                cache.supplied().raw(),
+                cache.borrowed().raw(),
+                cache.revenue().raw(),
+                cache.borrow_index().raw(),
+                cache.supply_index().raw(),
+                cache.last_timestamp(),
+                cache.cash(),
+            )
+        };
 
-        cache.set_current_timestamp(MAX_COMPOUND_DELTA_MS);
+        cache.set_current_timestamp(1_000);
         global_sync(&t.env, &mut cache);
-        assert!(cache.borrow_index().raw() > RAY);
+        assert_eq!(
+            pool_state(&cache),
+            (
+                100 * RAY,
+                60 * RAY,
+                7 * RAY,
+                2 * RAY,
+                3 * RAY,
+                1_000,
+                40_000_000
+            )
+        );
+        assert_eq!(cache.current_timestamp(), 1_000);
+
+        cache.set_current_timestamp(1_000 + MAX_COMPOUND_DELTA_MS);
+        global_sync(&t.env, &mut cache);
+        assert!(cache.borrow_index().raw() > 2 * RAY);
+        assert_eq!(cache.last_timestamp(), 31_556_927_000);
+        assert_eq!(cache.current_timestamp(), 31_556_927_000);
+        assert_eq!(cache.elapsed_ms(), 0);
+        assert!(!cache.needs_accrual());
+
+        let accrued = pool_state(&cache);
+        global_sync(&t.env, &mut cache);
+        assert_eq!(pool_state(&cache), accrued);
+        assert_eq!(cache.current_timestamp(), 31_556_927_000);
     });
 }
 

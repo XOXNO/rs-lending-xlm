@@ -449,6 +449,12 @@ fn test_cash_short_revenue_claim_no_underburn_at_extreme_18_decimal_index() {
         let paid = cache.burn_claimable_revenue();
         let claim_after = cache.unscale_supply_floor(cache.revenue());
 
+        assert_eq!(paid, cash, "cash-short claim must return available cash");
+        assert!(
+            cache.supplied() < Ray::from(supplied),
+            "positive revenue claim must burn supply shares"
+        );
+
         assert!(
             paid < claim_before,
             "expected cash-short branch: paid={paid}"

@@ -138,8 +138,10 @@ fn reserved_for(env: &Env, cache: &Cache) -> i128 {
 fn test_require_liquidation_buffer_admits_a_draw_down_to_the_reserve() {
     let t = TestSetup::new();
     t.as_contract(|| {
-        let cache = cache_with(&t.env, &t.params, 1_000 * RAY, 0, 1_000);
+        let supplied = Ray::from_asset(&t.env, 1_000, t.params.asset_decimals).raw();
+        let cache = cache_with(&t.env, &t.params, supplied, 0, 1_000);
         let reserved = reserved_for(&t.env, &cache);
+        assert_eq!(reserved, 20);
         assert!(
             reserved > 0,
             "fixture must reserve something to be meaningful"
@@ -153,8 +155,10 @@ fn test_require_liquidation_buffer_admits_a_draw_down_to_the_reserve() {
 fn test_require_liquidation_buffer_rejects_a_draw_one_unit_past_the_reserve() {
     let t = TestSetup::new();
     t.as_contract(|| {
-        let cache = cache_with(&t.env, &t.params, 1_000 * RAY, 0, 1_000);
+        let supplied = Ray::from_asset(&t.env, 1_000, t.params.asset_decimals).raw();
+        let cache = cache_with(&t.env, &t.params, supplied, 0, 1_000);
         let reserved = reserved_for(&t.env, &cache);
+        assert_eq!(reserved, 20);
         require_liquidation_buffer(&t.env, &cache, 1_000 - reserved + 1);
     });
 }

@@ -26,6 +26,11 @@ case "$STUB_MODE" in
   violated) echo "Violated: $rule-Assertions"; exit 1 ;;
   timeout) echo "$rule-Assertions: Solver timed out"; exit 1 ;;
   unknown) echo "$rule-Assertions: Solver failed"; exit 1 ;;
+  sanity) printf 'Verified: %s-Assertions\nSANITY_FAILED\n' "$rule"; exit 0 ;;
+  unwind) printf 'Violated: %s-Assertions\nUnwinding condition in a loop\n' "$rule"; exit 1 ;;
+  killed) exit 124 ;;
+  subrule) printf 'Violated: %s-Assertions-rule_not_vacuous_tac\nVerified: %s-Assertions\n' "$rule" "$rule"; exit 0 ;;
+  other-rule) echo 'Verified: another_rule-Assertions'; exit 0 ;;
   crash) echo 'Exception in thread "main" java.io.IOException: Cannot run program "z3"'; exit 1 ;;
 esac
 EOF
@@ -60,9 +65,48 @@ expect verified-conf-rules 0 "-> VERIFIED" verified ""
 expect violated 1 "-> VIOLATED" violated "$rule"
 expect timeout 0 "-> TIMEOUT" timeout "$rule"
 expect solver-unknown 0 "-> UNKNOWN" unknown "$rule"
+expect sanity-before-verified 1 "-> SANITY_FAILED" sanity "$rule"
+expect unwind-before-violated 1 "-> UNWIND" unwind "$rule"
+expect wrapper-killed 0 "-> KILLED" killed "$rule"
+expect healthy-vacuity-subrule 0 "-> VERIFIED" subrule "$rule"
+expect different-rule-verdict 1 "-> ERROR" other-rule "$rule"
 expect prover-crash 1 "-> ERROR" crash "$rule"
 expect stale-log-runner-exits-early 1 "-> NO-VERDICT" stale "$rule" \
   CERTORA_LOCAL= CERTORA_PYTHON=/nonexistent
 expect rule-not-in-conf 1 "does not list rule no_such_rule" verified "no_such_rule"
+expect empty-request 1 "no rules were classified" verified "   "
+
+real_python=$(command -v python3)
+mkdir "$tmp/bin"
+cat > "$tmp/bin/python3" <<'EOF'
+#!/usr/bin/env bash
+if [ "$STUB_CONF_RULES" = failure ]; then exit 42; fi
+exec "$REAL_PYTHON" "$1" "$2" "$STUB_CONF_RULES"
+EOF
+chmod +x "$tmp/bin/python3"
+expect conf-parser-failure 1 "could not read conf rules" verified "" \
+  PATH="$tmp/bin:$PATH" STUB_CONF_RULES=failure
+case_no=0
+for data in '{"rule":[]}' '{"rule":"not_an_array"}' '{"rule":[null]}' \
+  '{"rule":[""]}' '{"rule":["bad-name"]}' 'invalid json'; do
+  case_no=$((case_no + 1))
+  printf '%s\n' "$data" > "$tmp/invalid.conf"
+  expect "invalid-conf-$case_no" 1 "could not read conf rules" verified "" \
+    PATH="$tmp/bin:$PATH" STUB_CONF_RULES="$tmp/invalid.conf" REAL_PYTHON="$real_python"
+done
+
+cat > "$tmp/bin/python3" <<'EOF'
+#!/usr/bin/env bash
+if [ "$1" = certora/scripts/focused_wasm.py ]; then exit 42; fi
+EOF
+printf '#!/usr/bin/env bash\nexit 0\n' > "$tmp/bin/cargo"
+chmod +x "$tmp/bin/cargo"
+PATH="$tmp/bin:$PATH" bash "$repo_root/certora/compile_all.sh" > "$tmp/compile.log" 2>&1
+if [ "$?" -eq 42 ]; then
+  echo "ok   compile-target-enumeration-failure"
+else
+  echo "FAIL compile-target-enumeration-failure: expected exit 42"
+  failures=1
+fi
 
 exit "$failures"

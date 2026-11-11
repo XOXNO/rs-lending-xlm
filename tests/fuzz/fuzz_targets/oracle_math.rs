@@ -120,7 +120,7 @@ fn check_stable(env: &Env, i: &In, a: &LpLeg, b: &LpLeg, supply: &LpSupply, any_
         if let Ok(p2) = st2 {
             let tol = (p / 100_000).max(4);
             assert!(
-                p2 + tol >= p,
+                p2 >= p.saturating_sub(tol),
                 "stable LP price fell as amp rose: amp {amp1}->{amp2}, {p}->{p2}"
             );
         }
@@ -174,6 +174,13 @@ fuzz_target!(|i: In| {
                 within(p, book, true),
                 "LP price {p} exceeds book value {book}"
             );
+            if va > 0 && vb > 0 {
+                let floor = book * (va.min(vb) as f64 / va.max(vb) as f64);
+                assert!(
+                    within(p, floor, false),
+                    "LP price {p} falls below the min/max book bound {floor}"
+                );
+            }
         }
     }
 

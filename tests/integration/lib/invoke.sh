@@ -447,10 +447,6 @@ view_body() {
     return 1
 }
 
-# Mutation legs may already have committed before a later quote/view fails.
-# Only inv() can classify a retry as pre-submission.
-retry_leg() { "$@"; }
-
 sim_probe() {
     local label="$1" signer="$2" contract="$3"; shift 3
     [ "$1" = "--" ] && shift

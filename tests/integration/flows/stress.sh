@@ -140,18 +140,11 @@ flow_stress_borrow_frontier() {
     esac
     local args="" i acct
     if [ -z "${!acct_var:-}" ]; then
-        for i in $(seq 0 $(( colls > 5 ? 4 : colls - 1 ))); do args+=" $(stress_sac $i) $((100000 * STRESS_UNIT))"; done
+        for i in $(seq 0 $((colls - 1))); do args+=" $(stress_sac $i) $((100000 * STRESS_UNIT))"; done
         acct=$(inv_create "stress_supply_${mode}_base" "$DAVE" "$CONTROLLER" -- supply \
             --caller "$DAVE_ADDR" --account_id 0 --spoke_id "$PRIMARY_SPOKE_ID" \
             --assets "$(pay_vec "$PRIMARY_HUB_ID" $args)" | tr -d '"') || return 1
         save_state "$acct_var" "$acct"
-        if [ "$colls" -gt 5 ]; then
-            args=""
-            for i in $(seq 5 $((colls - 1))); do args+=" $(stress_sac $i) $((100000 * STRESS_UNIT))"; done
-            inv "stress_supply_${mode}_rest" "$DAVE" "$CONTROLLER" -- supply \
-                --caller "$DAVE_ADDR" --account_id "$acct" --spoke_id "$PRIMARY_SPOKE_ID" \
-                --assets "$(pay_vec "$PRIMARY_HUB_ID" $args)" >/dev/null
-        fi
     fi
     acct="${!acct_var}"
     local k best_k=0

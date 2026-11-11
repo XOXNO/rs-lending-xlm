@@ -292,7 +292,7 @@ flow_strategies() {
             --current "$(hub_key "$PRIMARY_HUB_ID" "$XLM_SAC")" --amount 2000000000 \
             --new "$(hub_key "$PRIMARY_HUB_ID" "$USDC_SAC")" --swap "$hex" >/dev/null || return 1
     }
-    retry_leg leg_swap_collateral || return 1
+    leg_swap_collateral || return 1
 
     lifecycle_inv supply_for_rdwc "$ALICE" "$CONTROLLER" -- supply \
         --caller "$ALICE_ADDR" --account_id "$macct" --spoke_id "$PRIMARY_SPOKE_ID" \
@@ -308,7 +308,7 @@ flow_strategies() {
             --collateral "$(hub_key "$PRIMARY_HUB_ID" "$XLM_SAC")" --collateral_amount 5000000000 \
             --debt "$(hub_key "$PRIMARY_HUB_ID" "$USDC_SAC")" --swap "$hex" --close_position false >/dev/null || return 1
     }
-    retry_leg leg_repay_debt_with_coll || return 1
+    leg_repay_debt_with_coll || return 1
 
     assert_hf_at_least hf_post_strategies "$macct" "$WAD"
 
@@ -328,7 +328,7 @@ flow_strategies() {
             --collateral "$(hub_key "$PRIMARY_HUB_ID" "$XLM_SAC")" --collateral_amount 4000000000 \
             --debt "$(hub_key "$PRIMARY_HUB_ID" "$USDC_SAC")" --swap "$hex" --close_position true >/dev/null || return 1
     }
-    retry_leg leg_rdwc_close || return 1
+    leg_rdwc_close || return 1
 
     assert_bool_view rdwc_closed false account_exists --account_id "$rdwc_acct"
 
@@ -343,7 +343,7 @@ flow_strategies() {
             --initial_payment "[$(hub_key "$PRIMARY_HUB_ID" "$USDC_SAC"),\"1000000000\"]" --convert_swap null | tr -d '"') || return 1
         [ -n "$sacct" ]
     }
-    retry_leg leg_multiply_short || return 1
+    leg_multiply_short || return 1
     save_state ALICE_SACCT "$sacct"
     assert_hf_at_least hf_short "$sacct" "$WAD"
 }

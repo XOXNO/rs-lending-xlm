@@ -72,6 +72,8 @@ pub mod codes {
     pub const SPOKE_ASSET_FLAGS_UNCHANGED: u32 = SpokeError::SpokeAssetFlagsUnchanged as u32;
     pub const SPOKE_ASSET_IN_USE: u32 = SpokeError::SpokeAssetInUse as u32;
 
+    pub const NOT_SPOKE_REGISTRAR: u32 = 809;
+
     pub const FLASH_LOAN_ONGOING: u32 = FlashLoanError::FlashLoanOngoing as u32;
     pub const FLASHLOAN_NOT_ENABLED: u32 = FlashLoanError::FlashloanNotEnabled as u32;
     pub const INVALID_FLASHLOAN_REPAY: u32 = FlashLoanError::InvalidFlashloanRepay as u32;

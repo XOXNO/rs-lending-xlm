@@ -328,6 +328,8 @@ async fn scrape(State(metrics): State<Arc<Metrics>>) -> Result<String, StatusCod
 
 #[cfg(test)]
 mod tests {
+    use prometheus::core::Collector;
+
     use super::*;
 
     const SAMPLE_ORACLE: [&str; 3] = ["testnet", "CDEADBEEF", "USDC"];
@@ -375,19 +377,6 @@ mod tests {
     #[test]
     fn removing_oracle_config_drops_every_derived_series() {
         let metrics = Metrics::new().unwrap();
-        let names = [
-            "lending_oracle_max_stale_seconds",
-            "lending_oracle_effective_max_stale_seconds",
-            "lending_oracle_lp_total_shares",
-            "lending_oracle_lp_pool_floor_usd",
-            "lending_oracle_tolerance_upper_bps",
-            "lending_oracle_tolerance_lower_bps",
-            "lending_oracle_sanity_min_usd",
-            "lending_oracle_sanity_max_usd",
-            "lending_oracle_strategy",
-            "lending_oracle_price_timestamp_seconds",
-            "lending_oracle_seconds_until_stale",
-        ];
         let gauges = [
             &metrics.oracle_max_stale_seconds,
             &metrics.oracle_effective_max_stale_seconds,
@@ -401,6 +390,7 @@ mod tests {
             &metrics.oracle_price_timestamp,
             &metrics.oracle_seconds_until_stale,
         ];
+        let names: Vec<String> = gauges.iter().map(|g| g.desc()[0].fq_name.clone()).collect();
         for gauge in gauges {
             gauge.with_label_values(&SAMPLE_ORACLE).set(1.0);
         }
@@ -409,7 +399,7 @@ mod tests {
                 .registry
                 .gather()
                 .iter()
-                .filter(|family| names.contains(&family.get_name()))
+                .filter(|family| names.iter().any(|n| n == family.get_name()))
                 .map(|family| family.get_metric().len())
                 .sum::<usize>()
         };

@@ -311,8 +311,6 @@ pub(crate) fn resolve_nested(
     }
     let (outcome, oracle) = resolve_outcome(session, key, depth, None);
     if let Some(err) = outcome.failure(oracle.as_ref()) {
-        // Configuration errors are not memoised: depth and cycle errors depend
-        // on the caller's position, not on the key.
         if outcome.config_failure().is_none() {
             session.store_error(key, err);
         }

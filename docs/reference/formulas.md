@@ -27,7 +27,9 @@ Half-up multiply-divide requires non-negative operands and a positive divisor.
 Raw floor and ceiling multiply-divide also support signed quotients. Decimal
 upscaling uses checked `i128` arithmetic. Downscaling and division by a positive
 integer support the signed extremes; signed half-up downscaling rounds exact
-halves away from zero.
+halves away from zero. Floor decimal downscaling (`rescale_floor`,
+`to_wad_floor`, `to_asset_floor`, `to_token_floor`) truncates toward zero.
+That is a floor for the non-negative amounts at protocol boundaries.
 
 ## Shares and token amounts
 
@@ -125,12 +127,15 @@ Utilization divides half-up-valued debt by half-up-valued total supply:
 let utilization_ray = half_up(debt_value_ray * RAY / supply_value_ray);
 ```
 
-Zero supplied value gives zero utilization. Rate selection caps utilization at
-one RAY. The annual borrow curve has three joined linear regions: base plus
-slope1 up to mid utilization, slope2 up to optimal, then slope3 up to full
-utilization. Each slope contribution uses half-up multiplication followed by
-half-up division. The result cannot exceed the configured maximum, which is
-limited to 200% APR.
+Zero supplied value gives zero utilization. A ratio that does not fit `i128`
+gives one RAY, so dust supply against residual debt cannot stop accrual. Rate
+selection caps utilization at one RAY. The annual borrow curve has three joined
+linear regions: base plus slope1 up to mid utilization, slope2 up to optimal,
+then slope3 up to full utilization. Each slope contribution uses half-up
+multiplication followed by half-up division. The result cannot exceed the
+configured maximum, which is limited to 200% APR. Parameter validation requires
+`base + slope1 + slope2 + slope3 <= max`, so the maximum never cuts the curve
+before full utilization.
 
 Accrual uses the per-millisecond rate `per_ms`. Pool borrow and deposit rate
 views return annual RAY fractions from stored indexes, without first accruing
@@ -204,7 +209,149 @@ also apply; [risk invariants](invariants.md#inv-risk-01) define their scope.
 feed's precision. The two-source tolerance check rounds the leg ratio half-up,
 so it accepts an exact ratio less than 0.5 BPS above `upper_ratio_bps`. The
 two-source midpoint rounds down; a leg sum that overflows `i128` gives zero,
-which fails as `InvalidPrice` (217).
+which fails as `InvalidPrice` (217). A stale leg (`PriceFeedStale`, 206) and
+a tolerance breach (`UnsafePriceNotAllowed`, 205) come first when they also
+apply; [price sources](#price-sources) gives the order.
+
+## Price sources
+
+The price aggregator gives one `price_wad` and one status for each asset. A
+read reports the first failure in this order:
+
+1. an error from the source read;
+2. no configuration: `OracleNotConfigured` (216);
+3. a stale leg: `PriceFeedStale` (206);
+4. a tolerance breach: `UnsafePriceNotAllowed` (205);
+5. a price that is not positive: `InvalidPrice` (217);
+6. a price outside the sanity bounds: `SanityBoundViolated` (223).
+
+Two sources blend into one price:
+
+```rust
+ratio_bps = half_up(high * BPS / low)
+deviation = low <= 0 || ratio_bps > upper_ratio_bps
+price_wad = floor((a + b) / 2)
+timestamp = min(timestamp_a, timestamp_b)
+stale     = stale_a || stale_b || spread_too_wide
+```
+
+`high` and `low` are the larger and the smaller leg. A ratio that overflows
+also sets `deviation`. The last term of `stale` applies only when the two
+legs are market sources: it is true when their timestamps are more than
+`MAX_LEG_AGE_SPREAD_SECONDS` (3600) apart. A leg sum that overflows `i128`
+gives a zero price.
+
+Admission accepts a tolerance only in this form, else `BadLastTolerance`
+(208):
+
+```rust
+BPS + MIN_TOLERANCE <= upper_ratio_bps <= BPS + MAX_TOLERANCE
+BPS - MAX_TOLERANCE <= lower_ratio_bps <= BPS
+lower_ratio_bps == half_up(BPS * BPS / upper_ratio_bps)
+```
+
+`MIN_TOLERANCE` is 150 and `MAX_TOLERANCE` is 2500.
+
+Admission measures the sanity band as a ratio of the sum of its two bounds:
+
+```rust
+0 < min < max <= MAX_REASONABLE_PRICE_WAD
+floor((max - min) * BPS / (max + min)) >= MIN_SANITY_BAND_BPS
+ceil((max - min) * BPS / (max + min)) <= band_cap
+```
+
+The first two lines fail with `InvalidSanityBounds` (224);
+`MIN_SANITY_BAND_BPS` is 50. The third line fails with
+`SanityBandTooWideForSingleSource` (226). The cap is
+`MAX_LP_SANITY_BAND_BPS` (8182) for an LP source and
+`MAX_SINGLE_SOURCE_SANITY_BAND_BPS` (1000) for all other configurations,
+unless a second source with a different trust set is present. That pair has
+no cap.
+
+A scaled source multiplies a factor feed by the price of a quote asset:
+
+```rust
+price_wad = half_up(factor_wad * quote_wad / WAD)
+timestamp = min(factor_timestamp, quote_timestamp)
+```
+
+A factor outside `[min_factor_wad, max_factor_wad]` fails with
+`FactorOutOfBounds` (230). An overflow fails with `InvalidPrice` (217). An
+error from the quote read goes through unchanged. Only the factor leg sets
+the stale flag.
+
+A Reflector `Twap(records)` source has these admission limits:
+
+```rust
+MIN_ORACLE_RESOLUTION_SECONDS <= resolution <= max_stale
+1 <= records <= MAX_TWAP_RECORDS
+required_span = (records - 1) * resolution <= max_stale
+```
+
+`MIN_ORACLE_RESOLUTION_SECONDS` is 60 and `MAX_TWAP_RECORDS` is 12. The
+resolution and span limits fail with `InvalidOracleResolution` (222). Zero
+records fail with `TwapInsufficientObservations` (219) and too many with
+`TwapRecordsOutOfRange` (228).
+
+The read then requires a history that is not empty, else
+`ReflectorHistoryEmpty` (212). It rejects more than `records + 1` samples,
+adjacent samples closer than `resolution`, and a newest-to-oldest span below
+the required span, each with `TwapInsufficientObservations` (219). A sample
+from the future fails with `PriceFeedStale` (206). All samples must be
+positive.
+
+```rust
+mean      = floor(sum(samples) / count(samples))
+price_wad = mean * 10^(18 - feed_decimals)
+timestamp = oldest sample
+```
+
+The upscale is exact; a failure gives `InvalidPrice` (217).
+
+LP share prices use the prices of the pool's underlying tokens.
+
+Constant-product pool, with `isqrt` as the floor of the square root in 256
+bits:
+
+```rust
+value_i   = half_up(reserve_i * price_i_wad / 10^decimals_i)
+price_wad = floor(2 * isqrt(value_a * value_b) * WAD / share_supply_wad)
+```
+
+Stable two-coin pool, with the reserves upscaled to WAD and `D` as the
+stable-swap invariant:
+
+```rust
+price_wad = floor(D * min(price_a_wad, price_b_wad) / share_supply_wad)
+```
+
+`D` comes from Newton-Raphson with `Ann = amp * 2`, a start value of the
+reserve sum, a stop at a step of 1 or less, and at most 255 iterations.
+`amp` must be in `[MIN_AMP, MAX_AMP]`, 1 to 1,000,000, and each upscaled
+reserve at most `MAX_NORMALIZED_RESERVE_WAD`, 10^34. A reserve, price or
+share supply that is not positive, or a limit breach, fails with
+`InvalidPrice` (217).
+
+An Aquarius pool also has a size floor:
+
+```rust
+pool_value_wad = half_up(price_wad * total_shares / 10^share_decimals)
+```
+
+A value below `min_pool_value_wad` fails with
+`InsufficientAquariusLiquidity` (235). The timestamp is the older of the two
+leg timestamps.
+
+A Curve pool with two or three coins uses its `get_virtual_price` result:
+
+```rust
+price_wad      = floor(virtual_price * min(coin_price_wad) / WAD)
+pool_value_wad = floor(price_wad * total_supply / WAD)
+```
+
+A value below `min_pool_value_wad` fails with `InsufficientCurveLiquidity`
+(237). The timestamp is the oldest of the ledger time and the coin
+timestamps.
 
 ## Liquidation sizing and fees
 
@@ -259,7 +406,7 @@ below `HF = 1`, so its first bonus is already about
 `base + f * (max - base) * (H - 1) / (H - K)`. The maximum comes only from the
 blended threshold, not from the listed `liquidation_bonus`: `LT = 6000` gives
 `max = 6666`. With `H = 1.10`, `K = 0.80`, `f = 10000` and `base = 500`, the
-bonus is about 2557 BPS just below `HF = 1` and 4611 BPS at `HF = 0.90`. Size
+bonus is about 2555 BPS just below `HF = 1` and 4611 BPS at `HF = 0.90`. Size
 `H`, `K` and `f` from the bonus at `HF = 1` and at `K`, not from the listed
 bonus. The [Liqvid bonus curve](runbooks/liqvid-listing-params.md#4-the-bonus-curve)
 shows a full table.
@@ -291,16 +438,17 @@ Insolvency is the exact unweighted comparison `C < D`. With positive `p`, the
 insolvency branch quotes the repayment the collateral backs at the base bonus,
 floored, so an offer above it is trimmed and the liquidator never pays more
 than it seizes. On an insolvent account the trim rounds each kept leg down to
-whole token units, so the kept
+whole base units of its token, so the kept
 value never exceeds the quote. A leg whose kept amount rounds to zero is
 dropped and its whole offer refunded; if no leg remains, `liquidate` reverts
 with `InvalidPayments` (16) and the estimate shows a zero payment. This insolvency
 branch does not promote the quote to full debt; bad-debt cleanup takes the unbacked
 residue. With `p == 0`, the target formula and dust promotion below apply instead.
 
-A partial seizure leg below 3 decimals takes whole token units only. When the
-repayment covers the whole debt, the leg rounds up to the held balance and
-the debt closes. Otherwise it rounds down: the dropped fraction's USD value,
+A partial seizure leg below 3 decimals takes whole units only. One whole unit
+is one base unit of the token, `10^-d` of a token for `d` decimals. When the
+repayment covers the whole debt, the leg rounds up to the next whole unit,
+capped at the held balance, and the debt closes. Otherwise it rounds down: the dropped fraction's USD value,
 divided by `1 + bonus` and floored, is trimmed from the repayment and
 refunded, kept amounts rounding up, so the liquidator pays for the units it
 receives, and a plan that then seizes nothing reverts with `InvalidPayments`
@@ -444,6 +592,41 @@ The non-zero floor can leave residual claims without backing. Supply then
 fails the backing gate until recapitalization fills the shortfall. Eligibility
 and account deletion follow the [cleanup rules](invariants.md#inv-liq-04).
 
+## Swap router fees and splits
+
+The swap router takes fees only when a referral is active. It calculates each
+fee separately on the vault balance of the fee token:
+
+```rust
+static_fee   = floor(balance * static_fee_bps / 10_000)
+referral_fee = floor(balance * fee_bps / 10_000)
+```
+
+`fee_bps` is the referral rate. A sum of the two rates above `FEE_CAP`
+(1000 BPS) fails with `FeeTooHigh` (21).
+
+A route splits by parts per million of the balance available when the
+instruction runs:
+
+```rust
+amount = floor(available_balance * ppm / PPM_DENOMINATOR)
+```
+
+`PPM_DENOMINATOR` is 1,000,000. A weight of zero fails with `ZeroSplitPpm`
+(11) and a weight above the denominator with `SplitPpmMismatch` (12). The
+weights of a route do not have to add up to the denominator, because each
+split applies to the balance that remains.
+
+The router accepts a residual of intermediate tokens up to this allowance, in
+token units:
+
+```rust
+allowance = max(floor(credited / RESIDUAL_PPM), RESIDUAL_DUST_FLOOR)
+```
+
+`RESIDUAL_DUST_FLOOR` is 1,000. A larger residual fails with
+`ExcessiveResidual` (29).
+
 <a id="numeric-limits"></a>
 
 ## Caps, fees, and numeric limits
@@ -508,3 +691,5 @@ rounding costs per collateral leg; that is not a universal execution bound.
 - [Rate curve](../../common/src/rates/curve.rs), [compounding](../../common/src/rates/compound.rs), [index and reward calculations](../../common/src/rates/index.rs), and [accrual projection](../../common/src/rates/simulate.rs).
 - [Position valuation](../../common/src/rates/value.rs); [listing admission and shared checks](../../common/src/validation.rs); [post-pool risk gates](../../contracts/controller/src/risk/validation.rs).
 - [Liquidation planning and fees](../../contracts/controller/src/positions/liquidation/math.rs), [liquidation curve](../../contracts/controller/src/positions/liquidation/curve.rs), and [liquidation fixtures](../../contracts/controller/tests/positions/liquidation_math.rs).
+- [Price resolution](../../contracts/price-aggregator/src/engine.rs), [tolerance check](../../contracts/price-aggregator/src/tolerance.rs), [Reflector reads](../../contracts/price-aggregator/src/providers/reflector.rs), [constant-product LP price](../../common/src/oracle/lp.rs), [stable LP price](../../common/src/oracle/lp_stable.rs), [Aquarius provider](../../contracts/price-aggregator/src/providers/aquarius.rs), and [Curve provider](../../contracts/price-aggregator/src/providers/curve.rs).
+- [Swap router fees](../../contracts/swap-aggregator/src/fees.rs) and [router constants](../../contracts/swap-aggregator/src/constants.rs).

@@ -325,12 +325,12 @@ flow_flash_position_matrix() {
     local debt_after
     debt_after=$(_view_int fp_ext_debt_post get_borrow_amount --account_id "$ALICE_FP_ACCT" \
         --hub_asset "$(hub_key "$PRIMARY_HUB_ID" "$USDC_SAC")")
-    _uint_ge "$debt_after" "$debt_before" \
+    _uint_lt "$debt_before" "$debt_after" \
         || _assert_fail fp_ext_debt_grew "debt $debt_before -> $debt_after; extend must mint more"
     local coll_after
     coll_after=$(_view_int fp_ext_coll_post get_collateral_amount --account_id "$ALICE_FP_ACCT" \
         --hub_asset "$(hub_key "$PRIMARY_HUB_ID" "$XLM_SAC")")
-    _uint_ge "$coll_after" "$coll_before" \
+    _uint_lt "$coll_before" "$coll_after" \
         || _assert_fail fp_ext_coll_grew "collateral $coll_before -> $coll_after"
 
     # Spare HF does not skip the push: KeepFunds on a healthy existing account
@@ -743,7 +743,6 @@ flow_flash_position_gaps() {
     FP_COLS="$(pay_vec "$PRIMARY_HUB_ID" "$USDC_SAC" 1)"
     fp_run xfail flash_position_second_supply_limit_ex 'Error\(Contract, #109\)' || true
     FP_COLS="$(fp_collaterals "$FP_EXTEND_COLLATERAL")"
-    fp_restore_position_limits || true
     fp_restore_position_limits || return 1
 
     # Existing already has USDC debt; a second debt asset is a new borrow position.

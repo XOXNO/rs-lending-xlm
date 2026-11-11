@@ -19,11 +19,6 @@ use crate::types::{SwapHop, SwapVenue};
 /// Returns the pool's constituent tokens, cached per invocation in `cache`. On a miss, `fetch`
 /// reads the list from the pool. Panics with `BrokenTokenChain` unless the list holds 2 to
 /// `MAX_ASSETS` distinct tokens, none of them the pool itself.
-///
-/// Every venue that caches constituents goes through this one check, so a pool address that
-/// an earlier hop cached for another venue cannot skip it. The cache is keyed by pool address
-/// only, so a later hop on that address reuses the list whatever its venue. That list already
-/// passed this check, and every hop is still bound by measured balance changes.
 pub(crate) fn pool_tokens(
     env: &Env,
     cache: &mut Map<Address, Vec<Address>>,

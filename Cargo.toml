@@ -15,6 +15,7 @@ members = [
     "contracts/xoxno-oracle",
     "contracts/price-aggregator",
     "contracts/position-nft",
+    "contracts/curator",
     "mock/mock-oracle",
     "mock/mock-redstone",
     "mock/flash-loan-receiver",

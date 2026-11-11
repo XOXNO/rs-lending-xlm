@@ -272,29 +272,26 @@ impl KeeperConfig {
         .into_iter()
         .flatten()
         .collect();
-        for (name, address) in [
+        let named = [
             (
                 "redstone_adapter",
                 self.contracts.redstone_adapter.as_deref(),
             ),
             ("swap_router", self.contracts.swap_router.as_deref()),
-        ] {
-            if let Some(address) = address {
-                contract_id_from_strkey(address)
-                    .with_context(|| format!("config.contracts.{name}"))?;
-                if !kept.insert(address) {
-                    return Err(anyhow!(
-                        "config.contracts.{name} repeats a contract already kept alive: {address}"
-                    ));
-                }
-            }
-        }
-        for (i, extra) in self.contracts.extra_instances.iter().enumerate() {
-            contract_id_from_strkey(extra)
-                .with_context(|| format!("config.contracts.extra_instances[{i}]"))?;
-            if !kept.insert(extra.as_str()) {
+        ]
+        .into_iter()
+        .filter_map(|(name, address)| Some((name.to_string(), address?)));
+        let extra = self
+            .contracts
+            .extra_instances
+            .iter()
+            .enumerate()
+            .map(|(i, address)| (format!("extra_instances[{i}]"), address.as_str()));
+        for (name, address) in named.chain(extra) {
+            contract_id_from_strkey(address).with_context(|| format!("config.contracts.{name}"))?;
+            if !kept.insert(address) {
                 return Err(anyhow!(
-                    "config.contracts.extra_instances[{i}] repeats a contract already kept alive: {extra}"
+                    "config.contracts.{name} repeats a contract already kept alive: {address}"
                 ));
             }
         }
@@ -365,22 +362,42 @@ mod tests {
         let base = KeeperConfig::load(&path).unwrap();
         let mut config = base.clone();
         config.contracts.redstone_adapter = Some("CABC".into());
-        assert!(config.validate().is_err());
+        assert!(config
+            .validate()
+            .unwrap_err()
+            .to_string()
+            .contains("redstone_adapter"));
         let mut config = base.clone();
         config.contracts.swap_router = Some("CABC".into());
-        assert!(config.validate().is_err());
+        assert!(config
+            .validate()
+            .unwrap_err()
+            .to_string()
+            .contains("swap_router"));
         let mut config = base.clone();
         config.contracts.swap_router = config.contracts.redstone_adapter.clone();
-        assert!(config.validate().is_err());
+        assert!(config
+            .validate()
+            .unwrap_err()
+            .to_string()
+            .contains("swap_router"));
         let mut config = base.clone();
         config.contracts.redstone_adapter = Some(config.contracts.controller.clone());
-        assert!(config.validate().is_err());
+        assert!(config
+            .validate()
+            .unwrap_err()
+            .to_string()
+            .contains("redstone_adapter"));
         let mut config = base;
         config
             .contracts
             .extra_instances
             .push(config.contracts.swap_router.clone().unwrap());
-        assert!(config.validate().is_err());
+        assert!(config
+            .validate()
+            .unwrap_err()
+            .to_string()
+            .contains("extra_instances["));
     }
 
     #[test]
@@ -526,6 +543,22 @@ mod tests {
 
         let blank = rpc("urls: [https://a.example, \"  \"]\npassphrase: p\n").expect("parses");
         assert!(blank.urls.iter().any(|u| u.trim().is_empty()));
+
+        let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("config/mainnet.yaml");
+        let mut config = KeeperConfig::load(&path).expect("shipped config validates");
+        config.rpc = cfg;
+        assert!(config
+            .validate()
+            .unwrap_err()
+            .to_string()
+            .contains("config.rpc.url lists no endpoint"));
+
+        config.rpc = blank;
+        assert!(config
+            .validate()
+            .unwrap_err()
+            .to_string()
+            .contains("config.rpc.url[1] is empty"));
     }
 
     fn contracts(gov_line: &str) -> ContractsConfig {

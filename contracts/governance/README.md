@@ -6,7 +6,7 @@ both contracts; every privileged change to them goes through here.
 | | |
 | --- | --- |
 | Owner | OZ `Ownable`, two-step |
-| Roles | `PROPOSER`, `EXECUTOR`, `CANCELLER`, `GUARDIAN`, `ORACLE` |
+| Roles | `PROPOSER`, `EXECUTOR`, `CANCELLER`, `GUARDIAN`, `ORACLE`, and grantable `CURATOR_ROLE` |
 | Client | [`interfaces/governance`](../../interfaces/governance) |
 
 Full signatures are in `contracts/governance/src/`; the generated client drops
@@ -57,8 +57,10 @@ Recovery delay and cannot be cancelled.
 | Entrypoint | Caller | Does |
 | --- | --- | --- |
 | `pause(caller)` | `GUARDIAN` | Pauses the controller |
-| `set_spoke_asset_flags(caller, spoke_id, hub_asset, paused, frozen, no_seize)` | `GUARDIAN` | Tightens a listing's halt flags (see below) |
-| `create_hub(caller) -> u32`, `add_spoke(caller) -> u32` | `GUARDIAN` | Creates a controller hub or spoke |
+| `set_spoke_asset_flags(caller, spoke_id, hub_asset, paused, frozen, no_seize)` | `GUARDIAN` or `CURATOR_ROLE` | Tightens a listing's halt flags (see below) |
+| `create_hub(caller) -> u32`, `add_spoke(caller) -> u32` | `CURATOR_ROLE` | Creates a controller hub or spoke and returns its id |
+| `create_liquidity_pool(caller, hub_id, params) -> Address` | `CURATOR_ROLE` | Registers `params.asset_id` on the deployed pool and returns that pool's address |
+| `suspend_curator_registrar(caller, curator, registrar)` | `GUARDIAN` | Suspends a registrar on a curator that holds `CURATOR_ROLE`. Resuming is the owner-proposed sensitive `SuspendCuratorRegistrar` |
 | `deactivate_position_manager(caller, manager)`, `revoke_blend_pool(caller, pool)` | `GUARDIAN` | Withdraws a position manager or a Blend migration source; activation and approval stay timelocked |
 | `set_sanity_band(caller, key, min_wad, max_wad)` | `ORACLE` | Narrows an aggregator price band; a wider band reverts `SanityBandMustTighten` |
 | `revoke_role_immediate(account, role)` | owner | Strips `GUARDIAN` or `ORACLE` from `account` |
@@ -67,7 +69,7 @@ Recovery delay and cannot be cancelled.
 
 | Entrypoint | Caller | Does |
 | --- | --- | --- |
-| `__constructor(admin, min_delay)` | deployer, once | Makes `admin` owner and access-control admin, grants it every default role, sets the minimum delay |
+| `__constructor(admin, min_delay)` | deployer, once | Makes `admin` owner and access-control admin, grants it every default role, sets the minimum delay. `CURATOR_ROLE` is not a default role |
 | `deploy_controller(wasm_hash) -> Address` | owner, once | Deploys the controller and records it |
 | `deploy_price_aggregator(wasm_hash) -> Address` | owner, once | Deploys the aggregator, records it, and registers it with the controller if one exists |
 | `accept_ownership()` | pending owner | Completes the transfer and moves the access-control admin and default roles to the new owner |

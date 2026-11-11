@@ -13,7 +13,7 @@ if [ ${#TARGETS[@]} -eq 0 ]; then
 fi
 
 FUZZ_COV_TIME="${FUZZ_COV_TIME:-0}"
-FUZZ_MAX_LEN="${FUZZ_MAX_LEN:-82}"
+FUZZ_MAX_LEN="${FUZZ_MAX_LEN:-256}"
 FUZZ_LEN_CONTROL="${FUZZ_LEN_CONTROL:-0}"
 SANITIZER="${SANITIZER:-}"
 BUILD_STD="${BUILD_STD:-}"
@@ -108,11 +108,11 @@ for target in "${TARGETS[@]}"; do
 
     if [ ! -f "$profdata" ]; then
         echo "  error: $profdata not produced (corpus empty?)" >&2
-        continue
+        exit 1
     fi
     if [ ! -x "$binary" ]; then
         echo "  error: instrumented binary not found at $binary" >&2
-        continue
+        exit 1
     fi
 
     html_dir="$COV_OUT/$target"

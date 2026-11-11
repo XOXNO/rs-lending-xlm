@@ -58,6 +58,20 @@ fn aggregate_zero_is_withdraw_all_sentinel() {
 }
 
 #[test]
+#[should_panic(expected = "Error(Contract, #16)")]
+fn aggregate_rejects_zero_after_a_positive_leg_under_means_all() {
+    let env = Env::default();
+    aggregate_payment_amount(&env, Some(5), 0, ZeroLeg::MeansAll);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #16)")]
+fn aggregate_rejects_a_positive_leg_after_zero_under_means_all() {
+    let env = Env::default();
+    aggregate_payment_amount(&env, Some(0), 5, ZeroLeg::MeansAll);
+}
+
+#[test]
 fn aggregate_sums_previous_and_amount() {
     let env = Env::default();
     assert_eq!(

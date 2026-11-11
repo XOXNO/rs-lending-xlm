@@ -76,10 +76,10 @@ fn make_params(_env: &Env, asset: &Address, i: &In) -> MarketParamsRaw {
     let opt_pct = (i.opt_pct as i128 % (99 - mid_pct)) + mid_pct + 1;
 
     let base_pct = (i.base_pct as i128) % 51;
-    let s1_pct = base_pct + ((i.s1_pct as i128) % (101 - base_pct));
-    let s2_pct = s1_pct + ((i.s2_pct as i128) % (151 - s1_pct));
-    let s3_pct = s2_pct + ((i.s3_pct as i128) % (201 - s2_pct));
-    let max_pct = (s3_pct.max(base_pct + 1)).clamp(s3_pct, 200);
+    let s1_pct = base_pct + ((i.s1_pct as i128) % ((200 - base_pct) / 3 - base_pct + 1));
+    let s2_pct = s1_pct + ((i.s2_pct as i128) % ((200 - base_pct - s1_pct) / 2 - s1_pct + 1));
+    let s3_pct = s2_pct + ((i.s3_pct as i128) % (200 - base_pct - s1_pct - 2 * s2_pct + 1));
+    let max_pct = (base_pct + s1_pct + s2_pct + s3_pct).max(base_pct + 1);
 
     MarketParamsRaw {
         base_borrow_rate: RAY * base_pct / 100,
@@ -303,13 +303,16 @@ fn withdraw_entry(hub_asset: &HubAssetKey, scaled_amount: i128, amount: i128) ->
 
 fn rate_model_from_input(i: &In, salt: u32) -> InterestRateModel {
     let base_pct = ((i.base_pct as i128 + salt as i128) % 51).max(0);
-    let s1_pct = base_pct + ((i.s1_pct as i128 + salt as i128) % (101 - base_pct));
-    let s2_pct = s1_pct + ((i.s2_pct as i128 + salt as i128) % (151 - s1_pct));
-    let s3_pct = s2_pct + ((i.s3_pct as i128 + salt as i128) % (201 - s2_pct));
+    let s1_pct =
+        base_pct + ((i.s1_pct as i128 + salt as i128) % ((200 - base_pct) / 3 - base_pct + 1));
+    let s2_pct =
+        s1_pct + ((i.s2_pct as i128 + salt as i128) % ((200 - base_pct - s1_pct) / 2 - s1_pct + 1));
+    let s3_pct =
+        s2_pct + ((i.s3_pct as i128 + salt as i128) % (200 - base_pct - s1_pct - 2 * s2_pct + 1));
     let mid_pct = (i.mid_pct as i128 + salt as i128) % 98 + 1;
     let opt_pct = ((i.opt_pct as i128 + salt as i128) % (99 - mid_pct)) + mid_pct + 1;
     let mut model = InterestRateModel {
-        max_borrow_rate: RAY * s3_pct / 100,
+        max_borrow_rate: RAY * (base_pct + s1_pct + s2_pct + s3_pct).max(base_pct + 1) / 100,
         base_borrow_rate: RAY * base_pct / 100,
         slope1: RAY * s1_pct / 100,
         slope2: RAY * s2_pct / 100,

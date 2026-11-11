@@ -20,6 +20,8 @@ make proptest PROPTEST_CASES=256        # uniform deeper property run
 make miri-common                        # UB checks for pure fixed-point math
 ```
 
+`PROPTEST_CASES` must be positive; zero is rejected instead of skipping generated cases.
+
 For release or audit preparation:
 
 ```bash

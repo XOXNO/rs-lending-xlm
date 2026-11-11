@@ -77,6 +77,14 @@ fn liquidate_measure(
     (coll_usd, debt_usd, coll_usd / debt_usd)
 }
 
+fn quoted_usd_bonus_bps(t: &LendingTest, payment_raw: i128) -> i128 {
+    let account_id = t.resolve_account_id(ALICE);
+    let payments = vec![&t.env, (hub_asset(t.resolve_asset("USD")), payment_raw)];
+    t.ctrl_client()
+        .get_liquidation_estimate(&account_id, &payments, &SeizeMode::Transfer)
+        .bonus_rate_bps
+}
+
 #[test]
 fn test_extreme_high_target_hf_curve() {
     let mut t = LendingTest::new()
@@ -115,11 +123,14 @@ fn test_flat_bonus_factor_stays_at_base() {
 
     t.supply(ALICE, "VOL", 100.0);
     t.borrow(ALICE, "USD", 5_000.0);
-    t.set_price("VOL", usd(40));
+    t.set_price("VOL", usd(62));
     t.advance_and_sync(100);
     t.assert_liquidatable(ALICE);
+    assert!(t.total_collateral_raw(ALICE) > t.total_debt_raw(ALICE));
+    assert!(t.health_factor_raw(ALICE) < WAD);
+    assert_eq!(quoted_usd_bonus_bps(&t, 10_000_000_000), 500);
 
-    let (_c, _d, ratio) = liquidate_measure(&mut t, "USD", 1_000.0, "VOL", 40.0);
+    let (_c, _d, ratio) = liquidate_measure(&mut t, "USD", 1_000.0, "VOL", 62.0);
 
     assert!(
         ratio < 1.08,
@@ -136,18 +147,36 @@ fn test_narrow_curve_bonus_bounded_by_max() {
 
     set_curve(
         &t,
-        1_050_000_000_000_000_000,
-        1_049_000_000_000_000_000,
+        1_000_500_000_000_000_000,
+        999_500_000_000_000_000,
         10_000,
     );
 
     t.supply(ALICE, "VOL", 100.0);
     t.borrow(ALICE, "USD", 6_900.0);
-    t.set_price("VOL", usd(55));
+    t.set_price("VOL", usd_cents(8_623));
     t.advance_and_sync(100);
     t.assert_liquidatable(ALICE);
+    assert!(t.total_collateral_raw(ALICE) > t.total_debt_raw(ALICE));
+    let hf = t.health_factor_raw(ALICE);
+    assert!(999_500_000_000_000_000 < hf && hf < WAD);
+    let narrow_bonus = quoted_usd_bonus_bps(&t, 500_0000000);
+    assert!(narrow_bonus > 500 && narrow_bonus < 2_500);
+    set_curve(
+        &t,
+        1_000_500_000_000_000_000,
+        500_000_000_000_000_000,
+        10_000,
+    );
+    assert!(narrow_bonus > quoted_usd_bonus_bps(&t, 500_0000000));
+    set_curve(
+        &t,
+        1_000_500_000_000_000_000,
+        999_500_000_000_000_000,
+        10_000,
+    );
 
-    let (_c, _d, ratio) = liquidate_measure(&mut t, "USD", 500.0, "VOL", 55.0);
+    let (_c, _d, ratio) = liquidate_measure(&mut t, "USD", 500.0, "VOL", 86.23);
     assert!(
         ratio > 1.0 && ratio <= 1.26,
         "realized bonus must stay within [0, max=25%], got {ratio}"
@@ -463,11 +492,19 @@ fn test_curve_param_sweep_invariants() {
                 set_curve(&t, target, hf_for_max, factor);
                 t.supply(ALICE, "VOL", 100.0);
                 t.borrow(ALICE, "USD", 6_900.0);
-                t.set_price("VOL", usd(50));
+                t.set_price("VOL", usd(85));
                 t.advance_and_sync(100);
                 t.assert_liquidatable(ALICE);
+                assert!(t.total_collateral_raw(ALICE) > t.total_debt_raw(ALICE));
+                assert!(t.health_factor_raw(ALICE) < WAD);
+                let bonus = quoted_usd_bonus_bps(&t, 500_0000000);
+                if factor == 1 {
+                    assert_eq!(bonus, 500);
+                } else {
+                    assert!(bonus > 500 && bonus <= 2_500);
+                }
 
-                let (_c, _d, ratio) = liquidate_measure(&mut t, "USD", 500.0, "VOL", 50.0);
+                let (_c, _d, ratio) = liquidate_measure(&mut t, "USD", 500.0, "VOL", 85.0);
                 assert!(
                     ratio > 1.0 && ratio <= 1.26,
                     "curve target={target} hf_max={hf_for_max} factor={factor}: ratio {ratio} out of bounds"

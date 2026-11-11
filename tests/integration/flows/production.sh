@@ -146,8 +146,11 @@ prod_ops() {
         record "operator_$tag" ok "$logical" "" "" "" "" "" "disposable config and operation records; $n confirmed submissions"
         cat "$LOG_DIR/operator_$tag.out"
     else
+        local rc=$? hashes="$LOG_DIR/operator_$tag.hashes"
+        grep -oE 'Signing transaction: [0-9a-f]{64}' "$LOG_DIR/operator_$tag.err" | awk '{print $3}' | sort -u > "$hashes"
+        prod_fetch_receipts < "$hashes" || true
         record "operator_$tag" FAIL "$verb" "" "" "" "" "" "$(tail_err_note "$LOG_DIR/operator_$tag.err")"
-        return 1
+        return "$rc"
     fi
 }
 
@@ -308,8 +311,12 @@ flow_production_operator() {
     local pa pool nft
     pa=$(inv prod_deploy_pa "$ADMIN" "$GOVERNANCE" -- deploy_price_aggregator --wasm_hash "$PA_HASH" | tr -d '\"[:space:]') || return 1
     save_state PRICE_AGGREGATOR "$pa"
-    jq --arg c "$CONTROLLER" --arg g "$GOVERNANCE" --arg p "$pa" --arg a "$OWNED_AGGREGATOR" --arg owner "$ADMIN_ADDR" --arg rpc "$RPC_URL" --arg pass "$NETWORK_PASSPHRASE" \
-        '.testnet.rpc_url=$rpc | .testnet.network_passphrase=$pass | .testnet.controller=$c | .testnet.governance=$g | .testnet.price_aggregator=$p | .testnet.aggregator=$a | .testnet.accumulator=$owner | .testnet.hub_ids={} | .testnet.spoke_ids={}' \
+    jq --slurpfile mapping "$RUN_DIR/address-map.json" \
+        --arg c "$CONTROLLER" --arg g "$GOVERNANCE" --arg p "$pa" --arg a "$OWNED_AGGREGATOR" --arg owner "$ADMIN_ADDR" --arg rpc "$RPC_URL" --arg pass "$NETWORK_PASSPHRASE" \
+        '.mainnet as $source |
+        .testnet.rpc_url=$rpc | .testnet.network_passphrase=$pass | .testnet.controller=$c | .testnet.governance=$g | .testnet.price_aggregator=$p | .testnet.aggregator=$a | .testnet.accumulator=$owner | .testnet.hub_ids={} | .testnet.spoke_ids={} |
+        reduce ["reflector_cex_oracle", "reflector_dex_oracle", "reflector_fx_oracle", "redstone_adapter_contract", "chainlink_data_feeds_proxy", "xoxno_oracle_adapter"][] as $role
+            (.; .testnet[$role] = ($mapping[0][$source[$role] // ""] // null))' \
         "$NETWORKS_FILE" > "$RUN_DIR/config/networks.json" || return 1
     prod_propose setPriceAggregator setPriceAggregator || return 1
     prod_propose setAggregator setAggregator || return 1

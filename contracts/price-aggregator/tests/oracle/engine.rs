@@ -6,7 +6,7 @@ use crate::test_support::{
     TightWindowReflector, TwapReflector, TWAP_GAPPED_OLDER_AGE_SECS, TWAP_OLDER_AGE_SECS,
 };
 use common::constants::WAD;
-use common::oracle::observation::MAX_LEG_AGE_SPREAD_SECONDS;
+use common::oracle::observation::{MAX_FUTURE_SKEW_SECONDS, MAX_LEG_AGE_SPREAD_SECONDS};
 use common::types::{
     AquariusLpSource, AssetOracle, ChainlinkFeedRef, FeedNature, FeedSource, IndependencePolicy,
     MultiFeedRef, OracleAssetRef, OracleReadMode, OracleTolerance, ProviderRef, ReflectorFeedRef,
@@ -91,6 +91,78 @@ fn test_chainlink_market_leg_blends_with_redstone_fundamental_leg() {
     });
     assert_eq!(price.price_wad, WAD);
     assert_eq!(price.timestamp, NOW);
+}
+
+const CHAINLINK_BOUND: u64 = 93_600;
+
+fn chainlink_status(
+    env: &Env,
+    proxy: &Address,
+    client: &MockRedStonePriceFeedClient,
+    timestamp: u64,
+) -> PriceStatus {
+    client.set_chainlink_round(&BytesN::from_array(env, &[9; 32]), &WAD, &timestamp);
+    let key = PriceKey::Token(Address::generate(env));
+    let source = PriceSource::Feed(chainlink_feed(env, proxy, CHAINLINK_BOUND));
+    in_contract(env, || {
+        registry::store_oracle(
+            env,
+            &key,
+            &oracle(
+                env,
+                sources(env, &[source]),
+                CHAINLINK_BOUND,
+                WAD * 95 / 100,
+                WAD * 105 / 100,
+            ),
+        );
+        resolve_status(&mut Session::new(env), &key, 0)
+    })
+}
+
+/// M-2: the Chainlink staleness bound is inclusive at the aggregator level.
+#[test]
+fn chainlink_round_at_the_stale_boundary_is_fresh_and_one_second_older_is_stale() {
+    let env = Env::default();
+    at_now(&env);
+    let (proxy, client) = register_redstone_feed(&env);
+
+    let fresh = chainlink_status(&env, &proxy, &client, NOW - CHAINLINK_BOUND);
+    assert!(fresh.valid, "{fresh:?}");
+    assert!(!fresh.stale);
+    assert_eq!(fresh.final_wad, WAD);
+
+    let stale = chainlink_status(&env, &proxy, &client, NOW - CHAINLINK_BOUND - 1);
+    assert!(stale.stale, "{stale:?}");
+    assert!(!stale.valid);
+}
+
+/// M-2: a Chainlink round dated past the future-skew allowance is unreadable.
+#[test]
+fn chainlink_round_beyond_the_future_skew_is_rejected() {
+    let env = Env::default();
+    at_now(&env);
+    let (proxy, client) = register_redstone_feed(&env);
+
+    let skewed = chainlink_status(&env, &proxy, &client, NOW + MAX_FUTURE_SKEW_SECONDS);
+    assert!(skewed.valid, "{skewed:?}");
+    assert_eq!(skewed.final_wad, WAD);
+
+    let future = chainlink_status(&env, &proxy, &client, NOW + MAX_FUTURE_SKEW_SECONDS + 1);
+    assert!(!future.valid, "{future:?}");
+    assert_eq!(future.final_wad, 0);
+}
+
+/// M-2: a zero-timestamp Chainlink round reads as stale, never as a price.
+#[test]
+fn chainlink_round_with_a_zero_timestamp_is_rejected() {
+    let env = Env::default();
+    at_now(&env);
+    let (proxy, client) = register_redstone_feed(&env);
+
+    let zero = chainlink_status(&env, &proxy, &client, 0);
+    assert!(zero.stale, "{zero:?}");
+    assert!(!zero.valid);
 }
 
 /// Mainnet's shape: a fast market leg blended with a slow fundamental leg whose

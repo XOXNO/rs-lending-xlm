@@ -134,8 +134,7 @@ mint_to() {
         record "mint_${code}_to_${to:0:6}" ok mint "" "" "" "" "" "holder already funded (resume); skipping mint"
         return 0
     fi
-    INV_TRANSIENT_CONTRACT_RE='trustline entry is missing' \
-        inv "mint_${code}_to_${to:0:6}" "$ADMIN" "$sac" -- mint --to "$to" --amount "$amount" >/dev/null
+    inv "mint_${code}_to_${to:0:6}" "$ADMIN" "$sac" -- mint --to "$to" --amount "$amount" >/dev/null
 }
 
 balance() {

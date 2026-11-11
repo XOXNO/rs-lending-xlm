@@ -1170,19 +1170,36 @@ fn test_flash_loan_rejects_direct_non_owner_pool_call() {
     enable_flashloan(&t);
     let receiver = t.env.register(PoolFlashLoanReceiver, ());
     let attacker = Address::generate(&t.env);
+    let amount = 1_0000000i128;
+    let data = Bytes::new(&t.env);
+    let fee = common::math::fp::Bps::from(100).flash_loan_fee_on(&t.env, amount);
+    token::StellarAssetClient::new(&t.env, &t.asset).mint(&receiver, &fee);
     let no_auths: [SorobanAuthorizationEntry; 0] = [];
 
     let result = client.set_auths(&no_auths).try_flash_loan(
         &hub(&t.asset),
         &attacker,
         &receiver,
-        &1_0000000i128,
-        &Bytes::new(&t.env),
+        &amount,
+        &data,
     );
 
     assert!(
         result.is_err(),
         "direct pool flash loan without owner/controller auth must fail"
+    );
+
+    assert_eq!(
+        result.unwrap_err().expect("SDK host error value"),
+        Error::from_type_and_code(
+            soroban_sdk::xdr::ScErrorType::Context,
+            soroban_sdk::xdr::ScErrorCode::InvalidAction,
+        )
+    );
+
+    assert_eq!(
+        client.flash_loan(&hub(&t.asset), &attacker, &receiver, &amount, &data),
+        fee
     );
 }
 
@@ -1766,8 +1783,24 @@ fn test_claim_revenue_rejects_utilization_above_max_after_revenue_burn() {
         state.cash = 10_0000000i128;
     });
 
+    let state_before = t.state_snapshot();
+    let tok = token::Client::new(&t.env, &t.asset);
+    let pool_balance_before = tok.balance(&t.pool);
+    let admin_balance_before = tok.balance(&t.admin);
+    let transfers_before = count_first_topic(&t.env.events().all(), "transfer");
+
     let result = flatten_contract_result(client.try_claim_revenue(&hub(&t.asset)));
     assert_contract_error(result, CollateralError::UtilizationAboveMax as u32);
+
+    let state_after = t.state_snapshot();
+    assert_pool_state_eq(&state_after, &state_before);
+    assert_eq!(state_after.cash, state_before.cash);
+    assert_eq!(tok.balance(&t.pool), pool_balance_before);
+    assert_eq!(tok.balance(&t.admin), admin_balance_before);
+    assert_eq!(
+        count_first_topic(&t.env.events().all(), "transfer"),
+        transfers_before
+    );
 }
 
 #[test]
@@ -2673,15 +2706,30 @@ fn test_create_market_rejects_non_owner() {
     let t = TestSetup::new();
     let client = t.client();
     let asset_b = Address::generate(&t.env);
+    let params = market_params(&asset_b);
     let no_auths: [SorobanAuthorizationEntry; 0] = [];
 
     let result = client
         .set_auths(&no_auths)
-        .try_create_market(&0u32, &market_params(&asset_b));
+        .try_create_market(&0u32, &params);
 
     assert!(
         result.is_err(),
         "create_market without owner auth must fail"
+    );
+
+    assert_eq!(
+        result.unwrap_err().expect("SDK host error value"),
+        Error::from_type_and_code(
+            soroban_sdk::xdr::ScErrorType::Context,
+            soroban_sdk::xdr::ScErrorCode::InvalidAction,
+        )
+    );
+
+    client.create_market(&0u32, &params);
+    assert_eq!(
+        client.get_sync_data(&hub(&asset_b)).params.asset_id,
+        asset_b
     );
 }
 
@@ -3619,4 +3667,252 @@ fn test_unfunded_repay_overpayment_refund_also_pays_out_of_custody() {
         .actual_amount;
     assert_eq!(credited, 0, "no debt was retired, so nothing is credited");
     assert_unfunded_refund_drained_custody(&t, &payer, custody_before, &before);
+}
+
+#[test]
+fn test_dust_supply_with_residual_debt_keeps_market_live() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let admin = Address::generate(&env);
+    let asset = env
+        .register_stellar_asset_contract_v2(admin.clone())
+        .address()
+        .clone();
+    test_support::init_ledger(&env);
+    let pool = env.register(LiquidityPool, (admin.clone(),));
+    let mut params = market_params(&asset);
+    params.base_borrow_rate = 0;
+    params.slope2 = RAY * 8 / 100;
+    params.slope3 = RAY * 75 / 100;
+    params.mid_utilization = RAY * 495 / 1000;
+    params.optimal_utilization = RAY * 99 / 100;
+    let client = LiquidityPoolClient::new(&env, &pool);
+    client.create_market(&0u32, &params);
+    let t = TestSetup {
+        env,
+        admin,
+        asset,
+        pool,
+    };
+    let mint = |amount: i128| {
+        token::StellarAssetClient::new(&t.env, &t.asset).mint(&t.pool, &amount);
+    };
+    let supplier = Address::generate(&t.env);
+    let borrower = Address::generate(&t.env);
+    let key = hub(&t.asset);
+
+    mint(10_000_000_000);
+    let supply_scaled = client
+        .supply(&t.sup(0, 10_000_000_000))
+        .get_unchecked(0)
+        .position
+        .scaled_amount;
+    let debt_scaled = client
+        .borrow(&borrower, &t.bor(0, 1_000_000_000))
+        .get_unchecked(0)
+        .position
+        .scaled_amount;
+
+    t.advance_time(30 * 86_400);
+    client.update_indexes(&vec![&t.env, key.clone()]);
+    let debt = client.get_borrowed_amount(&key);
+    mint(debt - 1);
+    let dust_debt_scaled = client
+        .repay(&borrower, &t.ract(debt_scaled, debt - 1))
+        .get_unchecked(0)
+        .position
+        .scaled_amount;
+    assert!(dust_debt_scaled > 0, "fixture must leave dust debt");
+
+    client.claim_revenue(&key);
+    t.advance_time(30 * 86_400 + 3_600);
+    client.withdraw(&supplier, &false, &t.wdr(supply_scaled, i128::MAX, 0));
+    let exited = t.state_snapshot();
+    assert!(
+        exited.borrowed / exited.supplied > 170_141_183_460,
+        "fixture must put borrowed / supplied past the Ray quotient range"
+    );
+
+    t.advance_time(30 * 86_400 + 3_605);
+    assert_eq!(client.get_utilisation(&key), RAY);
+    let index_before = client.get_bulk_indexes(&vec![&t.env, key.clone()]);
+    client.update_indexes(&vec![&t.env, key.clone()]);
+    assert_eq!(
+        client.get_bulk_indexes(&vec![&t.env, key.clone()]),
+        index_before
+    );
+
+    mint(1_000);
+    client.supply(&t.sup(0, 1_000));
+    mint(1_000);
+    let closed = client
+        .repay(&borrower, &t.ract(dust_debt_scaled, 1_000))
+        .get_unchecked(0);
+    assert_eq!(closed.position.scaled_amount, 0);
+    assert_eq!(t.state_snapshot().borrowed, 0);
+}
+
+#[test]
+fn rv_poc_c20_route3_borrow_at_zero_supply() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let admin = Address::generate(&env);
+    let asset = env
+        .register_stellar_asset_contract_v2(admin.clone())
+        .address()
+        .clone();
+    test_support::init_ledger(&env);
+    let pool = env.register(LiquidityPool, (admin.clone(),));
+    let mut params = market_params(&asset);
+    params.base_borrow_rate = RAY / 100;
+    let client = LiquidityPoolClient::new(&env, &pool);
+    client.create_market(&0u32, &params);
+    let t = TestSetup {
+        env,
+        admin,
+        asset,
+        pool,
+    };
+    let mint = |amount: i128| {
+        token::StellarAssetClient::new(&t.env, &t.asset).mint(&t.pool, &amount);
+    };
+    let supplier = Address::generate(&t.env);
+    let borrower = Address::generate(&t.env);
+    let attacker = Address::generate(&t.env);
+    let late_supplier = Address::generate(&t.env);
+    let key = hub(&t.asset);
+
+    mint(10_000_000_000);
+    let supply_scaled = client
+        .supply(&t.sup(0, 10_000_000_000))
+        .get_unchecked(0)
+        .position
+        .scaled_amount;
+    let debt_scaled = client
+        .borrow(&borrower, &t.bor(0, 1_000_000_007))
+        .get_unchecked(0)
+        .position
+        .scaled_amount;
+    t.advance_time(30 * 86_400 + 17);
+    client.update_indexes(&vec![&t.env, key.clone()]);
+    let debt = client.get_borrowed_amount(&key);
+    mint(debt + 10);
+    client.repay(&borrower, &t.ract(debt_scaled, debt + 10));
+    client.claim_revenue(&key);
+    client.withdraw(&supplier, &false, &t.wdr(supply_scaled, i128::MAX, 0));
+    let empty = t.state_snapshot();
+    std::println!(
+        "empty: supplied={} borrowed={} revenue={} cash={}",
+        empty.supplied,
+        empty.borrowed,
+        empty.revenue,
+        empty.cash
+    );
+    assert_eq!(empty.supplied, 0);
+    assert_eq!(empty.borrowed, 0);
+    assert!(empty.cash > 0, "fixture must leave rounding cash");
+
+    let stolen = empty.cash;
+    let attack = client.borrow(&attacker, &t.bor(0, stolen)).get_unchecked(0);
+    let after_borrow = t.state_snapshot();
+    std::println!(
+        "zero-supply borrow of {stolen}: supplied={} borrowed={} cash={}",
+        after_borrow.supplied,
+        after_borrow.borrowed,
+        after_borrow.cash
+    );
+    assert_eq!(after_borrow.supplied, 0);
+    assert!(after_borrow.borrowed > 0);
+
+    for step in 0..3u64 {
+        t.advance_time(30 * 86_400 + step);
+        client.update_indexes(&vec![&t.env, key.clone()]);
+        let s = t.state_snapshot();
+        std::println!(
+            "accrual {step}: supplied={} borrowed={} revenue={} util={} supply_index={}",
+            s.supplied,
+            s.borrowed,
+            s.revenue,
+            client.get_utilisation(&key),
+            s.supply_index
+        );
+    }
+
+    mint(5_000_000_000);
+    let late_scaled = client
+        .supply(&t.sup(0, 5_000_000_000))
+        .get_unchecked(0)
+        .position
+        .scaled_amount;
+    t.advance_time(30 * 86_400);
+    client.update_indexes(&vec![&t.env, key.clone()]);
+    let full_exit = client.try_withdraw(&late_supplier, &false, &t.wdr(late_scaled, i128::MAX, 0));
+    std::println!("late supplier full exit while dust debt is open -> {full_exit:?}");
+    let partial = client
+        .withdraw(
+            &late_supplier,
+            &false,
+            &t.wdr(late_scaled, 4_999_999_990, 0),
+        )
+        .get_unchecked(0);
+    std::println!(
+        "late supplier partial exit {} scaled_left={}",
+        partial.actual_amount,
+        partial.position.scaled_amount
+    );
+
+    let owed = client.get_borrowed_amount(&key);
+    mint(owed + 10);
+    let closed = client
+        .repay(&attacker, &t.ract(attack.position.scaled_amount, owed + 10))
+        .get_unchecked(0);
+    std::println!(
+        "attacker debt {owed} repaid, scaled left={}",
+        closed.position.scaled_amount
+    );
+    assert_eq!(closed.position.scaled_amount, 0);
+
+    let rest = client
+        .withdraw(
+            &late_supplier,
+            &false,
+            &t.wdr(partial.position.scaled_amount, i128::MAX, 0),
+        )
+        .get_unchecked(0)
+        .actual_amount;
+    let total = partial.actual_amount + rest;
+    std::println!("late supplier deposited 5000000000, withdrew {total} in all");
+    assert!(
+        total >= 5_000_000_000 - 1,
+        "late supplier loses at most rounding"
+    );
+}
+
+#[test]
+fn rv_poc_c20_control_two_step_exit_rounding() {
+    let t = TestSetup::new();
+    let client = t.client();
+    let supplier = Address::generate(&t.env);
+    token::StellarAssetClient::new(&t.env, &t.asset).mint(&t.pool, &5_000_000_000);
+    let scaled = client
+        .supply(&t.sup(0, 5_000_000_000))
+        .get_unchecked(0)
+        .position
+        .scaled_amount;
+    t.advance_time(4 * 30 * 86_400);
+    let partial = client
+        .withdraw(&supplier, &false, &t.wdr(scaled, 4_999_999_990, 0))
+        .get_unchecked(0);
+    let rest = client
+        .withdraw(
+            &supplier,
+            &false,
+            &t.wdr(partial.position.scaled_amount, i128::MAX, 0),
+        )
+        .get_unchecked(0)
+        .actual_amount;
+    std::println!(
+        "control: deposited 5000000000, withdrew {} in all",
+        partial.actual_amount + rest
+    );
 }

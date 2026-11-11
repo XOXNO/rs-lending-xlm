@@ -16,12 +16,14 @@ on:
       - "interfaces/**"
       - "mock/**"
       - "tests/**"
+      - "services/**"
       - "certora/**"
       - "vendor/**"
       - "Cargo.toml"
       - "Cargo.lock"
       - "rust-toolchain.toml"
       - "Makefile"
+      - "configs/networks.json"
       - "configs/wasm_size_budget.txt"
       - "scripts/check_access_control.py"
       - "scripts/strip_spec_docs.py"
@@ -37,12 +39,14 @@ on:
       - "interfaces/**"
       - "mock/**"
       - "tests/**"
+      - "services/**"
       - "certora/**"
       - "vendor/**"
       - "Cargo.toml"
       - "Cargo.lock"
       - "rust-toolchain.toml"
       - "Makefile"
+      - "configs/networks.json"
       - "configs/wasm_size_budget.txt"
       - "scripts/check_access_control.py"
       - "scripts/strip_spec_docs.py"
@@ -103,6 +107,12 @@ jobs:
 
       - name: Run tests
         run: cargo test --workspace --features price-aggregator/testing
+
+      - name: Keeper service tests
+        run: cargo test --manifest-path services/keeper/Cargo.toml --locked
+
+      - name: Lending exporter tests
+        run: cargo test --manifest-path services/lending-exporter/Cargo.toml --locked
 
       - name: Clippy (workspace)
         run: cargo clippy --workspace --all-targets --features price-aggregator/testing -- -D warnings

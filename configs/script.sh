@@ -318,8 +318,6 @@ get_cex_oracle() { get_network_value "reflector_cex_oracle"; }
 get_dex_oracle() { get_network_value "reflector_dex_oracle"; }
 get_fx_oracle()  { get_network_value "reflector_fx_oracle"; }
 
-get_oracle() { get_cex_oracle; }
-
 get_redstone_adapter() {
     get_network_value "redstone_adapter_contract"
 }
@@ -606,16 +604,16 @@ write_oracle_op_record() {
     echo "  Recorded oracle op $op_id -> $path" >&2
 }
 
-# A plain-args op that governance executes against the price aggregator
-# (currently only `upgrade`). executeOp replays it through the generic
-# target/function/args path, so no resolve view is recorded.
-write_price_aggregator_op_record() {
-    local op_id=$1
-    local aggregator_fn=$2
-    local args_json=$3
-    local salt_hex=$4
-    local agg
-    agg=$(get_price_aggregator)
+# A plain-args op that governance executes against a target other than the
+# controller. executeOp replays it through the generic target/function/args
+# path, so no resolve view is recorded.
+write_target_op_record() {
+    local kind=$1
+    local target=$2
+    local op_id=$3
+    local target_fn=$4
+    local args_json=$5
+    local salt_hex=$6
     local path
     path=$(op_record_path "$op_id")
     local executed=false
@@ -623,18 +621,19 @@ write_price_aggregator_op_record() {
         executed=$(jq -r '.executed // false' "$path")
     fi
     jq -nc \
+        --arg kind "$kind" \
         --arg op_id "$op_id" \
         --arg network "$NETWORK" \
-        --arg target "$agg" \
-        --arg function "$aggregator_fn" \
+        --arg target "$target" \
+        --arg function "$target_fn" \
         --argjson args "$args_json" \
         --arg predecessor "$ZERO_PREDECESSOR_HEX" \
         --arg salt "$salt_hex" \
         --argjson executed "$executed" \
-        '{kind:"price_aggregator", op_id:$op_id, network:$network, target:$target, function:$function,
+        '{kind:$kind, op_id:$op_id, network:$network, target:$target, function:$function,
           args:$args, predecessor:$predecessor, salt:$salt,
           cli_executable:true, executed:$executed}' > "$path"
-    echo "  Recorded price aggregator op $op_id -> $path" >&2
+    echo "  Recorded ${kind} op $op_id -> $path" >&2
 }
 
 price_key_token() {
@@ -1002,11 +1001,9 @@ min_delay_ledgers() {
     local gov min_delay
     gov=$(get_governance)
     min_delay=$(stellar contract invoke --instruction-leeway "${INSTRUCTION_LEEWAY:-20000000}" --id "$gov" $SOURCE_FLAG --network "$NETWORK" --send=no \
-        -- get_min_delay | tr -d '"' | tr -d '[:space:]')
-    if [ -z "$min_delay" ] || [ "$min_delay" = "null" ]; then
-        echo "0"
-        return
-    fi
+        -- get_min_delay) || die "cannot read the live timelock delay"
+    min_delay=$(printf '%s' "$min_delay" | tr -d '"[:space:]')
+    case "$min_delay" in ''|*[!0-9]*) die "invalid live timelock delay: ${min_delay}" ;; esac
     echo "$min_delay"
 }
 
@@ -1016,7 +1013,7 @@ await_max_wait_seconds() {
         return
     fi
     local delay
-    delay=$(min_delay_ledgers)
+    delay=$(min_delay_ledgers) || exit 1
 
     echo $(( delay * 6 + 7200 ))
 }
@@ -1050,7 +1047,7 @@ await_op_ready() {
     local op_id=$1
     local started_at ready_ledger current state max_wait waited unset_seen unread_seen sleep_s
     started_at=$(date +%s)
-    max_wait=$(await_max_wait_seconds)
+    max_wait=$(await_max_wait_seconds) || exit 1
     unset_seen=0
     unread_seen=0
 
@@ -1172,8 +1169,10 @@ execute_op() {
         fi
         if [ "$kind" = "price_aggregator" ] && [ "$function" = "set_oracle" ] \
             && [ "$(jq -r '.resolve.view_fn' "$path")" = "resolve_asset_oracle" ]; then
-            preflight_chainlink_sources "oracle op ${op_id}" \
-                "$(jq -c '.resolve.args.oracle // .resolve.args.cfg' "$path")" || return $?
+            local op_cfg_json
+            op_cfg_json=$(jq -c '.resolve.args.oracle // .resolve.args.cfg' "$path")
+            refuse_unreviewed_curve_hash "oracle op ${op_id}" "$op_cfg_json"
+            preflight_chainlink_sources "oracle op ${op_id}" "$op_cfg_json" || return $?
         fi
     else
         args_json=$(jq -c '.args' "$path")
@@ -2169,6 +2168,11 @@ ensure_asset_in_spoke() {
         category_json=$(fetch_spoke_json "$category_id")
     fi
     if printf '%s' "$category_json" | jq -e --arg asset "$asset_address" '.assets[$asset] != null' >/dev/null; then
+        local live_listing paused frozen no_seize
+        live_listing=$(printf '%s' "$category_json" | jq -c --arg asset "$asset_address" '.assets[$asset]')
+        paused=$(resolve_spoke_flag paused "$config_category_id" "$asset_name" "$live_listing") || exit 1
+        frozen=$(resolve_spoke_flag frozen "$config_category_id" "$asset_name" "$live_listing") || exit 1
+        no_seize=$(resolve_spoke_flag no_seize "$config_category_id" "$asset_name" "$live_listing") || exit 1
         if printf '%s' "$category_json" | jq -e \
             --arg asset "$asset_address" \
             --argjson can_collateral "$can_collateral" \
@@ -2177,6 +2181,7 @@ ensure_asset_in_spoke() {
             --argjson threshold "$threshold" \
             --argjson bonus "$bonus" \
             --argjson liquidation_fees "$liquidation_fees" \
+            --argjson paused "$paused" --argjson frozen "$frozen" --argjson no_seize "$no_seize" \
             --arg supply_cap "$supply_cap" \
             --arg borrow_cap "$borrow_cap" \
             '.assets[$asset].is_collateralizable == $can_collateral and
@@ -2185,6 +2190,9 @@ ensure_asset_in_spoke() {
              .assets[$asset].liquidation_threshold == $threshold and
              .assets[$asset].liquidation_bonus == $bonus and
              .assets[$asset].liquidation_fees == $liquidation_fees and
+             .assets[$asset].paused == $paused and
+             .assets[$asset].frozen == $frozen and
+             .assets[$asset].no_seize == $no_seize and
              (.assets[$asset].supply_cap | tostring) == $supply_cap and
              (.assets[$asset].borrow_cap | tostring) == $borrow_cap' >/dev/null; then
             echo "Asset ${asset_name} already configured in Spoke category ${category_id}."
@@ -2746,8 +2754,10 @@ set_accumulator() {
 supply_position() {
     local market=$1
     local amount_raw=$2
-    local account_id=${3:-0}
-    local spoke_id=${4:-0}
+    local account_id=${3:?account id required (0 creates a new account)}
+    local spoke_id
+    spoke_id=$(resolve_spoke_arg "${4:-}") || exit 1
+    [ "$spoke_id" -ge 1 ] 2>/dev/null || die "supply requires an on-chain spoke id >= 1"
 
     local ctrl
     ctrl=$(get_controller)
@@ -2762,7 +2772,7 @@ supply_position() {
 
     echo "=== supply ==="
     echo "  Account:  $account_id  (0 = create new)"
-    echo "  Spoke:   $spoke_id  (0 = none)"
+    echo "  Spoke:    $spoke_id  (on-chain)"
     echo "  Asset:    $market ($asset_addr)"
     echo "  Amount:   $amount_raw"
     echo
@@ -2940,10 +2950,14 @@ schedule_configure_asset_oracle() {
         requires_current_abi=true
     fi
     agg=$(get_price_aggregator)
+    local resolve_err resolve_msg
+    resolve_err=$(mktemp)
     resolved_args=$(resolve_oracle_args_for resolve_asset_oracle "$agg" \
-        set_oracle "$key_json" "$cfg_json" 2>/dev/null) || resolved_args=""
+        set_oracle "$key_json" "$cfg_json" 2>"$resolve_err") || resolved_args=""
+    resolve_msg=$(tail -c 400 "$resolve_err" | tr '\n' ' ')
+    rm -f "$resolve_err"
     if [ "$requires_current_abi" = true ] && { [ -z "$resolved_args" ] || [ "$resolved_args" = "null" ]; }; then
-        die "This oracle configuration requires compatible governance and price-aggregator deployments; run 'make ${NETWORK} upgradeAll' first"
+        die "configure oracle ${label}: governance resolve_asset_oracle failed: ${resolve_msg}. A missing view means the deployments predate this config; run 'make ${NETWORK} upgradeAll'"
     fi
     if [ -n "$resolved_args" ] && [ "$resolved_args" != "null" ]; then
         read -r salt_use known_id state gen < <(probe_salt_generations "$agg" set_oracle "$resolved_args" "$salt")
@@ -3214,8 +3228,8 @@ setup_all_markets() {
     fi
 
     for market_name in $markets; do
-        create_market "$market_name"
         configure_market_oracle "$market_name"
+        create_market "$market_name"
     done
     echo "=== All markets configured ==="
 }
@@ -3285,10 +3299,9 @@ setup_all_wave() {
     ( SOURCE_FLAG="--source ${sources[1]}"; NETWORKS_FILE="$snapshot"; setup_all_reference_oracles ) \
         >"$dir/refs.out" 2>"$dir/refs.err" &
     p_refs=$!
-    NETWORKS_FILE="$snapshot" WAVE_SOURCES="${sources[*]:2}" wave_each "$dir" create_market $markets
     wave_stream_wait "$dir" spokes "$p_spokes"
     wave_stream_wait "$dir" refs "$p_refs"
-    [ "$WAVE_FAILED" -eq 0 ] || die "wave setup failed in the market phase; logs in $dir"
+    [ "$WAVE_FAILED" -eq 0 ] || die "wave setup failed in the prerequisite phase; logs in $dir"
 
     AUTO_EXECUTE=0 WAVE_SOURCES="${sources[*]}" wave_each "$dir" configure_market_oracle $markets
     [ "$WAVE_FAILED" -eq 0 ] || die "wave setup failed while proposing market oracles; logs in $dir"
@@ -3309,6 +3322,12 @@ setup_all_wave() {
         done
     ) >"$dir/oracles.out" 2>"$dir/oracles.err" &
     p_exec=$!
+    wave_stream_wait "$dir" oracles "$p_exec"
+    [ "$WAVE_FAILED" -eq 0 ] || die "wave setup failed while executing market oracles; logs in $dir"
+
+    NETWORKS_FILE="$snapshot" WAVE_SOURCES="${sources[*]:2}" wave_each "$dir" create_market $markets
+    [ "$WAVE_FAILED" -eq 0 ] || die "wave setup failed in the market phase; logs in $dir"
+
     ( SOURCE_FLAG="--source ${sources[1]}"; configure_spoke_curves ) >"$dir/curves.out" 2>"$dir/curves.err" &
     p_curves=$!
     for cat_id in $spokes; do
@@ -3325,7 +3344,6 @@ setup_all_wave() {
     if [ "$WAVE_FAILED" -eq 0 ] && [ "${#items[@]}" -gt 0 ]; then
         WAVE_SOURCES="${sources[*]:2}" wave_each "$dir" ensure_asset_in_spoke "${items[@]}"
     fi
-    wave_stream_wait "$dir" oracles "$p_exec"
     wave_stream_wait "$dir" curves "$p_curves"
     [ "$WAVE_FAILED" -eq 0 ] || die "wave setup failed in the listing phase; logs in $dir"
     [ -n "${WAVE_LOG_DIR:-}" ] || rm -rf "$dir"
@@ -3551,41 +3569,35 @@ schedule_upgrade_position_nft() {
     echo "Position NFT upgrade scheduled (hash ${hash})."
 }
 
-schedule_upgrade_price_aggregator() {
-    local hash=$1
-    if [ -z "$hash" ]; then
-        echo "Usage: $0 upgradePriceAggregatorHash <wasm_hash_hex>" >&2
-        exit 1
-    fi
-
-    # Governance resolves UpgradePriceAggregator to `upgrade(hash)` on the
-    # price aggregator, so the op id, the salt probe and the record all key on
-    # the aggregator. schedule_via_proposer assumes a controller target and
-    # would record an op that executeOp cannot replay.
-    local gov proposer agg
+# Proposes `op_json`, which governance resolves to `target_fn(args_json)` on
+# `target`, and records it so executeOp can replay it.
+schedule_target_op() {
+    local label=$1
+    local kind=$2
+    local target=$3
+    local target_fn=$4
+    local args_json=$5
+    local op_json=$6
+    local gov proposer salt
     gov=$(get_governance)
     proposer=$(get_signer_address)
-    agg=$(get_price_aggregator)
-
-    local args_json salt
-    args_json=$(jq -nc --arg h "$hash" '[{bytes:$h}]')
-    salt=$(gen_salt "upgrade_price_aggregator" "$args_json")
+    salt=$(gen_salt "$label" "$args_json")
 
     local salt_use known_id state gen
-    read -r salt_use known_id state gen < <(probe_salt_generations "$agg" upgrade "$args_json" "$salt")
+    read -r salt_use known_id state gen < <(probe_salt_generations "$target" "$target_fn" "$args_json" "$salt")
     case "$state" in
         Ready|Waiting)
-            echo "Price aggregator upgrade op ${known_id} already ${state}; reusing it instead of re-proposing." >&2
-            write_price_aggregator_op_record "$known_id" upgrade "$args_json" "$salt_use"
+            echo "${label} op ${known_id} already ${state}; reusing it instead of re-proposing." >&2
+            write_target_op_record "$kind" "$target" "$known_id" "$target_fn" "$args_json" "$salt_use"
             schedule_and_maybe_execute "$known_id"
             return 0
             ;;
         Exhausted)
-            die "upgrade_price_aggregator: all ${MAX_SALT_GENERATIONS} salt generations already executed for this hash; re-run with a fresh SALT_NONCE=<n>"
+            die "${label}: all ${MAX_SALT_GENERATIONS} salt generations already executed for these args; re-run with a fresh SALT_NONCE=<n>"
             ;;
         Unset)
             if [ "$gen" -gt 0 ]; then
-                echo "Price aggregator upgrade to ${hash} already executed; RE-APPLYING as generation ${gen}." >&2
+                echo "${label} already executed; RE-APPLYING as generation ${gen}." >&2
                 salt=$salt_use
             fi
             ;;
@@ -3594,9 +3606,9 @@ schedule_upgrade_price_aggregator() {
 
     local op_file
     op_file=$(mktemp)
-    admin_op UpgradePriceAggregator "$(jq -nc --arg h "$hash" '$h')" > "$op_file"
+    printf '%s' "$op_json" > "$op_file"
 
-    echo "Scheduling upgrade_price_aggregator via propose (salt ${salt})..." >&2
+    echo "Scheduling ${label} via propose (salt ${salt})..." >&2
     local out
     out=$(retry_tx stellar contract invoke --instruction-leeway "${INSTRUCTION_LEEWAY:-20000000}" --id "$gov" $SOURCE_FLAG --network "$NETWORK" \
         -- propose \
@@ -3608,12 +3620,141 @@ schedule_upgrade_price_aggregator() {
     local op_id
     op_id=$(parse_op_id "$out")
     if [ -z "$op_id" ]; then
-        echo "ERROR: propose UpgradePriceAggregator returned no operation id (output: $out)" >&2
+        echo "ERROR: propose ${label} returned no operation id (output: $out)" >&2
         exit 1
     fi
-    write_price_aggregator_op_record "$op_id" upgrade "$args_json" "$salt"
+    write_target_op_record "$kind" "$target" "$op_id" "$target_fn" "$args_json" "$salt"
     schedule_and_maybe_execute "$op_id"
+}
+
+schedule_upgrade_price_aggregator() {
+    local hash=$1
+    if [ -z "$hash" ]; then
+        echo "Usage: $0 upgradePriceAggregatorHash <wasm_hash_hex>" >&2
+        exit 1
+    fi
+    local agg
+    agg=$(get_price_aggregator)
+    schedule_target_op upgrade_price_aggregator price_aggregator "$agg" upgrade \
+        "$(jq -nc --arg h "$hash" '[{bytes:$h}]')" \
+        "$(admin_op UpgradePriceAggregator "$(jq -nc --arg h "$hash" '$h')")"
     echo "Price aggregator upgrade scheduled (hash ${hash})."
+}
+
+get_curator() {
+    local addr
+    addr=$(get_network_value "curator")
+    if [ -z "$addr" ] || [ "$addr" = "null" ]; then
+        die "curator is missing from ${NETWORKS_FILE}; run deployCurator first"
+    fi
+    echo "$addr"
+}
+
+require_registrar_id() {
+    [[ "$1" =~ ^[0-9]{1,10}$ ]] && (( 10#$1 <= 4294967295 )) || die "registrar, hub and spoke ids must fit u32, got '$1'"
+}
+
+# Proposes the curator-targeted `variant` with the curator address as its first
+# field, followed by `fields`.
+schedule_curator_op() {
+    local label=$1
+    local target_fn=$2
+    local args_json=$3
+    local variant=$4
+    shift 4
+    local cur
+    cur=$(get_curator)
+    schedule_target_op "$label" curator "$cur" "$target_fn" "$args_json" \
+        "$(admin_op "$variant" "$(jq -nc --arg c "$cur" '$c')" "$@")"
+}
+
+schedule_upgrade_curator() {
+    local hash=$1
+    [ -n "$hash" ] || die "Usage: $0 upgradeCuratorHash <wasm_hash_hex>"
+    schedule_curator_op upgrade_curator upgrade "$(jq -nc --arg h "$hash" '[{bytes:$h}]')" \
+        UpgradeCurator "$(jq -nc --arg h "$hash" '$h')"
+    echo "Curator upgrade scheduled (hash ${hash})."
+}
+
+suspend_curator_registrar_cmd() {
+    local registrar=$1
+    [ -n "$registrar" ] || die "Usage: $0 suspendCuratorRegistrar <registrar_id>"
+    require_registrar_id "$registrar"
+    local gov cur caller
+    gov=$(get_governance)
+    cur=$(get_curator)
+    caller=$(get_signer_address)
+    retry_tx stellar contract invoke --instruction-leeway "${INSTRUCTION_LEEWAY:-20000000}" --id "$gov" $SOURCE_FLAG --network "$NETWORK" \
+        -- suspend_curator_registrar \
+        --caller "$caller" \
+        --curator "$cur" \
+        --registrar "$registrar"
+    echo "Curator registrar ${registrar} suspended."
+}
+
+resume_curator_registrar_cmd() {
+    local registrar=$1
+    [ -n "$registrar" ] || die "Usage: $0 resumeCuratorRegistrar <registrar_id>"
+    require_registrar_id "$registrar"
+    schedule_curator_op resume_curator_registrar set_registrar_suspended \
+        "$(jq -nc --argjson r "$registrar" '[{u32:$r},{bool:false}]')" \
+        SuspendCuratorRegistrar "$registrar" false
+    echo "Curator registrar ${registrar} resume scheduled."
+}
+
+# `owner` is a registrar id or `none`.
+reassign_curator_cmd() {
+    local variant=$1
+    local target_fn=$2
+    local id=$3
+    local owner=$4
+    [ -n "$id" ] && [ -n "$owner" ] || die "Usage: $0 ${variant} <id> <registrar_id|none>"
+    if [ "$target_fn" = reassign_spoke ]; then
+        id=$(resolve_spoke_arg "$id") || exit 1
+    fi
+    require_registrar_id "$id"
+    case "$target_fn" in
+        reassign_spoke)
+            fetch_spoke_json "$id" >/dev/null 2>&1 || die "spoke ${id} does not exist on the controller"
+            ;;
+        reassign_hub)
+            jq -e --argjson id "$id" '[.. | objects | .hub_id? | select(. == $id)] | length > 0' "$SPOKES_FILE" >/dev/null \
+                || die "hub ${id} is not a configured hub_id in ${SPOKES_FILE}"
+            ;;
+    esac
+    local owner_json owner_arg
+    if [ "$owner" = "none" ]; then
+        owner_json=null
+        owner_arg='"void"'
+    else
+        require_registrar_id "$owner"
+        owner_json=$owner
+        owner_arg=$(jq -nc --argjson r "$owner" '{u32:$r}')
+    fi
+    schedule_curator_op "${target_fn}" "$target_fn" \
+        "$(jq -nc --argjson i "$id" --argjson o "$owner_arg" '[{u32:$i},$o]')" \
+        "$variant" "$id" "$owner_json"
+    echo "Curator ${target_fn} ${id} -> ${owner} scheduled."
+}
+
+register_curator_registrar_cmd() {
+    local admin=$1
+    [ -n "$admin" ] || die "Usage: $0 registerCuratorRegistrar <admin_address>"
+    schedule_curator_op register_curator_registrar register_registrar \
+        "$(jq -nc --arg a "$admin" '[{address:$a}]')" \
+        RegisterCuratorRegistrar "$(jq -nc --arg a "$admin" '$a')"
+    echo "Curator registrar for ${admin} scheduled; the id is the execute result."
+}
+
+set_curator_registrar_admin_cmd() {
+    local registrar=$1
+    local admin=$2
+    [ -n "$registrar" ] && [ -n "$admin" ] || die "Usage: $0 setCuratorRegistrarAdmin <registrar_id> <admin_address>"
+    require_registrar_id "$registrar"
+    schedule_curator_op set_curator_registrar_admin force_set_admin \
+        "$(jq -nc --argjson r "$registrar" --arg a "$admin" '[{u32:$r},{address:$a}]')" \
+        SetCuratorRegistrarAdmin "$registrar" "$(jq -nc --arg a "$admin" '$a')"
+    echo "Curator registrar ${registrar} admin replacement scheduled."
 }
 
 merge_tightened_flags() {
@@ -3749,7 +3890,7 @@ unpause_protocol() {
             echo "Refusing to unpause mainnet: timelock_min_delay_ledgers is not configured in networks.json." >&2
             return 1
         fi
-        current=$(min_delay_ledgers)
+        current=$(min_delay_ledgers) || exit 1
         if [ "$current" -lt "$floor" ]; then
             echo "Refusing to unpause mainnet: on-chain timelock delay ${current} < production floor ${floor} ledgers." >&2
             echo "Raise it first, then unpause:  make mainnet updateDelay ${floor}" >&2
@@ -3943,9 +4084,9 @@ migrate_controller_cmd() {
 
 validate_governance_role() {
     case "$1" in
-        ORACLE|PROPOSER|EXECUTOR|CANCELLER|GUARDIAN) return 0 ;;
+        ORACLE|PROPOSER|EXECUTOR|CANCELLER|GUARDIAN|CURATOR) return 0 ;;
         *)
-            echo "ERROR: Invalid governance role '$1'. Use ORACLE, PROPOSER, EXECUTOR, CANCELLER, or GUARDIAN." >&2
+            echo "ERROR: Invalid governance role '$1'. Use ORACLE, PROPOSER, EXECUTOR, CANCELLER, GUARDIAN, or CURATOR." >&2
             exit 1
             ;;
     esac
@@ -4033,15 +4174,11 @@ show_info() {
 
 check_delay() {
     local live cfg
-    live=$(min_delay_ledgers)
+    live=$(min_delay_ledgers) || exit 1
     cfg=$(get_network_value "timelock_min_delay_ledgers")
+    case "$cfg" in ''|*[!0-9]*) die "timelock_min_delay_ledgers must be configured as a nonnegative integer" ;; esac
     echo "Timelock min delay: live=${live} ledgers, configured target=${cfg} ledgers" >&2
-    if [ -n "$cfg" ] && [ "$cfg" != "null" ] && [ "$live" -lt "$cfg" ] 2>/dev/null; then
-        cat >&2 <<EOF
-
-EOF
-    fi
-    return 0
+    [ "$live" -ge "$cfg" ] 2>/dev/null || die "live timelock delay is below the configured target; run updateDelay ${cfg}"
 }
 
 list_hubs() {
@@ -5290,8 +5427,8 @@ case "$1" in
         set_accumulator
         ;;
     "supply")
-        if [ -z "$2" ] || [ -z "$3" ]; then
-            echo "Usage: $0 supply <market> <amount_raw> [<account_id:0>] [<spoke_id:0>]" >&2
+        if [ -z "$2" ] || [ -z "$3" ] || [ -z "$4" ] || [ -z "$5" ]; then
+            echo "Usage: $0 supply <market> <amount_raw> <account_id:0=new> <config_spoke_id|onchain:N>" >&2
             list_markets >&2
             exit 1
         fi
@@ -5385,6 +5522,27 @@ case "$1" in
     "upgradePriceAggregatorHash")
         schedule_upgrade_price_aggregator "$2"
         ;;
+    "upgradeCuratorHash")
+        schedule_upgrade_curator "$2"
+        ;;
+    "suspendCuratorRegistrar")
+        suspend_curator_registrar_cmd "$2"
+        ;;
+    "resumeCuratorRegistrar")
+        resume_curator_registrar_cmd "$2"
+        ;;
+    "reassignCuratorHub")
+        reassign_curator_cmd ReassignCuratorHub reassign_hub "$2" "$3"
+        ;;
+    "reassignCuratorSpoke")
+        reassign_curator_cmd ReassignCuratorSpoke reassign_spoke "$2" "$3"
+        ;;
+    "setCuratorRegistrarAdmin")
+        set_curator_registrar_admin_cmd "$2" "$3"
+        ;;
+    "registerCuratorRegistrar")
+        register_curator_registrar_cmd "$2"
+        ;;
     "deployPool")
         schedule_deploy_pool "$2"
         ;;
@@ -5394,7 +5552,7 @@ case "$1" in
 "grantGovRole")
         if [ -z "$2" ] || [ -z "$3" ]; then
             echo "Usage: $0 grantGovRole <account> <role>" >&2
-            echo "Governance roles: ORACLE | PROPOSER | EXECUTOR | CANCELLER | GUARDIAN (timelocked)" >&2
+            echo "Governance roles: ORACLE | PROPOSER | EXECUTOR | CANCELLER | GUARDIAN | CURATOR (timelocked)" >&2
             exit 1
         fi
         grant_gov_role_cmd "$2" "$3"
@@ -5606,7 +5764,8 @@ case "$1" in
         echo "Hubs / Spokes (writes):"
         echo "  Every spoke <id> is the CONFIG id from spokes.json; it is resolved to the on-chain id"
         echo "  through networks.json spoke_ids (the two differ). removeSpoke, removeAssetFromSpoke,"
-        echo "  setSpokeLiquidationCurve, getSpoke and getSpokeAsset also accept onchain:<n>."
+        echo "  setSpokeLiquidationCurve, reassignCuratorSpoke, getSpoke, getSpokeAsset and supply also"
+        echo "  accept onchain:<n>."
         echo "  listHubs                        Hubs referenced by config + on-chain mapping"
         echo "  createHub <id>                  Ensure hub exists (idempotent; ascending ids)"
         echo "  listSpokes                      List configured spoke categories (marks enabled=false)"
@@ -5616,6 +5775,7 @@ case "$1" in
         echo "  removeAssetFromSpoke <id> <m>   Timelocked remove_asset_from_spoke"
         echo "  removeSpoke <id>                Timelocked remove_spoke (deprecates category)"
         echo "  setupAllSpokes                  Idempotently configure enabled spokes/assets only"
+        echo "  supply <market> <amount_raw> <account_id:0=new> <spoke>  Explicit config spoke; existing accounts must match"
         echo ""
         echo "Timelock (admin writes are scheduled then executed after the delay):"
         echo "  Admin verbs (createMarket, configureMarketOracle, spoke,"
@@ -5643,14 +5803,14 @@ case "$1" in
         echo "Protocol control (writes, routed through governance):"
         echo "  pause                           GUARDIAN-immediate pause (caller = signer)"
         echo "  unpause                         Timelocked AdminOperation::Unpause (propose → await → execute)"
-        echo "  checkDelay                      Compare live timelock delay vs configured target"
+        echo "  checkDelay                      Fail if live timelock delay is below the configured target or unreadable"
         echo "  revokeBlendPool <C...>          Timelocked Blend-pool allow-list remove"
         echo "  setPositionLimits <s> <b>       Timelocked position limits (max supply/borrow positions)"
         echo "  setMinBorrowCollateralUsd <wad> Timelocked min borrow-collateral floor"
         echo "  setPositionManager <addr> <t|f> Timelocked position-manager toggle"
         echo "  transferCtrlOwnership <a> <l>   Timelocked controller ownership handoff"
         echo "  migrateController <version>     Timelocked controller migrate"
-        echo "  grantGovRole <account> <role>   Grant role (PROPOSER|EXECUTOR|CANCELLER|ORACLE|GUARDIAN; timelocked)"
+        echo "  grantGovRole <account> <role>   Grant role (PROPOSER|EXECUTOR|CANCELLER|ORACLE|GUARDIAN|CURATOR; timelocked)"
         echo "  revokeGovRole <account> <role>  Revoke governance role (timelocked)"
         echo "  upgradeGovernanceHash <hash>    Timelocked governance WASM upgrade"
         echo "  updateDelay <ledgers>           Timelocked min-delay increase (cannot shorten)"
@@ -5678,6 +5838,14 @@ case "$1" in
         echo "  setOracleSubmissionAge <secs>  Set the tight aggregation inclusion window (>=60, <= max_stale)"
         echo "  setOracleMaxStale <secs>       Set the cache TTL (>= submission-age window)"
         echo "  listOracleFeeds                Live feed index from the deployed xoxno_oracle_adapter"
+        echo ""
+        echo "Curator registry (deployCurator / upgradeCurator are make actions):"
+        echo "  registerCuratorRegistrar <admin>         owner; sensitive timelock"
+        echo "  suspendCuratorRegistrar <id>             GUARDIAN; immediate"
+        echo "  resumeCuratorRegistrar <id>              owner; sensitive timelock"
+        echo "  reassignCuratorHub <hub> <id|none>       owner; sensitive timelock"
+        echo "  reassignCuratorSpoke <spoke> <id|none>   owner; sensitive timelock"
+        echo "  setCuratorRegistrarAdmin <id> <address>  owner; sensitive timelock"
         echo ""
         echo "Aggregator + oracle adapter admin (standalone, direct invoke, no timelock):"
         echo "  setAggregatorFee <bps>"
