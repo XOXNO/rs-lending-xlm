@@ -1,13 +1,15 @@
 #!/usr/bin/env python3
-"""Strip doc strings and informational meta from a deploy WASM.
+"""Strip doc strings from a deploy WASM.
 
 Rustdoc on entrypoints/types embeds into the on-chain spec and counts against
 contractMaxSizeBytes. Deploy artifacts omit them (docs live in interface crates
 and published docs): blank every `doc` field via stellar XDR codec, reassemble WASM.
 
-Drops contractmetav0 (`contractmeta!` entries and toolchain versions) and
-error-enum spec entries too — host needs only contractenvmetav0. Error enums are
-defined in common/src/errors.rs and the contract sources.
+Drops error-enum spec entries too. Error enums are defined in
+common/src/errors.rs and the contract sources.
+
+Keeps contractmetav0 (a few hundred bytes): registries, explorers and source verifiers
+read `binver`, `repo` and toolchain versions from it.
 
 Usage: strip_spec_docs.py <in.wasm> <out.wasm>
 """
@@ -18,7 +20,6 @@ import sys
 import tempfile
 
 SPEC_SECTION = b"contractspecv0"
-META_SECTION = b"contractmetav0"
 
 def read_leb128(data: bytes, i: int) -> tuple[int, int]:
     value = shift = 0
@@ -100,13 +101,11 @@ def main() -> None:
 
     rebuilt = bytearray(wasm[:8])
     for sec_id, _, body, name in sections:
-        if name == META_SECTION:
-            continue
         if name == SPEC_SECTION:
             body = write_leb128(len(SPEC_SECTION)) + SPEC_SECTION + encoded
         rebuilt += bytes([sec_id]) + write_leb128(len(body)) + body
     open(dst, "wb").write(bytes(rebuilt))
-    print(f"{src}: {len(wasm)} -> {len(rebuilt)} bytes (spec docs + meta stripped)")
+    print(f"{src}: {len(wasm)} -> {len(rebuilt)} bytes (spec docs stripped)")
 
 if __name__ == "__main__":
     main()
