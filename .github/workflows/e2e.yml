@@ -164,8 +164,21 @@ jobs:
           RUN_TS: e2e-${{ github.run_id }}-${{ github.run_attempt }}
         run: |
           combined="tests/integration/runs/${RUN_TS}-combined.md"
-          if [ -f "$combined" ]; then
+          limit=1000000
+          if [ -f "$combined" ] && [ "$(wc -c < "$combined")" -le "$limit" ]; then
             cat "$combined" >> "$GITHUB_STEP_SUMMARY"
+          elif [ -f "$combined" ]; then
+            short="$RUNNER_TEMP/e2e-summary.md"
+            awk '!/^\| [0-9]+ \| [^|]* \| read \|/' "$combined" > "$short"
+            {
+              echo "> Read-only view rows are not shown here: the full report is above the job summary size limit."
+              echo "> The \`e2e-report-*\` artifact of this run has every row."
+              if [ "$(wc -c < "$short")" -gt "$limit" ]; then
+                echo "> This summary is also cut at ${limit} bytes."
+              fi
+              echo
+              head -c "$limit" "$short"
+            } >> "$GITHUB_STEP_SUMMARY"
           else
             # No combined report means the orchestrator failed before it wrote
             # one. Say so, so that an empty summary does not read as a clean run.
