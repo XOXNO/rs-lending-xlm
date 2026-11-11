@@ -233,7 +233,7 @@ Reflector runtime TWAP errors, including 212, 219 and 222, make the source leg u
 
 ## Relevant inherited errors
 
-OpenZeppelin stellar-contracts revision `59b98f8e127f0e877a3870e8eb82fa282a4aadf3` supplies the NFT, authorization and timelock helpers. A deployed contract can raise both its own errors and these overlapping inherited codes. An error declaration does not make an unexported extension callable.
+OpenZeppelin stellar-contracts release 0.8.0 supplies the NFT, authorization and timelock helpers. A deployed contract can raise both its own errors and these overlapping inherited codes. An error declaration does not make an unexported extension callable.
 
 | Namespace | Codes and handling |
 | --- | --- |

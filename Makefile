@@ -101,6 +101,7 @@ AGGREGATOR_WASM := $(if $(RELEASE_TAG),release-artifacts,build-aggregator)
 ORACLE_ADAPTER_WASM := $(if $(RELEASE_TAG),release-artifacts,build-oracle-adapter)
 CERTORA_WASM_DIR := $(WASM_ARTIFACTS_DIR)/certora
 CERTORA_BUILD_DIR := target/certora-build
+CERTORA_WASM_RUSTFLAGS := -C link-arg=--allow-undefined -C link-arg=--export=__data_end -C link-arg=--export=__heap_base
 
 
 CERTORA_BUILD_JOBS ?= 1
@@ -245,6 +246,7 @@ certora-wasm:
 		CARGO_BUILD_JOBS="$(CERTORA_BUILD_JOBS)" \
 		CARGO_TARGET_DIR="$(CERTORA_BUILD_DIR)/focused" \
 		CARGO_PROFILE_RELEASE_STRIP=none \
+		CARGO_BUILD_RUSTFLAGS="$(CERTORA_WASM_RUSTFLAGS)" \
 			stellar contract build --package $$pkg \
 				--features "certora,certora-focused,$$feature" --optimize=false; \
 		test -s "$$src"; \

@@ -123,11 +123,19 @@ EXPECTED_TEST_ONLY = frozenset(
 )
 
 # `#[contractimpl(contracttrait)]` exports the trait's default methods, which
-# live in the dependency, not in this tree. Pinned to OpenZeppelin
-# stellar-contracts revision below: each stock method's category, and
+# live in the dependency, not in this tree. Pinned to the OpenZeppelin
+# stellar-contracts release below: each stock method's category, and
 # the stock `ContractType` implementations whose bodies back those categories.
 # An override in the impl body is classified from its own source instead.
-REVIEWED_OZ_REV = "59b98f8e127f0e877a3870e8eb82fa282a4aadf3"
+REVIEWED_OZ_VERSION = "0.8.0"
+# crates.io checksum of each reviewed crate, as Cargo.lock records it.
+REVIEWED_OZ_CHECKSUMS = {
+    "stellar-access": "8e5dc69bd3a6d260a5fba6541f0260d0bed3fbfcbb615d2fb00dc95bda94ceaf",
+    "stellar-contract-utils": "642ca8d4cd845beebd617d51d0631dc3326914e33a4805d433d284d70e67015b",
+    "stellar-governance": "4c341e8024a891522f4a61299cf7f714619a1b8c4e0c13ad61fae004f36a0f4a",
+    "stellar-macros": "a3b4e7bcf89602f2dd864df1b4ee43bf7b3321847f1ca82e382548f34a43bdc5",
+    "stellar-tokens": "f1e8c79407082324265a4334e7a8201ac4c5a04f25657fadbaed7116e68bb3b5",
+}
 CONTRACTTRAIT_METHODS = {
     "NonFungibleToken": {
         "transfer": "caller-auth",
@@ -229,7 +237,7 @@ OTHER_WRITE_PATTERNS = (
     re.compile(r"\bBase::set_metadata\s*\("),
     # OZ non-fungible state writes: ownership, balance and enumeration.
     re.compile(r"\bBase::update\s*\("),
-    re.compile(r"\bEnumerable::sequential_mint\s*\("),
+    re.compile(r"\bEnumerable::(?:mint|mint_with_id)\s*\("),
     re.compile(r"\bEnumerable::remove_from_enumerations\s*\("),
     re.compile(r"\bownable::set_owner\s*\("),
     re.compile(r"\bownable::transfer_ownership\s*\("),
@@ -741,19 +749,18 @@ def check_dependency_revision(root: str = REPO_ROOT) -> None:
         manifest = fh.read()
     with open(os.path.join(root, "Cargo.lock"), encoding="utf-8") as fh:
         lock = fh.read()
-    url = "https://github.com/OpenZeppelin/stellar-contracts.git"
-    source = f"git+{url}?rev={REVIEWED_OZ_REV}#{REVIEWED_OZ_REV}"
-    for name in ("stellar-access", "stellar-contract-utils", "stellar-governance", "stellar-macros", "stellar-tokens"):
-        dep = re.findall(rf"(?m)^{name}\s*=\s*\{{([^}}]*)\}}", manifest)
+    registry = "registry+https://github.com/rust-lang/crates.io-index"
+    for name, checksum in REVIEWED_OZ_CHECKSUMS.items():
+        dep = re.findall(rf'(?m)^{name}\s*=\s*(.+)$', manifest)
         packages = [p for p in lock.split("[[package]]") if re.search(rf'^name = "{name}"$', p, re.M)]
         if (
-            len(dep) != 1
-            or re.findall(r'\bgit\s*=\s*"([^"]+)"', dep[0]) != [url]
-            or re.findall(r'\brev\s*=\s*"([^"]+)"', dep[0]) != [REVIEWED_OZ_REV]
+            dep != [f'"={REVIEWED_OZ_VERSION}"']
             or len(packages) != 1
-            or re.findall(r'^source = "([^"]+)"$', packages[0], re.M) != [source]
+            or re.findall(r'^version = "([^"]+)"$', packages[0], re.M) != [REVIEWED_OZ_VERSION]
+            or re.findall(r'^source = "([^"]+)"$', packages[0], re.M) != [registry]
+            or re.findall(r'^checksum = "([^"]+)"$', packages[0], re.M) != [checksum]
         ):
-            raise ParseError(f"{name}: dependency differs from reviewed OZ revision {REVIEWED_OZ_REV}")
+            raise ParseError(f"{name}: dependency differs from reviewed OZ release {REVIEWED_OZ_VERSION}")
 
 
 def discover_entrypoints() -> list[dict]:

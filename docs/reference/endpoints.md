@@ -249,7 +249,7 @@ Account ids are NFT token ids: the NFT uses `u32`, and the controller exposes th
 | `transfer_from(spender: Address, from: Address, to: Address, token_id: u32)` | spender signature and approval |
 | `approve(approver: Address, approved: Address, token_id: u32, live_until_ledger: u32)` | approver signature and ownership/operator authority |
 | `approve_for_all(owner: Address, operator: Address, live_until_ledger: u32)` | owner signature |
-| `get_approved(token_id: u32) -> Option<Address>` | Open view |
+| `get_approved(token_id: u32) -> Option<Address>` | Open view; fails with `NonExistentToken` (200) for an id that was never minted or was burned |
 | `is_approved_for_all(owner: Address, operator: Address) -> bool` | Open view |
 | `name() -> String` | Open view |
 | `symbol() -> String` | Open view |
@@ -389,4 +389,4 @@ Constructor takes `asset: Address` and `init_args: Vec<Val> = [controller: Addre
 - [Pool ABI](../../interfaces/pool/src/lib.rs), [implementation](../../contracts/pool/src/lib.rs); [governance ABI](../../interfaces/governance/src/lib.rs), [implementation](../../contracts/governance/src/api.rs), [immediate authority](../../contracts/governance/src/timelock/immediate.rs).
 - [NFT implementation](../../contracts/position-nft/src/contract.rs); [router ABI](../../interfaces/swap-aggregator/src/lib.rs), [implementation](../../contracts/swap-aggregator/src/lib.rs); [price ABI](../../interfaces/price-aggregator/src/lib.rs).
 - [XOXNO oracle](../../contracts/xoxno-oracle/src/lib.rs), [admin](../../contracts/xoxno-oracle/src/admin.rs), [reads](../../contracts/xoxno-oracle/src/reads.rs), [submit](../../contracts/xoxno-oracle/src/submit.rs); [adapter](../../contracts/defindex-strategy/src/lib.rs).
-- Generated NFT/default ownership semantics use OpenZeppelin stellar-contracts revision `59b98f8e127f0e877a3870e8eb82fa282a4aadf3`, pinned in [Cargo.toml](../../Cargo.toml).
+- Generated NFT/default ownership semantics use OpenZeppelin stellar-contracts release 0.8.0, pinned in [Cargo.toml](../../Cargo.toml).

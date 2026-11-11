@@ -79,7 +79,7 @@ jobs:
       - name: Install Rust stable
         uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
         with:
-          toolchain: "1.95"
+          toolchain: "1.99.1"
           targets: wasm32v1-none
 
       - name: Install Rust nightly (for cargo-fuzz)
@@ -139,7 +139,7 @@ jobs:
       - name: Install Rust stable
         uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
         with:
-          toolchain: "1.95"
+          toolchain: "1.99.1"
           targets: wasm32v1-none
 
       - name: Cache cargo build artifacts
@@ -211,7 +211,7 @@ jobs:
       - name: Install Rust stable
         uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
         with:
-          toolchain: "1.95"
+          toolchain: "1.99.1"
           targets: wasm32v1-none
 
       - name: Install cargo-mutants + nextest
@@ -311,7 +311,7 @@ jobs:
     steps:
       - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
         with:
-          toolchain: "1.95"
+          toolchain: "1.99.1"
 
       # Installs the tools once; each mutants matrix cell downloads the staged
       # copies instead of installing them again.
@@ -355,7 +355,7 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
         with:
-          toolchain: "1.95"
+          toolchain: "1.99.1"
           targets: wasm32v1-none
 
       - name: Download stellar-cli
@@ -444,7 +444,7 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
         with:
-          toolchain: "1.95"
+          toolchain: "1.99.1"
           targets: wasm32v1-none
 
       - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
@@ -526,7 +526,7 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
         with:
-          toolchain: "1.95"
+          toolchain: "1.99.1"
           targets: wasm32v1-none
 
       # Only build artifacts are cached, never ~/.cargo (see pr-fuzz).
@@ -657,7 +657,7 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
         with:
-          toolchain: "1.95"
+          toolchain: "1.99.1"
 
       - name: Download stellar-cli
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2

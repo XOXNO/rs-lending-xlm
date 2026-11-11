@@ -173,7 +173,7 @@ All `*_seconds` fields are seconds; `*_wad` prices/factors are WAD. Feed `decima
 
 ## Inherited events
 
-OpenZeppelin revision `59b98f8e127f0e877a3870e8eb82fa282a4aadf3` and Soroban SDK 28.0.0 determine these shapes. Topic names default to snake_case struct names. All payloads here are maps, including empty maps for topic-only events. Angle-bracket entries below are dynamic topic values.
+OpenZeppelin release 0.8.0 and Soroban SDK 28.0.0 determine these shapes. Topic names default to snake_case struct names. All payloads here are maps, including empty maps for topic-only events. Angle-bracket entries below are dynamic topic values.
 
 | Emitter / event | Ordered topics | Map fields | Trigger |
 | --- | --- | --- | --- |

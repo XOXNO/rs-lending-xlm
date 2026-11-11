@@ -68,8 +68,8 @@ impl PositionNft {
     pub fn mint(e: &Env, to: Address) -> u32 {
         controller(e).require_auth();
         renew_instance(e);
-        let token_id = Enumerable::sequential_mint(e, &to);
-        // sequential_mint writes Owner/Balance at the network minimum TTL; lift
+        let token_id = Enumerable::mint(e, &to);
+        // The mint writes Owner/Balance at the network minimum TTL; lift
         // them to the user window so a new position does not archive early.
         extend_user_persistent_ttl(e, &to, token_id);
         token_id
@@ -80,7 +80,7 @@ impl PositionNft {
     /// Not the OZ `Burnable` extension: `Base::burn` calls
     /// `from.require_auth()`, and the controller must burn when liquidation
     /// empties an account without the owner's signature. This replicates
-    /// `Enumerable::burn` (v0.7.1) without that auth: `Base::update` removes the
+    /// `Enumerable::burn` (v0.8.0) without that auth: `Base::update` removes the
     /// owner and approval and decrements the holder's balance. The enumeration
     /// helper updates owner enumeration, total supply and global enumeration.
     ///
