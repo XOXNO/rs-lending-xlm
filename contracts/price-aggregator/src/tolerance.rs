@@ -27,10 +27,10 @@ pub(crate) fn within_tolerance_band(
 /// Returns the average of `anchor_price` and `primary_price`, truncated
 /// toward zero. Returns `0` if the sum overflows `i128`.
 pub(crate) fn midpoint_price_or_zero(anchor_price: i128, primary_price: i128) -> i128 {
-    Wad::from(anchor_price)
-        .try_add(Wad::from(primary_price))
-        .and_then(|sum| sum.try_div_by_int(2))
-        .map_or(0, Wad::raw)
+    anchor_price
+        .checked_add(primary_price)
+        .map(|sum| sum / 2)
+        .unwrap_or(0)
 }
 
 #[cfg(test)]

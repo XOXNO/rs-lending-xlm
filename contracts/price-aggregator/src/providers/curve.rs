@@ -84,19 +84,13 @@ pub(crate) fn read(
         .ok()
         .and_then(Result::ok)
         .ok_or(OracleError::NoLastPrice)?;
-    let price_wad = Wad::from(virtual_price)
-        .mul_floor_saturating(&env, Wad::from(minimum))
-        .raw();
-    if Wad::from(price_wad)
-        .mul_floor_saturating(&env, Wad::from(supply))
-        .raw()
-        < lp.min_pool_value_wad
-    {
+    let price_wad = Wad::from(virtual_price).mul_floor_saturating(&env, Wad::from(minimum));
+    if price_wad.mul_floor_saturating(&env, Wad::from(supply)) < Wad::from(lp.min_pool_value_wad) {
         return Err(OracleError::InsufficientCurveLiquidity);
     }
     Ok(Some((
         OracleObservation {
-            price_wad,
+            price_wad: price_wad.raw(),
             timestamp,
         },
         false,

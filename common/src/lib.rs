@@ -7,7 +7,7 @@
 #[cfg(all(
     feature = "math-test",
     target_family = "wasm",
-    not(feature = "certora")
+    not(any(feature = "certora", feature = "math-proof"))
 ))]
 compile_error!("math-test is for native verification, not deployable contracts");
 

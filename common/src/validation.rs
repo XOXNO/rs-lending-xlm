@@ -6,7 +6,7 @@ use crate::constants::{
     MIN_SANITY_BAND_BPS, MIN_TOLERANCE, RAY_DECIMALS, WAD,
 };
 use crate::errors::{CollateralError, FlashLoanError, GenericError, OracleError};
-use crate::math::fp::{Bps, Ray, Wad};
+use crate::math::fp::{Bps, Wad};
 use crate::oracle::observation::{
     MAX_LP_SANITY_BAND_BPS, MAX_SINGLE_SOURCE_SANITY_BAND_BPS, MAX_TWAP_RECORDS,
 };
@@ -46,7 +46,13 @@ pub fn require_non_empty_payments<T>(env: &Env, payments: &Vec<T>) {
 /// [`require_cap_within_asset_domain`], so stored caps can never overflow the
 /// asset→ray rescale.
 pub fn max_cap_for_decimals(asset_decimals: u32) -> i128 {
-    Ray::max_asset_amount(asset_decimals)
+    let Some(exp) = RAY_DECIMALS.checked_sub(asset_decimals) else {
+        return 0;
+    };
+    let upscale = 10i128
+        .checked_pow(exp)
+        .expect("10^(RAY_DECIMALS - asset_decimals) fits i128 for asset_decimals <= RAY_DECIMALS");
+    i128::MAX / upscale
 }
 
 /// Panics with `CollateralError::AssetDecimalsTooHigh` if `asset_decimals`

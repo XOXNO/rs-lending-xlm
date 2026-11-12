@@ -1,11 +1,23 @@
 """Regression checks for the production math boundary."""
 
+import tomllib
 import unittest
 
-from check_fp_boundary import violations
+from check_fp_boundary import ROOT, violations
 
 
 class FpBoundaryTest(unittest.TestCase):
+    def test_reference_access_preserves_each_layers_execution_model(self):
+        common = tomllib.loads((ROOT / "common/Cargo.toml").read_text())["features"]
+        self.assertEqual(common["math-test"], [])
+        self.assertEqual(common["math-proof"], ["math-test"])
+        for contract in ("controller", "price-aggregator"):
+            features = tomllib.loads((ROOT / f"contracts/{contract}/Cargo.toml").read_text())["features"]
+            self.assertIn("common/math-proof", features["certora"])
+            self.assertFalse(any("common/certora" in edges for edges in features.values()))
+        pool = tomllib.loads((ROOT / "contracts/pool/Cargo.toml").read_text())["features"]
+        self.assertIn("common/certora", pool["certora"])
+
     def test_core_imports_and_grouped_verification_imports_fail(self):
         for source in (
             "use common::math::fp_core as raw;",

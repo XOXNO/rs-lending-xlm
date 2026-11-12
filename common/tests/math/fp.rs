@@ -107,25 +107,10 @@ fn bps_ratios_and_fees_keep_their_rounding_direction() {
 }
 
 #[test]
-fn native_scaling_and_averages_preserve_integer_boundaries() {
+fn integer_rate_multiplication_preserves_boundaries() {
     let env = Env::default();
     assert_eq!(Ray::from(i128::MAX).mul_int(&env, 1), Ray::from(i128::MAX));
     assert_eq!(Ray::from(i128::MAX).mul_int(&env, 0), Ray::ZERO);
-    assert_eq!(Wad::from(i128::MAX).try_add(Wad::from(1)), None);
-    assert_eq!(Wad::from(-3).try_div_by_int(2), Some(Wad::from(-1)));
-    assert_eq!(Wad::ONE.try_div_by_int(0), None);
-    assert_eq!(Wad::from(i128::MIN).try_div_by_int(-1), None);
-    for decimals in [0, 1, 7, 18, 27] {
-        let unit = 10i128.pow(RAY_DECIMALS - decimals);
-        let cap = Ray::max_asset_amount(decimals);
-        assert!(cap.checked_mul(unit).is_some());
-        assert!(cap
-            .checked_add(1)
-            .and_then(|next| next.checked_mul(unit))
-            .is_none());
-    }
-    assert_eq!(Ray::max_asset_amount(28), 0);
-    assert_eq!(Ray::max_asset_amount(u32::MAX), 0);
 }
 
 #[test]

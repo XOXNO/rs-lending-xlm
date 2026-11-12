@@ -91,11 +91,7 @@ pub fn try_u256_to_i128(value: &U256) -> Option<i128> {
 ///
 /// Fails with `OracleError::InvalidPrice` when `amount` is negative,
 /// `decimals > WAD_DECIMALS`, or the product overflows.
-pub(crate) fn try_amount_to_wad(
-    _env: &Env,
-    amount: i128,
-    decimals: u32,
-) -> Result<i128, OracleError> {
+pub(crate) fn try_amount_to_wad(amount: i128, decimals: u32) -> Result<i128, OracleError> {
     Wad::try_from_token_upscale(amount, decimals)
         .map(Wad::raw)
         .ok_or(OracleError::InvalidPrice)

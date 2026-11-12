@@ -18,6 +18,8 @@ cvlr-soroban-derive = { workspace = true, optional = true }
 [features]
 # Raw arithmetic access for downstream tests/fuzzers; never enable in deploy artifacts.
 math-test = []
+# Proof access without enabling common's execution summaries.
+math-proof = ["math-test"]
 certora = ["cvlr", "cvlr-soroban", "cvlr-soroban-macros", "cvlr-soroban-derive"]
 certora-focused = []
 certora-math-rules = ["certora", "certora-focused"]

@@ -115,8 +115,7 @@ pub(crate) fn read(
     let pool_value_wad = Wad::from(price_wad)
         .try_value_of_token(&env, total_shares, share_decimals)
         .ok_or(OracleError::InvalidPrice)?;
-    let pool_value_wad = pool_value_wad.raw();
-    if pool_value_wad < lp.min_pool_value_wad {
+    if pool_value_wad < Wad::from(lp.min_pool_value_wad) {
         return Err(OracleError::InsufficientAquariusLiquidity);
     }
 

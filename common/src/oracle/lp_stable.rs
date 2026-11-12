@@ -101,12 +101,12 @@ pub fn fair_stable_lp_price_wad(
         return Err(OracleError::InvalidPrice);
     }
 
-    let xa_wad = try_amount_to_wad(env, a.reserve, a.decimals)?;
-    let xb_wad = try_amount_to_wad(env, b.reserve, b.decimals)?;
+    let xa_wad = try_amount_to_wad(a.reserve, a.decimals)?;
+    let xb_wad = try_amount_to_wad(b.reserve, b.decimals)?;
     let d = solve_stable_d(env, xa_wad, xb_wad, amp)?;
 
     let min_price = a.price_wad.min(b.price_wad);
-    let share_supply_wad = try_amount_to_wad(env, supply.total_shares, supply.decimals)?;
+    let share_supply_wad = try_amount_to_wad(supply.total_shares, supply.decimals)?;
     if share_supply_wad <= 0 {
         return Err(OracleError::InvalidPrice);
     }

@@ -75,7 +75,7 @@ pub fn fair_lp_price_wad(
     let total_value =
         isqrt_of_product(env, value_a as u128, value_b as u128).mul(&U256::from_u32(env, 2));
 
-    let share_supply_wad = try_amount_to_wad(env, supply.total_shares, supply.decimals)?;
+    let share_supply_wad = try_amount_to_wad(supply.total_shares, supply.decimals)?;
     if share_supply_wad <= 0 {
         return Err(OracleError::InvalidPrice);
     }

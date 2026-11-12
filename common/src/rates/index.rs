@@ -37,10 +37,9 @@ pub fn update_supply_index(env: &Env, supplied: Ray, old_index: Ray, rewards_inc
     }
 
     let new_value = total_supplied_value.checked_add(env, rewards_increase);
-    let grown = new_value.div_floor_saturating(env, supplied).raw();
-
-    let bounded_old = old_index.raw().min(MAX_SUPPLY_INDEX_RAY);
-    Ray::from(grown.min(MAX_SUPPLY_INDEX_RAY).max(bounded_old))
+    let grown = new_value.div_floor_saturating(env, supplied);
+    let cap = Ray::from(MAX_SUPPLY_INDEX_RAY);
+    grown.min(cap).max(old_index.min(cap))
 }
 
 /// Computes the portion of `rewards_increase` not reflected by the change in

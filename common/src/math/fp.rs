@@ -179,14 +179,6 @@ impl Ray {
         ))
     }
 
-    /// Largest asset amount whose exact upscale to RAY fits; zero for decimals above 27.
-    pub fn max_asset_amount(asset_decimals: u32) -> i128 {
-        let Some(exp) = RAY_DECIMALS.checked_sub(asset_decimals) else {
-            return 0;
-        };
-        i128::MAX / 10i128.pow(exp)
-    }
-
     /// Subtracts `rhs` from this value. Panics if either operand is negative or the result
     /// would be negative.
     pub fn checked_sub(self, env: &Env, rhs: Ray) -> Ray {
@@ -288,16 +280,6 @@ impl Wad {
         }
         let scale = 10i128.checked_pow(WAD_DECIMALS.checked_sub(decimals)?)?;
         amount.checked_mul(scale).map(Wad)
-    }
-
-    /// Adds raw WAD values, returning `None` on overflow.
-    pub fn try_add(self, rhs: Wad) -> Option<Wad> {
-        self.0.checked_add(rhs.0).map(Wad)
-    }
-
-    /// Divides by a plain integer, truncating toward zero; returns `None` on invalid division.
-    pub fn try_div_by_int(self, divisor: i128) -> Option<Wad> {
-        self.0.checked_div(divisor).map(Wad)
     }
 
     /// Multiplies two wad values, rounding the result up.
