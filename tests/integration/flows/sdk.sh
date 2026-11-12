@@ -40,7 +40,7 @@ sdk_inv() {
             evidence="$LOG_DIR/${label}_retry"
             continue
         fi
-        if [ -z "$hash" ] && slippage_requote "$label" "$method" "$evidence.err" "$CONTROLLER"; then
+        if [ -z "$hash" ] && [ -z "$drifted" ] && slippage_requote "$label" "$method" "$evidence.err" "$CONTROLLER"; then
             local kept
             for kept in err simulation-1.json; do
                 [ ! -e "$evidence.$kept" ] || mv "$evidence.$kept" "$evidence.requote.$kept"

@@ -229,7 +229,35 @@ if sdk_inv sdk_plain buildStellarMultiplyTx '{}' >/dev/null; then exit 1; fi
 ''')
 assert [(a['label'], a['status'], a['fn']) for a in actions] == [
     ('sdk_multiply', 'retry', 'multiply'), ('sdk_multiply', 'ok', 'multiply'), ('sdk_plain', 'FAIL', 'multiply')], actions
-print('A simulated router slippage error gets one new quote at a later ledger; a second one, another error or an unwrapped call stays final')
+attempts, _, actions = shell(REQUOTE_SETUP + '''
+n=0
+stellar() {
+    n=$((n+1))
+    if [ "$n" = 1 ]; then echo "Signing transaction: $(printf '%064d' 1)" >&2; return 1; fi
+    echo 'HostError: Error(Contract, #5)' >&2; return 1
+}
+tx_status() { echo FAILED; }
+receipt_drift() { :; }
+if requote_once swap leg; then exit 1; fi
+[ "$n" = 2 ] && [ "${quotes[*]}" = 0 ] && [ ! -e "$LOG_DIR/swap.requote" ]
+''')
+assert [(a['status'], bool(a['hash'])) for a in actions] == [('retry', True), ('FAIL', False)], actions
+attempts, _, actions = shell(SDK_SETUP + '''
+cat > "$RUN_DIR/node" <<'NODE'
+#!/bin/bash
+cat >/dev/null
+n=$(( $(cat "$RUN_DIR/node.count" 2>/dev/null || echo 0) + 1 )); echo "$n" > "$RUN_DIR/node.count"
+[ "$n" != 1 ] || { printf '%064d' 1 > "$4.hash"; echo 'unconfirmed/failed transaction' >&2; exit 1; }
+echo 'HostError: Error(Contract, #5)' >&2; exit 1
+NODE
+receipt_drift() { :; }
+latest_ledger() { echo 42; }
+leg() { sdk_inv sdk_multiply buildStellarMultiplyTx '{}' >/dev/null; }
+if requote_once sdk_multiply leg; then exit 1; fi
+[ "$(cat "$RUN_DIR/node.count")" = 2 ] && [ ! -e "$LOG_DIR/sdk_multiply.requote" ]
+''')
+assert [(a['status'], bool(a['hash'])) for a in actions] == [('retry', True), ('FAIL', False)], actions
+print('A simulated router slippage error gets one new quote at a later ledger; a second one, another error, an unwrapped call or one after a footprint retry stays final')
 
 attempts, _, actions = shell('''
 stellar() { echo "Signing transaction: $(printf '%064d' 1)" >&2; exit 130; }

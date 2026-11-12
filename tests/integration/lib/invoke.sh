@@ -356,7 +356,7 @@ inv_body() {
             record "$label" retry "$fn" "" "" "" "" "" "pre-sign transport or overload failure, attempt $attempt"
             continue
         fi
-        if [ "$rc" -ne 0 ] && slippage_requote "$label" "$fn" "$err_f" "$contract"; then
+        if [ "$rc" -ne 0 ] && [ -z "$drifted" ] && slippage_requote "$label" "$fn" "$err_f" "$contract"; then
             return 1
         fi
         record "$label" FAIL "$fn" "" "" "" "" "" "missing confirmed transaction: $(tail_err_note "$err_f")"
