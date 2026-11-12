@@ -248,6 +248,22 @@ receipt_drift() {
     python3 "$INTEG_DIR/receipts.py" drift "$@"
 }
 
+slippage_requote() {
+    local label="$1" fn="$2" err_f="$3" contract="$4"
+    [ -n "${INV_REQUOTE:-}" ] && grep -qF 'Error(Contract, #5)' "$err_f" || return 1
+    record "$label" retry "$fn" "" "" "" "" "" 'router slippage in simulation; one new quote' simulation "$contract" || return 1
+    : > "$INV_REQUOTE"
+}
+
+requote_once() {
+    local marker="$LOG_DIR/$1.requote" ledger; shift
+    rm -f "$marker"
+    INV_REQUOTE="$marker" "$@" && return 0
+    [ -e "$marker" ] || return 1
+    ledger=$(latest_ledger) || return 1
+    AGGREGATOR_MIN_LEDGER="$ledger" "$@"
+}
+
 inv_cli() {
     local contract="$1" signer="$2" base="$3"; shift 3
     stellar contract invoke --id "$contract" --source "$signer" "${NET_ARGS[@]}" \
@@ -339,6 +355,9 @@ inv_body() {
             && ! grep -q 'Error(Contract' "$err_f" && grep -qE "$PRESIGN_RE" "$err_f"; then
             record "$label" retry "$fn" "" "" "" "" "" "pre-sign transport or overload failure, attempt $attempt"
             continue
+        fi
+        if [ "$rc" -ne 0 ] && [ -z "$drifted" ] && slippage_requote "$label" "$fn" "$err_f" "$contract"; then
+            return 1
         fi
         record "$label" FAIL "$fn" "" "" "" "" "" "missing confirmed transaction: $(tail_err_note "$err_f")"
         return 1
