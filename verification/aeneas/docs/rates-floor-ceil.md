@@ -33,7 +33,7 @@ and conventions: [../README.md](../README.md), [../WRITING-PROOFS.md](../WRITING
 All statements are total correctness (`f ⦃ r => P r ⦄`: the call returns, does
 not abort, and `P` holds). Specifications never divide: `IsFloor n d q` is
 `q*d ≤ n < q*d + d` and the new `IsCeil n d q` is `n ≤ q*d < n + d` (for
-`d > 0`, mirrored for `d < 0`), in `Proofs/FloorCeilSpec.lean`.
+`d > 0`, mirrored for `d < 0`), in `lean/FixedPoint/FloorCeilSpec.lean`.
 
 Notation in the table: `RAY = 10^27`, `k = 27 - decimals`,
 `A = amount * 10^k` (the amount in RAY units, `Ray::from_asset`),

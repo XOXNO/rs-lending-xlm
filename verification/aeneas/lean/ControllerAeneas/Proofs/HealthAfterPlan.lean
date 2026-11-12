@@ -5,9 +5,10 @@
 per-debt-leg credited USD `uOf` sums to `repay_usd`. This file discharges
 that hypothesis, and `0 ≤ repay_usd`, from the production plan: with
 `res = normalize_repayment_plan …` and `repayment_plan_spec` (RepayPlan.lean),
-crediting each debt leg the `usd_wad` of the repaid entries with its key
-(`planU`) sums to exactly `res.repay_usd`, provided the debt map's keys are
-distinct (a Soroban `Map`) and every repaid entry names a debt leg.
+crediting each debt leg of the account the `usd_wad` of the repaid entries
+with its key (`planU`) sums to exactly `res.repay_usd`, provided the debt
+map's keys are distinct (a Soroban `Map`). That every repaid entry names one
+of the account's debt legs is part of `RepayLegOK` and is not assumed again.
 
 A plain (non-`module`) file.
 -/
@@ -15,7 +16,7 @@ import ControllerAeneas.Proofs.HealthAfter
 import ControllerAeneas.Proofs.RepayPlan
 
 open Aeneas Aeneas.Std Result
-open ControllerAeneas.Spec ControllerAeneas.HalfUpSpec
+open FixedPoint.Spec FixedPoint.HalfUpSpec
 open controller_aeneas
 
 set_option maxRecDepth 20000
@@ -103,6 +104,14 @@ section Plan
 
 attribute [local instance] Classical.propDecidable
 
+/-- A key that `mapLookup` finds is one of the map's keys. -/
+theorem mapLookup_mem_keys {K V : Type} {m : List (K × V)} {k : K} {v : V}
+    (h : mapLookup m k = some v) : k ∈ m.map Prod.fst := by
+  unfold mapLookup at h
+  obtain ⟨e, he, -⟩ := Option.map_eq_some_iff.mp h
+  have hk : e.1 = k := by simpa using List.find?_some he
+  exact List.mem_map.mpr ⟨e, List.mem_of_find?_eq_some he, hk⟩
+
 /-- USD credited to debt key `k` by a plan: the `usd_wad` of its repaid
 entries for `k`. -/
 noncomputable def planU (p : positions.liquidation.math.NormalizedRepaymentPlan)
@@ -116,11 +125,13 @@ noncomputable def planA (p : positions.liquidation.math.NormalizedRepaymentPlan)
   amtSum (p.repaid.filter (fun x => x.hub_asset = k))
 
 /-- **The per-leg credits of the production plan sum to `repay_usd`.** For
-the plan returned by `normalize_repayment_plan` (domain of
-`repayment_plan_spec`), if the debt map's keys are distinct and every repaid
-entry names one of them, then `0 ≤ repay_usd` and `repay_usd` equals the sum
-over the debt legs of `planU`. These are hypotheses `hr0` and `hrep` of
-`health_after_hf_preserving` / `health_after_target`. -/
+the plan returned by `normalize_repayment_plan` for account `acc` (domain of
+`repayment_plan_spec`), if the keys of the account's debt map are distinct
+(they are in a Soroban `Map`), then `0 ≤ repay_usd` and `repay_usd` equals
+the sum over the account's debt legs of `planU`. These are hypotheses `hr0`
+and `hrep` of `health_after_hf_preserving` / `health_after_target`. Every
+repaid entry names a debt leg of the account because `RepayLegOK` requires
+the position to exist (production aborts with `DebtPositionNotFound`). -/
 theorem plan_credits_sum (env : Env) (acc : types.Account)
     (raw : aeneas_soroban_shim.Vec (types.HubAssetKey × Std.I128))
     (snap : positions.liquidation.curve.LiquidationSnapshot)
@@ -140,31 +151,36 @@ theorem plan_credits_sum (env : Env) (acc : types.Account)
     (res : positions.liquidation.math.NormalizedRepaymentPlan × context.Context)
     (hnorm : positions.liquidation.math.normalize_repayment_plan env acc raw snap bb curve ctx
       = ok res)
-    (debt : aeneas_soroban_shim.Map types.HubAssetKey types.DebtPositionRaw)
-    (hkeys : (debt.map Prod.fst).Nodup)
-    (hin : ∀ x ∈ res.1.repaid, x.hub_asset ∈ debt.map Prod.fst) :
+    (hkeys : (acc.borrow_positions.map Prod.fst).Nodup) :
     0 ≤ res.1.repay_usd.val ∧
-      res.1.repay_usd.val = lsum (fun e => planU res.1 e.1) debt := by
-  obtain ⟨res', hres', -, -, husd, h0, -⟩ := spec_imp_eq_ok
+      res.1.repay_usd.val = lsum (fun e => planU res.1 e.1) acc.borrow_positions := by
+  obtain ⟨res', hres', hlegs, -, husd, h0, -⟩ := spec_imp_eq_ok
     (repayment_plan_spec env acc raw snap bb curve ctx P hagg hok htrim hlen hfit hd hwu hrp)
   rw [hnorm] at hres'
   have : res = res' := by simpa using hres'
   subst this
+  have hin : ∀ x ∈ res.1.repaid, x.hub_asset ∈ acc.borrow_positions.map Prod.fst := by
+    intro x hx
+    obtain ⟨l, hl, hxl, -⟩ := hlegs x hx
+    obtain ⟨-, ⟨d, hd⟩, -⟩ := hok l hl
+    rw [hxl]; exact mapLookup_mem_keys hd
   refine ⟨h0, ?_⟩
   rw [husd]
   unfold usdSum planU usdSum
-  exact sum_regroup debt hkeys (fun x : types.RepayEntry => x.hub_asset)
+  exact sum_regroup acc.borrow_positions hkeys (fun x : types.RepayEntry => x.hub_asset)
     (fun x : types.RepayEntry => x.usd_wad.val) _ hin
 
 /-- **Post-liquidation health factor of the production plan (HF-preserving
-cap).** `health_after_hf_preserving` with the plan `res` returned by
-`normalize_repayment_plan`: each debt leg is repaid `planA` tokens and
-credited `planU` USD (the repaid entries with its key), and the plan
-hypotheses `0 ≤ repay_usd` and `repay_usd = Σ credits` come from
-`plan_credits_sum` instead of being assumed. The remaining hypotheses are
-the totals domain of both accounts, the seizure domain of each supply leg,
-how the plan is applied (`SupplyAfter`, `DebtAfter`, modelled), and the
-HF-preserving cap. -/
+cap).** `health_after_hf_preserving` for account `acc` and the plan `res`
+that `normalize_repayment_plan` returns for it. The pre-liquidation maps are
+the account's own (`acc.supply_positions`, `acc.borrow_positions`); each debt
+leg is repaid `planA` tokens and credited `planU` USD (the repaid entries
+with its key); and the plan hypotheses `0 ≤ repay_usd` and
+`repay_usd = Σ credits` come from `plan_credits_sum` instead of being
+assumed. The remaining hypotheses are the distinct debt keys, the totals
+domain of both accounts, the seizure domain of each supply leg, how the plan
+is applied (`SupplyAfter`, `DebtAfter`, modelled), and the HF-preserving
+cap. -/
 theorem health_after_executed_plan (env : Env) (acc : types.Account)
     (raw : aeneas_soroban_shim.Vec (types.HubAssetKey × Std.I128))
     (snap : positions.liquidation.curve.LiquidationSnapshot)
@@ -184,44 +200,58 @@ theorem health_after_executed_plan (env : Env) (acc : types.Account)
     (res : positions.liquidation.math.NormalizedRepaymentPlan × context.Context)
     (hnorm : positions.liquidation.math.normalize_repayment_plan env acc raw snap bb curve ctx
       = ok res)
-    (sup sup' : aeneas_soroban_shim.Map types.HubAssetKey types.AccountPositionRaw)
-    (debt debt' : aeneas_soroban_shim.Map types.HubAssetKey types.DebtPositionRaw)
-    (hkeys : (debt.map Prod.fst).Nodup)
-    (hin : ∀ x ∈ res.1.repaid, x.hub_asset ∈ debt.map Prod.fst)
+    (sup' : aeneas_soroban_shim.Map types.HubAssetKey types.AccountPositionRaw)
+    (debt' : aeneas_soroban_shim.Map types.HubAssetKey types.DebtPositionRaw)
+    (hkeys : (acc.borrow_positions.map Prod.fst).Nodup)
     -- pre and post totals domain
-    (hs : ∀ e ∈ sup, RawSupplyOK ctx e) (hb : ∀ e ∈ debt, RawDebtOK ctx e)
-    (hsfit : lsum (rCeil ctx) sup < 2^127) (hbfit : lsum (rDebt .Ceil ctx) debt < 2^127)
+    (hs : ∀ e ∈ acc.supply_positions, RawSupplyOK ctx e)
+    (hb : ∀ e ∈ acc.borrow_positions, RawDebtOK ctx e)
+    (hsfit : lsum (rCeil ctx) acc.supply_positions < 2^127)
+    (hbfit : lsum (rDebt .Ceil ctx) acc.borrow_positions < 2^127)
     (hs' : ∀ e ∈ sup', RawSupplyOK ctx e) (hb' : ∀ e ∈ debt', RawDebtOK ctx e)
     (hsfit' : lsum (rCeil ctx) sup' < 2^127) (hbfit' : lsum (rDebt .Ceil ctx) debt' < 2^127)
     -- the plan's bonus, partial seizure, seizure domain and application
     (hb0 : 0 ≤ res.1.bonus.val) (hbB : res.1.bonus.val ≤ 10^8)
     (hsa : res.1.seize_all = false)
-    (hlegs : ∀ e ∈ sup, SzLegOK (planLeg ctx (lsum (rHU ctx) sup) res.1 e))
-    (hsup : List.Forall₂ (SupplyAfter (planLeg ctx (lsum (rHU ctx) sup) res.1)) sup sup')
-    (hdebt : List.Forall₂ (DebtAfter ctx (planA res.1) (planU res.1)) debt debt')
-    (hdl : ∀ e ∈ debt, 0 < borrowIndexOf ctx e.1 ∧ borrowIndexOf ctx e.1 ≤ 10^36 ∧
-      decOf ctx e.1.asset ≤ 18)
+    (hlegs : ∀ e ∈ acc.supply_positions,
+      SzLegOK (planLeg ctx (lsum (rHU ctx) acc.supply_positions) res.1 e))
+    (hsup : List.Forall₂ (SupplyAfter (planLeg ctx (lsum (rHU ctx) acc.supply_positions) res.1))
+      acc.supply_positions sup')
+    (hdebt : List.Forall₂ (DebtAfter ctx (planA res.1) (planU res.1)) acc.borrow_positions debt')
+    (hdl : ∀ e ∈ acc.borrow_positions, 0 < borrowIndexOf ctx e.1 ∧
+      borrowIndexOf ctx e.1 ≤ 10^36 ∧ decOf ctx e.1.asset ≤ 18)
     -- the pre-liquidation snapshot and the HF-preserving cap
-    (hD : 0 < lsum (rDebt .Ceil ctx) debt) (hC : 0 < lsum (rHU ctx) sup)
-    (hcap : (10^4 + res.1.bonus.val) * huD (lsum (rLt ctx) sup * 10^18) (lsum (rHU ctx) sup) ≤
-      lsum (rLt ctx) sup * 10^18 / lsum (rDebt .Ceil ctx) debt * 10^4) :
+    (hD : 0 < lsum (rDebt .Ceil ctx) acc.borrow_positions)
+    (hC : 0 < lsum (rHU ctx) acc.supply_positions)
+    (hcap : (10^4 + res.1.bonus.val) *
+        huD (lsum (rLt ctx) acc.supply_positions * 10^18) (lsum (rHU ctx) acc.supply_positions) ≤
+      lsum (rLt ctx) acc.supply_positions * 10^18 / lsum (rDebt .Ceil ctx) acc.borrow_positions *
+        10^4) :
     ∃ pre post : risk.totals.AccountRiskTotals,
-      risk.totals.calculate_account_risk_totals env ctx sup debt = ok (pre, ctx) ∧
+      risk.totals.calculate_account_risk_totals env ctx acc.supply_positions acc.borrow_positions
+        = ok (pre, ctx) ∧
       risk.totals.calculate_account_risk_totals env ctx sup' debt' = ok (post, ctx) ∧
       (pre.weighted_collateral.val : ℚ) * post.total_debt.val -
           pre.weighted_collateral.val *
-            (lsum (fun e => 3 * 10^54 + 6 * 10^36 * priceOf ctx e.1.asset) debt : ℚ) / (2 * 10^54) -
+            (lsum (fun e => 3 * 10^54 + 6 * 10^36 * priceOf ctx e.1.asset)
+              acc.borrow_positions : ℚ) / (2 * 10^54) -
           pre.total_debt.val * haErrC res.1.repay_usd.val (szOpb res.1.bonus.val)
-            (szBudget res.1.repay_usd.val res.1.bonus.val) pre.total_collateral.val sup.length
-            (lsum haLT sup)
-            (lsum (fun e => haLT e * (10^54 + 2 * 10^36 * priceOf ctx e.1.asset)) sup)
-            (lsum (fun e => haLT e * (planLeg ctx (lsum (rHU ctx) sup) res.1 e).Slack) sup)
-            (lsum (fun e => haLT e * (2 * 10^54 + 4 * 10^36 * priceOf ctx e.1.asset)) sup)
+            (szBudget res.1.repay_usd.val res.1.bonus.val) pre.total_collateral.val
+            acc.supply_positions.length
+            (lsum haLT acc.supply_positions)
+            (lsum (fun e => haLT e * (10^54 + 2 * 10^36 * priceOf ctx e.1.asset))
+              acc.supply_positions)
+            (lsum (fun e => haLT e *
+              (planLeg ctx (lsum (rHU ctx) acc.supply_positions) res.1 e).Slack)
+              acc.supply_positions)
+            (lsum (fun e => haLT e * (2 * 10^54 + 4 * 10^36 * priceOf ctx e.1.asset))
+              acc.supply_positions)
         ≤ (post.weighted_collateral.val : ℚ) * pre.total_debt.val := by
   obtain ⟨hr0, hrep⟩ := plan_credits_sum env acc raw snap bb curve ctx P hagg hok htrim hlen
-    hfit hd hwu hrp res hnorm debt hkeys hin
-  exact health_after_hf_preserving env ctx sup sup' debt debt' res.1 (planA res.1) (planU res.1)
-    hs hb hsfit hbfit hs' hb' hsfit' hbfit' hr0 hb0 hbB hsa hlegs hsup hdebt hrep hdl hD hC hcap
+    hfit hd hwu hrp res hnorm hkeys
+  exact health_after_hf_preserving env ctx acc.supply_positions sup' acc.borrow_positions debt'
+    res.1 (planA res.1) (planU res.1) hs hb hsfit hbfit hs' hb' hsfit' hbfit' hr0 hb0 hbB hsa
+    hlegs hsup hdebt hrep hdl hD hC hcap
 
 end Plan
 

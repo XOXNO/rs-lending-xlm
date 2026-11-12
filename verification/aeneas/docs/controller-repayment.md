@@ -203,7 +203,7 @@ No counterexample to an intended property was found. Observations:
 
 ## Axioms
 
-`#print axioms` was run on all 76 theorems of the four files (together with
-the whole library and the seizure/health-factor files, to check that no name
-collides): every one depends on a subset of `propext`, `Classical.choice`,
-`Quot.sound`. No `sorry`, `admit` or `axiom` in these files.
+`#assert_standard_axioms` (end of `ControllerAeneas.lean`) covers all 76
+theorems of the four files: the build fails unless every one depends only
+on `propext`, `Classical.choice` and `Quot.sound`, which rules out `sorry`,
+`admit` and added axioms.

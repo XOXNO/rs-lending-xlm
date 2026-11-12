@@ -8,10 +8,10 @@ A plain (non-`module`) file for the same reason as `MulDiv.lean`: the signed
 checked operations are only reachable from a non-module file.
 -/
 import RatesAeneas.Proofs.MulDiv
-import RatesAeneas.Proofs.FloorCeilSpec
+import FixedPoint.FloorCeilSpec
 
 open Aeneas Aeneas.Std Result
-open RatesAeneas.Spec
+open FixedPoint.Spec
 open rates_aeneas
 
 namespace RatesAeneas.Proofs

@@ -206,6 +206,7 @@ meets its documented contract. Observations:
 
 ## Axioms
 
-`#print axioms` was run on all 27 theorems in the four files. Each depends
-only on `propext`, `Classical.choice` and `Quot.sound` (or a subset). None
-uses `sorry`, `admit` or a new `axiom`.
+`#assert_standard_axioms` (end of `ControllerAeneas.lean`) covers the four
+files: the build fails unless every theorem depends only on `propext`,
+`Classical.choice` and `Quot.sound`, which rules out `sorry`, `admit` and
+added axioms.

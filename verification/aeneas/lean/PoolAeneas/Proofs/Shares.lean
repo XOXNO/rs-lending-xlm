@@ -8,7 +8,7 @@ below preserves it on every successful return.
 import PoolAeneas.Proofs.Basic
 
 open Aeneas Aeneas.Std Result
-open PoolAeneas.Spec
+open FixedPoint.Spec
 open pool_aeneas
 
 namespace PoolAeneas.Proofs

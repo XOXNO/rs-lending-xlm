@@ -273,7 +273,7 @@ behaviour change was found.
 ```sh
 export AENEAS_HOME=/path/to/aeneas-nightly-2026.11.12-0d21a9e   # see ../README.md, "Setup"
 export PATH=$HOME/.elan/bin:$PATH
-verification/aeneas/oracle/run.sh
+verification/aeneas/run.sh oracle
 ```
 
 or step by step:

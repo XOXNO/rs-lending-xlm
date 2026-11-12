@@ -15,7 +15,7 @@ overflows `i128` is covered).
 import RatesAeneas.Proofs.FloorCeilCore
 
 open Aeneas Aeneas.Std Result
-open RatesAeneas.Spec
+open FixedPoint.Spec
 open rates_aeneas
 
 set_option maxRecDepth 20000

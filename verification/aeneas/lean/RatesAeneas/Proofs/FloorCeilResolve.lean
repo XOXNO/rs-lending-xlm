@@ -10,7 +10,7 @@ unit expressed in `scaled * index` units).
 import RatesAeneas.Proofs.FloorCeilRoundTrip
 
 open Aeneas Aeneas.Std Result
-open RatesAeneas.Spec
+open FixedPoint.Spec
 open rates_aeneas
 
 set_option maxRecDepth 20000

@@ -10,7 +10,7 @@ import PoolAeneas.Proofs.HalfUp
 module system (WRITING-PROOFS.md). -/
 
 open Aeneas Aeneas.Std Result
-open PoolAeneas.Spec
+open FixedPoint.Spec
 open pool_aeneas
 
 namespace PoolAeneas.Proofs

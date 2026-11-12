@@ -10,10 +10,10 @@ taken 2026-11-12, namespace changed; see WRITING-PROOFS.md, last section.
 A plain (non-`module`) file for the same reason as `MulDiv.lean`.
 -/
 import ControllerAeneas.Proofs.MulDiv
-import ControllerAeneas.Proofs.FloorCeilSpec
+import FixedPoint.FloorCeilSpec
 
 open Aeneas Aeneas.Std Result
-open ControllerAeneas.Spec
+open FixedPoint.Spec
 open controller_aeneas
 
 namespace ControllerAeneas.Proofs

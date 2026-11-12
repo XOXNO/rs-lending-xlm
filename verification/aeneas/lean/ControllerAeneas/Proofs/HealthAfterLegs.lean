@@ -10,7 +10,7 @@ A plain (non-`module`) file.
 -/
 import ControllerAeneas.Proofs.SeizeBudget
 
-open ControllerAeneas.Spec ControllerAeneas.HalfUpSpec
+open FixedPoint.Spec FixedPoint.HalfUpSpec
 
 set_option maxRecDepth 20000
 

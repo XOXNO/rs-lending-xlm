@@ -21,11 +21,12 @@ type's arithmetic. -/
 @[reducible, rust_type "aeneas_pool_shim::I256"]
 def aeneas_pool_shim.I256 : Type := Int
 
-/-- `soroban_sdk::Address`, a host object handle. The extracted code only
-stores and clones it inside `Cache` (market key and asset id) and never
-inspects or compares it, so its contents are irrelevant: a single value. -/
+/-- `soroban_sdk::Address`, an opaque host handle, here a number (the model
+of `ControllerAeneas/TypesExternal.lean`). The extracted code only stores and
+clones it inside `Cache` (market key and asset id); distinct addresses stay
+distinct, so two markets of one hub are different storage keys. -/
 @[reducible, rust_type "aeneas_pool_shim::Address"]
-def aeneas_pool_shim.Address : Type := Unit
+def aeneas_pool_shim.Address : Type := Nat
 
 /-- `core::array::IntoIter<T, N>`: the by-value iterator over an array.
 Modelled as the list of elements not yet yielded, in order. -/

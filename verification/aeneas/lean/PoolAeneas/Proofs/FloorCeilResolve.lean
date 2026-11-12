@@ -16,7 +16,7 @@ unit expressed in `scaled * index` units).
 import PoolAeneas.Proofs.FloorCeilRoundTrip
 
 open Aeneas Aeneas.Std Result
-open PoolAeneas.Spec
+open FixedPoint.Spec
 open pool_aeneas
 
 set_option maxRecDepth 20000

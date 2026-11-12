@@ -15,7 +15,7 @@ import ControllerAeneas.Proofs.Scaling
 import ControllerAeneas.Proofs.HalfUp
 
 open Aeneas Aeneas.Std Result
-open ControllerAeneas.Spec ControllerAeneas.HalfUpSpec
+open FixedPoint.Spec FixedPoint.HalfUpSpec
 open controller_aeneas
 
 set_option maxRecDepth 20000

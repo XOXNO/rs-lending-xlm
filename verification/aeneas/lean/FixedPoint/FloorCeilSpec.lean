@@ -1,13 +1,13 @@
 /-
 Reference semantics for ceiling division, in the style of
-`RatesAeneas.Spec.IsFloor`: exact integer statements that never divide.
+`FixedPoint.Spec.IsFloor`: exact integer statements that never divide.
 
 `IsCeil n d q` says `q = ⌈n / d⌉`, checked as `n ≤ q*d < n + d` for `d > 0`
 (mirrored for `d < 0`).
 -/
-import RatesAeneas.Proofs.Spec
+import FixedPoint.Spec
 
-namespace RatesAeneas.Spec
+namespace FixedPoint.Spec
 
 /-- `q` is `⌈n / d⌉` (rounding toward positive infinity), for `d ≠ 0`.
 For `d > 0`: `n ≤ q*d < n + d`. For `d < 0` (multiplying `q - 1 < n/d ≤ q`
@@ -110,4 +110,4 @@ theorem truncCeil_isCeil (n d : Int) (hd : d ≠ 0) (inexact : Bool)
       rw [if_neg (by simp [hi])]
       constructor <;> nlinarith
 
-end RatesAeneas.Spec
+end FixedPoint.Spec

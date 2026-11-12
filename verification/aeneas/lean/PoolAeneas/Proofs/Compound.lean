@@ -20,7 +20,7 @@ import PoolAeneas.Proofs.RatesHalfUpWrappers
 /- Plain (non-`module`) file, like `Wrappers.lean`. -/
 
 open Aeneas Aeneas.Std Result
-open PoolAeneas.Spec PoolAeneas.HalfUpSpec
+open FixedPoint.Spec FixedPoint.HalfUpSpec
 open pool_aeneas
 
 set_option maxRecDepth 20000

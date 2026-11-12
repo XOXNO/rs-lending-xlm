@@ -1,15 +1,15 @@
 -- Pool accounting proofs (see ../docs/pool.md).
 import PoolAeneas.Funs
 -- Math proofs copied from RatesAeneas (namespace renamed).
-import PoolAeneas.Proofs.Spec
+import FixedPoint.Spec
 import PoolAeneas.Proofs.Host
 import PoolAeneas.Proofs.MulDiv
 import PoolAeneas.Proofs.Scaling
-import PoolAeneas.Proofs.FloorCeilSpec
+import FixedPoint.FloorCeilSpec
 import PoolAeneas.Proofs.FloorCeilCore
 import PoolAeneas.Proofs.FloorCeilRescale
 import PoolAeneas.Proofs.FloorCeilScaling
-import PoolAeneas.Proofs.HalfUpSpec
+import FixedPoint.HalfUpSpec
 import PoolAeneas.Proofs.HalfUp
 import PoolAeneas.Proofs.HalfUpDivInt
 import PoolAeneas.Proofs.FloorCeilRoundTrip
@@ -35,3 +35,8 @@ import PoolAeneas.Proofs.GlobalSync
 import PoolAeneas.Proofs.Legs
 import PoolAeneas.Proofs.Legs2
 import PoolAeneas.Proofs.Summaries
+import Audit
+
+-- Fails the build on any `sorry`, `native_decide` or added axiom in this
+-- library: generated code, external models and proofs (Audit.lean).
+#assert_standard_axioms PoolAeneas

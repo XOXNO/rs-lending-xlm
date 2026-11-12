@@ -1,9 +1,15 @@
 #!/usr/bin/env bash
 # Re-extracts every crate to Lean (Charon + Aeneas) and checks every proof.
 #
-# Fails if a regenerated Funs.lean/Types.lean differs from the committed one
-# (the production code changed, so the proofs no longer describe it; set
-# ALLOW_DRIFT=1 to re-check anyway) or if any proof breaks.
+# Fails if
+# * a hand-copied stand-in differs from the production item it copies
+#   (check_standins.py), a copied proof file is out of date (sync_copies.py),
+#   or the release profile no longer traps on overflow;
+# * a regenerated Funs.lean/Types.lean differs from the committed one (the
+#   production code changed, so the proofs no longer describe it; set
+#   ALLOW_DRIFT=1 to re-check anyway);
+# * any proof breaks, or any declaration depends on `sorry` or a non-standard
+#   axiom (`#assert_standard_axioms` at the end of each library root).
 #
 # Needs AENEAS_HOME (the unpacked Aeneas release pinned in README.md), rustup
 # and elan. Usage: ./run.sh [rates|pool|controller|oracle ...]  (default: all)
@@ -12,6 +18,21 @@ cd "$(dirname "$0")"
 ROOT=$(pwd)
 
 : "${AENEAS_HOME:?set AENEAS_HOME to the unpacked Aeneas release (see README.md)}"
+
+# Production code the crates carry as copies (not `#[path]` includes).
+./check_standins.py
+# Proof files that are renamed copies of RatesAeneas proofs.
+./sync_copies.py --check
+
+# Aeneas translates `+`, `-`, `*` on machine integers as aborting on overflow.
+# Production behaves that way only while the release profile keeps overflow
+# checks on (README.md, Trusted base).
+if ! awk '/^\[/ { section = $0 }
+          section == "[profile.release]" && /^overflow-checks *= *true/ { ok = 1 }
+          END { exit !ok }' ../../Cargo.toml; then
+  echo "Cargo.toml: [profile.release] must set overflow-checks = true; the proofs assume integer overflow aborts" >&2
+  exit 1
+fi
 
 # area -> crate dir, LLBC name, Lean library
 declare -A DIR=([rates]=. [pool]=pool [controller]=controller [oracle]=oracle)
@@ -62,7 +83,12 @@ cd lean
 lake exe cache get
 # One library at a time: each carries its own copy of the shared external
 # names, so they are never imported into the same Lean file.
-for area in "${AREAS[@]}"; do
-  echo "== build ${LIB[$area]}"
-  lake build "${LIB[$area]}"
+# After each build the library root is elaborated once more outside Lake's
+# cache: its last line, `#assert_standard_axioms`, also fails on a source
+# file that no root imports, and adding such a file does not invalidate the
+# cached root.
+for lib in FixedPoint $(for area in "${AREAS[@]}"; do echo "${LIB[$area]}"; done); do
+  echo "== build $lib"
+  lake build "$lib" | grep -v 'declarations audited'
+  lake env lean "$lib.lean"
 done

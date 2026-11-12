@@ -8,7 +8,7 @@ import ControllerAeneas.Proofs.RepayPlanUnit
 import ControllerAeneas.Proofs.Estimate
 
 open Aeneas Aeneas.Std Result
-open ControllerAeneas.Spec ControllerAeneas.HalfUpSpec
+open FixedPoint.Spec FixedPoint.HalfUpSpec
 open controller_aeneas
 
 set_option maxRecDepth 20000

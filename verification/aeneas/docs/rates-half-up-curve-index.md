@@ -31,7 +31,7 @@ and conventions: [../README.md](../README.md), [../WRITING-PROOFS.md](../WRITING
 All statements are total correctness (`f ⦃ r => P r ⦄`: the call returns and
 `P` holds) except where a theorem says otherwise. "Aborts" is stated as
 `¬ (f ⦃ _ => True ⦄)`: the call never returns. Specifications never divide
-(`Proofs/HalfUpSpec.lean`):
+(`lean/FixedPoint/HalfUpSpec.lean`):
 
 * `IsHalfUp n d q` (`d > 0`): `2·q·d ≤ 2·n + d < 2·q·d + 2·d`, i.e. `n/d`
   rounded to nearest with exact halves up (equivalently
@@ -164,7 +164,7 @@ cd verification/aeneas/lean
 lake build RatesAeneas.Proofs.HalfUpWrappers RatesAeneas.Proofs.CurveRates RatesAeneas.Proofs.Index
 ```
 
-Files: `Proofs/HalfUpSpec.lean`, `HalfUp.lean`, `HalfUpDivInt.lean`,
+Files: `lean/FixedPoint/HalfUpSpec.lean`; in `RatesAeneas/Proofs/`: `HalfUp.lean`, `HalfUpDivInt.lean`,
 `HalfUpWrappers.lean`, `CurveBase.lean`, `Curve.lean`, `CurveRates.lean`,
 `Index.lean`, `TypedWrappers.lean`. They are plain (non-`module`) files, like
 `MulDiv.lean`, and are all imported from `RatesAeneas.lean`, so

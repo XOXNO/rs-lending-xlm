@@ -9,7 +9,7 @@ so the minted shares are never worth more than the deposit (ADR-0003).
 -/
 
 open Aeneas Aeneas.Std Result
-open RatesAeneas.Spec
+open FixedPoint.Spec
 open rates_aeneas
 
 -- Normalising the 2^127 bounds of `i128` literals recurses deeply.

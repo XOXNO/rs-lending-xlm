@@ -8,7 +8,7 @@ overflow; debits reject insufficient reserves. Each changes only `cash`.
 import PoolAeneas.Proofs.Basic
 
 open Aeneas Aeneas.Std Result
-open PoolAeneas.Spec
+open FixedPoint.Spec
 open pool_aeneas
 
 namespace PoolAeneas.Proofs

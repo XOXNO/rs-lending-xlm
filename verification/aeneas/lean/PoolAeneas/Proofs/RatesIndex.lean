@@ -14,7 +14,7 @@ shortfall.
 -/
 
 open Aeneas Aeneas.Std Result
-open PoolAeneas.Spec PoolAeneas.HalfUpSpec
+open FixedPoint.Spec FixedPoint.HalfUpSpec
 open pool_aeneas
 open PoolAeneas.Proofs
 

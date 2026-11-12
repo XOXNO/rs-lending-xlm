@@ -10,10 +10,10 @@ A plain (non-`module`) file for the same reason as `MulDiv.lean`: the signed
 checked operations are only reachable from a non-module file.
 -/
 import ControllerAeneas.Proofs.MulDiv
-import ControllerAeneas.Proofs.FloorCeilSpec
+import FixedPoint.FloorCeilSpec
 
 open Aeneas Aeneas.Std Result
-open ControllerAeneas.Spec
+open FixedPoint.Spec
 open controller_aeneas
 
 namespace ControllerAeneas.Proofs

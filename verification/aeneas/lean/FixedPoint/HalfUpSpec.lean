@@ -1,12 +1,8 @@
--- Copied from RatesAeneas/Proofs/HalfUpSpec.lean (2026-11-12 snapshot) for the pool
--- extraction, with `RatesAeneas`/`rates_aeneas`/`aeneas_soroban_shim` renamed to
--- `PoolAeneas`/`pool_aeneas`/`aeneas_pool_shim` and `constants.production.` to
--- `constants.` (WRITING-PROOFS.md, last section). Proof text otherwise unchanged.
-import PoolAeneas.Proofs.Spec
+import FixedPoint.Spec
 
 /-
 Reference semantics for half-up and nearest-with-ties-away-from-zero
-rounding, stated without division, in the style of `PoolAeneas.Spec.IsFloor`.
+rounding, stated without division, in the style of `FixedPoint.Spec.IsFloor`.
 
 * `IsHalfUp n d q` (for `d > 0`): `q = ⌊n/d + 1/2⌋`, i.e. `n/d` rounded to the
   nearest integer with exact halves rounded up. Checked as
@@ -18,9 +14,9 @@ rounding, stated without division, in the style of `PoolAeneas.Spec.IsFloor`.
 Neither definition divides.
 -/
 
-open PoolAeneas.Spec
+open FixedPoint.Spec
 
-namespace PoolAeneas.HalfUpSpec
+namespace FixedPoint.HalfUpSpec
 
 /-- `q` is `n / d` rounded to nearest, exact halves up (`d > 0`). -/
 def IsHalfUp (n d q : Int) : Prop :=
@@ -129,4 +125,4 @@ theorem IsHalfUp.mul_le {n d q : Int} (h : IsHalfUp n d q) : 2 * (q * d) ≤ 2 *
 theorem IsHalfUp.lt_mul {n d q : Int} (h : IsHalfUp n d q) : 2 * n < 2 * (q * d) + d := by
   unfold IsHalfUp at h; linarith [h.2]
 
-end PoolAeneas.HalfUpSpec
+end FixedPoint.HalfUpSpec

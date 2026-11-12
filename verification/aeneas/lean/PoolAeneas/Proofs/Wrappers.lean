@@ -14,7 +14,7 @@ import PoolAeneas.Proofs.Basic
 module system (WRITING-PROOFS.md). -/
 
 open Aeneas Aeneas.Std Result
-open PoolAeneas.Spec PoolAeneas.HalfUpSpec
+open FixedPoint.Spec FixedPoint.HalfUpSpec
 open pool_aeneas
 
 set_option maxRecDepth 20000

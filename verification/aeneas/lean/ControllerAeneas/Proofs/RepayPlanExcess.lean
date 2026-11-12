@@ -10,7 +10,7 @@ refunded). Legs before the point where the loop stopped are untouched.
 import ControllerAeneas.Proofs.RepayPlanArith
 
 open Aeneas Aeneas.Std Result
-open ControllerAeneas.Spec ControllerAeneas.HalfUpSpec
+open FixedPoint.Spec FixedPoint.HalfUpSpec
 open controller_aeneas
 
 set_option maxRecDepth 20000

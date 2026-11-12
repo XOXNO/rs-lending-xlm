@@ -7,7 +7,7 @@ shortfall.
 -/
 
 open Aeneas Aeneas.Std Result
-open RatesAeneas.Spec RatesAeneas.HalfUpSpec
+open FixedPoint.Spec FixedPoint.HalfUpSpec
 open rates_aeneas
 
 set_option maxRecDepth 20000

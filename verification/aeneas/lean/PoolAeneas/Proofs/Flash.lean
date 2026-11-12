@@ -9,7 +9,7 @@ import PoolAeneas.Proofs.Interest
 import PoolAeneas.Proofs.Cash
 
 open Aeneas Aeneas.Std Result
-open PoolAeneas.Spec PoolAeneas.HalfUpSpec
+open FixedPoint.Spec FixedPoint.HalfUpSpec
 open pool_aeneas
 
 set_option maxRecDepth 20000

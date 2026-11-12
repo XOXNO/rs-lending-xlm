@@ -13,7 +13,7 @@ import PoolAeneas.Proofs.FloorCeilRescale
 import PoolAeneas.Proofs.Scaling
 
 open Aeneas Aeneas.Std Result
-open PoolAeneas.Spec
+open FixedPoint.Spec
 open pool_aeneas
 
 set_option maxRecDepth 20000

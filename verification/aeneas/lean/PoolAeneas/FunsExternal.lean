@@ -187,7 +187,7 @@ def aeneas_pool_shim.Env.Insts.CoreCloneClone.clone (e : aeneas_pool_shim.Env) :
     Result aeneas_pool_shim.Env :=
   ok e
 
-/-- `<Address as Clone>::clone`: the same (unit) handle. -/
+/-- `<Address as Clone>::clone`: copies the handle. -/
 def aeneas_pool_shim.Address.Insts.CoreCloneClone.clone (a : aeneas_pool_shim.Address) :
     Result aeneas_pool_shim.Address :=
   ok a

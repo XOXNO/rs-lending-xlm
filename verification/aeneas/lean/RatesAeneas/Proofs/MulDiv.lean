@@ -6,7 +6,7 @@ No input bounds: unlike the Kani harnesses, these hold over the whole `i128`
 domain. Both the native `i128` path and the widened `I256` path are covered.
 -/
 import RatesAeneas.Funs
-import RatesAeneas.Proofs.Spec
+import FixedPoint.Spec
 import RatesAeneas.Proofs.Host
 
 /- A plain (non-`module`) file on purpose: the signed checked operations of the
@@ -15,7 +15,7 @@ module system, so only a non-module file can unfold them to the definitions
 their library specs talk about. -/
 
 open Aeneas Aeneas.Std Result
-open RatesAeneas.Spec
+open FixedPoint.Spec
 open rates_aeneas
 
 namespace RatesAeneas.Proofs

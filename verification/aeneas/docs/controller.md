@@ -32,8 +32,8 @@ The liquidation-flow additions (Context/Map models, `risk/totals.rs`,
 Every theorem is **total correctness** (`f args ⦃ r => P r ⦄`: the call
 returns, does not abort, and `P` holds) over **unbounded `i128` inputs**
 subject only to the stated domain hypotheses. Specifications never divide:
-`IsFloor`, `IsCeil` and `IsHalfUp` (`Proofs/Spec.lean`,
-`Proofs/FloorCeilSpec.lean`, `Proofs/HalfUpSpec.lean`) are stated with
+`IsFloor`, `IsCeil` and `IsHalfUp` (`lean/FixedPoint/Spec.lean`,
+`FloorCeilSpec.lean`, `HalfUpSpec.lean`, shared with the other libraries) are stated with
 multiplications only.
 
 ## The extraction crate (`verification/aeneas/controller/`)
@@ -193,14 +193,18 @@ and get their meaning in the trusted base below.
 
 ## Reused proofs
 
-Each extraction generates its own copy of the common math, so these files are
-copies of `RatesAeneas/Proofs` with the namespace changed (header comment in
-each says so): `Spec`, `Host`, `MulDiv` (`mul_div_floor_spec`),
-`FloorCeilSpec`, `FloorCeilCore` (`mul_div_ceil_spec`; the
+The rounding specifications (`Spec`, `FloorCeilSpec`, `HalfUpSpec`) are not
+copied: they live once in `lean/FixedPoint/` and this library imports them.
+
+Each extraction generates its own copy of the common math, so the proofs
+about that math exist once per library. `Host`, `MulDiv`
+(`mul_div_floor_spec`), `FloorCeilRescale` (`rescale_floor`/`rescale_ceil`),
+`HalfUp` (`mul_div_half_up_spec`) and `HalfUpDivInt` (`div_by_int_half_up`)
+are the RatesAeneas files with the library, crate and shim names changed,
+written by `../sync_copies.py` (`run.sh` fails if one is out of date).
+`FloorCeilCore` (`mul_div_ceil_spec`) is a hand-adapted copy: the
 `mul_div_floor_saturating` section is omitted because it is not extracted
-here), `FloorCeilRescale` (`rescale_floor`/`rescale_ceil`), `HalfUpSpec`,
-`HalfUp` (`mul_div_half_up_spec`), `HalfUpDivInt` (`div_by_int_half_up`).
-They are snapshots taken on 2026-11-12 from the RatesAeneas work in progress.
+here.
 
 Also copied (header comment in each): `Saturating.lean` (the
 `mul_div_floor_saturating` section of `RatesAeneas/Proofs/FloorCeilCore.lean`)
@@ -338,13 +342,15 @@ makes the generated imports `ControllerAeneas.*`), then deletes the
 `*_Template.lean` files. `run.sh` then runs `postextract.sh` on the
 generated library (Aeneas issue 3).
 
-To check axioms, add a scratch file importing `ControllerAeneas` with
-`#print axioms <name>` and run `lake env lean <file>`; every headline theorem
-depends only on `propext`, `Classical.choice`, `Quot.sound`. Checked on
-2026-11-12 for the 92 theorems of `Model`, `Saturating`, `Scaling`,
-`Totals`, `Repayment` and `Apply` (together with the `Estimate*` files, to
-check that the names do not collide): every one depends on a subset of these
-three.
+Axioms: `ControllerAeneas.lean` ends with
+`#assert_standard_axioms ControllerAeneas` (`lean/Audit.lean`), so the build
+fails unless every declaration of the library depends only on `propext`,
+`Classical.choice` and `Quot.sound`.
+
+Stand-ins: the copied production items in `controller/src` (`types.rs`,
+`cached_price`, the payment aggregation, `make_pool_action`, ...) are
+compared with production by `../check_standins.py`, which `run.sh` runs
+first; an adapted stand-in pins the hash of the production item it replaces.
 
 ## Not covered
 

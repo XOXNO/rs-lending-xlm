@@ -15,15 +15,19 @@ The full check takes under a minute.
 
 ## What is proved
 
-1019 theorems across four Lean libraries (headline theorems plus lemmas, some of them math proofs copied between libraries, since
-each library carries its own extraction of the shared `common` code).
+986 theorems: four area libraries plus `FixedPoint`, the rounding
+specifications they share (headline theorems plus lemmas; some math proofs
+exist once per library, since each library carries its own extraction of the
+shared `common` code, and `sync_copies.py` writes those copies).
 
 **Production revision covered:** `main` at `c5e6def0` ("fix(rates): round
 borrow-curve slopes once", #225), on top of #224. See
 [Changes after #224](#changes-after-224-typed-fixed-point-boundary) and the
 first finding below. Every theorem depends only on Lean's standard axioms (`propext`,
 `Classical.choice`, `Quot.sound`); there is no `sorry`, `admit` or added
-axiom.
+axiom. The build enforces this: each library's root file ends with
+`#assert_standard_axioms` (`lean/Audit.lean`), which fails on any other
+axiom in the generated code, the external models or the proofs.
 
 | Area | Lean library | Document | Highlights |
 |---|---|---|---|
@@ -135,8 +139,18 @@ Each area document has a section with the details.
    of aborts are not modelled (the Kani harnesses check them); returned `Err`
    values are.
 
+4. **Integer overflow aborts.** Aeneas translates `+`, `-`, `*` on `i128`,
+   `u32`, `u64` as aborting on overflow. Production behaves that way because
+   the root `Cargo.toml` sets `overflow-checks = true` under
+   `[profile.release]`; `run.sh` fails if it no longer does.
+
 Production files are compiled verbatim through `#[path]` includes; each area
 crate documents which modules are included verbatim and which are stand-ins.
+Where a crate carries a copy of production code instead (the controller's
+`types.rs` conversions, `cached_price`, the payment aggregation and a few
+helpers), `check_standins.py` compares the copy with production, and pins
+the hash of each production item whose stand-in is an adaptation; `run.sh`
+runs it first.
 
 ## Running
 
@@ -146,9 +160,17 @@ export AENEAS_HOME=/path/to/unpacked/aeneas-release
 ./run.sh pool oracle     # selected areas
 ```
 
-`run.sh` re-extracts each crate, fails if a regenerated `Funs.lean`/`Types.lean`
-differs from the committed one (the production code changed; `ALLOW_DRIFT=1`
-re-checks anyway), downloads the prebuilt Mathlib, and builds each library.
+`run.sh` fails if
+
+* a hand-copied stand-in differs from production (`check_standins.py`), a
+  copied proof file is out of date (`sync_copies.py --check`), or the release
+  profile no longer traps on overflow;
+* a regenerated `Funs.lean`/`Types.lean` differs from the committed one (the
+  production code changed; `ALLOW_DRIFT=1` re-checks anyway);
+* a proof breaks, or any declaration depends on `sorry` or a non-standard
+  axiom.
+
+It downloads the prebuilt Mathlib before building.
 
 ### Setup
 

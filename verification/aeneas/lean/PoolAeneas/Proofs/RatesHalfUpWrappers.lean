@@ -20,7 +20,7 @@ Half-up wrappers in common/src/math/fp.rs and the downscaling branch of
 -/
 
 open Aeneas Aeneas.Std Result
-open PoolAeneas.Spec PoolAeneas.HalfUpSpec
+open FixedPoint.Spec FixedPoint.HalfUpSpec
 open pool_aeneas
 open PoolAeneas.Proofs
 

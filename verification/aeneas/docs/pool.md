@@ -191,7 +191,7 @@ meanings in `lean/PoolAeneas/TypesExternal.lean` and `FunsExternal.lean`:
 | `aeneas_pool_shim.I256` | Soroban host 256-bit integer | `Int` (copied from RatesAeneas) |
 | `I256.{from_i128, to_i128, add, sub, mul, div, rem_euclid, eq, partial_cmp}`, `MIN`, `MAX`, `checked` | Host I256 arithmetic | Exact integer arithmetic trapping outside `[-2^255, 2^255)`, truncating `div`, Euclidean `rem_euclid`, zero-divisor traps (copied from RatesAeneas) |
 | `core.num.I128.checked_pow`, `core.num.U32.abs_diff`, `Option::{unwrap_or_else, map_or, and_then}`, `?` on `Option`, `Range::contains` | Rust core | Per the Rust documentation (copied from RatesAeneas) |
-| `aeneas_pool_shim.Address` | `soroban_sdk::Address` | `Unit`: the extracted code only stores it |
+| `aeneas_pool_shim.Address` | `soroban_sdk::Address` | `Nat`: an opaque handle (as in the controller library); the extracted code only stores and clones it |
 | `core.array.iter.IntoIter T N` | `core::array::IntoIter` | `List T`, the elements not yet yielded |
 | `Array…IntoIterator.into_iter` | `<[T; N]>::into_iter` | The array's elements in order |
 | `IntoIter…Iterator.next` | `<array::IntoIter>::next` | Head and tail; `None` when exhausted |
@@ -451,13 +451,17 @@ last one is what makes the failure direction of the utilization gate exact.
 
 ### Copied math (from RatesAeneas)
 
-`Spec`, `Host`, `MulDiv`, `Scaling`, `FloorCeilSpec`, `FloorCeilCore`,
-`FloorCeilRescale`, `FloorCeilScaling`, `HalfUpSpec`, `HalfUp`,
-`HalfUpDivInt`, `FloorCeilRoundTrip`, `FloorCeilResolve`, `Withdrawal` are copies (2026-11-12 snapshot) of the files of the same name
-in `lean/RatesAeneas/Proofs/`, with the namespaces renamed
+The rounding specifications (`Spec`, `FloorCeilSpec`, `HalfUpSpec`) are not
+copied: they live once in `lean/FixedPoint/` and this library imports them.
+
+`Host`, `MulDiv`, `Scaling`, `FloorCeilCore`, `FloorCeilRescale`,
+`FloorCeilRoundTrip`, `HalfUp` and `HalfUpDivInt` are the files of the same
+name in `lean/RatesAeneas/Proofs/` with the names changed
 (`RatesAeneas`→`PoolAeneas`, `rates_aeneas`→`pool_aeneas`,
-`aeneas_soroban_shim`→`aeneas_pool_shim`, `constants.production.`→`constants.`)
-as WRITING-PROOFS.md describes. Each starts with a provenance comment. They
+`aeneas_soroban_shim`→`aeneas_pool_shim`, `constants.production.`→`constants.`),
+written by `../sync_copies.py` (`run.sh` fails if one is out of date).
+`FloorCeilScaling`, `FloorCeilResolve` and `Withdrawal` are hand-adapted
+copies with the same renaming, each with a provenance comment. They
 supply `mul_div_floor_spec`, `mul_div_ceil_spec`, `mul_div_half_up_spec`,
 `mul_div_floor_saturating_spec`, `ray_mul_floor_spec`, `ray_mul_ceil_spec`,
 `ray_div_floor_spec`, `ray_div_ceil_spec`, `ray_to_asset_floor_spec`,
@@ -477,9 +481,7 @@ For the accrual proofs, `RatesHalfUpWrappers`, `RatesCurveBase`, `RatesCurve`,
 `PoolAeneas.RatesProofs` (several names, e.g. `ray_checked_add_spec`,
 `ray_eq_eq`, `bps_val`, clash with pool-local lemmas). `RatesCurveRates` omits
 `calculate_deposit_rate_spec` and `range_contains_eq` (`calculate_deposit_rate`
-is not reachable from the pool roots). `HalfUpSpec` was re-synced with the
-current RatesAeneas file (it gained `IsHalfUp.exists`, `mul_self`,
-`le_of_ratio_le_one`, `mul_le`, `lt_mul`). They supply
+is not reachable from the pool roots). They supply
 `calculate_borrow_rate_spec`, `utilization_spec`, `update_borrow_index_spec`,
 `calculate_supplier_rewards_spec`, `ray_mul_spec` and the `Ray` `Ord`
 min/max specs used by `accrue_step_spec`.
@@ -544,14 +546,12 @@ those files before deleting them.
 
 ### Axiom check
 
-Write a temporary file importing `PoolAeneas` with `#print axioms <name>` for
-each theorem in the tables, run `lake env lean <file>` from `lean/`, then
-delete it. Every theorem reports `[propext, Classical.choice, Quot.sound]`
-or a subset. Last run (after adding the operation legs): all 273 theorems
-in `lean/PoolAeneas/Proofs/` checked, 258 with exactly those three, 15 with a
-subset, none with any other axiom (no `sorryAx`). The uninterpreted
-`storedParams`, `storedState` and `ledgerNowMs` are Lean `opaque`
-definitions, not axioms, and do not appear.
+`PoolAeneas.lean` ends with `#assert_standard_axioms PoolAeneas`
+(`lean/Audit.lean`): `lake build PoolAeneas` fails unless every declaration
+of the library depends only on `propext`, `Classical.choice` and
+`Quot.sound` (so no `sorryAx`). The uninterpreted `storedParams`,
+`storedState` and `ledgerNowMs` are Lean `opaque` definitions, not axioms,
+and do not appear.
 
 ## Not covered
 

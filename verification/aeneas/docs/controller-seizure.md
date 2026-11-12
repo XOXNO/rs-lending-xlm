@@ -105,8 +105,8 @@ decimals `dec`, fee rate `f`; plan: total collateral `C`, budget `B`,
 | **`health_after_hf_preserving`** | `HealthAfter` | `calculate_account_risk_totals` before/after the plan | `Wc'·D ≥ Wc·D' − Wc·Ed/(2K) − D·ErrC` | see "The post-liquidation health factor" | INV-LIQ-02, INV-RISK-02 | `split_liq_partial_at_the_cap_never_lowers_collateral_coverage` (same idea for `C/D`, with a `repay/10^10 + 2` allowance) |
 | **`health_after_target`** | `HealthAfter` | same | `W·Wc' ≥ T·D' − (T·Ed/(2K) + (T − δ + W)/2 + rep/2 + W·ErrC)` | as above with `HitsTarget` and `r ≤ rep` instead of the cap | INV-LIQ-02 | `ideal_repayment_targets_curve_hf` (intent; the rule itself never reaches the target branch, see controller-estimate.md) |
 | `sum_regroup`, `lsum_ite_key` | `HealthAfterPlan` | (math) | summing over items whose keys are keys of a map with distinct keys equals summing, per map entry, the items with that key | `(map keys).Nodup`, every item's key is a map key | — | — |
-| `plan_credits_sum` | `HealthAfterPlan` | `normalize_repayment_plan` | for the returned plan, `0 ≤ repay_usd` and `repay_usd = Σ_debt planU(k)`, where `planU(k)` is the `usd_wad` of the repaid entries for key `k`: discharges `hr0`/`hrep` of the health theorems | hypotheses of `repayment_plan_spec` (controller-repayment.md), debt keys distinct (Soroban `Map`), every repaid entry names a debt leg | INV-LIQ-02 | — |
-| **`health_after_executed_plan`** | `HealthAfterPlan` | `normalize_repayment_plan` + `calculate_account_risk_totals` | `health_after_hf_preserving` for the production plan: each debt leg repaid `planA(k)` tokens and credited `planU(k)` USD | as `plan_credits_sum`, plus the totals domain of both accounts, `SzLegOK` per supply leg, `SupplyAfter`/`DebtAfter` (application, modelled), not seize-all, the HF-preserving cap | INV-LIQ-02, INV-RISK-02 | — |
+| `plan_credits_sum`, `mapLookup_mem_keys` | `HealthAfterPlan` | `normalize_repayment_plan` | for the plan returned for account `acc`: `0 ≤ repay_usd` and `repay_usd = Σ planU(k)` over the account's debt legs, where `planU(k)` is the `usd_wad` of the repaid entries for key `k`. Discharges `hr0`/`hrep` of the health theorems; that every repaid entry names a debt leg follows from `RepayLegOK` | hypotheses of `repayment_plan_spec` (controller-repayment.md); the account's debt keys are distinct (Soroban `Map`) | INV-LIQ-02 | — |
+| **`health_after_executed_plan`** | `HealthAfterPlan` | `normalize_repayment_plan` + `calculate_account_risk_totals` | `health_after_hf_preserving` for account `acc` and its production plan: the pre-liquidation maps are `acc.supply_positions` / `acc.borrow_positions`, each debt leg is repaid `planA(k)` tokens and credited `planU(k)` USD | as `plan_credits_sum`, plus the totals domain of both accounts, `SzLegOK` per supply leg, `SupplyAfter`/`DebtAfter` (application, modelled), not seize-all, the HF-preserving cap | INV-LIQ-02, INV-RISK-02 | — |
 | `ha_counterexample` | `HealthAfter` | same | concrete account where the cap is tight and the executed plan lowers the production HF by one unit (below) | none | INV-LIQ-02 | — |
 
 Supporting lemmas (value forms of primitives `sz_*`, `SzLegOK.*` bounds such
@@ -273,7 +273,7 @@ No production bug. Observations:
 
 ## Axioms
 
-`#print axioms` was run on all 137 theorems of the ten files (the nine above
-plus `HealthAfterPlan`), from a generated file outside the Lean library. Each depends only on `propext`,
+`#assert_standard_axioms` (end of `ControllerAeneas.lean`) covers every
+declaration of the ten files (the nine above plus `HealthAfterPlan`). Each depends only on `propext`,
 `Classical.choice` and `Quot.sound` (or a subset). None uses `sorry`,
 `admit` or a new `axiom`.

@@ -13,7 +13,7 @@ one accrual state).
 import RatesAeneas.Proofs.FloorCeilScaling
 
 open Aeneas Aeneas.Std Result
-open RatesAeneas.Spec
+open FixedPoint.Spec
 open rates_aeneas
 
 set_option maxRecDepth 20000

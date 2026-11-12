@@ -7,7 +7,7 @@ comparisons, `Ray::checked_add`/`checked_sub`, a bounded `Ray::mul`, and
 -/
 
 open Aeneas Aeneas.Std Result
-open RatesAeneas.Spec RatesAeneas.HalfUpSpec
+open FixedPoint.Spec FixedPoint.HalfUpSpec
 open rates_aeneas
 
 set_option maxRecDepth 20000

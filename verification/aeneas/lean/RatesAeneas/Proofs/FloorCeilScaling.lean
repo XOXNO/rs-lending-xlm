@@ -9,7 +9,7 @@ import RatesAeneas.Proofs.FloorCeilRescale
 import RatesAeneas.Proofs.Scaling
 
 open Aeneas Aeneas.Std Result
-open RatesAeneas.Spec
+open FixedPoint.Spec
 open rates_aeneas
 
 set_option maxRecDepth 20000

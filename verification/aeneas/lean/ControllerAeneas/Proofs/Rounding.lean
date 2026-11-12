@@ -4,10 +4,10 @@ positive divisor. Every statement is about the specification predicates
 `IsFloor`, `IsCeil` (`Spec.lean`, `FloorCeilSpec.lean`) and `IsHalfUp`
 (`HalfUpSpec.lean`); nothing here mentions generated code.
 -/
-import ControllerAeneas.Proofs.FloorCeilSpec
-import ControllerAeneas.Proofs.HalfUpSpec
+import FixedPoint.FloorCeilSpec
+import FixedPoint.HalfUpSpec
 
-open ControllerAeneas.Spec ControllerAeneas.HalfUpSpec
+open FixedPoint.Spec FixedPoint.HalfUpSpec
 
 namespace ControllerAeneas.Proofs
 

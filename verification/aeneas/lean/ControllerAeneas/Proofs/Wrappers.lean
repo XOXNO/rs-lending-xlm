@@ -19,7 +19,7 @@ import ControllerAeneas.Proofs.Value
 import ControllerAeneas.Proofs.Basic
 
 open Aeneas Aeneas.Std Result
-open ControllerAeneas.Spec
+open FixedPoint.Spec
 open controller_aeneas
 
 set_option maxRecDepth 20000

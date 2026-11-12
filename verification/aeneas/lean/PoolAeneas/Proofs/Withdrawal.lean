@@ -31,7 +31,7 @@ import PoolAeneas.Proofs.RatesHalfUpWrappers
 import PoolAeneas.Proofs.RatesIndex
 
 open Aeneas Aeneas.Std Result
-open PoolAeneas.Spec PoolAeneas.HalfUpSpec
+open FixedPoint.Spec FixedPoint.HalfUpSpec
 open pool_aeneas
 open PoolAeneas.RatesProofs (ray_mul_spec ray_to_asset_spec)
 

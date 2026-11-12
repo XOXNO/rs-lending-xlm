@@ -20,3 +20,8 @@ import ControllerAeneas.Proofs.HealthAfter
 import ControllerAeneas.Proofs.RepayPlan
 -- Health factor of the executed production plan (docs/controller-seizure.md)
 import ControllerAeneas.Proofs.HealthAfterPlan
+import Audit
+
+-- Fails the build on any `sorry`, `native_decide` or added axiom in this
+-- library: generated code, external models and proofs (Audit.lean).
+#assert_standard_axioms ControllerAeneas

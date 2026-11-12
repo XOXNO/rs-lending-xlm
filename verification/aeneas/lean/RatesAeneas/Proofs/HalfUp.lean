@@ -1,5 +1,5 @@
 import RatesAeneas.Proofs.MulDiv
-import RatesAeneas.Proofs.HalfUpSpec
+import FixedPoint.HalfUpSpec
 
 /-
 Half-up multiply-divide: `fp_core::try_mul_div_half_up` and
@@ -14,7 +14,7 @@ are sealed under the module system (see WRITING-PROOFS.md).
 -/
 
 open Aeneas Aeneas.Std Result
-open RatesAeneas.Spec RatesAeneas.HalfUpSpec
+open FixedPoint.Spec FixedPoint.HalfUpSpec
 open rates_aeneas
 
 set_option maxRecDepth 20000

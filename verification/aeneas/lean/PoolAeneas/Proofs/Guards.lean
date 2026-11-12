@@ -14,7 +14,7 @@ import PoolAeneas.Proofs.Shares
 import PoolAeneas.Proofs.Wrappers
 
 open Aeneas Aeneas.Std Result
-open PoolAeneas.Spec
+open FixedPoint.Spec
 open pool_aeneas
 
 set_option maxRecDepth 20000
