@@ -143,9 +143,9 @@ Liquidation withdrawals skip this guard. Source:
 
 ```text
 u = min(utilization_ray, RAY)
-if u < mid:            rate = base + half_up(half_up(u × slope1 / RAY) × RAY / mid)
-else if u < optimal:   rate = base + slope1 + half_up(half_up((u − mid) × slope2 / RAY) × RAY / (optimal − mid))
-else:                  rate = base + slope1 + slope2 + half_up(half_up((u − optimal) × slope3 / RAY) × RAY / (RAY − optimal))
+if u < mid:            rate = base + half_up(u × slope1 / mid)
+else if u < optimal:   rate = base + slope1 + half_up((u − mid) × slope2 / (optimal − mid))
+else:                  rate = base + slope1 + slope2 + half_up((u − optimal) × slope3 / (RAY − optimal))
 rate = min(rate, max_borrow_rate)
 ```
 

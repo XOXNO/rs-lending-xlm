@@ -17,6 +17,10 @@ use crate::types::MarketParams;
 /// further by `params.slope2`; above `optimal_utilization` it ramps by
 /// `params.slope3`. Caps the result at `params.max_borrow_rate`.
 ///
+/// Each segment's contribution is one half-up multiply-divide, so at the top
+/// of a segment it equals the slope exactly and the uncapped rate never
+/// decreases as utilization rises.
+///
 /// Pool rate views return this annual rate. Accrual uses the per-millisecond
 /// rate from [`calculate_borrow_rate`].
 pub fn calculate_annual_borrow_rate(env: &Env, utilization: Ray, params: &MarketParams) -> Ray {
@@ -27,16 +31,15 @@ pub fn calculate_annual_borrow_rate(env: &Env, utilization: Ray, params: &Market
     };
 
     let annual_rate = if utilization < params.mid_utilization {
-        let contribution = utilization
-            .mul(env, params.slope1)
-            .div(env, params.mid_utilization);
+        let contribution =
+            slope_contribution(env, utilization, params.slope1, params.mid_utilization);
         params.base_borrow_rate.checked_add(env, contribution)
     } else if utilization < params.optimal_utilization {
         let excess = utilization.checked_sub(env, params.mid_utilization);
         let range = params
             .optimal_utilization
             .checked_sub(env, params.mid_utilization);
-        let contribution = excess.mul(env, params.slope2).div(env, range);
+        let contribution = slope_contribution(env, excess, params.slope2, range);
         params
             .base_borrow_rate
             .checked_add(env, params.slope1)
@@ -48,7 +51,7 @@ pub fn calculate_annual_borrow_rate(env: &Env, utilization: Ray, params: &Market
             .checked_add(env, params.slope2);
         let excess = utilization.checked_sub(env, params.optimal_utilization);
         let range = Ray::ONE.checked_sub(env, params.optimal_utilization);
-        let contribution = excess.mul(env, params.slope3).div(env, range);
+        let contribution = slope_contribution(env, excess, params.slope3, range);
         base_rate.checked_add(env, contribution)
     };
 
@@ -57,6 +60,16 @@ pub fn calculate_annual_borrow_rate(env: &Env, utilization: Ray, params: &Market
     } else {
         annual_rate
     }
+}
+
+/// Computes the share of `slope` earned `excess` of the way through a segment
+/// `range` wide: `slope * excess / range`, rounded half up once.
+///
+/// Rounding `excess * slope` before dividing by `range` would scale that
+/// first rounding error by `RAY / range`, up to half of `RAY` for a segment
+/// one unit wide.
+fn slope_contribution(env: &Env, excess: Ray, slope: Ray, range: Ray) -> Ray {
+    slope.mul_ray_ratio(env, excess, range)
 }
 
 /// Computes the per-millisecond borrow rate (RAY) for `utilization`.
