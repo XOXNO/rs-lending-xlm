@@ -2,7 +2,7 @@
 
 Use this reference to decode protocol events and interpret their amounts, shares and configuration snapshots. Match both the emitting contract and the ordered topic vector.
 
-The contracts define 28 custom event types: controller 21, pool 3, governance 2, price aggregator 1 and DeFindex adapter 1. The position NFT, swap aggregator and XOXNO oracle define no custom events, but their inherited OpenZeppelin events remain observable. Subscribe to both controller and pool events to track account and market changes.
+The contracts define 35 custom event types: controller 21, pool 3, governance 2, curator 7, price aggregator 1 and DeFindex adapter 1. The position NFT, swap aggregator and XOXNO oracle define no custom events, but their inherited OpenZeppelin events remain observable. Subscribe to both controller and pool events to track account and market changes.
 
 ## Wire rules and units
 
@@ -59,6 +59,20 @@ Field lists use exact Rust types. Map key order is alphabetical, regardless of d
 | `DeployControllerEvent`<br>`["governance", "deploy_controller"]` | map: `controller: Address, wasm_hash: BytesN<32>` | governance deploy_controller. |
 | `DeployPriceAggregatorEvent`<br>`["governance", "deploy_price_aggregator"]` | map: `price_aggregator: Address, wasm_hash: BytesN<32>` | governance deploy_price_aggregator. |
 
+### Curator events
+
+Every registry write publishes one event from the storage setter that makes it, so the event payload is the stored value. Forwarded calls (`create_hub`, `add_spoke`, `create_market`, `tighten_flags`) are observed through the governance and controller events they cause; `ProposedEvent` is the only record of which registrar queued a governance operation.
+
+| Event / ordered topics | Format and fields | Emission / interpretation |
+| --- | --- | --- |
+| `RegistrarAdminEvent`<br>`["curator", "registrar_admin"]` | map: `registrar: u32, admin: Address` | register_registrar, set_admin, force_set_admin. An admin change voids every role of the registrar and every grant it gave; no `RolesEvent` or `CapGrantEvent` follows, so an indexer drops them on this event. |
+| `RolesEvent`<br>`["curator", "roles"]` | map: `registrar: u32, account: Address, bits: u32` | set_roles; `bits = 0` removes the account. |
+| `SuspendedEvent`<br>`["curator", "suspended"]` | map: `registrar: u32, suspended: bool` | set_registrar_suspended. |
+| `HubRegistrarEvent`<br>`["curator", "hub_registrar"]` | map: `hub_id: u32, registrar: Option<u32>` | create_hub, reassign_hub; `None` unbinds the hub. |
+| `SpokeRegistrarEvent`<br>`["curator", "spoke_registrar"]` | map: `spoke_id: u32, registrar: Option<u32>` | add_spoke, reassign_spoke; `None` unbinds the spoke. |
+| `CapGrantEvent`<br>`["curator", "cap_grant"]` | map: `grantor: u32, grantee: u32, hub_id: u32, spoke_id: u32, asset: Address, grant: Option<CapGrant>` | set_cap_grant (`Some`, the stored grant), revoke_cap_grant (`None`; `grantor` is the revoking hub owner). |
+| `ProposedEvent`<br>`["curator", "proposed"]` | map: `registrar: u32, op_id: BytesN<32>` | propose, after governance queued the operation. |
+
 ### Price-aggregator events
 
 | Event / ordered topics | Format and fields | Emission / interpretation |
@@ -90,7 +104,7 @@ Field lists use exact Rust types. Map key order is alphabetical, regardless of d
 | `LiqRepay = 4` | liquidated account repayment |
 | `LiqSeize = 5` | gross collateral debit, both seize modes |
 | `Multiply = 6` | multiply debt mint |
-| `ParamUpd = 7` | risk-parameter rewrite; no token movement. `update_account_threshold` emits it, and so does a borrow, withdrawal or account strategy for each supply leg whose stored LTV it restamps |
+| `ParamUpd = 7` | risk-parameter rewrite; no token movement. `update_account_threshold` emits it, and so does a borrow, withdrawal or account strategy for each supply leg whose stored LTV, or liquidation tuple that does not favor liquidators, it restamps |
 | `SwDebtR = 8` | both new borrow and old repay in swap_debt |
 | `SwColWd = 9` | swap_collateral withdrawal |
 | `RpColWd = 10` | repay_debt_with_collateral withdrawal |
@@ -141,6 +155,8 @@ Rate fields `base_borrow_rate`, `max_borrow_rate` and `slope1/2/3` use annual RA
 
 Spoke flags and deprecation affect admission differently for entry, exit and seizure. See [risk checks and pause flags](endpoints.md#risk-checks-and-pause-flags) and [Credit liquidation](endpoints.md#liquidation-results) for these restrictions.
 
+`CapGrant` in `CapGrantEvent` is a map: `supply_cap: i128, borrow_cap: i128` in raw token units of the hub asset, `can_collateral: bool, can_borrow: bool`, and the BPS ceilings `ltv: u32, threshold: u32, bonus: u32, liquidation_fees: u32` that a grantee listing may not exceed.
+
 ## Oracle enum payloads
 
 | Type | Exact variant shape |
@@ -157,7 +173,7 @@ All `*_seconds` fields are seconds; `*_wad` prices/factors are WAD. Feed `decima
 
 ## Inherited events
 
-OpenZeppelin revision `59b98f8e127f0e877a3870e8eb82fa282a4aadf3` and Soroban SDK 28.0.0 determine these shapes. Topic names default to snake_case struct names. All payloads here are maps, including empty maps for topic-only events. Angle-bracket entries below are dynamic topic values.
+OpenZeppelin release 0.8.0 and Soroban SDK 28.0.0 determine these shapes. Topic names default to snake_case struct names. All payloads here are maps, including empty maps for topic-only events. Angle-bracket entries below are dynamic topic values.
 
 | Emitter / event | Ordered topics | Map fields | Trigger |
 | --- | --- | --- | --- |
@@ -189,5 +205,5 @@ XOXNO price submissions have no custom submission event. Router swaps have no cu
 ## Source map
 
 - [Controller events](../../contracts/controller/src/events/mod.rs), [config events](../../contracts/controller/src/events/config.rs), [market events](../../contracts/controller/src/events/market.rs), [liquidation application](../../contracts/controller/src/positions/liquidation/apply.rs), [cleanup](../../contracts/controller/src/positions/liquidation/bad_debt.rs).
-- [Pool events](../../contracts/pool/src/events.rs), [governance events](../../contracts/governance/src/events.rs), [price registry](../../contracts/price-aggregator/src/registry.rs), [adapter](../../contracts/defindex-strategy/src/lib.rs), [NFT lifecycle](../../contracts/position-nft/src/contract.rs).
+- [Pool events](../../contracts/pool/src/events.rs), [governance events](../../contracts/governance/src/events.rs), [curator events](../../contracts/curator/src/events.rs), [price registry](../../contracts/price-aggregator/src/registry.rs), [adapter](../../contracts/defindex-strategy/src/lib.rs), [NFT lifecycle](../../contracts/position-nft/src/contract.rs).
 - [Shared types](../../common/src/types/mod.rs), [rate curve](../../common/src/rates/curve.rs), [dependency pins](../../Cargo.toml).

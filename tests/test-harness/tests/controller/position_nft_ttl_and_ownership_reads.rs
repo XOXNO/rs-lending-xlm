@@ -6,9 +6,7 @@
 //! * `Owner(token_id)`: `mint` stamps the protocol `TTL_BUMP_USER` window.
 //!   OpenZeppelin `owner_of` tops it back up to the shorter
 //!   `OWNER_EXTEND_AMOUNT` (30 days) once it decays below OZ's 29-day
-//!   threshold. `stellar-tokens` git rev `fbfde38`,
-//!   `packages/tokens/src/non_fungible/mod.rs:395`,
-//!   `packages/tokens/src/non_fungible/storage.rs:69`.
+//!   threshold in the pinned `stellar-tokens` dependency.
 //! * `AccountMeta(account_id)`: protocol `TTL_BUMP_USER`, 120 days
 //!   (`common/src/constants/shared.rs`).
 //!
@@ -31,11 +29,8 @@ const PROTOCOL_USER_WINDOW: u32 = 120 * DAY_LEDGERS;
 /// OZ `OWNER_TTL_THRESHOLD` — 29 days. `owner_of` only extends below this.
 const OZ_OWNER_THRESHOLD: u32 = 29 * DAY_LEDGERS;
 
-/// Mirror of `stellar_tokens::non_fungible::NFTStorageKey` (git rev `fbfde38`,
-/// `packages/tokens/src/non_fungible/storage.rs:27`). The harness does not
-/// depend on `stellar-tokens`, and a `#[contracttype]` enum keys on variant
-/// index and payload, so this reproduces the on-ledger key exactly. Variant
-/// names and order must track upstream.
+/// Mirror of `stellar_tokens::non_fungible::NFTStorageKey`; keep variant names
+/// and payload types aligned with the pinned dependency.
 #[contracttype]
 pub enum NftKey {
     Owner(u32),
@@ -79,7 +74,7 @@ fn meta_ttl(t: &LendingTest, account_id: u64) -> u32 {
 /// INV-STOR-02b: the `Owner` entry and `AccountMeta` start on the same 120-day
 /// window.
 ///
-/// `set_user` stamps `AccountMeta` with the protocol window. `sequential_mint`
+/// `set_user` stamps `AccountMeta` with the protocol window. `Enumerable::mint`
 /// writes `Owner` at the network minimum TTL, and `mint` then lifts it with
 /// `extend_user_persistent_ttl` (`contracts/position-nft/src/contract.rs`).
 #[test]
@@ -213,18 +208,9 @@ fn renew_account_and_permissionless_renew_close_the_ttl_gap() {
     );
 }
 
-/// INV-STOR-02d: a liquidation after the `Owner` entry expires succeeds through
-/// the host's auto-restore.
-///
-/// `process_liquidation` calls `storage::get_account`, which resolves the owner
-/// through `try_account_owner` and the NFT's `owner_of`. The test `Env` runs
-/// storage in recording footprint mode, where `handle_maybe_expired_entry`
-/// (`soroban-env-host` 27.0.1) restores an expired persistent entry instead of
-/// failing. `simulateTransaction` also runs in recording mode and lists the
-/// archived entries in `SorobanTransactionData.ext.v1.archivedSorobanEntries`, so
-/// a simulated liquidation restores the entry in the same transaction. A
-/// footprint built without simulation needs an explicit restore. This test
-/// fails if a host change makes the expired read a hard failure.
+/// INV-STOR-02d: liquidation is the first ownership read after expiry in the
+/// local recording host, which restores persistent entries on access. This
+/// does not verify transaction preparation, restore funding or an enforcing footprint.
 #[test]
 fn liquidation_resolves_nft_ownership_and_succeeds_after_auto_restore() {
     let mut t = LendingTest::new().standard_two_asset().build();
@@ -261,20 +247,18 @@ fn liquidation_resolves_nft_ownership_and_succeeds_after_auto_restore() {
         "the controller's account entry must still be alive -- that is the asymmetry"
     );
 
-    // The account goes underwater while dormant.
+    // An ownership or health view here would restore the entry before liquidation.
     t.set_price("USDC", usd_cents(50));
-    t.assert_liquidatable(ALICE);
-
-    // Liquidation succeeds: the host auto-restored the lapsed Owner entry.
     t.liquidate(LIQUIDATOR, ALICE, "ETH", 1.0);
 
+    assert_eq!(
+        owner_ttl(&t, id),
+        OZ_OWNER_WINDOW,
+        "liquidation must renew expired ownership before any post-call owner read"
+    );
     assert!(
         t.try_nft_owner_of(id),
         "ownership resolves after the auto-restore"
-    );
-    assert!(
-        owner_ttl(&t, id) > 0,
-        "the restored entry carries a fresh live-until"
     );
 }
 

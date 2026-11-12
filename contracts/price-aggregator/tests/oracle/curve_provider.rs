@@ -7,7 +7,7 @@ use common::types::{
 use soroban_sdk::{
     contract, contractimpl, contracttype,
     testutils::{Address as _, Ledger},
-    vec, Address, BytesN, ContractExecutable, Error, String, Symbol, Vec,
+    token, vec, Address, BytesN, ContractExecutable, Error, String, Symbol, Vec,
 };
 
 use crate::test_support::register_redstone_feed;

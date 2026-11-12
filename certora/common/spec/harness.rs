@@ -15,7 +15,8 @@ impl CommonCertoraHarness {
 /// A rate model with all curve parameters left symbolic.
 ///
 /// Admits every curve `MarketParamsRaw::verify` accepts. It also admits
-/// `max_borrow_rate < slope3`, `max_borrow_rate <= base_borrow_rate` and
+/// `max_borrow_rate < slope3`, `max_borrow_rate <= base_borrow_rate`,
+/// `base_borrow_rate + slope1 + slope2 + slope3 > max_borrow_rate` and
 /// `asset_decimals` above `WAD_DECIMALS` (up to `RAY_DECIMALS`), which `verify`
 /// rejects.
 pub fn nondet_market_params(asset: &Address) -> MarketParamsRaw {

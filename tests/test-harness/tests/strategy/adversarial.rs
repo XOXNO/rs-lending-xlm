@@ -238,16 +238,88 @@ fn test_multiply_fee_on_transfer_debt_fails_closed() {
 
 #[test]
 fn test_multiply_fee_on_transfer_collateral_credits_net_or_fails() {
+    use common::math::fp::{Bps, Ray};
+    use soroban_sdk::{token, xdr::ToXdr};
+
     let mut t = LendingTest::new()
         .with_fee_on_transfer_market(usdc_preset(), 100)
         .with_market(eth_preset())
         .build();
     let router = t.aggregator.clone();
-    mint_weird(&t, "USDC", &router, 30_000_000_000);
+    let nominal_output = 30_000_000_000;
+    mint_weird(&t, "USDC", &router, nominal_output);
+    let env = t.env.clone();
+    let controller = t.controller.clone();
+    let usdc_pool = t.resolve_market("USDC").pool.clone();
+    let eth_pool = t.resolve_market("ETH").pool.clone();
+    let usdc = t.resolve_asset("USDC");
+    let eth = t.resolve_asset("ETH");
+    let usdc_key = hub_asset(usdc.clone());
+    let eth_key = hub_asset(eth.clone());
+    let usdc_token = token::Client::new(&env, &usdc);
+    let eth_token = token::Client::new(&env, &eth);
+    let balances = || {
+        [
+            usdc_token.balance(&usdc_pool),
+            usdc_token.balance(&controller),
+            usdc_token.balance(&router),
+            eth_token.balance(&eth_pool),
+            eth_token.balance(&controller),
+            eth_token.balance(&router),
+        ]
+    };
+    let balances_before = balances();
+    let usdc_before = t.pool_client("USDC").get_sync_data(&usdc_key).state;
+    let eth_before = t.pool_client("ETH").get_sync_data(&eth_key).state;
+    let controller_receipt = Bps::from(9900).apply_to(&env, nominal_output);
+    let expected_receipt = Bps::from(9900).apply_to(&env, controller_receipt);
+    let expected_shares =
+        Ray::from_asset(&env, expected_receipt, t.resolve_market("USDC").decimals).raw();
+    assert_eq!(usdc_before.supply_index, Ray::ONE.raw());
+
     let steps = multiply_steps(&t);
     let result = try_multiply_any(&mut t, &steps);
+    let balances_after = balances();
+    let usdc_after = t.pool_client("USDC").get_sync_data(&usdc_key).state;
+    let eth_after = t.pool_client("ETH").get_sync_data(&eth_key).state;
     match result {
         Ok(account_id) => {
+            assert_eq!(
+                balances_after[0]
+                    .checked_sub(balances_before[0])
+                    .expect("pool balance delta"),
+                expected_receipt
+            );
+            assert_eq!(
+                usdc_after
+                    .cash
+                    .checked_sub(usdc_before.cash)
+                    .expect("cash delta"),
+                expected_receipt
+            );
+            assert_eq!(balances_after[1], balances_before[1]);
+            assert_eq!(
+                balances_before[2]
+                    .checked_sub(balances_after[2])
+                    .expect("router debit"),
+                nominal_output
+            );
+            assert_eq!(usdc_after.supply_index, Ray::ONE.raw());
+            let (supplies, _) = t.ctrl_client().get_account_positions(&account_id);
+            assert_eq!(
+                supplies
+                    .get(usdc_key.clone())
+                    .expect("positive receipt creates collateral")
+                    .scaled_amount,
+                expected_shares
+            );
+            assert_eq!(
+                usdc_after
+                    .supplied
+                    .checked_sub(usdc_before.supplied)
+                    .expect("supplied shares delta"),
+                expected_shares
+            );
             let supply = t.supply_balance_for(ALICE, account_id, "USDC");
             assert!(
                 supply < 3_000.0,
@@ -259,12 +331,18 @@ fn test_multiply_fee_on_transfer_collateral_credits_net_or_fails() {
             );
         }
         Err(_) => {
-            assert!(
-                flash_guard_cleared(&t),
-                "failed FoT multiply must still clear the flash guard"
+            assert_eq!(
+                balances_after, balances_before,
+                "rejected multiply moves no tokens"
             );
+            assert_eq!(usdc_after.to_xdr(&env), usdc_before.to_xdr(&env));
+            assert_eq!(eth_after.to_xdr(&env), eth_before.to_xdr(&env));
         }
     }
+    assert!(
+        flash_guard_cleared(&t),
+        "FoT multiply must clear the flash guard"
+    );
 }
 
 #[test]

@@ -1,7 +1,10 @@
 use controller::types::{PriceSource, ProviderRef};
 use soroban_sdk::{Address, String};
 use test_harness::oracle::redstone::register_redstone_adapter;
-use test_harness::{hub_asset, usd, usdc_preset, LendingTest, ALICE, BOB, DEFAULT_TOLERANCE};
+use test_harness::{
+    assert_contract_error, errors, hub_asset, usd, usdc_preset, LendingTest, ALICE, BOB,
+    DEFAULT_TOLERANCE,
+};
 
 fn configure_usdc_with_redstone_single(t: &LendingTest, redstone: &Address, feed_id: &String) {
     let asset = t.resolve_asset("USDC");
@@ -202,20 +205,20 @@ fn test_redstone_anchor_outside_tolerance_marks_view_deviation() {
 }
 
 #[test]
-#[should_panic(expected = "Error(Contract, #3)")]
-fn test_redstone_runtime_missing_price_panics_with_invalid_ticker() {
+fn test_redstone_runtime_missing_price_is_no_last_price() {
     let mut t = LendingTest::new().with_market(usdc_preset()).build();
     let feed_id = String::from_str(&t.env, "USDC");
     let redstone = register_redstone_adapter(&t, &[("USDC", usd(1))]);
 
     configure_usdc_with_redstone_single(&t, &redstone, &feed_id);
+    t.supply(BOB, "USDC", 100_000.0);
+    t.supply(ALICE, "USDC", 10_000.0);
 
     t.env.as_contract(&redstone, || {
         let key = test_harness::mock_redstone::MockKey::PriceData(feed_id.clone());
         t.env.storage().temporary().remove(&key);
     });
 
-    t.supply(BOB, "USDC", 100_000.0);
-    t.supply(ALICE, "USDC", 10_000.0);
-    t.borrow(ALICE, "USDC", 100.0);
+    let result = t.try_borrow(ALICE, "USDC", 100.0);
+    assert_contract_error(result, errors::OracleError::NoLastPrice as u32);
 }

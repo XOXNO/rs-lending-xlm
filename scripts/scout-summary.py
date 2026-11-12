@@ -21,7 +21,9 @@ def collect(args: list[str]) -> list[str]:
         files.extend(
             sorted(glob.glob(os.path.join(a, "*.json"))) if os.path.isdir(a) else [a]
         )
-    return [f for f in files if os.path.isfile(f)]
+    if not files:
+        raise ValueError("no Scout reports found")
+    return sorted(set(files))
 
 def span_line(span: str) -> str:
     left = (span or "").split(" - ", 1)[0]
@@ -37,10 +39,16 @@ def main() -> None:
         try:
             with open(path, encoding="utf-8") as fh:
                 data = json.load(fh)
-        except (OSError, json.JSONDecodeError):
-            continue
+        except (OSError, json.JSONDecodeError) as error:
+            raise ValueError(f"invalid Scout report {path}: {error}") from error
+        if not isinstance(data, dict) or not isinstance(data.get("summary"), dict):
+            raise ValueError(f"missing Scout summary: {path}")
+        by_sev = data["summary"].get("by_severity")
+        if not isinstance(by_sev, dict) or not isinstance(data.get("findings"), list):
+            raise ValueError(f"invalid Scout summary/findings: {path}")
         crate = os.path.basename(path)[:-5]
-        by_sev = (data.get("summary") or {}).get("by_severity") or {}
+        if set(by_sev) - set(SEV) or any(type(n) is not int or n < 0 for n in by_sev.values()):
+            raise ValueError(f"invalid Scout severity counts: {path}")
         counts = tuple(int(by_sev.get(s, 0)) for s in SEV)
         rows.append((crate, *counts))
         for s, n in zip(SEV, counts):
@@ -57,12 +65,9 @@ def main() -> None:
             )
 
     out = ["## 🔍 Scout Audit", ""]
-    if not rows:
-        out.append("_No Scout reports found._")
-        print("\n".join(out))
-        return
-
     grand = sum(totals.values())
+    if grand == 0 and findings:
+        raise ValueError("Scout findings disagree with severity counts")
     if grand == 0:
         out.append("✅ **No findings.**")
     else:

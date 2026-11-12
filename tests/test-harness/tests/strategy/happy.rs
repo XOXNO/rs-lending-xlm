@@ -303,6 +303,9 @@ fn test_swap_collateral_no_borrows() {
 
 #[test]
 fn test_repay_debt_with_collateral_reduces_positions() {
+    use common::math::fp::Ray;
+    use soroban_sdk::token;
+
     let mut t = LendingTest::new().standard_two_asset().build();
 
     t.supply(ALICE, "USDC", 100_000.0);
@@ -313,8 +316,64 @@ fn test_repay_debt_with_collateral_reduces_positions() {
 
     t.fund_router("ETH", 0.5);
 
-    let steps = build_aggregator_swap(&t, "USDC", "ETH", 10_000_000_000, 5_000000);
+    let output_raw = 5_000_000i128;
+    let env = t.env.clone();
+    let debt_asset = t.resolve_asset("ETH");
+    let debt_key = hub_asset(debt_asset.clone());
+    let debt_pool = t.resolve_market("ETH").pool.clone();
+    let account_id = t.resolve_account_id(ALICE);
+    let debt_token = token::Client::new(&env, &debt_asset);
+    let custody_before = debt_token.balance(&debt_pool);
+    let state_before = t.pool_client("ETH").get_sync_data(&debt_key).state;
+    let (_, debts_before) = t.ctrl_client().get_account_positions(&account_id);
+    let shares_before = debts_before
+        .get(debt_key.clone())
+        .expect("existing ETH debt")
+        .scaled_amount;
+    let expected_burn = Ray::from_asset(&env, output_raw, t.resolve_market("ETH").decimals).raw();
+    assert_eq!(state_before.borrow_index, Ray::ONE.raw());
+    assert!(
+        shares_before > expected_burn,
+        "fixture requires partial repayment"
+    );
+
+    let steps = build_aggregator_swap(&t, "USDC", "ETH", 10_000_000_000, output_raw);
     t.repay_debt_with_collateral(ALICE, "USDC", 1_000.0, "ETH", &steps, false);
+
+    let custody_after = debt_token.balance(&debt_pool);
+    let state_after = t.pool_client("ETH").get_sync_data(&debt_key).state;
+    let (_, debts_after) = t.ctrl_client().get_account_positions(&account_id);
+    let shares_after = debts_after
+        .get(debt_key)
+        .expect("partially repaid ETH debt")
+        .scaled_amount;
+    assert_eq!(state_after.borrow_index, state_before.borrow_index);
+    assert_eq!(
+        custody_after
+            .checked_sub(custody_before)
+            .expect("pool custody delta"),
+        output_raw
+    );
+    assert_eq!(
+        state_after
+            .cash
+            .checked_sub(state_before.cash)
+            .expect("cash delta"),
+        output_raw
+    );
+    assert_eq!(
+        shares_before
+            .checked_sub(shares_after)
+            .expect("account debt burn"),
+        expected_burn
+    );
+    assert_eq!(
+        state_before
+            .borrowed
+            .checked_sub(state_after.borrowed)
+            .expect("aggregate debt burn"),
+        expected_burn
+    );
 
     let collateral_after = t.supply_balance(ALICE, "USDC");
     let debt_after = t.borrow_balance(ALICE, "ETH");

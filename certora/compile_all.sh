@@ -9,11 +9,12 @@ cargo check -p common --features certora --no-default-features
 cargo check -p pool --features certora --no-default-features
 cargo check -p controller --features certora --no-default-features
 cargo check -p price-aggregator --features certora --no-default-features
+targets=$(python3 certora/scripts/focused_wasm.py)
 while IFS='|' read -r _layer pkg feature _artifact _build_key; do
   cargo check -p "$pkg" \
     --features "certora,certora-focused,$feature" \
     --no-default-features
-done < <(python3 certora/scripts/focused_wasm.py)
+done <<< "$targets"
 python3 certora/scripts/check_orphans.py
 python3 certora/scripts/sync_wasm_conf.py --check
 

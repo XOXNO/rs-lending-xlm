@@ -40,7 +40,7 @@ Categories, in precedence order (first match wins):
                  no authorization evidence and a reachable state write. Hard
                  failure unless declared.
 
-Evidence is collected by a depth-limited call-graph walk over the workspace's
+Evidence is collected by a cycle-safe call-graph walk over the workspace's
 own Rust sources (`contracts/*/src`, `common/src`, `interfaces/*/src`), so a
 guard that lives three helpers deep still counts. The walk resolves calls by
 name, preferring a module-path match when the call site is path-qualified.
@@ -94,11 +94,6 @@ INVARIANTS = os.path.join(REPO_ROOT, "docs", "reference", "invariants.md")
 # writes routinely live here, so the call-graph walk has to see them.
 SUPPORT_SRC_DIRS = ("common/src", "interfaces")
 
-# Depth cap for the call-graph walk. The deepest guard chain in this workspace
-# is about 4 hops (entrypoint -> process_* -> require_* -> storage::*). The walk
-# does not find a guard or a write deeper than the cap.
-MAX_DEPTH = 12
-
 CATEGORIES = (
     "constructor",
     "test-only",
@@ -128,10 +123,19 @@ EXPECTED_TEST_ONLY = frozenset(
 )
 
 # `#[contractimpl(contracttrait)]` exports the trait's default methods, which
-# live in the dependency, not in this tree. Pinned to OpenZeppelin
-# stellar-contracts rev fbfde388 (Cargo.toml): each stock method's category, and
+# live in the dependency, not in this tree. Pinned to the OpenZeppelin
+# stellar-contracts release below: each stock method's category, and
 # the stock `ContractType` implementations whose bodies back those categories.
 # An override in the impl body is classified from its own source instead.
+REVIEWED_OZ_VERSION = "0.8.0"
+# crates.io checksum of each reviewed crate, as Cargo.lock records it.
+REVIEWED_OZ_CHECKSUMS = {
+    "stellar-access": "8e5dc69bd3a6d260a5fba6541f0260d0bed3fbfcbb615d2fb00dc95bda94ceaf",
+    "stellar-contract-utils": "642ca8d4cd845beebd617d51d0631dc3326914e33a4805d433d284d70e67015b",
+    "stellar-governance": "4c341e8024a891522f4a61299cf7f714619a1b8c4e0c13ad61fae004f36a0f4a",
+    "stellar-macros": "a3b4e7bcf89602f2dd864df1b4ee43bf7b3321847f1ca82e382548f34a43bdc5",
+    "stellar-tokens": "f1e8c79407082324265a4334e7a8201ac4c5a04f25657fadbaed7116e68bb3b5",
+}
 CONTRACTTRAIT_METHODS = {
     "NonFungibleToken": {
         "transfer": "caller-auth",
@@ -218,6 +222,12 @@ STORAGE_HANDLE_BINDING = re.compile(
     r"\blet\s+(?:mut\s+)?(\w+)\s*(?::[^=;]*)?=\s*[^;]*?storage\s*\(\s*\)"
     r"\s*\.\s*(?:instance|persistent|temporary)\s*\(\s*\)\s*;"
 )
+STORAGE_HANDLE_PARAM = re.compile(
+    r"\b(\w+)\s*:\s*&?\s*(?:'\w+\s+)?(?:mut\s+)?(?:\w+::)*(?:Instance|Persistent|Temporary)\b"
+)
+STORAGE_HANDLE_ALIAS = re.compile(
+    r"\blet\s+(?:mut\s+)?(\w+)\s*(?::[^=;]*)?=\s*&?\s*(?:mut\s+)?(\w+)\s*;"
+)
 
 OTHER_WRITE_PATTERNS = (
     re.compile(r"\benv\s*\.\s*deployer\s*\(\s*\)"),
@@ -227,7 +237,7 @@ OTHER_WRITE_PATTERNS = (
     re.compile(r"\bBase::set_metadata\s*\("),
     # OZ non-fungible state writes: ownership, balance and enumeration.
     re.compile(r"\bBase::update\s*\("),
-    re.compile(r"\bEnumerable::sequential_mint\s*\("),
+    re.compile(r"\bEnumerable::(?:mint|mint_with_id)\s*\("),
     re.compile(r"\bEnumerable::remove_from_enumerations\s*\("),
     re.compile(r"\bownable::set_owner\s*\("),
     re.compile(r"\bownable::transfer_ownership\s*\("),
@@ -242,7 +252,7 @@ OTHER_WRITE_PATTERNS = (
     re.compile(r"\bset_execute_operation\s*\("),
     re.compile(r"\bset_min_delay\s*\("),
     # An arbitrary target and function symbol: assume the worst.
-    re.compile(r"\benv\s*\.\s*invoke_contract\s*\("),
+    re.compile(r"\benv\s*\.\s*invoke_contract\s*(?:::<[^>]*>)?\s*\("),
 )
 
 # Soroban contract clients whose target contract lives in this workspace. The
@@ -351,15 +361,17 @@ CALL_SITE = re.compile(r"(?:(\w+(?:\s*::\s*\w+)*)\s*::\s*)?\b(\w+)\s*\(")
 # A path reference with no call parens: a function item passed as a value,
 # e.g. `run_batch(&env, entries, ops::supply::apply)`.
 PATH_REFERENCE = re.compile(r"\b(\w+(?:\s*::\s*\w+)*)\s*::\s*(\w+)\b(?!\s*[(:])")
-CFG_TEST_ONLY = re.compile(r'\btest\b|feature\s*=\s*"testing"')
-# A negated cfg term. `#[cfg(not(test))]` is true in every release build, so a
-# cfg carrying any negation is not evidence that the symbol is absent from the
-# artifact -- even though CFG_TEST_ONLY matches the `test` inside it.
-CFG_NEGATION = re.compile(r"\bnot\s*\(")
+CFG_TEST_TERM = r'(?:test|feature\s*=\s*"testing")'
+CFG_TEST_ONLY = re.compile(
+    rf"#\[\s*cfg\s*\(\s*(?:{CFG_TEST_TERM}|any\s*\(\s*"
+    rf"{CFG_TEST_TERM}(?:\s*,\s*{CFG_TEST_TERM})*\s*,?\s*\))\s*\)\s*\]"
+)
 CONTRACTIMPL_ATTR = re.compile(r"#\[\s*(?:soroban_sdk\s*::\s*)?contractimpl\b")
 CONTRACT_TYPE = re.compile(r"\btype\s+ContractType\s*=\s*([\w:]+)\s*;")
 CUSTOM_OVERRIDES = re.compile(r"\bimpl\b[^{;]*?\bContractOverrides\s+for\b")
 INVARIANT_HEADING = re.compile(r"^#+\s+(INV-[A-Z]+-\d+)\b", re.M)
+RAW_STRING = re.compile(r'(?:br|cr|r)(#*)"')
+CHAR_LITERAL = re.compile(r"'(?:\\(?:u\{[0-9a-fA-F_]+\}|x[0-9a-fA-F]{2}|.)|[^'\\\n])'")
 
 
 class ParseError(RuntimeError):
@@ -375,8 +387,8 @@ class AllowlistError(RuntimeError):
 # --------------------------------------------------------------------------- #
 
 
-def strip_comments(src: str) -> str:
-    """Blank out comments, keeping every byte offset intact.
+def strip_comments(src: str, *, literals: bool = False) -> str:
+    """Blank comments and optionally literals, keeping every byte offset intact.
 
     Offsets are preserved so slices taken from the stripped text line up with
     the original file, which keeps reported line numbers honest. String
@@ -387,7 +399,18 @@ def strip_comments(src: str) -> str:
     i, n = 0, len(src)
     while i < n:
         ch = src[i]
+        raw = RAW_STRING.match(src, i) if ch in "bcr" else None
+        if raw:
+            end = src.find('"' + raw.group(1), raw.end())
+            if end == -1:
+                raise ParseError(f"unclosed raw string from offset {i}")
+            end += 1 + len(raw.group(1))
+            if literals:
+                out[i:end] = ["\n" if c == "\n" else " " for c in src[i:end]]
+            i = end
+            continue
         if ch == '"':
+            start = i
             i += 1
             while i < n:
                 if src[i] == "\\":
@@ -397,16 +420,19 @@ def strip_comments(src: str) -> str:
                     i += 1
                     break
                 i += 1
+            else:
+                raise ParseError(f"unclosed string from offset {start}")
+            if literals:
+                out[start:i] = ["\n" if c == "\n" else " " for c in src[start:i]]
             continue
         if ch == "'":
             # `'a` is a lifetime; `'x'` and `'\n'` are char literals.
-            if i + 2 < n and src[i + 1] == "\\":
-                end = src.find("'", i + 2)
-                if end != -1 and end - i <= 5:
-                    i = end + 1
-                    continue
-            elif i + 2 < n and src[i + 2] == "'":
-                i += 3
+            char = CHAR_LITERAL.match(src, i)
+            if char:
+                end = char.end()
+                if literals:
+                    out[i:end] = " " * (end - i)
+                i = end
                 continue
             i += 1
             continue
@@ -475,6 +501,7 @@ def iter_fn_decls(text: str):
     such functions would drop the controller's whole persistent-storage write
     layer out of the call graph.
     """
+    text = strip_comments(text, literals=True)
     for m in FN_NAME.finditer(text):
         i = m.end()
         while i < len(text) and text[i] in " \t\n\r":
@@ -493,20 +520,24 @@ def iter_fn_decls(text: str):
             while i < len(text) and text[i] in " \t\n\r":
                 i += 1
         if i >= len(text) or text[i] != "(":
-            continue
-        try:
-            args_end = match_parens(text, i)
-        except ParseError:
-            continue
-        brace = text.find("{", args_end)
-        semi = text.find(";", args_end)
-        if brace == -1 or (semi != -1 and semi < brace):
+            raise ParseError(f"cannot parse function {m.group(1)!r} at offset {m.start()}")
+        i = match_parens(text, i)
+        nested = 0
+        while i < len(text):
+            if text[i] in "[(":
+                nested += 1
+            elif text[i] in "])":
+                nested -= 1
+            elif not nested and text[i] in "{;":
+                break
+            i += 1
+        if i == len(text):
+            raise ParseError(f"no body for function {m.group(1)!r}")
+        if text[i] == ";":
             # A trait method signature with no body: nothing to walk into.
             continue
-        try:
-            end = match_block(text, brace)
-        except ParseError:
-            continue
+        brace = i
+        end = match_block(text, brace)
         yield m.group(1), m.start(), brace, end
 
 
@@ -551,11 +582,12 @@ def preceding_attributes(text: str, start: int) -> list[str]:
 def iter_functions(body: str, base: int) -> list[dict]:
     """Parse the function items declared directly inside an impl block body."""
     fns: list[dict] = []
+    code = strip_comments(body, literals=True)
     for name, fn_kw, brace, end in iter_fn_decls(body):
         # Only items at the impl block's own nesting level; a nested closure or
         # inner `fn` sits deeper. `body` starts at the block's own `{`, so an
         # item declared directly inside it sits at depth exactly 1.
-        if body.count("{", 0, fn_kw) - body.count("}", 0, fn_kw) != 1:
+        if code.count("{", 0, fn_kw) - code.count("}", 0, fn_kw) != 1:
             continue
         decl = declaration_start(body, fn_kw)
         fns.append(
@@ -567,6 +599,10 @@ def iter_functions(body: str, base: int) -> list[dict]:
                 "offset": base + fn_kw,
             }
         )
+    parsed = {fn["offset"] - base for fn in fns}
+    for m in FN_NAME.finditer(code):
+        if code.count("{", 0, m.start()) - code.count("}", 0, m.start()) == 1 and m.start() not in parsed:
+            raise ParseError(f"unparsed impl function {m.group(1)!r} at offset {base + m.start()}")
     return fns
 
 
@@ -634,6 +670,7 @@ class CallGraph:
     def __init__(self, sources: list[tuple[str, str]]) -> None:
         self.by_name: dict[str, list[dict]] = {}
         for rel, text in sources:
+            text = strip_comments(text, literals=True)
             mod = module_path(rel)
             crate = mod.split("::")[0]
             for name, fn_kw, _brace, end in iter_fn_decls(text):
@@ -642,7 +679,7 @@ class CallGraph:
                 self.by_name.setdefault(name, []).append(
                     {"module": mod, "crate": crate, "file": rel, "body": text[fn_kw:end]}
                 )
-        self._cache: dict[tuple[int, str, bool], list[dict]] = {}
+        self._cache: dict[tuple[str, str, bool], list[dict]] = {}
 
     def callees(self, body: str, crate: str, strict: bool = False) -> list[dict]:
         """Definitions referenced from `body`, best-effort resolved.
@@ -653,7 +690,7 @@ class CallGraph:
         every batched mutator look read-only. `strict` keeps only edges that
         resolve to exactly one definition.
         """
-        key = (id(body), crate, strict)
+        key = (body, crate, strict)
         hit = self._cache.get(key)
         if hit is not None:
             return hit
@@ -684,18 +721,16 @@ class CallGraph:
 
     def walk(self, body: str, crate: str, predicate, strict: bool = False) -> bool:
         """Whether `predicate(text)` holds for `body` or any transitive callee."""
-        stack = [(body, 0)]
+        stack = [body]
         seen: set[int] = set()
         while stack:
-            text, depth = stack.pop()
+            text = stack.pop()
             if predicate(text):
                 return True
-            if depth >= MAX_DEPTH:
-                continue
             for c in self.callees(text, crate, strict):
                 if id(c) not in seen:
                     seen.add(id(c))
-                    stack.append((c["body"], depth + 1))
+                    stack.append(c["body"])
         return False
 
     def reaches(self, body: str, crate: str, patterns, strict: bool = False) -> bool:
@@ -706,6 +741,26 @@ class CallGraph:
 # --------------------------------------------------------------------------- #
 # Entrypoint discovery
 # --------------------------------------------------------------------------- #
+
+
+def check_dependency_revision(root: str = REPO_ROOT) -> None:
+    """Refuse stock method/guard tables after an unreviewed OZ dependency bump."""
+    with open(os.path.join(root, "Cargo.toml"), encoding="utf-8") as fh:
+        manifest = fh.read()
+    with open(os.path.join(root, "Cargo.lock"), encoding="utf-8") as fh:
+        lock = fh.read()
+    registry = "registry+https://github.com/rust-lang/crates.io-index"
+    for name, checksum in REVIEWED_OZ_CHECKSUMS.items():
+        dep = re.findall(rf'(?m)^{name}\s*=\s*(.+)$', manifest)
+        packages = [p for p in lock.split("[[package]]") if re.search(rf'^name = "{name}"$', p, re.M)]
+        if (
+            dep != [f'"={REVIEWED_OZ_VERSION}"']
+            or len(packages) != 1
+            or re.findall(r'^version = "([^"]+)"$', packages[0], re.M) != [REVIEWED_OZ_VERSION]
+            or re.findall(r'^source = "([^"]+)"$', packages[0], re.M) != [registry]
+            or re.findall(r'^checksum = "([^"]+)"$', packages[0], re.M) != [checksum]
+        ):
+            raise ParseError(f"{name}: dependency differs from reviewed OZ release {REVIEWED_OZ_VERSION}")
 
 
 def discover_entrypoints() -> list[dict]:
@@ -731,11 +786,12 @@ def discover_entrypoints() -> list[dict]:
 
 def _entrypoints_in_file(contract: str, rel: str, text: str) -> list[dict]:
     found: list[dict] = []
-    custom = CUSTOM_OVERRIDES.search(text)
+    code = strip_comments(text, literals=True)
+    custom = CUSTOM_OVERRIDES.search(code)
     if custom:
         where = f"{rel}:{line_of(text, custom.start())}"
         raise ParseError(f"{where}: ContractOverrides impl is not pinned")
-    for m in CONTRACTIMPL_ATTR.finditer(text):
+    for m in CONTRACTIMPL_ATTR.finditer(code):
         where = f"{rel}:{line_of(text, m.start())}"
         close = text.find("]", m.end())
         args = "".join(text[m.end() : close].split()) if close != -1 else None
@@ -743,14 +799,14 @@ def _entrypoints_in_file(contract: str, rel: str, text: str) -> list[dict]:
             raise ParseError(f"{where}: unsupported #[contractimpl] argument {args!r}")
         attrs = preceding_attributes(text, m.start())
         cfg = " ".join(a for a in attrs if a.startswith("#[cfg"))
-        header = IMPL_HEADER.search(text, close)
+        header = IMPL_HEADER.search(code, close)
         if header is None or header.start() > close + 400:
             raise ParseError(f"{where}: #[contractimpl] with no impl")
         target = " ".join(header.group(1).split())
         if not IMPL_TARGET_OK.fullmatch(target):
             raise ParseError(f"{where}: cannot parse impl header {target[:60]!r}")
         brace = header.end() - 1
-        block_end = match_block(text, brace)
+        block_end = match_block(code, brace)
         body = text[brace:block_end]
         methods = iter_functions(body, brace)
         if args:
@@ -814,21 +870,24 @@ def has_attr(fn: dict, names) -> bool:
 def is_test_only(fn: dict) -> bool:
     """Whether the entrypoint exists only under `cfg(test)` / `feature="testing"`.
 
-    Requires a positive test term: any negation in the predicate (`not(test)`,
-    `not(feature = "testing")`) is refused, because a negated term can be true
-    in a deployable WASM build. A refused cfg falls through to the normal
-    classification.
+    Only one test term or `any` of test terms proves this. Other cfg shapes
+    fall through to normal classification rather than guessing about release.
     """
-    cfg = fn["cfg"]
-    return bool(cfg) and not CFG_NEGATION.search(cfg) and bool(CFG_TEST_ONLY.search(cfg))
+    return bool(CFG_TEST_ONLY.fullmatch(fn["cfg"].strip()))
 
 
 def storage_writes(text: str) -> bool:
     """Whether `text` itself writes contract storage (TTL bumps excluded)."""
     if STORAGE_WRITE_CHAINED.search(text):
         return True
-    for m in STORAGE_HANDLE_BINDING.finditer(text):
-        handle = m.group(1)
+    handles = {m.group(1) for pattern in (STORAGE_HANDLE_BINDING, STORAGE_HANDLE_PARAM) for m in pattern.finditer(text)}
+    aliases = list(STORAGE_HANDLE_ALIAS.finditer(text))
+    while True:
+        expanded = handles | {m.group(1) for m in aliases if m.group(2) in handles}
+        if expanded == handles:
+            break
+        handles = expanded
+    for handle in handles:
         if re.search(rf"\b{re.escape(handle)}\s*\.\s*(?:set|remove|update|try_update)\s*\(", text):
             return True
     return any(p.search(text) for p in OTHER_WRITE_PATTERNS)
@@ -911,8 +970,9 @@ def make_write_predicate(mutating: dict[tuple[str, str], bool]):
 
 def classify(entrypoints: list[dict], graph: CallGraph) -> None:
     """Assign `category`, `evidence`, and `mutates` to every entrypoint."""
+    bodies = {id(fn): strip_comments(fn.get("signature", "") + "\n" + fn["body"], literals=True) for fn in entrypoints}
     for fn in entrypoints:
-        body, crate = fn["body"], fn["contract"]
+        body, crate = strip_comments(fn["body"], literals=True), fn["contract"]
         evidence: list[str] = []
         if "stock" in fn:
             fn["gate"] = fn["stock"] if fn["stock"] != "view" else None
@@ -955,7 +1015,7 @@ def classify(entrypoints: list[dict], graph: CallGraph) -> None:
         updated = {
             (fn["contract"], fn["name"]): fn["stock"] != "view"
             if "stock" in fn
-            else graph.walk(fn["body"], fn["contract"], predicate)
+            else graph.walk(bodies[id(fn)], fn["contract"], predicate)
             for fn in entrypoints
         }
         if updated == mutating:
@@ -1141,6 +1201,7 @@ def main() -> int:
     args = parser.parse_args()
 
     try:
+        check_dependency_revision()
         entrypoints = discover_entrypoints()
         if not entrypoints:
             print("FAIL: no #[contractimpl] entrypoints found -- the parser is broken")

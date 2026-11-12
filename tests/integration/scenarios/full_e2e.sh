@@ -49,7 +49,6 @@ run_case flow_nft flow_nft || die flow_nft "required case failed"
 run_case flow_flash_loans flow_flash_loans || die flow_flash_loans "required case failed"
 run_case flow_strategies flow_strategies || die flow_strategies "required case failed"
 
-INV_TRANSIENT_CONTRACT_RE='Error\(Contract, #'
 run_case flow_liq_setup flow_liq_setup || die flow_liq_setup "required case failed"
 run_case flow_liq_single flow_liq_single || die flow_liq_single "required case failed"
 run_case flow_liq_multi_hub flow_liq_multi_hub || die flow_liq_multi_hub "required case failed"
@@ -62,7 +61,6 @@ run_case flow_force_socialize_and_recap flow_force_socialize_and_recap || die fl
 # Sets no_seize on LIQG for the rest of the run: no later flow may seize LIQG.
 run_case flow_spoke_flags_and_curve flow_spoke_flags_and_curve || die flow_spoke_flags_and_curve "required case failed"
 run_case flow_liq_deprecated_spoke_credit flow_liq_deprecated_spoke_credit || die flow_liq_deprecated_spoke_credit "required case failed"
-unset INV_TRANSIENT_CONTRACT_RE
 
 run_case flow_defindex_strategy flow_defindex_strategy || die flow_defindex_strategy "required case failed"
 

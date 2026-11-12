@@ -152,9 +152,26 @@ mod tests {
             ("deviation", ScVal::Bool(true)),
             ("valid", ScVal::Bool(false)),
         ]);
-        let vec = ScVal::Vec(Some(ScVec(vec![row].try_into().unwrap())));
+        let second = map(vec![
+            ("supply_index", i128v(3_000_000)),
+            ("borrow_index", i128v(4_000_000)),
+            ("price_wad", i128v(200)),
+            ("primary_price_wad", i128v(201)),
+            ("anchor_price_wad", i128v(199)),
+        ]);
+        let vec = ScVal::Vec(Some(ScVec(vec![row, second].try_into().unwrap())));
         let decoded = decode_market_indexes(&vec).unwrap();
-        assert_eq!(decoded.len(), 1);
+        assert_eq!(decoded.len(), 2);
+        assert_eq!(
+            (
+                decoded[1].supply_index_ray,
+                decoded[1].borrow_index_ray,
+                decoded[1].final_price_wad
+            ),
+            (3_000_000, 4_000_000, 200)
+        );
+        assert_eq!(decoded[0].supply_index_ray, 1_000_000);
+        assert_eq!(decoded[0].borrow_index_ray, 2_000_000);
         assert_eq!(decoded[0].final_price_wad, 100);
         assert_eq!(decoded[0].primary_price_wad, 101);
         assert_eq!(decoded[0].anchor_price_wad, 99);

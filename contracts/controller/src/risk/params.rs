@@ -1,6 +1,8 @@
 use common::errors::CollateralError;
 use common::math::fp::{Bps, Wad};
-use common::types::{Account, AccountPosition, AssetConfig, HubAssetKey};
+use common::types::{
+    Account, AccountPosition, AccountPositionRaw, AssetConfig, DebtPositionRaw, HubAssetKey,
+};
 use common::validation::expect_invariant;
 use soroban_sdk::{assert_with_error, Address, Env, Map, Vec};
 
@@ -42,6 +44,7 @@ pub(crate) fn refresh_supply_risk_params(
 
 /// Refreshes stored LTV snapshots in memory for listed supply assets, skipping
 /// unlisted assets, and buffers a `ParamUpd` delta for each changed leg.
+/// A liquidation tuple that does not favor liquidators refreshes with the LTV.
 /// Returns whether any position changed.
 pub(crate) fn restamp_listed_supply_ltv(cache: &mut Context, account: &mut Account) -> bool {
     let mut changed = false;
@@ -54,11 +57,15 @@ pub(crate) fn restamp_listed_supply_ltv(cache: &mut Context, account: &mut Accou
         let Some(raw) = account.supply_positions.get(hub_asset.clone()) else {
             continue;
         };
-        let mut position = AccountPosition::from(&raw);
-        if position.loan_to_value.raw() == config.loan_to_value.raw() {
+        let stored = AccountPosition::from(&raw);
+        let mut position = stored;
+        position.loan_to_value = config.loan_to_value;
+        if !favors_liquidator(&stored, &config) {
+            set_liquidation_params(&mut position, &config);
+        }
+        if position == stored {
             continue;
         }
-        position.loan_to_value = config.loan_to_value;
         update_or_remove_supply_position(account, &hub_asset, &position);
         if !changed {
             cache.fetch_market_indexes(&portfolio_hub_keys(
@@ -103,9 +110,14 @@ pub(crate) fn apply_gated_liquidation_params(
         return;
     }
 
-    position.liquidation_threshold = effective_config.liquidation_threshold;
-    position.liquidation_bonus = effective_config.liquidation_bonus;
-    position.liquidation_fees = effective_config.liquidation_fees;
+    set_liquidation_params(position, effective_config);
+}
+
+/// Copies the liquidation threshold, bonus, and fees from `config`.
+fn set_liquidation_params(position: &mut AccountPosition, config: &AssetConfig) {
+    position.liquidation_threshold = config.liquidation_threshold;
+    position.liquidation_bonus = config.liquidation_bonus;
+    position.liquidation_fees = config.liquidation_fees;
 }
 
 /// Detects a lower threshold or fee, or a higher bonus, than the stored tuple.
@@ -128,10 +140,18 @@ fn clears_min_hf(
     hypothetical.liquidation_threshold = new_lt;
     let mut supply_positions = account.supply_positions.clone();
     supply_positions.set(hub_asset.clone(), (&hypothetical).into());
-    let hf =
-        calculate_account_risk_totals(env, cache, &supply_positions, &account.borrow_positions)
-            .health_factor;
-    hf >= Wad::from(THRESHOLD_UPDATE_MIN_HF_RAW)
+    health_factor(env, cache, &supply_positions, &account.borrow_positions)
+        >= Wad::from(THRESHOLD_UPDATE_MIN_HF_RAW)
+}
+
+/// Health factor of `supply_positions` against `borrow_positions`.
+fn health_factor(
+    env: &Env,
+    cache: &mut Context,
+    supply_positions: &Map<HubAssetKey, AccountPositionRaw>,
+    borrow_positions: &Map<HubAssetKey, DebtPositionRaw>,
+) -> Wad {
+    calculate_account_risk_totals(env, cache, supply_positions, borrow_positions).health_factor
 }
 
 /// Allows any authenticated caller to refresh listed supply LTV snapshots.
@@ -160,8 +180,9 @@ pub(crate) fn update_account_threshold(
 }
 
 /// Refreshes listed supply parameters to `scope`. Skips missing metadata,
-/// empty supply, or unresolved NFT ownership. Only `FullTuple` loads debt
-/// and enforces final health factor >= 1.05; writes only supply positions.
+/// empty supply, or unresolved NFT ownership. Only `FullTuple` loads debt and
+/// rejects a refresh that leaves health factor below both 1.05 and its prior
+/// value; writes only supply positions.
 fn sync_account_thresholds(
     env: &Env,
     account_id: u64,
@@ -191,6 +212,7 @@ fn sync_account_thresholds(
 
     storage::renew_user_account(env, account_id);
 
+    let prior_supply = supply_positions.clone();
     let mut account = storage::account_from_parts(owner, meta, supply_positions, borrow_positions);
     let assets = account.supply_positions.keys();
 
@@ -235,16 +257,16 @@ fn sync_account_thresholds(
     }
 
     if full_tuple {
-        let hf = calculate_account_risk_totals(
+        let hf = health_factor(
             env,
             cache,
             &account.supply_positions,
             &account.borrow_positions,
-        )
-        .health_factor;
+        );
         assert_with_error!(
             env,
-            hf >= Wad::from(THRESHOLD_UPDATE_MIN_HF_RAW),
+            hf >= Wad::from(THRESHOLD_UPDATE_MIN_HF_RAW)
+                || hf >= health_factor(env, cache, &prior_supply, &account.borrow_positions),
             CollateralError::HealthFactorTooLow
         );
     }

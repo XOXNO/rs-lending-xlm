@@ -74,6 +74,34 @@
     "scope": "ownership acceptance after delay and role migration"
   },
   {
+    "id": "governance_create_market",
+    "execution": "controlled-ledger",
+    "methods": ["governance.create_liquidity_pool"],
+    "test": "immediate::curator_registrar_creates_a_market_in_its_hub",
+    "scope": "Real curator WASM forwards create_market to native governance.create_liquidity_pool and controller with mocked auth; verifies registrar hub ownership and returned pool; successful call only, not endpoint rejection coverage"
+  },
+  {
+    "id": "governance_guardian_reduces_access",
+    "execution": "controlled-ledger",
+    "methods": ["governance.deactivate_position_manager", "governance.revoke_blend_pool"],
+    "test": "tests::guardian_deactivates_a_manager_and_revokes_a_blend_pool_immediately",
+    "scope": "Native governance/controller with mocked auth; manager active and Blend pool approved before calls, stranger calls reject without state change, guardian removes both permissions"
+  },
+  {
+    "id": "governance_suspend_registrar",
+    "execution": "controlled-ledger",
+    "methods": ["governance.suspend_curator_registrar"],
+    "test": "guardian_suspends_a_registrar_immediately",
+    "scope": "Native governance/curator/controller with mocked auth; guardian immediately suspends registrar, target lacking CURATOR rejects with contract error 44"
+  },
+  {
+    "id": "governance_suspend_registrar_auth",
+    "execution": "controlled-ledger",
+    "methods": ["governance.suspend_curator_registrar"],
+    "test": "only_a_guardian_suspends_a_registrar_immediately",
+    "scope": "Native governance/curator/controller with mocked auth; non-guardian rejects with contract error 2000 and registrar remains active"
+  },
+  {
     "id": "price_aggregator_upgrade",
     "execution": "controlled-ledger",
     "methods": [
@@ -97,10 +125,11 @@
     "execution": "controlled-ledger",
     "methods": [
       "controller.supply",
-      "controller.borrow"
+      "controller.borrow",
+      "controller.repay"
     ],
     "test": "account_ttl_regression::test_one_sided_activity_renews_both_side_ttls",
-    "scope": "95-day account TTL renewal with one-sided activity"
+    "scope": "Supply/borrow setup; supply and repay each renew both position-map TTLs after separate 95-day aging"
   },
   {
     "id": "credit_5coll_5debt_ledger_drift",

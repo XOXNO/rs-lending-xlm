@@ -1,5 +1,8 @@
 # Chainlink testnet rollout — 2026-10-14
 
+Historical deployment record. Results below describe 2026-10-14; they do not
+prove the current checkout or current testnet state.
+
 Deployed source commit `d15ffc0ac105c5b1bdb6760118bddacd4a8a230e` from `feat/chainlink-oracle-support`. Testnet was verified unpaused at ledger 5198179. All 23 deployment and smoke-test transactions were independently confirmed `SUCCESS`.
 
 Local wallet: `deployer` (`GDBBOILYIJBSUQKC3Z3USAW3DGPFHIGVKYA5T4ZUZBO56HBUPHJEN3FV`). RPC: `https://stellar-testnet-gateway.xoxno.com`. Passphrase: `Test SDF Network ; September 2015`. Proposer, executor and guardian roles were checked; governance delay remained 12 ledgers.
@@ -49,6 +52,7 @@ All submitted transactions, including uploads and proposals:
 | Smoke: repay XLM | 5198171 | [e3f4627fdeec…](https://stellar.expert/explorer/testnet/tx/e3f4627fdeec1f6629ca313252028374b9c5f34fe12aa8fa942a61147e18c138) |
 | Smoke: withdraw all USDC | 5198172 | [d6e53a29f108…](https://stellar.expert/explorer/testnet/tx/d6e53a29f108ac84afcea39d4a6534d635191d2de6c82ba7d828c357ba1c6bdc) |
 
-The [machine-readable evidence](chainlink-testnet-2026-10-14.json) contains all transaction hashes, statuses, ledgers, contract hashes, stored oracle records, market quotes and loan results. Executed governance operation records are under `configs/ops/testnet/`.
+Transaction, ledger, source, and executable identities are retained above.
+Executed governance operation records are under `configs/ops/testnet/`.
 
 For subsequent upgrades, pause first; upgrade price aggregator and governance; update dependent oracle freshness ceilings before loosening their underlying sources; apply token configs; verify stored values and prices; then unpause. `upgradeAll` unpauses automatically, so use individual upgrade targets for this ordering.

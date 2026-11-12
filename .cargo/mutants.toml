@@ -25,6 +25,8 @@ exclude_globs = [
 # Every pattern must match at least one mutant in `cargo mutants --list`. A
 # name-scoped pattern that matches nothing can suppress a later function that
 # reuses the name, so delete it.
+# run_mutants.py additionally excludes the cfg-only solvency_gate_checked no-op
+# only without Certora/all-features; direct --no-config and formal builds retain it.
 exclude_re = [
     # --- EQUIVALENT: boundary-equivalent comparisons -------------------------
     # Flipping strict/non-strict where the equal case is unreachable or both
@@ -80,18 +82,7 @@ exclude_re = [
     "replace blend_empty -> Outcome with Default::default\\(\\)",
     "replace blend_partial -> Outcome with Default::default\\(\\)",
 
-    # --- EQUIVALENT: guard is unreachable under the owner-holds-all invariant --
-    # `__constructor` grants the five operational roles to the owner,
-    # `sync_owner_access_control` moves them on an ownership transfer, and
-    # neither `apply_revoke_role` nor `apply_canceller_reset` revokes from the
-    # owner. So the owner holds every role, and a role a non-owner holds has at
-    # least two members. The `count > 1` guard passes for every role that reaches
-    # it under `==` or `!=`, and `CannotRemoveLastProposer` (error 48) is
-    # unreachable.
-    # If the owner stops holding every role, this entry becomes killable and
-    # belongs in UNREVIEWED.
-    "replace == with != in apply_revoke_role",
-
+    # --- EQUIVALENT: reset retains the owner and deduplicates other holders ---
     # For the owner both operands are false. The `while` loop above the grant
     # loop revokes CANCELLER from every non-owner holder, so a non-owner's first
     # occurrence in `new_cancellers` reaches the grant under `&&` and `||`. A

@@ -179,7 +179,7 @@ The factor 598 makes the bonus exactly 10 % at `K`:
 
 | HF | Bonus (this listing) | Bonus (previous listing) |
 |---|---|---|
-| just below 1 | 688 bps | 2557 bps |
+| just below 1 | 688 bps | 2555 bps |
 | 0.99 | 719 bps | 2761 bps |
 | 0.95 | 844 bps | 3583 bps |
 | 0.90 | 1000 bps | 4611 bps |
@@ -387,10 +387,12 @@ stored values, not the live listing:
   the same time.
 
 Thus an `editAssetInSpoke` that lowers LT changes only the positions created
-after it and the positions that the controller refreshes. Every borrow and
-every withdrawal refreshes the stored LTV of each listed supply position
-without a condition. The stored LT, bonus and fee refresh together, and only
-in these paths:
+after it and the positions that the controller refreshes. Every borrow,
+withdrawal and account strategy refreshes the stored LTV of each listed supply
+position without a condition. In the same step it refreshes the stored LT,
+bonus and fee if the new values do not favour the liquidator. A change that
+favours the liquidator refreshes LT, bonus and fee together, and only in these
+paths:
 
 | Path | Code |
 |---|---|
@@ -413,8 +415,10 @@ assets of the account. When the gate runs, a stale price or a price outside
 the band makes the call fail, also a supply.
 
 `update_account_threshold` with `has_risks = true` also checks the account HF
-after the refresh. If that HF is below 1.05, the call reverts with
-`HealthFactorTooLow` (102), and one such account reverts the whole batch.
+after the refresh. If the refresh lowers the HF below both 1.05 and the HF
+before the refresh, the call reverts with `HealthFactorTooLow` (102), and the
+whole batch reverts. An account that is already below 1.05 does not make the
+call fail.
 Anyone can call it with the auth of `caller`. The controller refuses it while
 it is paused or while a flash loan is open.
 
@@ -426,17 +430,16 @@ The figures below are for an account with one collateral leg that borrowed
 to the LTV limit at the NAV in the first column, with no interest. Interest
 moves each NAV up in proportion to the debt.
 
-| Borrowed at | Takes LT 5300 at a NAV of | Call reverts below | Liquidatable with LT 6000 below | HF with LT 6000 at the floor |
-|---|---|---|---|---|
-| `R` | `0.9906 R` or more | `0.875 R` | `0.8333 R` | 1.019 |
-| `1.015 R` | `1.0054 R` or more | `0.8881 R` | `0.8458 R` | 1.004 |
-| `1.03 R` (ceiling) | `1.0203 R` or more | `0.9013 R` | `0.8583 R` | 0.989 |
+| Borrowed at | Takes LT 5300 at a NAV of | Liquidatable with LT 6000 below | HF with LT 6000 at the floor |
+|---|---|---|---|
+| `R` | `0.9906 R` or more | `0.8333 R` | 1.019 |
+| `1.015 R` | `1.0054 R` or more | `0.8458 R` | 1.004 |
+| `1.03 R` (ceiling) | `1.0203 R` or more | `0.8583 R` | 0.989 |
 
 An account that borrowed at `q` has HF `1.06 × p / q` with LT 5300 and
 `1.2 × p / q` with LT 6000. It takes LT 5300 when `1.06 × p / q >= 1.05`.
-Between that NAV and the revert NAV, the call keeps LT 6000 and does not
-fail. Below the revert NAV, `1.2 × p / q < 1.05`, and the call reverts with
-`HealthFactorTooLow`. The harness test
+Below that NAV, the call keeps LT 6000 and does not fail, also when
+`1.2 × p / q < 1.05`. The harness test
 `lqv_params_restamp_applies_lt_5300_only_above_the_gate` checks the `R` row
 at 0.991 R, 0.990 R, 0.876 R and 0.874 R.
 
@@ -512,7 +515,7 @@ listing to LT 5300.
 | `lqv_params_one_dollar_accounts_below_ten_shares_cannot_borrow` | 1 to 9 shares cannot borrow at $1. The 10-share account closes in full with a whole-share round-up. |
 | `lqv_params_two_to_five_thousand_dollar_shares_sell_one_share_inside_the_band` | At $1,000, 1 share cannot borrow. 2 to 5 shares sell exactly 1 share at `p / (1 + b)` and end above HF 1. |
 | `lqv_params_floor_jump_costs_more_than_one_percent_steps` | One jump to the floor seizes 217, 238 and 260 of 1,000 shares, for a loss of $16.75, $18.37 and $20.07, from accounts that borrowed at `R`, `1.015 R` and `1.03 R`. HF is 1.055 to 1.065 after each jump. 1 % NAV steps liquidate at 0.94 R and 0.88 R only, for a loss of $8.76, and HF is 1.020 to 1.025 at the floor. |
-| `lqv_params_restamp_applies_lt_5300_only_above_the_gate` | After the edit from LT 6000 to LT 5300, `update_account_threshold(caller, true, [id])` applies LT 5300 at `R` and 0.991 R. It keeps LT 6000 without a revert at 0.990 R and 0.876 R. It reverts with `HealthFactorTooLow` at 0.874 R and keeps LT 6000. |
+| `lqv_params_restamp_applies_lt_5300_only_above_the_gate` | After the edit from LT 6000 to LT 5300, `update_account_threshold(caller, true, [id])` applies LT 5300 at `R` and 0.991 R. It keeps LT 6000 without a revert at 0.990 R, 0.876 R and 0.874 R. |
 
 If you change one constant in that file, these tests fail:
 

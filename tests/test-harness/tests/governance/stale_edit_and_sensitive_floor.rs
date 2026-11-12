@@ -286,42 +286,6 @@ fn relax_with_an_epoch_other_than_the_live_one_is_rejected_at_proposal() {
     }
 }
 
-#[test]
-fn guardian_reasserting_the_same_flags_cancels_a_pending_relax() {
-    let mut t = LendingTest::new().with_market(usdc_preset()).build();
-    let key = hub_asset(t.resolve_asset("USDC"));
-    let gov = governance_interface::GovernanceClient::new(&t.env, &t.governance);
-    let guardian = grant_guardian(&t);
-
-    gov.set_spoke_asset_flags(&guardian, &HARNESS_SPOKE, &key, &true, &false, &false);
-    let args = clear_all(
-        &key,
-        t.ctrl_client()
-            .get_spoke_asset_flags_epoch(&HARNESS_SPOKE, &key),
-    );
-    let id = gov.propose(
-        &t.admin(),
-        &AdminOperation::RelaxSpokeAssetFlags(args.clone()),
-        &salt(&t.env, 6),
-    );
-
-    gov.set_spoke_asset_flags(&guardian, &HARNESS_SPOKE, &key, &true, &false, &false);
-
-    let delay = gov.get_min_delay();
-    t.env.ledger().with_mut(|l| l.sequence_number += delay);
-    assert_eq!(gov.get_operation_state(&id), OperationState::Ready);
-    assert_contract_error(
-        execute_relax_as_stranger(&t, &args, 6),
-        errors::SPOKE_FLAGS_EPOCH_MISMATCH,
-    );
-
-    assert!(t.ctrl_client().get_spoke_asset(&HARNESS_SPOKE, &key).paused);
-    assert_contract_error(
-        t.try_supply(ALICE, "USDC", 10.0),
-        errors::SPOKE_ASSET_PAUSED,
-    );
-}
-
 struct SensitiveCase {
     label: &'static str,
     op: AdminOperation,
@@ -450,4 +414,52 @@ fn sensitive_operations_are_not_ready_at_a_min_delay_below_the_floor() {
     // The self-targeted one can be driven to completion on this instance.
     try_execute(2).expect("GrantGovRole executes at the floor");
     assert_eq!(gov.get_operation_state(&ids[2]), OperationState::Unset);
+}
+
+#[test]
+fn a_guardian_cannot_hold_a_listing_closed_by_re_asserting_its_flags() {
+    let mut t = LendingTest::new().with_market(usdc_preset()).build();
+    let key = hub_asset(t.resolve_asset("USDC"));
+    let gov = governance_interface::GovernanceClient::new(&t.env, &t.governance);
+    let guardian = grant_guardian(&t);
+
+    gov.set_spoke_asset_flags(&guardian, &HARNESS_SPOKE, &key, &true, &false, &false);
+    let epoch = t
+        .ctrl_client()
+        .get_spoke_asset_flags_epoch(&HARNESS_SPOKE, &key);
+    let args = clear_all(&key, epoch);
+    let id = gov.propose(
+        &t.admin(),
+        &AdminOperation::RelaxSpokeAssetFlags(args.clone()),
+        &salt(&t.env, 7),
+    );
+
+    // While the relaxation waits, the guardian re-asserts the flags it already
+    // set. The write changes nothing, reverts, and leaves the epoch alone.
+    assert_contract_error(
+        flatten(gov.try_set_spoke_asset_flags(
+            &guardian,
+            &HARNESS_SPOKE,
+            &key,
+            &true,
+            &false,
+            &false,
+        )),
+        errors::SPOKE_ASSET_FLAGS_UNCHANGED,
+    );
+    assert_eq!(
+        t.ctrl_client()
+            .get_spoke_asset_flags_epoch(&HARNESS_SPOKE, &key),
+        epoch,
+        "a rejected no-op write must not advance the epoch"
+    );
+
+    let delay = gov.get_min_delay();
+    t.env.ledger().with_mut(|l| l.sequence_number += delay);
+    assert_eq!(gov.get_operation_state(&id), OperationState::Ready);
+    execute_relax_as_stranger(&t, &args, 7).expect("the relaxation still matches the epoch");
+
+    let after = t.ctrl_client().get_spoke_asset(&HARNESS_SPOKE, &key);
+    assert!(!after.paused && !after.frozen && !after.no_seize);
+    assert!(t.try_supply(ALICE, "USDC", 10.0).is_ok());
 }

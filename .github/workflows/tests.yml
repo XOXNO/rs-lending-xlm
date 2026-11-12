@@ -16,12 +16,14 @@ on:
       - "interfaces/**"
       - "mock/**"
       - "tests/**"
+      - "services/**"
       - "certora/**"
       - "vendor/**"
       - "Cargo.toml"
       - "Cargo.lock"
       - "rust-toolchain.toml"
       - "Makefile"
+      - "configs/networks.json"
       - "configs/wasm_size_budget.txt"
       - "scripts/check_access_control.py"
       - "scripts/strip_spec_docs.py"
@@ -37,12 +39,14 @@ on:
       - "interfaces/**"
       - "mock/**"
       - "tests/**"
+      - "services/**"
       - "certora/**"
       - "vendor/**"
       - "Cargo.toml"
       - "Cargo.lock"
       - "rust-toolchain.toml"
       - "Makefile"
+      - "configs/networks.json"
       - "configs/wasm_size_budget.txt"
       - "scripts/check_access_control.py"
       - "scripts/strip_spec_docs.py"
@@ -67,7 +71,7 @@ jobs:
   build-and-test:
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     name: Build & Test
-    runs-on: self-hosted
+    runs-on: [self-hosted, xoxno]
     env:
       RUSTC_WRAPPER: sccache
       CARGO_INCREMENTAL: "0"
@@ -86,7 +90,7 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
         with:
-          toolchain: "1.95"
+          toolchain: "1.99.1"
           targets: wasm32v1-none
           components: clippy, rustfmt
 
@@ -94,7 +98,7 @@ jobs:
         run: bash .github/scripts/install-stellar-cli.sh
 
       - name: Install sccache (prebuilt)
-        uses: taiki-e/install-action@1e29709c0ec63babbe8f266397a465f29a825f91 # v2.87.31
+        uses: taiki-e/install-action@68a389c788b2cd04016ce8c80ee23b80d2ab3d68 # v2.88.1
         with:
           tool: sccache
 
@@ -103,6 +107,12 @@ jobs:
 
       - name: Run tests
         run: cargo test --workspace --features price-aggregator/testing
+
+      - name: Keeper service tests
+        run: cargo test --manifest-path services/keeper/Cargo.toml --locked
+
+      - name: Lending exporter tests
+        run: cargo test --manifest-path services/lending-exporter/Cargo.toml --locked
 
       - name: Clippy (workspace)
         run: cargo clippy --workspace --all-targets --features price-aggregator/testing -- -D warnings

@@ -258,9 +258,11 @@ assert 800<=bonus<=800+half((maximum-800)*scale,W)
 one=W+bonus*10**14; target=11*W//10
 ideal=min(half((half(target*debt_value,W)-weighted)*W,target-half(proportion*one,W)),half(collateral*W,one),debt_value)
 assert 0<=debt_value-ideal<5*W
-paid=min(offered,ceil(d*bi,R*U))
-seizure=half(half(paid*10**11*one,W)*W,7*W//10)*10**9
-capped=min(seizure,s); gross=capped//U; principal=seizure*W//one
+debt_cap=ceil(d*bi,R*U); paid=min(offered,debt_cap)
+# A full debt close credits floor-valued shares, not ceiling-rounded token payment.
+credit=(d*bi//R)//10**9 if paid==debt_cap else paid*10**11
+seizure=half(half(credit*one,W)*W,7*W//10)*10**9
+capped=min(seizure,s); gross=capped//U; principal=(seizure//10**9*W//one)*10**9
 fee_ray=half(max(0,capped-principal)*100,10000)
 fee=min(max(1,fee_ray//U) if fee_ray else 0,max(0,(gross*U-principal)//U))
 if len(sys.argv)>5:

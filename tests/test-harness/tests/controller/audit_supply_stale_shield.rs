@@ -7,7 +7,7 @@ use test_harness::{
 /// gate applies. A leg planted before the outage still shields the account
 /// until the feed recovers.
 #[test]
-fn audit_supply_setup_blocks_liquidation_via_stale_dust_leg() {
+fn a_stale_feed_blocks_new_legs_on_indebted_accounts_and_shields_until_recovery() {
     let mut t = LendingTest::new()
         .three_asset_usdc_eth_wbtc()
         .with_dust_disabled_all_markets()

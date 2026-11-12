@@ -12,7 +12,7 @@ for ((attempts = 1; attempts <= max_attempts; attempts++)); do
       --exclude .claude/ vendor/ target/ .certora_internal \
       >"$tmp/scan.json" 2>"$tmp/scan.err"; then
     python3 "$script_dir/scope_scanner_output.py" <"$tmp/scan.json"
-    exit 0
+    exit $?
   fi
   echo "::warning::soroban-scanner failed on attempt $attempts/$max_attempts" >&2
   [ -s "$tmp/scan.err" ] && sed 's/^/[scanner stderr] /' "$tmp/scan.err" >&2

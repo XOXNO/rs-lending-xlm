@@ -92,13 +92,22 @@ fn burn_requires_controller_auth() {
 fn burn_does_not_need_owner_auth() {
     let env = Env::default();
     env.mock_all_auths();
-    let (_controller, client) = setup(&env);
+    let (controller, client) = setup(&env);
     let user = Address::generate(&env);
     let token_id = client.mint(&user);
 
-    // mock_all_auths satisfies the controller; `burn` has no `from`, so the
-    // owner never signs.
-    client.burn(&token_id);
+    env.set_auths(&[]);
+    client
+        .mock_auths(&[MockAuth {
+            address: &controller,
+            invoke: &MockAuthInvoke {
+                contract: &client.address,
+                fn_name: "burn",
+                args: (token_id,).into_val(&env),
+                sub_invokes: &[],
+            },
+        }])
+        .burn(&token_id);
     assert!(client.try_owner_of(&token_id).is_err());
     assert_eq!(client.balance(&user), 0u32);
     assert_eq!(client.total_supply(), 0u32);

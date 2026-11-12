@@ -1,6 +1,7 @@
 """Fault injection for risk snapshots, NFT enumeration and route headers."""
 import csv
 import json
+import re
 import subprocess
 import unittest
 import tempfile
@@ -11,6 +12,20 @@ def shell(file,body,*args):
     return subprocess.run(['bash','-c','source "$1"; source "$2"; shift 2; record() { :; }; log() { :; }; _assert_fail() { return 1; }; '+body,'_',str(HERE/'lib/assert.sh'),str(HERE/file),*args],capture_output=True,text=True)
 
 class Predicates(unittest.TestCase):
+    def test_flash_extension_requires_debt_and_collateral_growth(self):
+        lines=(HERE/'flows/flash_position.sh').read_text().splitlines()
+        for quantity in ['debt','coll']:
+            label=f'fp_ext_{quantity}_grew'
+            matches=[i for i,line in enumerate(lines) if re.search(rf'\b{label}\b',line)]
+            self.assertEqual(len(matches),1,label)
+            self.assertGreater(matches[0],0,label)
+            check='\n'.join(lines[matches[0]-1:matches[0]+1])
+            for after in [101,100,99]:
+                with self.subTest(quantity=quantity,after=after):
+                    body=f'{quantity}_before="$1"; {quantity}_after="$2";\n'+check
+                    result=shell('flows/flash_position.sh',body,'100',str(after))
+                    self.assertEqual(result.returncode==0,after==101,result.stderr)
+
     def test_sanity_owner_guard_belongs_to_executing_case(self):
         result=shell('flows/admin.sh', '''
 set -e
@@ -134,6 +149,34 @@ start=$(date +%s); prod_ops setupAll >/dev/null; rc=$?; echo "$(( $(date +%s) - 
             result=shell('flows/production.sh','BAD=$(printf "%064d" 7); '+body,d)
             self.assertNotEqual(result.returncode,0)
             self.assertNotIn('operator_setupAll ok',(root/'records').read_text())
+    def test_failed_operator_collects_signed_hashes_and_keeps_exit_status(self):
+        with tempfile.TemporaryDirectory() as d:
+            root=Path(d); (root/'configs').mkdir(); (root/'logs').mkdir()
+            (root/'configs/script.sh').write_text("""printf 'Signing transaction: %064d\\n' 2 1 2 >&2
+printf 'Scheduled op %064d\\n' 3 >&2
+exit 37
+""")
+            body='''RUN_DIR="$1"; LOG_DIR="$1/logs"; REPO_ROOT="$1"; ADMIN=admin; FETCH_RC="$2"
+record() { echo "$1 $2" >> "$RUN_DIR/records"; }
+tail_err_note() { echo child_failed; }
+prod_fetch_receipts() { cat > "$RUN_DIR/fetched"; return "$FETCH_RC"; }
+prod_ops setupAll'''
+            for fetch_rc in ('0','23'):
+                result=shell('flows/production.sh',body,d,fetch_rc)
+                self.assertEqual(result.returncode,37,result.stderr)
+                expected=''.join(f'{n:064d}\n' for n in (1,2))
+                self.assertEqual((root/'logs/operator_setupAll.hashes').read_text(),expected)
+                self.assertEqual((root/'fetched').read_text(),expected)
+                rows=(root/'records').read_text()
+                self.assertIn('operator_setupAll FAIL',rows)
+                self.assertNotIn('operator_setupAll ok',rows)
+            (root/'configs/script.sh').write_text('echo "Scheduled op only" >&2; exit 37\n')
+            result=shell('flows/production.sh',body,d,'0')
+            self.assertEqual(result.returncode,37,result.stderr)
+            self.assertEqual((root/'logs/operator_setupAll.hashes').read_text(),'')
+            self.assertEqual((root/'fetched').read_text(),'')
+            self.assertIn('operator_setupAll FAIL',(root/'records').read_text())
+
     def test_setup_binds_proposals_to_executions_and_replay_sends_nothing(self):
         def call(fn,salt):
             return {'function_name':fn,'contract_address':'GOV','args':[{'address':'ADMIN'},{'bytes':salt}]}
@@ -539,9 +582,34 @@ gov_await_ready() { echo "await $1" >> "$1.log"; echo Ready; }'''
             self.assertEqual(result.returncode,0,result.stderr)
             calls=(Path(d)/'calls').read_text().splitlines()
         self.assertEqual(calls[0],'inv gov_propose_grant_guardian')
-        self.assertLess(calls.index('inv gov_propose_grant_guardian'),calls.index('inv gov_create_hub'))
+        self.assertLess(calls.index('inv gov_propose_grant_guardian'),calls.index('inv gov_propose_unpause'))
         self.assertEqual(calls.count('inv gov_propose_grant_guardian'),1)
         self.assertLess(calls.index('await op_gov_propose_grant_guardian'),calls.index('inv gov_execute_grant_guardian'))
+
+    def test_xfail_patterns_escape_regex_groups(self):
+        pat=re.compile(r"xfail(?:_sim)?\s+\S+\s+'([^']*)'")
+        for f in sorted((HERE/'flows').glob('*.sh')):
+            for m in pat.finditer(f.read_text()):
+                self.assertNotRegex(m.group(1),r'(?<!\\)\(',f'{f.name}: {m.group(1)}')
+
+    def test_governance_flow_emits_every_required_action(self):
+        body='''ADMIN=admin ALICE=alice DAVE_ADDR=GDAVE GOVERNANCE=GOV GOV_CONTROLLER=CTRL PA_HASH=x LOG="$1"
+phase() { :; }; pay_vec() { echo '[]'; }; gov_scval_args() { echo '[]'; }
+gov_assert_scheduled() { view "$1" "$GOVERNANCE" -- get_operation_state >/dev/null; }
+price_key_token() { echo '{}'; }; is_contract_id() { :; }; gov_await_ready() { echo Ready; }
+inv() { echo "ok $1" >> "$LOG"; echo "op_$1"; }
+xfail() { echo "xfail $1" >> "$LOG"; }
+view() { echo "read $1" >> "$LOG"; echo 5; }
+record() { echo "$2 $1" >> "$LOG"; }
+_assert_fail() { echo "FAIL $1" >> "$LOG"; return 1; }
+flow_governance'''
+        with tempfile.TemporaryDirectory() as d:
+            result=shell('flows/governance.sh',body,d+'/calls')
+            self.assertEqual(result.returncode,0,result.stderr)
+            emitted=set((Path(d)/'calls').read_text().splitlines())
+        required=next(c for c in json.loads((HERE/'cases.json').read_text()) if c['id']=='flow_governance')['required_actions']
+        missing=[f"{a['status']} {a['label']}" for a in required if a['method']!='assert' and f"{a['status']} {a['label']}" not in emitted]
+        self.assertEqual(missing,[])
 
     def test_governance_schedule_uses_tier_delay_of_each_proposal(self):
         body='''ADMIN=admin ALICE=alice DAVE_ADDR=GDAVE GOVERNANCE=GOV GOV_CONTROLLER=CTRL
@@ -611,6 +679,60 @@ _assert_fail() { record "$1" FAIL assert "" "" "" "" "" "$2"; return 1; }
             bad(100,'Ready',100,101,delay=delay)
         bad(101,'Ready','none',101)
         bad(101,'Waiting',100,'none')
+
+    def test_bulk_liquidation_requires_both_collateral_burns_and_net_receipts(self):
+        body=r'''set -uo pipefail
+source "$1/lib/core.sh"; source "$1/lib/assert.sh"; source "$1/lib/assets.sh"
+RUN_DIR="$2"; LOG_DIR="$2/logs"; STATE_ENV="$2/state.env"; ACTIONS_TSV="$2/actions.tsv"
+mkdir -p "$LOG_DIR"
+printf 'seq\tphase\tlabel\tstatus\tfn\thash\tinstructions\tread_bytes\twrite_bytes\tresource_fee\tnote\n' > "$ACTIONS_TSV"
+printf 'id\tstatus\tfirst_action\tlast_action\n' > "$RUN_DIR/cases.tsv"
+printf '{"selected_cases":["flow_liq_bulk"]}' > "$RUN_DIR/metadata.json"
+MODE="$3"; BEFORE="$4"; AFTER="$5"; C_RECEIPT="$6"; A_RECEIPT="$7"; C_POOL="$8"; A_POOL="$9"
+PHASE=init; WAD=1000000000000000000; BOB=bob; BOB_ADDR=GBOB; CAROL=carol; CAROL_ADDR=GCAROL
+CONTROLLER=CCTRL; POOL=CPOOL; PRIMARY_HUB_ID=1; PRIMARY_SPOKE_ID=1
+SAC_LIQA=CA; SAC_LIQB=CB; SAC_LIQC=CC; SAC_LIQD=CD; stage=before
+hub_key() { printf '{"hub_id":%s,"asset":"%s"}' "$1" "$2"; }
+pay_vec() { echo '[]'; }; seize_transfer() { echo '"Transfer"'; }
+inv_create() { record "$1" ok supply; echo 7; }
+inv() { case "$1" in liq2_borrow_bulk) :;; liq2_liquidate_bulk) stage=after;; *) return 1;; esac; record "$1" ok "$5"; }
+dual_px() { record "$4" ok set_price; }
+view() {
+    local value
+    case "$4" in
+        get_health_factor) value=800000000000000000;;
+        get_borrow_amount) if [ "$stage" = before ]; then value=5000000000; else value=3500000000; fi;;
+        get_account_positions)
+            [ "$MODE:$stage" != read_failure:after ] || return 1
+            if [ "$stage" = before ]; then value="$BEFORE"; else value="$AFTER"; fi;;
+        balance)
+            if [ "$stage" = before ]; then value=1000
+            else case "$2:$6" in CC:GCAROL) value="$C_RECEIPT";; CA:GCAROL) value="$A_RECEIPT";; CC:CPOOL) value="$C_POOL";; CA:CPOOL) value="$A_POOL";; *) return 1;; esac; fi;;
+        *) return 1;;
+    esac
+    record "$1" read "$4"; printf '%s\n' "$value"
+}
+run_case flow_liq_bulk flow_liq_bulk
+'''
+        # One-unit synchronized changes intentionally pass; payout/fee accuracy is outside this oracle.
+        for mode,shares,receipts,pools,ok in [
+                ('positive',(99,99),(1001,1001),(999,999),True),
+                ('no_seizure',(100,100),(1000,1000),(1000,1000),False),
+                ('only_c',(99,100),(1001,1000),(999,1000),False),
+                ('only_a',(100,99),(1000,1001),(1000,999),False),
+                ('burn_only',(99,99),(1000,1000),(1000,1000),False),
+                ('transfer_without_burn',(100,100),(1001,1001),(999,999),False),
+                ('pool_mismatch',(99,99),(1001,1001),(1000,1000),False),
+                ('read_failure',(99,99),(1001,1001),(999,999),False)]:
+            with self.subTest(mode=mode), tempfile.TemporaryDirectory() as d:
+                def positions(values):
+                    return json.dumps([{json.dumps({'hub_id':1,'asset':asset}):{'scaled_amount':str(value)}
+                                        for asset,value in zip(('CC','CA'),values)},{}])
+                result=shell('flows/liquidation.sh',body,str(HERE),d,mode,positions((100,100)),
+                             positions(shares),*map(str,(*receipts,*pools)))
+                self.assertEqual(result.returncode==0,ok,result.stderr)
+                rows=list(csv.DictReader((Path(d)/'cases.tsv').read_text().splitlines(),delimiter='\t'))
+                self.assertEqual(rows[0]['status'],'pass' if ok else 'fail')
 
     def test_liq_setup_lists_only_the_lane_markets(self):
         body='''ADMIN=admin ALICE=alice BOB=bob CAROL=carol ADMIN_ADDR=GADMIN BOB_ADDR=GBOB CAROL_ADDR=GCAROL PRIMARY_HUB_ID=1 PRIMARY_SPOKE_ID=1 CONTROLLER=CTRL WAD=1

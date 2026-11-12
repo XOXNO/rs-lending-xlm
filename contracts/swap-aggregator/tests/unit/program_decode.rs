@@ -419,6 +419,19 @@ fn validate_rejects_a_prev_link_naming_a_token_the_predecessor_never_produced() 
     );
 }
 
+/// L-7: a `Prev` link is checked by token address, so a registry that lists
+/// the predecessor's output address under a second index still chains.
+#[test]
+fn validate_accepts_a_prev_link_through_a_duplicate_registry_entry() {
+    let env = Env::default();
+    let mut assets = registry(&env, 3);
+    assets.push_back(assets.get_unchecked(2));
+    let ops = alloc::vec![swap(encode::ALL, 0, 1, 2), swap(encode::PREV, 0, 3, 1)];
+    let bytes = encode::program(&env, 1, 2, 0, 0, &ops, &[]);
+    let (op_count, ..) = DecodeProbeClient::new(&env, &probe(&env)).header(&bytes, &assets, &1);
+    assert_eq!(op_count, 2);
+}
+
 /// A mint produces its share token, so a following `Prev` may chain onto it.
 #[test]
 fn validate_accepts_a_prev_link_onto_a_preceding_mint() {

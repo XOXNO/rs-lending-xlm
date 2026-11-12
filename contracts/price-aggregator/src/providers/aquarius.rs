@@ -176,7 +176,7 @@ fn decimals_match(
 
 /// Fetches `token`'s decimals via the token contract's `decimals` entry
 /// point. Returns `None` if the call fails.
-fn token_decimals(env: &Env, token: &Address) -> Option<u32> {
+pub(crate) fn token_decimals(env: &Env, token: &Address) -> Option<u32> {
     match TokenClient::new(env, token).try_decimals() {
         Ok(Ok(decimals)) => Some(decimals),
         _ => None,

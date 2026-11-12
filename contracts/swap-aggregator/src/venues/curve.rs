@@ -29,7 +29,6 @@ pub(crate) fn swap(ctx: &HopContext<'_>, cache: &mut Map<Address, Vec<Address>>)
     let tokens = pool_tokens(env, cache, pool, coins);
     let mut args = vec![env, ctx.router.into_val(env)];
     let function = if ctx.hop.token_in == *pool {
-        // Curve burns its own LP internally, so no nested transfer auth is needed.
         args.push_back(ctx.amount_in.into_val(env));
         args.push_back(find_index(env, &tokens, &ctx.hop.token_out).into_val(env));
         "remove_liquidity_one_coin"

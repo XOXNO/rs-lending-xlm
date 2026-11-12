@@ -1,12 +1,12 @@
 use soroban_sdk::testutils::{Address as _, Events as _, Ledger as _};
 use soroban_sdk::{vec, Address, BytesN, Env, Event as _, IntoVal, Symbol, Vec};
-use stellar_access::access_control::RoleRevoked;
+use stellar_access::access_control::{get_role_member_count, RoleRevoked};
 use stellar_governance::timelock::OperationState;
 
 use common::errors::GenericError;
 use common::types::{AssetOracle, IndependencePolicy, OracleTolerance, PositionLimits, PriceKey};
 
-use crate::access::{CANCELLER_ROLE, EXECUTOR_ROLE, GUARDIAN_ROLE, PROPOSER_ROLE};
+use crate::access::{CANCELLER_ROLE, CURATOR_ROLE, EXECUTOR_ROLE, GUARDIAN_ROLE, PROPOSER_ROLE};
 use crate::constants::{
     TIMELOCK_MAX_DELAY_LEDGERS, TIMELOCK_MIN_DELAY_LEDGERS, TIMELOCK_OPERATION_GRACE_LEDGERS,
     TIMELOCK_RECOVERY_MIN_DELAY_LEDGERS, TIMELOCK_SENSITIVE_MIN_DELAY_LEDGERS,
@@ -288,6 +288,35 @@ fn cancel_returns_operation_to_unset() {
 }
 
 #[test]
+fn timelock_revokes_the_only_curator_member() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let delay = 10u32;
+    let (admin, _gov_id, gov) = register(&env, delay);
+    let role = Symbol::new(&env, CURATOR_ROLE);
+    assert!(!gov.has_role(&admin, &role));
+    let curator = grant_role_via_timelock(&env, &gov, &admin, delay, CURATOR_ROLE, 21);
+    assert!(gov.has_role(&curator, &role));
+    env.as_contract(&gov.address, || {
+        assert_eq!(get_role_member_count(&env, &role), 1);
+    });
+
+    let salt = BytesN::<32>::from_array(&env, &[22; 32]);
+    let revoke = AdminOperation::RevokeGovRole(RoleArgs {
+        account: curator.clone(),
+        role: role.clone(),
+    });
+    let id = gov.propose(&admin, &revoke, &salt);
+    assert_eq!(gov.get_operation_state(&id), OperationState::Waiting);
+    env.ledger()
+        .with_mut(|l| l.sequence_number += delay.max(TIMELOCK_SENSITIVE_MIN_DELAY_LEDGERS));
+    gov.execute_self(&None, &revoke, &salt);
+    assert!(!gov.has_role(&curator, &role));
+    assert!(gov.has_role(&admin, &Symbol::new(&env, PROPOSER_ROLE)));
+    assert_eq!(gov.get_operation_state(&id), OperationState::Unset);
+}
+
+#[test]
 #[should_panic(expected = "Error(Contract, #46)")]
 fn revocation_target_cannot_cancel_own_role_revocation() {
     let env = Env::default();
@@ -408,6 +437,47 @@ fn owner_role_cannot_be_revoked() {
         }),
         &salt,
     );
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #44)")]
+fn non_owner_cannot_propose_curator_registrar_suspension() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let delay = 10u32;
+    let (admin, controller, gov) = register_with_controller(&env, delay);
+    let proposer = grant_role_via_timelock(&env, &gov, &admin, delay, PROPOSER_ROLE, 1);
+
+    gov.propose(
+        &proposer,
+        &AdminOperation::SuspendCuratorRegistrar(controller, 1, true),
+        &BytesN::<32>::from_array(&env, &[3u8; 32]),
+    );
+}
+
+#[test]
+fn non_owner_cannot_propose_curator_takeover_operations() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let delay = 10u32;
+    let (admin, controller, gov) = register_with_controller(&env, delay);
+    let proposer = grant_role_via_timelock(&env, &gov, &admin, delay, PROPOSER_ROLE, 1);
+
+    for op in [
+        AdminOperation::ReassignCuratorHub(controller.clone(), 1, None),
+        AdminOperation::ReassignCuratorSpoke(controller.clone(), 1, Some(2)),
+        AdminOperation::SetCuratorRegistrarAdmin(controller.clone(), 1, Address::generate(&env)),
+        AdminOperation::RegisterCuratorRegistrar(controller.clone(), Address::generate(&env)),
+        AdminOperation::UpgradeCurator(controller.clone(), BytesN::from_array(&env, &[7u8; 32])),
+    ] {
+        let result = gov.try_propose(&proposer, &op, &BytesN::<32>::from_array(&env, &[3u8; 32]));
+        assert_eq!(
+            result,
+            Err(Ok(soroban_sdk::Error::from_contract_error(
+                GenericError::NotAuthorized as u32
+            )))
+        );
+    }
 }
 
 #[test]
@@ -695,7 +765,7 @@ fn constructor_rejects_zero_delay() {
 }
 
 #[test]
-fn operation_delay_sensitive_uses_seven_day_floor() {
+fn operation_delay_sensitive_uses_compiled_floor() {
     let env = Env::default();
     env.mock_all_auths();
     let (_admin, _gov_id, gov) = register(&env, 10);

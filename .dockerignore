@@ -1,2 +1,9 @@
 **/target/
 **/test_snapshots/
+.git/
+**/node_modules/
+.env
+.env.*
+**/*.pem
+**/*.key
+.stellar/

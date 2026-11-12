@@ -5,8 +5,7 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-REPO_MARKER = "/rs-lending-xlm/"
-
+ROOT = Path(__file__).resolve().parents[1]
 MODE_PATHS: dict[str, tuple[str, ...]] = {
     "controller": ("/contracts/controller/", "/common/"),
     "pool": ("/contracts/pool/",),
@@ -23,6 +22,7 @@ MODE_PATHS: dict[str, tuple[str, ...]] = {
         "/contracts/xoxno-oracle/",
         "/contracts/position-nft/",
         "/contracts/defindex-strategy/",
+        "/contracts/curator/",
         "/common/",
     ),
 }
@@ -39,19 +39,43 @@ def parse_lcov(path: Path) -> dict[str, dict[str, int]]:
             files.setdefault(current, {})["total"] = int(raw[3:])
     return files
 
+def source_path(path: str) -> str:
+    source = Path(path.replace("\\", "/"))
+    if ".." in source.parts:
+        return ""
+    if source.is_absolute():
+        try:
+            relative = source.relative_to(ROOT).as_posix()
+        except ValueError:
+            # Cached baselines can come from another checkout of this repository.
+            _, found, relative = source.as_posix().rpartition(f"/{ROOT.name}/")
+            if not found or {"vendor", "mock", ".cargo"}.intersection(source.parts):
+                return ""
+    else:
+        relative = source.as_posix()
+    if any(relative.startswith(p.strip("/") + "/src/") for p in MODE_PATHS["merged"]):
+        return relative
+    return ""
+
+
 def keep(path: str, mode: str) -> bool:
-    if REPO_MARKER not in path or "/tests/test-harness/" in path:
-        return False
     prefixes = MODE_PATHS.get(mode)
     if prefixes is None:
         raise ValueError(f"unsupported mode: {mode}")
-    return any(p in path for p in prefixes)
+    return any(("/" + source_path(path)).startswith(p) for p in prefixes)
 
 def write_report(lcov_path: Path, report_path: Path, mode: str) -> tuple[int, int, float]:
     selected = {k: v for k, v in parse_lcov(lcov_path).items() if keep(k, mode)}
+    if not selected or not any(v.get("total", 0) > 0 for v in selected.values()):
+        raise ValueError(f"no measured source lines for {mode}")
+    if any(set(v) != {"hit", "total"} or not 0 <= v["hit"] <= v["total"] for v in selected.values()):
+        raise ValueError("invalid LCOV line counts")
     hit_total = total_total = 0
     lines = [
         f"# Stellar Lending Protocol — {mode.capitalize()} Coverage Report",
+        "",
+        "Native source line coverage. Includes test-only code under `src/`; "
+        "does not measure assertion strength or production WASM execution.",
         "",
         "| File | Lines | Hit | Miss | Coverage |",
         "|------|-------|-----|------|----------|",
@@ -60,7 +84,7 @@ def write_report(lcov_path: Path, report_path: Path, mode: str) -> tuple[int, in
         hit = selected[path].get("hit", 0)
         total = selected[path].get("total", 0)
         pct = (hit / total * 100) if total else 0.0
-        short = path.split(REPO_MARKER)[-1]
+        short = source_path(path)
         lines.append(f"| {short} | {total} | {hit} | {total - hit} | {pct:.1f}% |")
         hit_total += hit
         total_total += total

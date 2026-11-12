@@ -498,17 +498,16 @@ flow_blend_migrate() {
     fi
     assert_hf_at_least migrate_eve_hf "$eve_acct" "$WAD"
 
-    local alice_has_debt=1
     blend_seed blend_seed_alice_debtcoll "$ALICE" "$ALICE_ADDR" "$coll_amt" "$supply_amt" "$debt_amt" || return 1
     local alice_pos
     alice_pos=$(blend_positions blend_alice_seeded "$ALICE_ADDR")
     echo "$alice_pos" | jq -e '.collateral != {} or .supply != {} or .liabilities != {}' >/dev/null \
         || die blend_alice_seeded "Alice Blend position empty after seed"
-    if [ "$alice_has_debt" -eq 1 ] && ! blend_has_map "$alice_pos" liabilities; then
+    if ! blend_has_map "$alice_pos" liabilities; then
         log "alice seed reported debt success but Blend liabilities empty"
         _assert_fail blend_debt_seed "required Blend debt is missing"; return 1
     fi
-    log "alice blend liabilities=$(blend_map_sum "$alice_pos" liabilities) seed_debt=$debt_amt cap=$debt_cap has_debt=$alice_has_debt"
+    log "alice blend liabilities=$(blend_map_sum "$alice_pos" liabilities) seed_debt=$debt_amt cap=$debt_cap"
 
     # No caller-mismatch xfail here: stellar-cli signs an auth entry for any
     # address argument whose secret is in the local keystore, whatever --source
@@ -516,13 +515,8 @@ flow_blend_migrate() {
     # secret has no Blend position to migrate, so lifecycle.sh proves the same
     # caller gate (require_authorized_caller) on supply instead.
     local alice_acct
-    if [ "$alice_has_debt" -eq 1 ]; then
-        alice_acct=$(blend_migrate migrate_alice_debtcoll "$ALICE" "$ALICE_ADDR" 0 \
-            "$xlm_coll" "$xlm_supply" "$xlm_debt") || return 1
-    else
-        alice_acct=$(blend_migrate migrate_alice_collsupply "$ALICE" "$ALICE_ADDR" 0 \
-            "$xlm_coll" "$xlm_supply" "$empty") || return 1
-    fi
+    alice_acct=$(blend_migrate migrate_alice_debtcoll "$ALICE" "$ALICE_ADDR" 0 \
+        "$xlm_coll" "$xlm_supply" "$xlm_debt") || return 1
     save_state ALICE_BLEND_ACCT "$alice_acct"
     assert_bool_view migrate_alice_exists true account_exists --account_id "$alice_acct"
     assert_hf_at_least migrate_alice_hf "$alice_acct" "$WAD"
@@ -664,11 +658,6 @@ flow_blend_migrate() {
     else
         record blend_frank_debt_seed environment-blocked submit "" "" "" "" "" \
             "Blend pool had no borrow liquidity; skipped cap-too-low, min-borrow, unhealthy"
-    fi
-
-    if [ "$alice_has_debt" -eq 0 ]; then
-        record blend_alice_debt_seed environment-blocked submit "" "" "" "" "" \
-            "Blend pool had no borrow liquidity for Alice; same-asset debt loop skipped"
     fi
 
     blend_assert_ctrl_xlm_clean blend_controller_xlm_clean "$ctrl_xlm_before"

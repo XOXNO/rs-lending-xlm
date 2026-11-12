@@ -26,9 +26,7 @@ deploy_protocol() {
         save_state NFT_HASH "$hash"
         record upload_position_nft_wasm ok upload "$txh" "" "" "" "" "$hash"
     fi
-    # Governance `deploy_price_aggregator` takes a wasm hash, so the
-    # price-aggregator wasm is uploaded too. Non-fatal: only the governance-owned
-    # aggregator coverage needs PA_HASH; $PRICE_AGGREGATOR deploys from the file.
+    # Governance deploy_price_aggregator needs the uploaded candidate hash.
     if [ -z "${PA_HASH:-}" ] && [ -f "$WASM_DIR/price_aggregator.wasm" ]; then
         local pa_out="$LOG_DIR/upload_price_agg.out" pa_err="$LOG_DIR/upload_price_agg.err"
         run_deploy "$pa_out" "$pa_err" -- stellar contract upload \
@@ -95,10 +93,7 @@ deploy_protocol() {
         record deploy_price_aggregator ok deploy "$txh" "" "" "" "" "$pa"
         log "price-aggregator = $pa"
     fi
-    # A throwaway swap-aggregator owned by this run's ADMIN. The shared
-    # `$AGGREGATOR` from configs/networks.json has another owner, so its
-    # owner-only calls cannot be tested. Swaps use `$AGGREGATOR`;
-    # flow_swap_aggregator_admin tests the owner-only calls on this instance.
+    # All swaps and owner checks use this run's ADMIN-owned candidate.
     if [ -z "${OWNED_AGGREGATOR:-}" ]; then
         [ -f "$WASM_DIR/aggregator.wasm" ] || die aggregator_wasm "candidate aggregator missing"
         local sa_out="$LOG_DIR/deploy_owned_agg.out" sa_err="$LOG_DIR/deploy_owned_agg.err"
@@ -466,7 +461,6 @@ create_market() {
     local done_var="MKT_${name}_DONE"
     if [ -n "${!done_var:-}" ]; then return 0; fi
 
-    local INV_TRANSIENT_CONTRACT_RE='Error\(Contract, #'
     local params resolved_oracle ltv thr bonus
     params=$(market_params_json "$sac" "$decimals")
 

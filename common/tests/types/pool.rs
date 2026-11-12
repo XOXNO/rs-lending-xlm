@@ -209,6 +209,36 @@ fn test_rate_model_verify_body_is_not_a_noop() {
 }
 
 #[test]
+fn test_rate_model_full_utilization_rate_at_max_accepted() {
+    let env = Env::default();
+    let mut m = valid_rate_model();
+    m.max_borrow_rate = m.base_borrow_rate + m.slope1 + m.slope2 + m.slope3;
+    m.verify(&env);
+}
+
+#[test]
+#[should_panic(expected = "#129")]
+fn test_rate_model_full_utilization_rate_above_max_panics() {
+    let env = Env::default();
+    let mut m = valid_rate_model();
+    m.max_borrow_rate = m.base_borrow_rate + m.slope1 + m.slope2 + m.slope3 - 1;
+    m.verify(&env);
+}
+
+#[test]
+#[should_panic(expected = "#129")]
+fn test_rate_model_cap_inside_second_segment_panics() {
+    let env = Env::default();
+    let mut m = valid_rate_model();
+    m.base_borrow_rate = RAY / 100;
+    m.slope1 = RAY * 4 / 100;
+    m.slope2 = RAY * 6 / 100;
+    m.slope3 = RAY * 6 / 100;
+    m.max_borrow_rate = RAY * 6 / 100;
+    m.verify(&env);
+}
+
+#[test]
 #[should_panic(expected = "#129")]
 fn test_rate_model_monotonic_only_slope1_below_base_panics() {
     let env = Env::default();
@@ -286,6 +316,9 @@ fn test_rate_model_monotonic_slope3_eq_slope2_does_not_panic() {
 fn test_rate_model_monotonic_max_eq_slope3_does_not_panic() {
     let env = Env::default();
     let mut m = valid_rate_model();
+    m.base_borrow_rate = 0;
+    m.slope1 = 0;
+    m.slope2 = 0;
     m.max_borrow_rate = m.slope3;
     m.verify(&env);
 }

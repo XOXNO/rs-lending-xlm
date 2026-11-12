@@ -10,7 +10,7 @@ agg_route_hex() {
     local try hops ledger ready=0
     for try in {1..12}; do
         quote_f=$(mktemp "$LOG_DIR/quote_XXXXXXXX") || { _assert_fail quote_evidence 'cannot save quote'; return 1; }
-        curl --fail-with-body -sS -m 30 "${hdr[@]+"${hdr[@]}"}" "$AGGREGATOR_API/quote?from=$from&to=$to&amount_in=$amount_in&slippage=$slippage&max_splits=1&max_hops=$max_hops" \
+        curl --fail-with-body -sS -m 30 "${hdr[@]+"${hdr[@]}"}" "$AGGREGATOR_API/quote?from=$from&to=$to&amount_in=$amount_in&slippage=$slippage&max_splits=1&max_hops=$max_hops&platform=aggregator" \
             >"$quote_f" || { _assert_fail quote_transport "quote request failed: $quote_f"; return 1; }
         hops=$(jq -r '.hops | length' "$quote_f" 2>/dev/null)
         ledger=$(jq -er '.snapshot.ledger | select(type=="number" and .>0 and floor==.)' "$quote_f") || {

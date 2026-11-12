@@ -21,7 +21,7 @@ fn propose_update_delay_schedules_waiting_operation() {
 
 #[test]
 #[should_panic(expected = "Error(Contract, #39)")]
-fn propose_update_delay_rejects_shortening_below_the_floor() {
+fn propose_update_delay_rejects_a_decrease_that_lands_below_the_floor() {
     let env = Env::default();
     env.mock_all_auths();
     let (admin, _gov_id, gov) = register(&env, 10);
@@ -132,6 +132,23 @@ fn update_delay_shortens_to_the_floor_through_the_timelock_but_not_below() {
     env.ledger().with_mut(|l| l.sequence_number += 1);
     gov.execute_self(&Some(admin.clone()), &floor, &salt);
     assert_eq!(gov.get_min_delay(), TIMELOCK_MIN_DELAY_LEDGERS);
+}
+
+#[test]
+fn propose_grant_curator_role_is_accepted() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (admin, _gov_id, gov) = register(&env, 10);
+    let salt = zero_salt(&env);
+    let id = gov.propose(
+        &admin,
+        &AdminOperation::GrantGovRole(RoleArgs {
+            account: Address::generate(&env),
+            role: Symbol::new(&env, "CURATOR"),
+        }),
+        &salt,
+    );
+    assert_eq!(gov.get_operation_state(&id), OperationState::Waiting);
 }
 
 #[test]

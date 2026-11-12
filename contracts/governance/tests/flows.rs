@@ -719,8 +719,10 @@ fn guardian_set_spoke_asset_flags_reaches_controller_listing_check() {
     register_native_controller(&env, &gov_id, &gov);
     let guardian = Address::generate(&env);
     grant_incident_role(&env, &admin, &gov, &guardian, GUARDIAN_ROLE);
+    let curator = Address::generate(&env);
+    grant_incident_role(&env, &admin, &gov, &curator, crate::access::CURATOR_ROLE);
 
-    let spoke_id = gov.add_spoke(&guardian);
+    let spoke_id = gov.add_spoke(&curator);
     gov.set_spoke_asset_flags(
         &guardian,
         &spoke_id,
@@ -811,7 +813,8 @@ fn oracle_set_sanity_bounds_reaches_aggregator_config_check() {
 }
 
 #[test]
-fn guardian_create_hub_and_add_spoke_forward_and_return_controller_ids() {
+#[should_panic(expected = "Error(Contract, #2000)")]
+fn guardian_cannot_create_hub_or_spoke() {
     use crate::access::GUARDIAN_ROLE;
     let env = Env::default();
     env.mock_all_auths();
@@ -819,12 +822,24 @@ fn guardian_create_hub_and_add_spoke_forward_and_return_controller_ids() {
     register_native_controller(&env, &gov_id, &gov);
     let guardian = Address::generate(&env);
     grant_incident_role(&env, &admin, &gov, &guardian, GUARDIAN_ROLE);
+    gov.create_hub(&guardian);
+}
 
-    assert_eq!(gov.create_hub(&guardian), 1);
-    assert_eq!(gov.create_hub(&guardian), 2);
+#[test]
+fn curator_create_hub_and_add_spoke_forward_and_return_controller_ids() {
+    use crate::access::CURATOR_ROLE;
+    let env = Env::default();
+    env.mock_all_auths();
+    let (admin, gov_id, gov) = register_governance(&env);
+    register_native_controller(&env, &gov_id, &gov);
+    let curator = Address::generate(&env);
+    grant_incident_role(&env, &admin, &gov, &curator, CURATOR_ROLE);
 
-    let first_spoke = gov.add_spoke(&guardian);
-    let second_spoke = gov.add_spoke(&guardian);
+    assert_eq!(gov.create_hub(&curator), 1);
+    assert_eq!(gov.create_hub(&curator), 2);
+
+    let first_spoke = gov.add_spoke(&curator);
+    let second_spoke = gov.add_spoke(&curator);
     assert!(first_spoke >= 1);
     assert_eq!(second_spoke, first_spoke + 1);
 }

@@ -21,6 +21,10 @@ CASES = {
     "guard conjunct in expression": ("on:\n  pull_request:\njobs:\n  a:\n    if: ${{ github.event_name == 'pull_request' && " + G + " }}\n    runs-on: self-hosted\n", 0),
     "schedule or dispatch only": ("on:\n  pull_request:\n  schedule:\njobs:\n  a:\n    if: >-\n      (github.event_name == 'schedule' &&\n      startsWith(github.event.schedule, '0 2 ')) ||\n      (github.event_name == 'workflow_dispatch' &&\n      (inputs.suite == 'mutants' || inputs.suite == 'all'))\n    runs-on: self-hosted\n", 0),
     "event or free condition": ("on:\n  pull_request:\njobs:\n  a:\n    if: github.event_name == 'schedule' || inputs.x == 'y'\n    runs-on: self-hosted\n", 1),
+    "inverted event": ("on: [pull_request, schedule]\njobs:\n  a:\n    if: false == (github.event_name == 'schedule')\n    runs-on: self-hosted\n", 1),
+    "nested event alternative": ("on: [pull_request, schedule]\njobs:\n  a:\n    if: (github.event_name == 'schedule' || true) && inputs.x\n    runs-on: self-hosted\n", 1),
+    "inverted event conjunct": ("on: [pull_request, schedule]\njobs:\n  a:\n    if: inputs.x && (github.event_name == 'schedule') == false\n    runs-on: self-hosted\n", 1),
+    "guard inside quoted string": (f"on: pull_request\njobs:\n  a:\n    if: !contains(') && {G} && (', 'never matches')\n    runs-on: self-hosted\n", 1),
     "pull_request outside on": ("on:\n  workflow_dispatch:\nconcurrency:\n  cancel-in-progress: ${{ github.event_name == 'pull_request' }}\njobs:\n  a:\n    runs-on: self-hosted\n", 0),
 }
 

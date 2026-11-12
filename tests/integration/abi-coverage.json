@@ -1207,6 +1207,34 @@
   },
   {
     "contract": "governance",
+    "method": "create_liquidity_pool",
+    "execution": "controlled-ledger",
+    "controlled_case": "governance_create_market",
+    "scope": "Real curator WASM calls native governance/controller with mocked auth; registrar-owned hub creates market and returns existing pool; no direct endpoint rejection assertion"
+  },
+  {
+    "contract": "governance",
+    "method": "deactivate_position_manager",
+    "execution": "controlled-ledger",
+    "controlled_case": "governance_guardian_reduces_access",
+    "scope": "Native governance/controller, mocked auth; stranger rejected without state change, guardian removes the active manager"
+  },
+  {
+    "contract": "governance",
+    "method": "revoke_blend_pool",
+    "execution": "controlled-ledger",
+    "controlled_case": "governance_guardian_reduces_access",
+    "scope": "Native governance/controller, mocked auth; stranger rejected without state change, guardian revokes the approved Blend pool"
+  },
+  {
+    "contract": "governance",
+    "method": "suspend_curator_registrar",
+    "execution": "controlled-ledger",
+    "controlled_case": "governance_suspend_registrar",
+    "scope": "Native governance/curator/controller, mocked auth; guardian suspends registrar and unrecognized curator target rejects; separate controlled case requires non-guardian rejection"
+  },
+  {
+    "contract": "governance",
     "method": "accept_ownership",
     "execution": "controlled-ledger",
     "controlled_case": "governance_ownership",

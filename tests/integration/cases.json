@@ -2896,8 +2896,10 @@
       "agg-gov"
     ],
     "contract_methods": [
+      "add_spoke",
       "cancel",
       "controller",
+      "create_hub",
       "deploy_controller",
       "deploy_price_aggregator",
       "execute",
@@ -3326,6 +3328,46 @@
           "simulation",
           "rejected_transaction"
         ]
+      },
+      {
+        "label": "gov_create_hub_not_curator",
+        "method": "create_hub",
+        "status": "xfail",
+        "count": 1,
+        "execution": [
+          "simulation",
+          "rejected_transaction"
+        ]
+      },
+      {
+        "label": "gov_add_spoke_not_curator",
+        "method": "add_spoke",
+        "status": "xfail",
+        "count": 1,
+        "execution": [
+          "simulation",
+          "rejected_transaction"
+        ]
+      },
+      {
+        "label": "gov_propose_grant_curator",
+        "method": "propose",
+        "status": "ok",
+        "count": 1,
+        "execution": [
+          "transaction"
+        ],
+        "contract": "governance"
+      },
+      {
+        "label": "gov_execute_grant_curator",
+        "method": "execute_self",
+        "status": "ok",
+        "count": 1,
+        "execution": [
+          "transaction"
+        ],
+        "contract": "governance"
       },
       {
         "label": "gov_create_hub",
@@ -11402,11 +11444,10 @@
       {
         "label": "risk_full_low_hf",
         "method": "update_account_threshold",
-        "status": "xfail",
+        "status": "ok",
         "count": 1,
         "execution": [
-          "simulation",
-          "rejected_transaction"
+          "transaction"
         ],
         "contract": "controller"
       },

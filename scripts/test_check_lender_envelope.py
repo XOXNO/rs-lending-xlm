@@ -29,23 +29,11 @@ def redstone(feed_id):
     }
 
 
-def reflector(symbol, contract=REFLECTOR):
+def reflector(asset, contract=REFLECTOR, tag="Symbol"):
     return {
         "Feed": {
             "provider": {
-                "Reflector": {"contract": contract, "asset": {"Symbol": symbol}, "read_mode": {"Twap": 3}}
-            },
-            "decimals": 14,
-            "max_stale_seconds": 3600,
-        }
-    }
-
-
-def reflector_stellar(asset, contract=REFLECTOR_DEX):
-    return {
-        "Feed": {
-            "provider": {
-                "Reflector": {"contract": contract, "asset": {"Stellar": asset}, "read_mode": {"Twap": 3}}
+                "Reflector": {"contract": contract, "asset": {tag: asset}, "read_mode": {"Twap": 3}}
             },
             "decimals": 14,
             "max_stale_seconds": 3600,
@@ -90,7 +78,7 @@ PYUSD = oracle(
     [
         {
             "Scaled": {
-                "factor": reflector_stellar("ADDR_PYUSD")["Feed"],
+                "factor": reflector("ADDR_PYUSD", REFLECTOR_DEX, "Stellar")["Feed"],
                 "quote": {"Token": "ADDR_USDC"},
                 "min_factor_wad": str(95 * WAD // 100),
                 "max_factor_wad": str(105 * WAD // 100),
@@ -480,6 +468,22 @@ class MainExitTest(unittest.TestCase):
     def test_exact_declarations_pass(self):
         code, out, _ = self.run_main(self.exact)
         self.assertEqual(code, 0, out)
+
+    def test_malformed_config_exits_2(self):
+        markets = json.loads(json.dumps(MARKETS))
+        usdc = next(m for m in markets["markets"] if m["name"] == "USDC")
+        del usdc["oracle"]["tolerance"]
+        with open(os.path.join(self.tmp.name, "mainnet", "markets.json"), "w") as handle:
+            json.dump(markets, handle)
+        code, _, err = self.run_main(self.exact)
+        self.assertEqual(code, 2, err)
+        self.assertIn("tolerance", err)
+
+    def test_tolerance_at_or_below_one_is_a_config_error(self):
+        for bps in (le.BPS, le.BPS - 1, 0):
+            with self.assertRaisesRegex(le.ConfigError, f"upper_ratio_bps {bps} must exceed"):
+                le.tolerance_ratio(oracle([redstone("X")], 1, 2, upper_bps=bps))
+        self.assertAlmostEqual(le.tolerance_ratio(oracle([redstone("X")], 1, 2, upper_bps=le.BPS + 1)), 1.00015)
 
     def test_loose_declaration_exits_1(self):
         lines = [self.exact[0].replace("1.014397", "1.5")] + self.exact[1:]

@@ -1,9 +1,6 @@
 : "${SA_FEE_CAP:=1000}"
 
-# Tests the swap-aggregator's owner calls: fee, whitelist, referrals, fee
-# claims and sweep. The run does not own the shared `$AGGREGATOR` from
-# configs/networks.json, so it uses `$OWNED_AGGREGATOR`, a throwaway instance
-# that deploy_protocol deploys with ADMIN as owner.
+# Owner calls on the same ADMIN-owned candidate used for this run's swaps.
 flow_swap_aggregator_admin() {
     phase swap_agg_admin
     if [ -z "${OWNED_AGGREGATOR:-}" ]; then

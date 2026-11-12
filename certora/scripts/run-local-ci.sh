@@ -71,15 +71,26 @@ for c in ${confs[@]+"${confs[@]}"}; do
     continue
   fi
 
+  if ! conf_rule_output=$(python3 -c '
+import json, sys
+rules = json.load(open(sys.argv[1]))["rule"]
+if not isinstance(rules, list) or not rules or not all(isinstance(r, str) and r.isidentifier() for r in rules):
+    raise ValueError("rule must be a nonempty array of identifiers")
+print(*rules, sep="\n")
+' "$conf_path"); then
+    echo "::error::$c: could not read conf rules"
+    failed=1
+    continue
+  fi
   conf_rules=()
   while IFS= read -r rule; do
     conf_rules+=("$rule")
-  done < <(python3 -c "import json,sys; print(*json.load(open(sys.argv[1]))['rule'], sep='\n')" "$conf_path")
+  done <<< "$conf_rule_output"
 
   rules=()
   if [ -n "$rules_arg" ]; then
     read -r -a requested <<< "$rules_arg"
-    for rule in "${requested[@]}"; do
+    for rule in ${requested[@]+"${requested[@]}"}; do
       if printf '%s\n' ${conf_rules[@]+"${conf_rules[@]}"} | grep -qxF -- "$rule"; then
         rules+=("$rule")
       else
@@ -183,5 +194,9 @@ done
 echo
 echo "=== local prover summary ==="
 printf '%s\n' ${verdicts[@]+"${verdicts[@]}"} | sort
+if [ "${#verdicts[@]}" -eq 0 ]; then
+  echo "::error::no rules were classified"
+  failed=1
+fi
 
 exit "$failed"

@@ -77,6 +77,22 @@ fn sensitive_controller_operation(env: &Env, function: &str, args: Vec<Val>) -> 
     }
 }
 
+/// Builds a sensitive `ResolvedOperation` targeting the curator contract `curator`.
+fn curator_operation(
+    env: &Env,
+    curator: &Address,
+    function: &str,
+    args: Vec<Val>,
+) -> ResolvedOperation {
+    validate::require_contract_address(env, curator, GenericError::NotSmartContract);
+    ResolvedOperation {
+        target: curator.clone(),
+        function: Symbol::new(env, function),
+        args,
+        delay_tier: DelayTier::Sensitive,
+    }
+}
+
 /// Builds a `ResolvedOperation` targeting the price aggregator contract with
 /// the `Standard` delay tier.
 fn price_aggregator_operation(env: &Env, function: &str, args: Vec<Val>) -> ResolvedOperation {
@@ -221,6 +237,7 @@ pub(crate) fn resolve_op(env: &Env, op: &AdminOperation) -> ResolvedOperation {
             controller_operation(env, "remove_spoke", vec![env, id.into_val(env)])
         }
         AdminOperation::AddAssetToSpoke(args) => {
+            validate::asset::require_asset_oracle(env, &args.asset);
             validate_spoke_asset(env, args);
             controller_operation(
                 env,
@@ -284,14 +301,7 @@ pub(crate) fn resolve_op(env: &Env, op: &AdminOperation) -> ResolvedOperation {
             )
         }
         AdminOperation::CreateLiquidityPool(args) => {
-            let token_decimals =
-                validate::asset::validate_and_fetch_token_decimals(env, &args.asset);
-            validate::asset::validate_market_creation(
-                env,
-                &args.asset,
-                &args.params,
-                validate::asset::listed_token_decimals(env, &args.asset, token_decimals),
-            );
+            validate::asset::validate_new_market(env, &args.asset, &args.params);
             controller_operation(
                 env,
                 "create_liquidity_pool",
@@ -361,6 +371,47 @@ pub(crate) fn resolve_op(env: &Env, op: &AdminOperation) -> ResolvedOperation {
             env,
             "set_position_manager",
             vec![env, manager.clone().into_val(env), is_active.into_val(env)],
+        ),
+        AdminOperation::UpgradeCurator(curator, hash) => {
+            validate::require_nonzero_wasm_hash(env, hash);
+            curator_operation(
+                env,
+                curator,
+                "upgrade",
+                vec![env, hash.clone().into_val(env)],
+            )
+        }
+        AdminOperation::SuspendCuratorRegistrar(curator, registrar, suspended) => {
+            curator_operation(
+                env,
+                curator,
+                "set_registrar_suspended",
+                vec![env, registrar.into_val(env), suspended.into_val(env)],
+            )
+        }
+        AdminOperation::ReassignCuratorHub(curator, id, registrar) => curator_operation(
+            env,
+            curator,
+            "reassign_hub",
+            vec![env, id.into_val(env), registrar.into_val(env)],
+        ),
+        AdminOperation::ReassignCuratorSpoke(curator, id, registrar) => curator_operation(
+            env,
+            curator,
+            "reassign_spoke",
+            vec![env, id.into_val(env), registrar.into_val(env)],
+        ),
+        AdminOperation::RegisterCuratorRegistrar(curator, admin) => curator_operation(
+            env,
+            curator,
+            "register_registrar",
+            vec![env, admin.into_val(env)],
+        ),
+        AdminOperation::SetCuratorRegistrarAdmin(curator, registrar, admin) => curator_operation(
+            env,
+            curator,
+            "force_set_admin",
+            vec![env, registrar.into_val(env), admin.into_val(env)],
         ),
         AdminOperation::UpgradeController(hash) => {
             validate::require_nonzero_wasm_hash(env, hash);
@@ -485,7 +536,15 @@ pub(crate) fn apply_self_op(env: &Env, op: &AdminOperation) {
         | AdminOperation::EditOracleTolerance(_)
         | AdminOperation::SetSpokeLiquidationCurve(_)
         | AdminOperation::ForceSocializeBadDebt(_)
-        | AdminOperation::Unpause => panic_with_error!(env, GenericError::InternalError),
+        | AdminOperation::Unpause
+        | AdminOperation::UpgradeCurator(_, _)
+        | AdminOperation::SuspendCuratorRegistrar(_, _, _)
+        | AdminOperation::ReassignCuratorHub(_, _, _)
+        | AdminOperation::ReassignCuratorSpoke(_, _, _)
+        | AdminOperation::SetCuratorRegistrarAdmin(_, _, _)
+        | AdminOperation::RegisterCuratorRegistrar(_, _) => {
+            panic_with_error!(env, GenericError::InternalError)
+        }
     }
 }
 

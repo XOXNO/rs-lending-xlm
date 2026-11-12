@@ -191,6 +191,43 @@ fn test_a_declaration_matching_the_overlap_exactly_is_accepted() {
     });
 }
 
+/// M-4: without `exact`, a declaration must still cover every shared contract.
+#[test]
+#[should_panic(expected = "Error(Contract, #232)")]
+fn test_a_subset_declaration_is_refused_when_the_overlap_grew_without_exact() {
+    let env = Env::default();
+    in_contract(&env, || {
+        let a = Address::generate(&env);
+        let b = Address::generate(&env);
+        let legs = trusting(&Vec::from_array(&env, [a.clone(), b]));
+        independence(
+            &env,
+            &legs,
+            &legs,
+            &IndependencePolicy::AllowShared(Vec::from_array(&env, [a])),
+            false,
+        );
+    });
+}
+
+/// M-4: without `exact`, a declaration wider than the overlap is accepted.
+#[test]
+fn test_a_wider_declaration_passes_without_exact() {
+    let env = Env::default();
+    in_contract(&env, || {
+        let a = Address::generate(&env);
+        let b = Address::generate(&env);
+        let legs = trusting(&Vec::from_array(&env, [a.clone()]));
+        independence(
+            &env,
+            &legs,
+            &legs,
+            &IndependencePolicy::AllowShared(Vec::from_array(&env, [a, b])),
+            false,
+        );
+    });
+}
+
 #[test]
 #[should_panic(expected = "Error(Contract, #220)")]
 fn test_an_lp_whose_two_reserves_are_the_same_token_is_refused() {

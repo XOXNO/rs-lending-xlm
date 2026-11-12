@@ -59,7 +59,6 @@ fn walk_dir(dir: &Path, out: &mut Vec<PathBuf>) {
             continue;
         }
         if path.is_dir() {
-
             walk_dir(&path, out);
         } else if path
             .extension()
@@ -67,7 +66,6 @@ fn walk_dir(dir: &Path, out: &mut Vec<PathBuf>) {
             .map(|e| e == "json")
             .unwrap_or(false)
         {
-
             if path.components().any(|c| c.as_os_str() == "test_snapshots") {
                 out.push(path);
             }
@@ -120,7 +118,6 @@ fn extract_u32(val: &Value) -> Option<u32> {
 fn harvest_numeric_rec(val: &Value, out: &mut ExtractedFields) {
     match val {
         Value::Object(map) => {
-
             if let Some(v) = extract_i128(val) {
                 out.i128s.push(v);
             }
@@ -174,7 +171,6 @@ fn is_symbol_key(key_val: &Value, symbol: &str) -> bool {
 fn harvest_structured(val: &Value, out: &mut ExtractedFields) {
     match val {
         Value::Object(map) => {
-
             if let (Some(key), Some(value)) = (map.get("key"), map.get("val")) {
                 if is_symbol_key(key, "Params") {
                     out.market_params.push(extract_market_params(value));
@@ -354,14 +350,13 @@ fn pack_fp_ops(f: &ExtractedFields) -> Vec<Vec<u8>> {
         for &b in mags.iter().skip(idx).take(3) {
             for bps in [0u16, 1, 5_000, 10_000, 15_000] {
                 for decimals in [0u8, 6, 7, 18, 27] {
-                    let mut buf = Vec::with_capacity(29);
+                    let mut buf = Vec::with_capacity(94);
                     buf.extend_from_slice(&a.to_le_bytes());
-                    buf.push((idx & 1) as u8);
                     buf.extend_from_slice(&b.to_le_bytes());
-                    buf.push(((idx + 1) & 1) as u8);
                     buf.extend_from_slice(&bps.to_le_bytes());
                     buf.push(decimals);
                     buf.extend_from_slice(&((a.min(i64::MAX as u64) as i64) / 10).to_le_bytes());
+                    buf.resize(94, 0);
                     out.push(buf);
                 }
             }
@@ -427,7 +422,6 @@ fn pack_rates_and_index(f: &ExtractedFields) -> Vec<Vec<u8>> {
     };
 
     for p in params.iter().take(12) {
-
         let pick = |v: Option<i128>| v.unwrap_or(0).max(0);
 
         let base_r = pick(p.base_borrow_rate).min(CAP);
@@ -463,7 +457,7 @@ fn pack_rates_and_index(f: &ExtractedFields) -> Vec<Vec<u8>> {
             for max_util_pct in [128u8, 230u8] {
                 for &delta_ms in &delta_samples {
                     for &borrowed_units in &borrowed_samples {
-                        let mut buf = Vec::with_capacity(61);
+                        let mut buf = Vec::with_capacity(110);
                         buf.extend_from_slice(&util.to_le_bytes());
                         buf.push(base_pct);
                         buf.push(s1_pct);
@@ -481,6 +475,7 @@ fn pack_rates_and_index(f: &ExtractedFields) -> Vec<Vec<u8>> {
                         buf.extend_from_slice(&delta_ms.to_le_bytes());
                         buf.extend_from_slice(&0u64.to_le_bytes());
                         buf.extend_from_slice(&u64::MAX.to_le_bytes());
+                        buf.resize(110, 0);
                         out.push(buf);
                     }
                 }
@@ -565,7 +560,7 @@ fn pack_pool_native(f: &ExtractedFields) -> Vec<Vec<u8>> {
 
     for (base, s1, s2, s3, mid, opt, flash_fee_raw, reserve) in params {
         for ops in op_sets {
-            let mut buf = Vec::with_capacity(82);
+            let mut buf = Vec::with_capacity(90);
             buf.push(base);
             buf.push(s1);
             buf.push(s2);
@@ -579,6 +574,7 @@ fn pack_pool_native(f: &ExtractedFields) -> Vec<Vec<u8>> {
                 buf.extend_from_slice(&dt.to_le_bytes());
                 buf.push(kind);
             }
+            buf.extend_from_slice(&0u64.to_le_bytes());
             out.push(buf);
         }
     }
@@ -600,10 +596,7 @@ fn pack_flow_e2e(_f: &ExtractedFields) -> Vec<Vec<u8>> {
         flow_seq(&[flow_op(3, 0, 2, 128, 0)]),
         flow_seq(&[flow_op(2, 0, 0, 96, 0)]),
         flow_seq(&[flow_op(2, 1, 1, 0, 1)]),
-        flow_seq(&[
-            flow_op(1, 0, 2, 220, 0),
-            flow_op(4, 0, 2, 192, 1),
-        ]),
+        flow_seq(&[flow_op(1, 0, 2, 220, 0), flow_op(4, 0, 2, 192, 1)]),
         flow_seq(&[flow_op(5, 0, 0, 96, 0)]),
         flow_seq(&[flow_op(5, 0, 0, 96, 1)]),
         flow_seq(&[
@@ -611,10 +604,7 @@ fn pack_flow_e2e(_f: &ExtractedFields) -> Vec<Vec<u8>> {
             flow_op(7, 0, 0, 12, 0),
             flow_op(9, 0, 0, 0, 0),
         ]),
-        flow_seq(&[
-            flow_op(6, 0, 0, 200, 0),
-            flow_op(1, 0, 2, 64, 0),
-        ]),
+        flow_seq(&[flow_op(6, 0, 0, 200, 0), flow_op(1, 0, 2, 64, 0)]),
         flow_seq(&[flow_op(10, 1, 0, 0, 0)]),
     ]
 }
@@ -755,4 +745,133 @@ fn main() -> std::io::Result<()> {
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use arbitrary::{Arbitrary, Unstructured};
+
+    fn layout(source: &str, expected: &str) {
+        let fields = source
+            .split_once("struct In {")
+            .unwrap()
+            .1
+            .split('}')
+            .next()
+            .unwrap();
+        let actual: String = fields
+            .lines()
+            .map(|line| line.split("//").next().unwrap())
+            .flat_map(str::chars)
+            .filter(|c| !c.is_whitespace())
+            .collect();
+        assert_eq!(actual, expected);
+    }
+
+    fn decode<'a, T: Arbitrary<'a>>(bytes: &'a [u8]) -> T {
+        assert_eq!(bytes.len(), T::size_hint(0).0);
+        let mut input = Unstructured::new(bytes);
+        let value = T::arbitrary(&mut input).unwrap();
+        assert!(input.is_empty());
+        value
+    }
+
+    #[test]
+    fn current_target_layouts() {
+        layout(
+            include_str!("../../fuzz_targets/fp_math.rs"),
+            "kind:u8,a:i128,b:i128,choice:u8,extra:u8,",
+        );
+        layout(
+            include_str!("../../fuzz_targets/fp_ops.rs"),
+            concat!(
+                "a_raw:u64,b_raw:u64,bps:u16,decimals:u8,token_amount:u64,",
+                "x_raw:u64,y_raw:u64,d_raw:u64,shift:u8,scaled_raw:u64,scaled_shift:u8,",
+                "index_raw:u64,price_raw:u64,price_shift:u8,amount_raw:u64,debt_raw:u64,"
+            ),
+        );
+        layout(include_str!("../../fuzz_targets/rates_and_index.rs"), concat!(
+            "util_bps:u16,base_pct:u8,s1_pct:u8,s2_pct:u8,s3_pct:u16,mid_pct:u8,opt_pct:u8,",
+            "max_pct:u16,max_util_pct:u8,reserve_pct:u8,delta_ms:u64,borrowed_units:u64,",
+            "supplied_units:u64,chunk_units:u64,borrow_index_units:u64,supply_index_units:u64,",
+            "dust_supplied_units:u64,dust_old_index_units:u64,dust_reward_hi:u64,dust_reward_lo:u64,",
+            "partition_count:u8,partition_weights:[u16;PARTITION_MAX],"));
+        assert!(include_str!("../../fuzz_targets/rates_and_index.rs")
+            .contains("const PARTITION_MAX: usize = 8;"));
+        layout(
+            include_str!("../../fuzz_targets/pool_native.rs"),
+            concat!(
+                "base_pct:u8,s1_pct:u8,s2_pct:u8,s3_pct:u16,mid_pct:u8,opt_pct:u8,",
+                "flash_fee_raw:u16,reserve_pct:u8,ops:[(u32,u32,u8);8],pin_raw:u64,"
+            ),
+        );
+    }
+
+    #[test]
+    fn generated_inputs_decode_without_implicit_zero_fill() {
+        let fields = ExtractedFields {
+            i128s: vec![1, 2],
+            ..Default::default()
+        };
+        assert_eq!(
+            decode::<(u8, i128, i128, u8, u8)>(&pack_fp_math(&fields)[0]),
+            (0, 1, 2, 0, 0)
+        );
+        let fp_ops: Vec<_> = pack_fp_ops(&fields)
+            .iter()
+            .map(|b| decode::<(u64, u64, u16, u8, u64, [u8; 67])>(b))
+            .collect();
+        assert!(fp_ops.contains(&(1, 2, 10_000, 7, 0, [0; 67])));
+        let rates: Vec<_> = pack_rates_and_index(&fields)
+            .iter()
+            .map(|b| decode::<([u8; 13], [u64; 6], [u64; 4], u8, [u16; 8])>(b))
+            .collect();
+        assert_eq!(rates[0].1, [0, 1_000, 1_000, 0, 0, u64::MAX]);
+        assert!(rates
+            .iter()
+            .all(|i| i.2 == [0; 4] && i.3 == 0 && i.4 == [0; 8]));
+        let pool: Vec<_> = pack_pool_native(&fields)
+            .iter()
+            .map(|b| decode::<([u8; 10], [(u32, u32, u8); 8], u64)>(b))
+            .collect();
+        assert_eq!(pool[0].0, [1, 4, 10, 150, 0, 50, 80, 200, 0, 10]);
+        assert_eq!(pool[0].1[0], (2_000, 0, 0));
+        assert_eq!(pool[0].1[7], (9_000, 0, 7));
+        assert!(pool.iter().all(|i| i.2 == 0));
+        for (source, inputs) in [
+            (
+                include_str!("../../fuzz_targets/flow_e2e.rs"),
+                pack_flow_e2e(&fields),
+            ),
+            (
+                include_str!("../../fuzz_targets/flow_strategy.rs"),
+                pack_flow_strategy(&fields),
+            ),
+        ] {
+            assert!(source.contains("const OP_WIDTH: usize = 5;"));
+            assert!(inputs.iter().all(|b| !b.is_empty() && b.len() % 5 == 0));
+        }
+    }
+
+    #[test]
+    fn committed_structured_seeds_match_generator() {
+        let fields = ExtractedFields::default();
+        for (inputs, seed) in [
+            (
+                pack_fp_ops(&fields),
+                include_bytes!("../../seeds/fp_ops/structured").as_slice(),
+            ),
+            (
+                pack_rates_and_index(&fields),
+                include_bytes!("../../seeds/rates_and_index/structured").as_slice(),
+            ),
+            (
+                pack_pool_native(&fields),
+                include_bytes!("../../seeds/pool_native/structured").as_slice(),
+            ),
+        ] {
+            assert!(inputs.iter().any(|bytes| bytes == seed));
+        }
+    }
 }

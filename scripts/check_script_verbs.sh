@@ -8,7 +8,7 @@ export LC_ALL=C
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 SCRIPT="$ROOT/configs/script.sh"
 # Called only by the upgrade-* recipes, after they upload the wasm.
-INTERNAL=" upgradeControllerHash upgradeGovernanceHash upgradePoolHash upgradePositionNftHash upgradePriceAggregatorHash "
+INTERNAL=" upgradeControllerHash upgradeGovernanceHash upgradePoolHash upgradePositionNftHash upgradePriceAggregatorHash upgradeCuratorHash "
 
 [ $# -eq 2 ] || { echo "usage: $0 \"<ALL_ACTIONS>\" \"<MAKEFILE_ACTIONS>\"" >&2; exit 2; }
 words() { tr -s ' \t' '\n' <<<"$1" | sed '/^$/d' | sort -u; }
@@ -60,9 +60,12 @@ printf '%s\n' "$@" > "$CLAIM_ARGS_FILE"
 SH
 chmod +x "$tmp/stellar"
 export CLAIM_ARGS_FILE="$tmp/args"
-if ! PATH="$tmp:$PATH" NETWORK=mainnet SIGNER=deployer CONFIG_ROOT="$ROOT/configs" \
-    AGGREGATOR_CONTRACT= INSTRUCTION_LEEWAY=20000000 \
-    bash "$SCRIPT" claimAggregatorReferralFees 7 CTOKEN1 CTOKEN2 >/dev/null 2>&1; then
+claim() {
+    PATH="$tmp:$PATH" NETWORK=mainnet SIGNER=deployer CONFIG_ROOT="$ROOT/configs" \
+        AGGREGATOR_CONTRACT= INSTRUCTION_LEEWAY=20000000 \
+        bash "$SCRIPT" claimAggregatorReferralFees "$@" >/dev/null 2>&1
+}
+if ! claim 7 CTOKEN1 CTOKEN2; then
     echo "FAIL: referral claim dispatch failed" >&2; fail=1
 elif ! diff -u <(printf '%s\n' contract invoke --instruction-leeway 20000000 \
     --id "$(jq -r '.mainnet.aggregator' "$ROOT/configs/networks.json")" \
@@ -72,10 +75,7 @@ elif ! diff -u <(printf '%s\n' contract invoke --instruction-leeway 20000000 \
 fi
 rm -f "$CLAIM_ARGS_FILE"
 for args in '' '7'; do
-    if PATH="$tmp:$PATH" NETWORK=mainnet SIGNER=deployer CONFIG_ROOT="$ROOT/configs" \
-        AGGREGATOR_CONTRACT= INSTRUCTION_LEEWAY=20000000 \
-        bash "$SCRIPT" claimAggregatorReferralFees $args >/dev/null 2>&1 \
-        || [ -e "$CLAIM_ARGS_FILE" ]; then
+    if claim $args || [ -e "$CLAIM_ARGS_FILE" ]; then
         echo "FAIL: referral claim must reject missing id/tokens before invoking" >&2; fail=1
     fi
 done

@@ -115,14 +115,35 @@ flow_liq_bulk() {
     dual_px "$SAC_LIQA" LIQA $((WAD / 100 * 49)) liq2_crash_a
     assert_hf_below_wad liq2_hf "$acct"
 
-    local liq2_debt_b_pre liq2_debt_d_pre
-liq2_debt_b_pre=$(_view_int liq2_debt_b_pre get_borrow_amount --account_id "$acct" --hub_asset "$(hub_key "$PRIMARY_HUB_ID" "$SAC_LIQB")")
-liq2_debt_d_pre=$(_view_int liq2_debt_d_pre get_borrow_amount --account_id "$acct" --hub_asset "$(hub_key "$PRIMARY_HUB_ID" "$SAC_LIQD")")
+    local liq2_debt_b_pre liq2_debt_d_pre positions_before positions_after
+    local sac key shares_before shares_after recipient_after pool_after received i=0
+    local recipients_before=() pools_before=()
+    liq2_debt_b_pre=$(_view_int liq2_debt_b_pre get_borrow_amount --account_id "$acct" --hub_asset "$(hub_key "$PRIMARY_HUB_ID" "$SAC_LIQB")") || return 1
+    liq2_debt_d_pre=$(_view_int liq2_debt_d_pre get_borrow_amount --account_id "$acct" --hub_asset "$(hub_key "$PRIMARY_HUB_ID" "$SAC_LIQD")") || return 1
+    positions_before=$(view liq2_positions_before "$CONTROLLER" -- get_account_positions --account_id "$acct") || return 1
+    for sac in "$SAC_LIQC" "$SAC_LIQA"; do
+        recipients_before+=("$(balance "$sac" "$CAROL_ADDR")") || return 1
+        pools_before+=("$(balance "$sac" "$POOL")") || return 1
+    done
     inv liq2_liquidate_bulk "$CAROL" "$CONTROLLER" -- liquidate --seize_mode "$(seize_transfer)" \
         --liquidator "$CAROL_ADDR" --account_id "$acct" \
-        --debt_payments "$(pay_vec "$PRIMARY_HUB_ID" "$SAC_LIQB" $((150 * LIQ_UNIT)) "$SAC_LIQD" $((150 * LIQ_UNIT)))" >/dev/null
-    assert_borrow_decreased liq2_debt_b_post "$acct" "$SAC_LIQB" "$liq2_debt_b_pre"
-    assert_borrow_decreased liq2_debt_d_post "$acct" "$SAC_LIQD" "$liq2_debt_d_pre"
+        --debt_payments "$(pay_vec "$PRIMARY_HUB_ID" "$SAC_LIQB" $((150 * LIQ_UNIT)) "$SAC_LIQD" $((150 * LIQ_UNIT)))" >/dev/null || return 1
+    assert_borrow_decreased liq2_debt_b_post "$acct" "$SAC_LIQB" "$liq2_debt_b_pre" || return 1
+    assert_borrow_decreased liq2_debt_d_post "$acct" "$SAC_LIQD" "$liq2_debt_d_pre" || return 1
+    positions_after=$(view liq2_positions_after "$CONTROLLER" -- get_account_positions --account_id "$acct") || return 1
+    for sac in "$SAC_LIQC" "$SAC_LIQA"; do
+        key=$(hub_key "$PRIMARY_HUB_ID" "$sac") || return 1
+        shares_before=$(python3 -c 'import json,sys; p,k=map(json.loads,sys.argv[1:]); print(next((v["scaled_amount"] for s,v in p[0].items() if json.loads(s)==k),0))' "$positions_before" "$key") || return 1
+        shares_after=$(python3 -c 'import json,sys; p,k=map(json.loads,sys.argv[1:]); print(next((v["scaled_amount"] for s,v in p[0].items() if json.loads(s)==k),0))' "$positions_after" "$key") || return 1
+        _uint_lt "$shares_after" "$shares_before" || { _assert_fail "liq2_${sac}_shares" 'victim collateral shares must decrease'; return 1; }
+        recipient_after=$(balance "$sac" "$CAROL_ADDR") || return 1
+        pool_after=$(balance "$sac" "$POOL") || return 1
+        received=$(raw_sub "$recipient_after" "${recipients_before[$i]}") || return 1
+        _uint_lt 0 "$received" || { _assert_fail "liq2_${sac}_receipt" 'liquidator must receive collateral'; return 1; }
+        assert_delta "liq2_${sac}_net_transfer" "${pools_before[$i]}" "$pool_after" "$(raw_sub 0 "$received")" || return 1
+        i=$((i + 1))
+    done
+    record liq2_collateral_receipts ok assert "" "" "" "" "" 'both collateral share burns and positive net token transfers observed'
     save_state LIQ2_ACCT "$acct"
 }
 

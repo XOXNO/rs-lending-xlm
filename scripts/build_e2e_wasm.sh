@@ -27,6 +27,8 @@ candidate)
 fixtures)
     out=artifacts/wasm/fixtures
     mkdir -p "$out"
+    # Native registry tests load Cargo's curator.wasm; it is not a release candidate.
+    stellar contract build --locked --package curator --optimize --out-dir target/optimized
     for pkg in mock-oracle mock-redstone flash-loan-receiver flash-position-receiver script-runner production-fixture; do
         stellar contract build --locked --package "$pkg" --optimize --out-dir "$out"
     done

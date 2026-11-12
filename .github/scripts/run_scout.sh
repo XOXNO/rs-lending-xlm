@@ -14,24 +14,26 @@ contracts=(
   contracts/position-nft/Cargo.toml
   contracts/swap-aggregator/Cargo.toml
   contracts/xoxno-oracle/Cargo.toml
+  contracts/curator/Cargo.toml
 )
 
 format="${SCOUT_OUTPUT_FORMAT:-md}"
 out_dir="${SCOUT_OUTPUT_DIR:-target/scout-audit}"
 repo_root="$(pwd)"
 
-out_dir_abs="$(python3 -c 'import os,sys; print(os.path.realpath(sys.argv[1]))' "$repo_root/$out_dir")"
+out_dir_abs="$(python3 -c 'import os,sys; print(os.path.realpath(sys.argv[1]))' "$out_dir")"
 case "$out_dir_abs" in
-  "$repo_root"/*) ;;
+  "$repo_root"/target/scout-audit|"$repo_root"/target/scout-audit/*) ;;
   *)
-    echo "Refusing to clean Scout output outside repository: $out_dir_abs" >&2
+    echo "Refusing to clean Scout output outside target/scout-audit: $out_dir_abs" >&2
     exit 1
     ;;
 esac
 
 work_dir="$(mktemp -d)"
 file_list="$(mktemp)"
-trap 'rm -rf "$work_dir"; rm -f "$file_list"' EXIT
+raw_file_list="$(mktemp)"
+trap 'rm -rf "$work_dir"; rm -f "$file_list" "$raw_file_list"' EXIT
 rm -rf "$out_dir_abs"
 mkdir -p "$out_dir_abs" "$HOME/.scout-audit/telemetry"
 printf DONOTTRACK >"$HOME/.scout-audit/telemetry/user_id.txt"
@@ -45,7 +47,12 @@ export SOROBAN_SDK_BUILD_SYSTEM_SUPPORTS_SPEC_SHAKING_V2=1
 # Do not use `tar --exclude` here: bsdtar strips the leading './' before it
 # matches, so '*/target' misses the top-level 'target' and the whole build
 # cache gets staged.
-git ls-files -z --cached --others --exclude-standard >"$file_list"
+git ls-files -z --cached --others --exclude-standard >"$raw_file_list"
+while IFS= read -r -d '' path; do
+  if [ -f "$path" ] || [ -L "$path" ]; then
+    printf '%s\0' "$path"
+  fi
+done <"$raw_file_list" >"$file_list"
 if [ ! -s "$file_list" ]; then
   echo "Refusing to run: git produced an empty source file list" >&2
   exit 1
@@ -62,7 +69,7 @@ if [ -z "$scout_source_dir" ]; then
   if [ ! -d "$scout_source_dir/.git" ]; then
     git clone -q --no-checkout https://github.com/mihaieremia/scout-audit.git "$scout_source_dir"
   fi
-  git -C "$scout_source_dir" fetch -q --depth 1 origin 26779da2e72880ba77ab796ee7f71a785ba315f3
+  git -C "$scout_source_dir" fetch -q --depth 1 origin 5fd254bd83fc0593f0d23ab5079a37a7ceac8499
   git -C "$scout_source_dir" checkout -q --detach FETCH_HEAD
 fi
 if [ ! -d "$scout_source_dir/nightly" ]; then
@@ -84,7 +91,7 @@ for manifest in "${contracts[@]}"; do
     --exclude "$scout_exclude" \
     --output-format "$format" \
     --output-path "$out" \
-    -- --locked >"$log" 2>&1; then
+    -- --locked >"$log" 2>&1 || [ ! -f "$out" ] || [ ! -s "$out" ]; then
     echo "Scout failed for $manifest; see $log" >&2
     incomplete=$((incomplete + 1))
     continue

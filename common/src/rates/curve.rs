@@ -1,10 +1,12 @@
 //! Computes borrow and deposit interest rates and pool utilization from a
 //! three-segment piecewise-linear rate curve.
 
-use soroban_sdk::Env;
+use soroban_sdk::{panic_with_error, Env};
 
-use crate::constants::{BPS, MILLISECONDS_PER_YEAR};
+use crate::constants::{BPS, MILLISECONDS_PER_YEAR, RAY};
+use crate::errors::GenericError;
 use crate::math::fp::{Bps, Ray};
+use crate::math::fp_core::try_mul_div_half_up;
 use crate::types::MarketParams;
 
 /// Computes the annual borrow APR (RAY) for `utilization` under the
@@ -95,13 +97,20 @@ pub fn calculate_deposit_rate(
     supplier_share.apply_to_ray(env, rate_x_util)
 }
 
-/// Computes the pool utilization ratio `borrowed / supplied`. Returns
-/// `Ray::ZERO` if `supplied` is zero.
+/// Computes the pool utilization ratio `borrowed / supplied`, rounded half
+/// up. Returns `Ray::ZERO` if `supplied` is zero, and `Ray::ONE` if the ratio
+/// does not fit in `i128`.
+///
+/// Panics with `GenericError::MathOverflow` if `borrowed` or `supplied` is
+/// negative.
 pub fn utilization(env: &Env, borrowed: Ray, supplied: Ray) -> Ray {
     if supplied == Ray::ZERO {
         return Ray::ZERO;
     }
-    borrowed.div(env, supplied)
+    if borrowed < Ray::ZERO || supplied < Ray::ZERO {
+        panic_with_error!(env, GenericError::MathOverflow);
+    }
+    try_mul_div_half_up(env, borrowed.raw(), RAY, supplied.raw()).map_or(Ray::ONE, Ray::from)
 }
 
 #[cfg(test)]

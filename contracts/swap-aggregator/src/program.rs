@@ -253,6 +253,19 @@ impl Program {
                 record[field::TOKEN_OUT] as u32,
             );
 
+            match mode {
+                Mode::Fixed(idx) if idx as u32 >= amounts_len => {
+                    panic_with_error!(env, Error::InvalidRouteXdr)
+                }
+                Mode::Ppm(idx) if idx as u32 >= weight_count => {
+                    panic_with_error!(env, Error::InvalidRouteXdr)
+                }
+                _ => {}
+            }
+
+            if idx_a >= assets_len || idx_b >= assets_len {
+                panic_with_error!(env, Error::InvalidRouteXdr);
+            }
             // `Prev` is a purely structural link: the predecessor must exist,
             // must have a single output, and that output must be this
             // instruction's input.
@@ -268,22 +281,9 @@ impl Program {
                     // A burn releases every constituent at once.
                     _ => panic_with_error!(env, Error::BrokenTokenChain),
                 };
-                if idx_b != produced as u32 {
+                if !same_token(assets, idx_b, produced as u32) {
                     panic_with_error!(env, Error::BrokenTokenChain);
                 }
-            }
-            match mode {
-                Mode::Fixed(idx) if idx as u32 >= amounts_len => {
-                    panic_with_error!(env, Error::InvalidRouteXdr)
-                }
-                Mode::Ppm(idx) if idx as u32 >= weight_count => {
-                    panic_with_error!(env, Error::InvalidRouteXdr)
-                }
-                _ => {}
-            }
-
-            if idx_a >= assets_len || idx_b >= assets_len {
-                panic_with_error!(env, Error::InvalidRouteXdr);
             }
             match opcode {
                 Opcode::Swap(_) => {

@@ -5,6 +5,7 @@ use crate::core::LendingTest;
 
 pub const DEFAULT_FLASHLOAN_FEE_BPS: i128 = 9;
 
+/// shortcut: rounds net down; use common Bps fee math for new amount assertions.
 pub fn apply_flash_fee(requested_raw: i128) -> i128 {
     requested_raw * (10_000 - DEFAULT_FLASHLOAN_FEE_BPS) / 10_000
 }
@@ -31,6 +32,8 @@ pub fn mock_swap_payload_xdr(
     .to_xdr(env)
 }
 
+/// Mock route input comes from the controller call; `_amount_in` is ignored.
+/// `min_out` is nominal output; transfer fees can reduce the receipt.
 pub fn build_aggregator_swap(
     t: &LendingTest,
     token_in_name: &str,

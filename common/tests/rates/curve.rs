@@ -210,3 +210,52 @@ fn test_utilization_zero_supplied() {
     let env = Env::default();
     assert_eq!(utilization(&env, Ray::from(50 * RAY), Ray::ZERO), Ray::ZERO);
 }
+
+#[test]
+fn test_annual_borrow_rate_region3_uncapped_with_valid_params() {
+    let env = Env::default();
+    let mut raw = make_test_params_raw(&env);
+    raw.slope3 = 500_000_000_000_000_000_000_000_000;
+    raw.verify(&env);
+    let params = MarketParams::from(&raw);
+    let utilization = Ray::from(900_000_000_000_000_000_000_000_000_i128);
+    assert_eq!(
+        calculate_annual_borrow_rate(&env, utilization, &params).raw(),
+        400_000_000_000_000_000_000_000_000
+    );
+}
+
+#[test]
+fn test_utilization_saturates_when_ratio_overflows() {
+    let env = Env::default();
+    let util = utilization(
+        &env,
+        Ray::from(89_945_816_546_977_511_412i128),
+        Ray::from(7_674i128),
+    );
+    assert_eq!(util, Ray::ONE);
+}
+
+#[test]
+fn test_utilization_keeps_largest_representable_ratio() {
+    let env = Env::default();
+    let ratio = 170_141_183_460 * RAY;
+    assert_eq!(
+        utilization(&env, Ray::from(ratio), Ray::ONE),
+        Ray::from(ratio)
+    );
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #33)")]
+fn test_utilization_rejects_negative_borrowed() {
+    let env = Env::default();
+    let _ = utilization(&env, Ray::from(-1i128), Ray::ONE);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #33)")]
+fn test_utilization_rejects_negative_supplied() {
+    let env = Env::default();
+    let _ = utilization(&env, Ray::ONE, Ray::from(-1i128));
+}

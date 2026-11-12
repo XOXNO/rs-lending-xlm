@@ -149,7 +149,7 @@ else:                  rate = base + slope1 + slope2 + half_up(half_up((u − op
 rate = min(rate, max_borrow_rate)
 ```
 
-Each segment adds its full slope at the kink: `slope1` is the total rise from 0 to `mid`, `slope2` from `mid` to `optimal`, `slope3` from `optimal` to 100%. `max_borrow_rate ≤ MAX_BORROW_RATE_RAY = 2 RAY` (200% APR). The result is an **annual RAY fraction**; `get_borrow_rate` returns it as `i128`.
+Each segment adds its full slope at the kink: `slope1` is the total rise from 0 to `mid`, `slope2` from `mid` to `optimal`, `slope3` from `optimal` to 100%. `max_borrow_rate ≤ MAX_BORROW_RATE_RAY = 2 RAY` (200% APR), and validation requires `base + slope1 + slope2 + slope3 ≤ max_borrow_rate`, so the cap never flattens the curve before 100%. The result is an **annual RAY fraction**; `get_borrow_rate` returns it as `i128`.
 
 Worked example with illustrative parameters (not a live market; read live parameters with the pool's `get_sync_data`): base 0.005, slope1 0.03, slope2 0.095, slope3 1.0, mid 0.60, optimal 0.85, max 1.25 (all × RAY):
 
@@ -275,13 +275,13 @@ Risk calculations use each position's stored `loan_to_value` and
 `liquidation_threshold`. Health factor uses the stored liquidation threshold.
 
 Borrow, withdrawal, and strategy risk checks refresh listed collateral LTV
-values first. `get_ltv_collateral_usd` does the same. Supply and non-liquidation
+values first, together with a liquidation tuple that does not favor
+liquidators. `get_ltv_collateral_usd` does the same. Supply and non-liquidation
 withdrawal also refresh eligible liquidation parameters.
 
 `update_account_threshold` refreshes LTV. With `has_risks = true`, it also
 refreshes threshold, bonus, and fees. A change that favors liquidators requires
-hypothetical health factor of at least `1.05 WAD`. With `has_risks = true`, the final health factor must also meet that limit.
-Otherwise, the call fails with `HealthFactorTooLow`.
+hypothetical health factor of at least `1.05 WAD`. With `has_risks = true`, the call fails with `HealthFactorTooLow` only if the refresh lowers the health factor below both `1.05 WAD` and its value before the refresh.
 
 ```text
 for each supply position:

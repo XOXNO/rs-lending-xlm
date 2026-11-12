@@ -75,12 +75,13 @@ const PARTITION_SPAN_MAX_MS: u64 = 2 * MS_PER_YEAR;
 fn make_params(env: &Env, i: &In) -> MarketParamsRaw {
     let cap = MAX_BORROW_RATE_RAY;
 
-    let base = cap * (i.base_pct as i128) / 1_024;
-    let s1 = base + (cap - base) * (i.s1_pct as i128) / 256;
-    let s2 = s1 + (cap - s1) * (i.s2_pct as i128) / 256;
-    let s3 = s2 + (cap - s2) * (i.s3_pct as i128) / 65_536;
+    let base = cap / 4 * (i.base_pct as i128) / 1_024;
+    let s1 = base + ((cap - base) / 3 - base) * (i.s1_pct as i128) / 256;
+    let s2 = s1 + ((cap - base - s1) / 2 - s1) * (i.s2_pct as i128) / 256;
+    let s3 = s2 + (cap - base - s1 - s2 - s2) * (i.s3_pct as i128) / 65_536;
+    let full = base + s1 + s2 + s3;
 
-    let max_rate = (s3 + (cap - s3) * (i.max_pct as i128) / 65_536).max(base + 1);
+    let max_rate = (full + (cap - full) * (i.max_pct as i128) / 65_536).max(base + 1);
 
     let mid = RAY * (i.mid_pct as i128 % 98 + 1) / 100;
     let optimal = mid + (RAY - mid) * (i.opt_pct as i128 % 99 + 1) / 101;

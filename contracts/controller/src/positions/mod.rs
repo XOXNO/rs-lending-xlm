@@ -79,7 +79,7 @@ pub(crate) fn for_each_leg<E, R>(
 }
 
 /// Restamps listed supply LTVs, then checks collateral coverage, health factor,
-/// and minimum borrow collateral. Returns whether any LTV changed.
+/// and minimum borrow collateral. Returns whether any supply position changed.
 pub(crate) fn enforce_post_pool_solvency(
     env: &Env,
     cache: &mut Context,

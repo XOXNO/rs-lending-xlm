@@ -52,8 +52,8 @@ fn test_compound_interest_high_x_pins_all_taylor_terms() {
     );
 }
 
-/// The Taylor-term loop in `compound_interest` equals a hand-unrolled `x^2..x^8` expansion
-/// bit for bit across the supported rate and elapsed-time domain.
+/// Pins Taylor-term wiring against an unrolled expansion at sampled rates/times,
+/// including stress rates; both paths share the Ray primitives.
 #[test]
 fn test_compound_interest_matches_the_unrolled_taylor_expansion() {
     fn unrolled(env: &Env, x: Ray) -> Ray {
@@ -101,4 +101,11 @@ fn test_compound_interest_matches_the_unrolled_taylor_expansion() {
             );
         }
     }
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #33)")]
+fn test_compound_interest_scaled_exponent_overflow_is_math_overflow() {
+    let env = Env::default();
+    let _ = compound_interest(&env, Ray::from(i128::MAX), 2);
 }
