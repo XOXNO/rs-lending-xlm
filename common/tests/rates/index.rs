@@ -1,6 +1,9 @@
 use super::*;
-use crate::constants::{MAX_BORROW_RATE_RAY, MILLISECONDS_PER_YEAR, RAY, SUPPLY_INDEX_FLOOR_RAW};
+use crate::constants::{
+    BPS, MAX_BORROW_RATE_RAY, MILLISECONDS_PER_YEAR, RAY, SUPPLY_INDEX_FLOOR_RAW,
+};
 use crate::math::reference as fp_core;
+use crate::math::test_support::{floor_of, half_up_of, Sampler};
 use crate::rates::compound::{compound_interest, MAX_COMPOUND_DELTA_MS};
 use crate::rates::test_support::*;
 use soroban_sdk::Env;
@@ -525,4 +528,148 @@ fn test_supply_index_shares_the_borrow_index_ceiling() {
     assert_eq!(MAX_BORROW_INDEX_RAY / RAY, 1_000_000_000);
     // And the floor is 1e-3, so the supply index spans twelve decades.
     assert_eq!(RAY / SUPPLY_INDEX_FLOOR_RAW, 1_000);
+}
+
+/// `update_supply_index` as documented: the half-up supplied value plus the
+/// rewards, divided back by the shares rounding down and saturating, then
+/// held between the old index and the ceiling.
+fn exact_supply_index(supplied: i128, old_index: i128, rewards: i128) -> Option<i128> {
+    if supplied == 0 || rewards == 0 {
+        return Some(old_index);
+    }
+    let value = half_up_of(supplied, old_index, RAY)?;
+    if value == 0 {
+        return Some(old_index);
+    }
+    let grown = floor_of(value.checked_add(rewards)?, RAY, supplied).unwrap_or(i128::MAX);
+    Some(
+        grown
+            .min(MAX_SUPPLY_INDEX_RAY)
+            .max(old_index.min(MAX_SUPPLY_INDEX_RAY)),
+    )
+}
+
+/// `supply_index_reward_shortfall` as documented: the rewards less the growth
+/// in half-up supplied value. `None` when a value does not fit or either
+/// difference would be negative.
+fn exact_shortfall(
+    supplied: i128,
+    old_index: i128,
+    new_index: i128,
+    rewards: i128,
+) -> Option<i128> {
+    let old_value = half_up_of(supplied, old_index, RAY)?;
+    let distributed = half_up_of(supplied, new_index, RAY)? - old_value;
+    (0..=rewards)
+        .contains(&distributed)
+        .then(|| rewards - distributed)
+}
+
+/// `calculate_supplier_rewards` as documented: the growth in half-up debt
+/// value, split by a half-up reserve-factor fee. Returns `(rewards, fee)`.
+fn exact_interest_split(
+    borrowed: i128,
+    new_index: i128,
+    old_index: i128,
+    reserve_factor: i128,
+) -> Option<(i128, i128)> {
+    let old_debt = half_up_of(borrowed, old_index, RAY)?;
+    let accrued = half_up_of(borrowed, new_index, RAY)? - old_debt;
+    let fee = half_up_of(accrued, reserve_factor, BPS)?;
+    Some((accrued - fee, fee))
+}
+
+#[test]
+fn exact_index_updates_round_as_documented_or_report_overflow() {
+    let env = unmetered_env();
+    let mut sampler = Sampler::new(41);
+    for _ in 0..3_000 {
+        // A live index grown by one chunk, then any pair of non-negative values.
+        let live = (sample_index(&mut sampler), RAY + sampler.at_most(8 * RAY));
+        for (old_index, factor) in [live, (sampler.non_negative(), sampler.non_negative())] {
+            assert_exact(
+                &env,
+                half_up_of(old_index, factor, RAY).map(|grown| grown.min(MAX_BORROW_INDEX_RAY)),
+                |env| update_borrow_index(env, Ray::from(old_index), Ray::from(factor)).raw(),
+                (old_index, factor),
+            );
+        }
+
+        let (supplied, rewards) = (sampler.non_negative(), sampler.non_negative());
+        // One case in eight starts from any value, including one above the
+        // ceiling, which the clamp must still handle.
+        let old_index = if sampler.below(8) == 0 {
+            sampler.non_negative()
+        } else {
+            sample_index(&mut sampler)
+        };
+        let case = (supplied, old_index, rewards);
+        let new_index = exact_supply_index(supplied, old_index, rewards);
+        assert_exact(
+            &env,
+            new_index,
+            |env| {
+                update_supply_index(
+                    env,
+                    Ray::from(supplied),
+                    Ray::from(old_index),
+                    Ray::from(rewards),
+                )
+                .raw()
+            },
+            case,
+        );
+        if let Some(new_index) = new_index {
+            let shortfall = exact_shortfall(supplied, old_index, new_index, rewards);
+            // From an index within the ceiling, the index never distributes
+            // more than the rewards, so the shortfall is always defined.
+            if old_index <= MAX_SUPPLY_INDEX_RAY && half_up_of(supplied, old_index, RAY).is_some() {
+                assert!(shortfall.is_some(), "{case:?} -> {new_index}");
+            }
+            assert_exact(
+                &env,
+                shortfall,
+                |env| {
+                    supply_index_reward_shortfall(
+                        env,
+                        Ray::from(supplied),
+                        Ray::from(old_index),
+                        Ray::from(new_index),
+                        Ray::from(rewards),
+                    )
+                    .raw()
+                },
+                (case, new_index),
+            );
+        }
+
+        let (fee, index) = (sampler.non_negative(), sample_index(&mut sampler));
+        assert_eq!(
+            protocol_fee_shares(&env, Ray::from(fee), Ray::from(index), Ray::from(supplied)).raw(),
+            floor_of(fee, RAY, index)
+                .unwrap_or(i128::MAX)
+                .min(i128::MAX - supplied),
+            "fee {fee} at index {index} with {supplied} supplied"
+        );
+
+        let params = sample_params(&env, &mut sampler);
+        let borrowed = sampler.non_negative();
+        let old_index = sample_index(&mut sampler);
+        let new_index = old_index + sampler.at_most(old_index);
+        assert_exact(
+            &env,
+            exact_interest_split(borrowed, new_index, old_index, params.reserve_factor.raw()),
+            |env| {
+                let (rewards, fee) = calculate_supplier_rewards(
+                    env,
+                    &params,
+                    Ray::from(borrowed),
+                    Ray::from(new_index),
+                    Ray::from(old_index),
+                );
+                (rewards.raw(), fee.raw())
+            },
+            (borrowed, new_index, old_index, params.reserve_factor),
+        );
+    }
 }

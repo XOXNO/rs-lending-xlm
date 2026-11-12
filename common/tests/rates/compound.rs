@@ -1,5 +1,7 @@
 use super::*;
-use crate::constants::{MILLISECONDS_PER_YEAR, RAY};
+use crate::constants::{MAX_BORROW_RATE_RAY, MILLISECONDS_PER_YEAR, RAY};
+use crate::math::test_support::{half_up_of, Sampler};
+use crate::rates::test_support::{assert_exact, unmetered_env};
 use soroban_sdk::Env;
 
 #[test]
@@ -108,4 +110,90 @@ fn test_compound_interest_matches_the_unrolled_taylor_expansion() {
 fn test_compound_interest_scaled_exponent_overflow_is_math_overflow() {
     let env = Env::default();
     let _ = compound_interest(&env, Ray::from(i128::MAX), 2);
+}
+
+/// The documented series, computed exactly: `1 + x + sum(x^k / k!)` for `k`
+/// in `2..=8` with `x = rate * delta_ms`, every power and every term rounded
+/// half up. `None` when a step does not fit `i128`.
+fn exact_compound(rate: i128, delta_ms: u64) -> Option<i128> {
+    if delta_ms == 0 {
+        return Some(RAY);
+    }
+    let x = rate.checked_mul(i128::from(delta_ms))?;
+    let mut sum = RAY.checked_add(x)?;
+    let (mut power, mut factorial) = (x, 1);
+    for k in 2..=8 {
+        factorial *= k;
+        power = half_up_of(power, x, RAY)?;
+        sum = sum.checked_add(half_up_of(power, 1, factorial)?)?;
+    }
+    Some(sum)
+}
+
+#[test]
+fn exact_compound_interest_matches_the_rounded_taylor_series() {
+    let env = unmetered_env();
+    let check = |rate: i128, delta_ms: u64| {
+        assert_exact(
+            &env,
+            exact_compound(rate, delta_ms),
+            |env| compound_interest(env, Ray::from(rate), delta_ms).raw(),
+            (rate, delta_ms),
+        );
+    };
+    let year = i128::from(MILLISECONDS_PER_YEAR);
+
+    check(0, 1);
+    check(0, u64::MAX);
+    check(1, 1);
+    // The largest exponent the protocol reaches: the rate cap over one full chunk.
+    let capped_rate = half_up_of(MAX_BORROW_RATE_RAY, 1, year).unwrap();
+    check(capped_rate, MAX_COMPOUND_DELTA_MS);
+
+    let mut sampler = Sampler::new(21);
+    for _ in 0..4_000 {
+        // The protocol domain: a per-millisecond rate under the cap, over at
+        // most one chunk.
+        let rate = half_up_of(sampler.at_most(MAX_BORROW_RATE_RAY), 1, year).unwrap();
+        check(rate, sampler.at_most(year) as u64);
+    }
+    for _ in 0..1_000 {
+        // Exponents up to 64: the eighth power stops fitting `i128` near 25.
+        check(sampler.at_most(64 * RAY), 1);
+        // Any rate over any interval is exact or a typed overflow.
+        check(
+            sampler.non_negative(),
+            sampler.at_most(i128::from(u64::MAX)) as u64,
+        );
+    }
+}
+
+/// One year at each rate the doc comment quotes. `exp` is `e^x * RAY` for the
+/// exponent the function uses, `x = half_up(annual / year) * year`, computed
+/// to 80 digits outside the crate. The relative shortfall, rounded to three
+/// significant digits, is the documented figure.
+#[test]
+fn compound_interest_shortfall_against_exp_matches_the_documented_figures() {
+    let env = Env::default();
+    // (annual rate, exp, shortfall digits, negated power of ten)
+    let cases: [(i128, i128, i128, u32); 4] = [
+        (2 * RAY, 7_389_056_098_930_650_222_963_158_895, 237, 6),
+        (RAY, 2_718_281_828_459_045_234_575_367_284, 113, 8),
+        (RAY / 5, 1_221_402_758_160_169_841_559_277_811, 118, 14),
+        (RAY / 20, 1_051_271_096_376_024_049_634_804_853, 515, 20),
+    ];
+    for (annual, exp, digits, power) in cases {
+        let rate = Ray::from(annual).div_by_int(&env, i128::from(MILLISECONDS_PER_YEAR));
+        let factor = compound_interest(&env, rate, MILLISECONDS_PER_YEAR).raw();
+        let shortfall = exp - factor;
+        assert!(
+            shortfall > 0,
+            "annual rate {annual}: truncation underestimates"
+        );
+        assert_eq!(
+            (shortfall * 10i128.pow(power) + exp / 2) / exp,
+            digits,
+            "annual rate {annual}: relative shortfall in units of 1e-{power}"
+        );
+    }
 }

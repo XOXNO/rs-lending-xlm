@@ -1,5 +1,8 @@
 use super::*;
-use crate::constants::{MILLISECONDS_PER_YEAR, RAY, SUPPLY_INDEX_FLOOR_RAW};
+use crate::constants::{
+    MAX_BORROW_INDEX_RAY, MAX_SUPPLY_INDEX_RAY, MILLISECONDS_PER_YEAR, RAY, SUPPLY_INDEX_FLOOR_RAW,
+};
+use crate::math::test_support::{half_up_of, Sampler};
 use crate::rates::test_support::*;
 use crate::types::PoolStateRaw;
 use soroban_sdk::Env;
@@ -254,6 +257,60 @@ fn test_split_accrual_never_reduces_borrow_index() {
         split.borrow_index.raw(),
         single.borrow_index.raw()
     );
+}
+
+/// One step never moves an index backwards or past its ceiling, and never
+/// credits the supply side with more value than it charged the debt side.
+/// Values are the half-up `shares * index` the pool reports, computed by the
+/// exact reference, and the supply side includes the step's revenue shares.
+#[test]
+fn exact_accrual_step_never_credits_more_value_than_it_charges() {
+    let env = unmetered_env();
+    let value = |scaled: i128, index: i128| half_up_of(scaled, index, RAY).unwrap();
+    let mut sampler = Sampler::new(71);
+    for _ in 0..3_000 {
+        let params = sample_params(&env, &mut sampler);
+        let borrow_index = RAY + sampler.at_most(MAX_BORROW_INDEX_RAY - RAY);
+        let supply_index = sample_index(&mut sampler);
+        // One chunk grows debt by less than eight times, so a sixteenth of
+        // the range keeps every value in the step inside `i128`.
+        let borrowed = sampler.at_most(i128::MAX / 16 / (borrow_index / RAY + 1));
+        let supplied = sampler.at_most(i128::MAX / 16 / (supply_index / RAY + 1));
+        let delta_ms = sampler.at_most(i128::from(MAX_COMPOUND_DELTA_MS)) as u64;
+        let case = (borrowed, supplied, borrow_index, supply_index, delta_ms);
+
+        let step = accrue_step(
+            &env,
+            &params,
+            Ray::from(borrowed),
+            Ray::from(supplied),
+            Ray::from(borrow_index),
+            Ray::from(supply_index),
+            delta_ms,
+        );
+        let (new_borrow_index, new_supply_index, revenue_shares) = (
+            step.borrow_index.raw(),
+            step.supply_index.raw(),
+            step.revenue_shares.raw(),
+        );
+        assert!(
+            (borrow_index..=MAX_BORROW_INDEX_RAY).contains(&new_borrow_index),
+            "{case:?} under {params:?}: borrow index {new_borrow_index}"
+        );
+        assert!(
+            (supply_index..=MAX_SUPPLY_INDEX_RAY).contains(&new_supply_index),
+            "{case:?} under {params:?}: supply index {new_supply_index}"
+        );
+        assert!(revenue_shares >= 0, "{case:?} under {params:?}");
+
+        let charged = value(borrowed, new_borrow_index) - value(borrowed, borrow_index);
+        let credited =
+            value(supplied + revenue_shares, new_supply_index) - value(supplied, supply_index);
+        assert!(
+            credited <= charged,
+            "{case:?} under {params:?}: credited {credited}, charged {charged}"
+        );
+    }
 }
 
 // --- accrue_step boundaries (GH-04) ---------------------------------------

@@ -1,7 +1,9 @@
 use super::*;
-use crate::constants::{MILLISECONDS_PER_YEAR, RAY};
+use crate::constants::{BPS, MAX_BORROW_RATE_RAY, MILLISECONDS_PER_YEAR, RAY};
 use crate::math::reference::div_by_int_half_up;
+use crate::math::test_support::{half_up_of, Sampler};
 use crate::rates::test_support::*;
+use crate::types::MarketParamsRaw;
 use soroban_sdk::Env;
 
 #[test]
@@ -258,4 +260,164 @@ fn test_utilization_rejects_negative_borrowed() {
 fn test_utilization_rejects_negative_supplied() {
     let env = Env::default();
     let _ = utilization(&env, Ray::ONE, Ray::from(-1i128));
+}
+
+/// The capped annual rate as documented: each segment adds
+/// `slope * excess / width`, rounded half up once.
+fn exact_curve_rate(utilization: i128, params: &MarketParams) -> Option<i128> {
+    let utilization = utilization.min(RAY);
+    let (mid, optimal) = (
+        params.mid_utilization.raw(),
+        params.optimal_utilization.raw(),
+    );
+    let (base, slope1, slope2, slope3) = (
+        params.base_borrow_rate.raw(),
+        params.slope1.raw(),
+        params.slope2.raw(),
+        params.slope3.raw(),
+    );
+    let rate = if utilization < mid {
+        base + half_up_of(utilization, slope1, mid)?
+    } else if utilization < optimal {
+        base + slope1 + half_up_of(utilization - mid, slope2, optimal - mid)?
+    } else {
+        base + slope1 + slope2 + half_up_of(utilization - optimal, slope3, RAY - optimal)?
+    };
+    Some(rate.min(params.max_borrow_rate.raw()))
+}
+
+/// A top segment one unit wide adds exactly its slope at full utilization.
+/// Rounding the product before the divide would scale that rounding error by
+/// `RAY / width` and turn this 60% slope into 100%.
+#[test]
+fn borrow_rate_on_a_one_unit_segment_adds_exactly_its_slope() {
+    let env = Env::default();
+    let params = MarketParams::from(&MarketParamsRaw {
+        base_borrow_rate: 0,
+        slope1: 0,
+        slope2: 0,
+        slope3: RAY * 6 / 10,
+        max_borrow_rate: MAX_BORROW_RATE_RAY,
+        mid_utilization: RAY / 2,
+        optimal_utilization: RAY - 1,
+        max_utilization: RAY,
+        ..make_test_params_raw(&env)
+    });
+
+    let below = calculate_annual_borrow_rate(&env, Ray::from(RAY - 1), &params);
+    let full = calculate_annual_borrow_rate(&env, Ray::ONE, &params);
+    assert_eq!(below, Ray::ZERO);
+    assert_eq!(full, params.slope3);
+}
+
+#[test]
+fn exact_borrow_rate_follows_the_piecewise_curve() {
+    let env = unmetered_env();
+    let year = i128::from(MILLISECONDS_PER_YEAR);
+    let mut sampler = Sampler::new(31);
+    for _ in 0..2_000 {
+        let mut params = sample_params(&env, &mut sampler);
+        // Listing validation keeps the cap above the curve. Half the cases
+        // lower it into the curve, which the function must still honour.
+        if sampler.below(2) == 0 {
+            params.max_borrow_rate = Ray::from(sampler.at_most(params.max_borrow_rate.raw()));
+        }
+        let (mid, optimal) = (
+            params.mid_utilization.raw(),
+            params.optimal_utilization.raw(),
+        );
+        let annual_at = |utilization: i128| {
+            calculate_annual_borrow_rate(&env, Ray::from(utilization), &params).raw()
+        };
+
+        let mut utilizations = [
+            0,
+            sampler.at_most(mid),
+            mid - 1,
+            mid,
+            mid + sampler.at_most(optimal - mid),
+            optimal - 1,
+            optimal,
+            optimal + sampler.at_most(RAY - optimal),
+            RAY - 1,
+            RAY,
+            RAY + 1 + sampler.at_most(RAY),
+        ];
+        utilizations.sort_unstable();
+        let mut previous = 0;
+        for utilization in utilizations {
+            let annual = annual_at(utilization);
+            assert_eq!(
+                Some(annual),
+                exact_curve_rate(utilization, &params),
+                "utilization {utilization} under {params:?}"
+            );
+            // The rate never falls as utilization rises, inside a segment or
+            // across a kink.
+            assert!(
+                annual >= previous,
+                "utilization {utilization} under {params:?}: {annual} after {previous}"
+            );
+            previous = annual;
+
+            assert_eq!(
+                Some(calculate_borrow_rate(&env, Ray::from(utilization), &params).raw()),
+                half_up_of(annual, 1, year),
+                "utilization {utilization} under {params:?}"
+            );
+        }
+
+        // Each kink sits exactly on the sum of the slopes below it, up to the cap.
+        let cap = params.max_borrow_rate.raw();
+        let after_slope1 = params.base_borrow_rate.raw() + params.slope1.raw();
+        let after_slope2 = after_slope1 + params.slope2.raw();
+        let after_slope3 = after_slope2 + params.slope3.raw();
+        assert_eq!(annual_at(mid), after_slope1.min(cap), "{params:?}");
+        assert_eq!(annual_at(optimal), after_slope2.min(cap), "{params:?}");
+        assert_eq!(annual_at(RAY), after_slope3.min(cap), "{params:?}");
+    }
+}
+
+#[test]
+fn exact_utilization_and_deposit_rate_round_half_up() {
+    let env = unmetered_env();
+    let mut sampler = Sampler::new(32);
+    for _ in 0..5_000 {
+        // Any non-negative pair: a ratio beyond `i128` reads as full utilization.
+        let (borrowed, supplied) = (sampler.non_negative(), sampler.non_negative());
+        let expected = if supplied == 0 {
+            0
+        } else {
+            half_up_of(borrowed, RAY, supplied).unwrap_or(RAY)
+        };
+        assert_eq!(
+            utilization(&env, Ray::from(borrowed), Ray::from(supplied)).raw(),
+            expected,
+            "{borrowed} borrowed against {supplied} supplied"
+        );
+
+        let (used, rate) = (
+            sampler.at_most(2 * RAY),
+            sampler.at_most(MAX_BORROW_RATE_RAY),
+        );
+        // From one below to one above the accepted `0..BPS` range.
+        let reserve_factor = sampler.at_most(BPS + 1) - 1;
+        let expected = if used == 0 || !(0..BPS).contains(&reserve_factor) {
+            Some(0)
+        } else {
+            half_up_of(used, rate, RAY)
+                .and_then(|rate_x_util| half_up_of(rate_x_util, BPS - reserve_factor, BPS))
+        };
+        let deposit_rate = calculate_deposit_rate(
+            &env,
+            Ray::from(used),
+            Ray::from(rate),
+            Bps::from(reserve_factor),
+        );
+        assert_eq!(
+            Some(deposit_rate.raw()),
+            expected,
+            "utilization {used}, rate {rate}, reserve factor {reserve_factor}"
+        );
+    }
 }

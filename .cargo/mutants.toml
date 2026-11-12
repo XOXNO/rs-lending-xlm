@@ -34,6 +34,30 @@ exclude_re = [
     # `rescale` returns early when the decimal counts are equal, so the
     # upscale/downscale branch never sees equal operands.
     "fp_core.rs:[0-9]+:20: replace > with >= in rescale$",
+    # `quotient_is_negative` returns false before the sign test when `x` or `y`
+    # is zero, and every caller rejects a zero `d` first, so `< 0` and `<= 0`
+    # agree on each operand.
+    "fp_core.rs:[0-9]+:(9|20|32): replace < with <= in quotient_is_negative$",
+    # `div_floor_i128` and `div_ceil_i128` compare signs only after `p % d != 0`,
+    # which excludes `p == 0`, and after `checked_div` has returned `None` for
+    # `d == 0`.
+    "fp_core.rs:[0-9]+:(26|37): replace < with <= in div_floor_i128$",
+    "fp_core.rs:[0-9]+:(26|37): replace < with <= in div_ceil_i128$",
+    # The `I256` forms compare signs only after a nonzero `rem_euclid`, which
+    # excludes `p == 0`, and after `div`, which traps on `d == 0`.
+    "fp_core.rs:[0-9]+:(39|54): replace < with <= in div_floor_i256$",
+    "fp_core.rs:[0-9]+:(37|52): replace < with <= in div_ceil_i256$",
+    # `div_by_int_half_up` panics with `DivisionByZero` before the sign check,
+    # so `b < 0` and `b <= 0` reject the same divisors.
+    "fp_core.rs:[0-9]+:10: replace < with <= in div_by_int_half_up$",
+    # `utilization` returns zero for `supplied == 0` before the sign check, so
+    # `supplied < 0` and `supplied <= 0` reject the same values.
+    "curve.rs:[0-9]+:41: replace < with <= in utilization$",
+    # At `utilization == mid_utilization` the first segment contributes
+    # `slope1` exactly, the value the second segment starts from, and likewise
+    # at `optimal_utilization`. `InterestRateModel::verify` requires
+    # `0 < mid < optimal < RAY`, so neither segment divides by zero there.
+    "curve.rs:[0-9]+:(27|38): replace < with <= in calculate_annual_borrow_rate$",
     "observation.rs:[0-9]+:14: replace > with >= in is_stale",
     "replace > with >= in calculate_annual_borrow_rate",
     "replace > with >= in update_borrow_index",

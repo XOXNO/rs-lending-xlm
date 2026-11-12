@@ -1,4 +1,8 @@
 use super::*;
+use crate::math::test_support::{
+    ceil_fits, ceil_of, floor_fits, floor_of, half_up_fits, half_up_of, is_ceil, is_floor,
+    is_half_away, is_half_up, is_rescaled, rescale_fits, Rounding, Sampler, Wide,
+};
 use soroban_sdk::Env;
 
 #[test]
@@ -1131,4 +1135,345 @@ fn mul_ratio_ceil_never_exceeds_the_base_when_ratio_is_at_most_one() {
             );
         }
     }
+}
+
+/// Every wrapper applies the rounding its name states at the scale its type
+/// names. Operands are seeded random values of every magnitude; a result is
+/// checked whenever the exact value is representable, against the inequalities
+/// in `test_support` rather than against the primitive the wrapper calls.
+#[test]
+fn exact_wrappers_apply_the_named_rounding_at_the_named_scale() {
+    let env = Env::default();
+    env.cost_estimate().budget().reset_unlimited();
+    let mut sampler = Sampler::new(6);
+
+    for _ in 0..4_000 {
+        // `a` is the receiver, `o` the other operand or divisor, `k` a second
+        // divisor, `signed` a receiver for the operations that accept any sign.
+        let (a, o, k) = (
+            sampler.non_negative(),
+            sampler.non_negative().max(1),
+            sampler.non_negative().max(1),
+        );
+        let signed = sampler.signed();
+        let decimals = sampler.below(46);
+        let (ray, wad, bps) = (Ray::from(a), Wad::from(a), Bps::from(a));
+
+        macro_rules! exact {
+            ($fits:expr, $result:expr, |$q:ident| $holds:expr) => {
+                if $fits {
+                    let $q: i128 = $result;
+                    assert!(
+                        $holds,
+                        "{} = {} (a = {a}, o = {o}, k = {k}, signed = {signed}, decimals = {decimals})",
+                        stringify!($result),
+                        $q
+                    );
+                }
+            };
+        }
+
+        // Multiplication divides the product by the scale; division multiplies
+        // the receiver by the scale and divides by the other operand.
+        for (scale, product, scaled) in [
+            (RAY, Wide::product(a, o), Wide::product(a, RAY)),
+            (WAD, Wide::product(a, o), Wide::product(a, WAD)),
+        ] {
+            let is_ray = scale == RAY;
+            exact!(
+                half_up_fits(product, scale),
+                if is_ray {
+                    ray.mul(&env, Ray::from(o)).raw()
+                } else {
+                    wad.mul(&env, Wad::from(o)).raw()
+                },
+                |q| is_half_up(q, product, scale)
+            );
+            exact!(
+                floor_fits(product, scale),
+                if is_ray {
+                    ray.mul_floor(&env, Ray::from(o)).raw()
+                } else {
+                    wad.mul_floor(&env, Wad::from(o)).raw()
+                },
+                |q| is_floor(q, product, scale)
+            );
+            exact!(
+                ceil_fits(product, scale),
+                if is_ray {
+                    ray.mul_ceil(&env, Ray::from(o)).raw()
+                } else {
+                    wad.mul_ceil(&env, Wad::from(o)).raw()
+                },
+                |q| is_ceil(q, product, scale)
+            );
+            exact!(
+                half_up_fits(scaled, o),
+                if is_ray {
+                    ray.div(&env, Ray::from(o)).raw()
+                } else {
+                    wad.div(&env, Wad::from(o)).raw()
+                },
+                |q| is_half_up(q, scaled, o)
+            );
+            exact!(
+                floor_fits(scaled, o),
+                if is_ray {
+                    ray.div_floor(&env, Ray::from(o)).raw()
+                } else {
+                    wad.div_floor(&env, Wad::from(o)).raw()
+                },
+                |q| is_floor(q, scaled, o)
+            );
+        }
+
+        let ray_product = Wide::product(a, o);
+        let ray_scaled = Wide::product(a, RAY);
+        exact!(
+            ceil_fits(ray_scaled, o),
+            ray.div_ceil(&env, Ray::from(o)).raw(),
+            |q| is_ceil(q, ray_scaled, o)
+        );
+        exact!(
+            half_up_fits(ray_scaled, o),
+            Ray::from_fraction(&env, a, o).raw(),
+            |q| is_half_up(q, ray_scaled, o)
+        );
+        exact!(
+            ceil_fits(ray_product, k),
+            ray.mul_ratio_ceil(&env, o, k).raw(),
+            |q| is_ceil(q, ray_product, k)
+        );
+        exact!(true, Ray::from(signed).div_by_int(&env, o).raw(), |q| {
+            is_half_away(q, Wide::from(signed), o)
+        });
+
+        // `try_mul` is `Some` exactly when the half-up product is representable,
+        // and the saturating division clamps exactly when the floor is not.
+        let wad_product = Wide::product(a, o);
+        let tried = wad.try_mul(&env, Wad::from(o)).map(Wad::raw);
+        assert_eq!(tried.is_some(), half_up_fits(wad_product, WAD), "{a} * {o}");
+        exact!(tried.is_some(), tried.unwrap(), |q| is_half_up(
+            q,
+            wad_product,
+            WAD
+        ));
+        let wad_scaled = Wide::product(a, WAD);
+        exact!(
+            true,
+            wad.div_floor_saturating(&env, Wad::from(o)).raw(),
+            |q| if floor_fits(wad_scaled, o) {
+                is_floor(q, wad_scaled, o)
+            } else {
+                q == i128::MAX
+            }
+        );
+
+        // Decimal conversions: exact when upscaling, the named rounding when
+        // downscaling, for a receiver of either sign.
+        let (ray_any, wad_any) = (Ray::from(signed), Wad::from(signed));
+        exact!(true, ray_any.to_wad(&env).raw(), |q| {
+            is_rescaled(q, signed, RAY_DECIMALS, WAD_DECIMALS, Rounding::HalfAway)
+        });
+        exact!(true, ray_any.to_wad_floor(&env).raw(), |q| {
+            is_rescaled(q, signed, RAY_DECIMALS, WAD_DECIMALS, Rounding::TowardZero)
+        });
+        exact!(true, ray_any.to_wad_ceil(&env).raw(), |q| {
+            is_rescaled(q, signed, RAY_DECIMALS, WAD_DECIMALS, Rounding::Ceil)
+        });
+        exact!(
+            rescale_fits(signed, WAD_DECIMALS, RAY_DECIMALS),
+            wad_any.to_ray(&env).raw(),
+            |q| is_rescaled(q, signed, WAD_DECIMALS, RAY_DECIMALS, Rounding::HalfAway)
+        );
+        let from_ray = rescale_fits(signed, RAY_DECIMALS, decimals);
+        exact!(from_ray, ray_any.to_asset(&env, decimals), |q| {
+            is_rescaled(q, signed, RAY_DECIMALS, decimals, Rounding::HalfAway)
+        });
+        exact!(from_ray, ray_any.to_asset_floor(&env, decimals), |q| {
+            is_rescaled(q, signed, RAY_DECIMALS, decimals, Rounding::TowardZero)
+        });
+        exact!(from_ray, ray_any.to_asset_ceil(&env, decimals), |q| {
+            is_rescaled(q, signed, RAY_DECIMALS, decimals, Rounding::Ceil)
+        });
+        exact!(
+            rescale_fits(signed, decimals, RAY_DECIMALS),
+            Ray::from_asset(&env, signed, decimals).raw(),
+            |q| is_rescaled(q, signed, decimals, RAY_DECIMALS, Rounding::HalfAway)
+        );
+        let from_wad = rescale_fits(signed, WAD_DECIMALS, decimals);
+        exact!(from_wad, wad_any.to_token(&env, decimals), |q| {
+            is_rescaled(q, signed, WAD_DECIMALS, decimals, Rounding::HalfAway)
+        });
+        exact!(from_wad, wad_any.to_token_floor(&env, decimals), |q| {
+            is_rescaled(q, signed, WAD_DECIMALS, decimals, Rounding::TowardZero)
+        });
+        exact!(
+            rescale_fits(signed, decimals, WAD_DECIMALS),
+            Wad::from_token(&env, signed, decimals).raw(),
+            |q| is_rescaled(q, signed, decimals, WAD_DECIMALS, Rounding::HalfAway)
+        );
+
+        // Basis points: the receiver is the rate, `o` the amount it applies to.
+        let rated = Wide::product(o, a);
+        let rated_fits = half_up_fits(rated, BPS);
+        exact!(rated_fits, bps.apply_to(&env, o), |q| is_half_up(
+            q, rated, BPS
+        ));
+        exact!(
+            rated_fits,
+            bps.apply_to_ray(&env, Ray::from(o)).raw(),
+            |q| { is_half_up(q, rated, BPS) }
+        );
+        exact!(rated_fits, bps.flash_loan_fee_on(&env, o), |q| {
+            if a > 0 && is_half_up(0, rated, BPS) {
+                q == 1
+            } else {
+                is_half_up(q, rated, BPS)
+            }
+        });
+        let ratio_exact = Wide::product(a, WAD);
+        if half_up_fits(ratio_exact, BPS) {
+            let ratio = bps.to_wad(&env).raw();
+            assert!(
+                is_half_up(ratio, ratio_exact, BPS),
+                "Bps({a}).to_wad() = {ratio}"
+            );
+            let applied = Wide::product(o, ratio);
+            exact!(
+                half_up_fits(applied, WAD),
+                bps.apply_to_wad(&env, Wad::from(o)).raw(),
+                |q| is_half_up(q, applied, WAD)
+            );
+            exact!(
+                floor_fits(applied, WAD),
+                bps.apply_to_wad_floor(&env, Wad::from(o)).raw(),
+                |q| is_floor(q, applied, WAD)
+            );
+        }
+    }
+}
+
+/// The ratio, fraction and saturating wrappers each round once, in the
+/// direction they are named for, on the exact product of their operands.
+/// The `try_` forms are `None` exactly when that result is not representable.
+#[test]
+fn exact_ratio_and_fraction_wrappers_round_once_in_their_named_direction() {
+    let env = Env::default();
+    env.cost_estimate().budget().reset_unlimited();
+    let mut sampler = Sampler::new(7);
+
+    for _ in 0..4_000 {
+        // `a` is the receiver, `o` and `k` the other operands or divisors,
+        // `signed` a numerator of either sign.
+        let (a, o, k) = (
+            sampler.non_negative(),
+            sampler.non_negative().max(1),
+            sampler.non_negative().max(1),
+        );
+        let signed = sampler.signed();
+        let decimals = sampler.below(46);
+        let (ray, wad, bps) = (Ray::from(a), Wad::from(a), Bps::from(a));
+
+        // Compares a panicking wrapper with the exact result where one exists.
+        macro_rules! exact {
+            ($expected:expr, $result:expr) => {
+                if let Some(expected) = $expected {
+                    assert_eq!(
+                        $result,
+                        expected,
+                        "{} (a = {a}, o = {o}, k = {k}, decimals = {decimals})",
+                        stringify!($result)
+                    );
+                }
+            };
+        }
+
+        // Ratios multiply first and divide once by the denominator.
+        exact!(
+            half_up_of(a, o, k),
+            ray.mul_ray_ratio(&env, Ray::from(o), Ray::from(k)).raw()
+        );
+        exact!(
+            floor_of(a, o, k),
+            ray.mul_wad_ratio_floor(&env, Wad::from(o), Wad::from(k))
+                .raw()
+        );
+        exact!(floor_of(a, o, k), wad.mul_ratio_floor(&env, o, k).raw());
+        exact!(
+            floor_of(o, a, k),
+            wad.apply_ratio_to_amount_floor(&env, Wad::from(k), o)
+        );
+        exact!(a.checked_mul(o), ray.mul_int(&env, o).raw());
+
+        // Divisions scale the receiver up first; fractions scale the numerator.
+        assert_eq!(
+            ray.try_div(&env, Ray::from(o)).map(Ray::raw),
+            half_up_of(a, RAY, o),
+            "Ray({a}).try_div({o})"
+        );
+        exact!(ceil_of(a, WAD, o), wad.div_ceil(&env, Wad::from(o)).raw());
+        exact!(half_up_of(a, BPS, o), bps.div(&env, Bps::from(o)).raw());
+        let (numerator, denominator) = (Wad::from(a), Wad::from(o));
+        exact!(
+            floor_of(a, BPS, o),
+            Bps::from_fraction_floor(&env, numerator, denominator).raw()
+        );
+        exact!(
+            ceil_of(a, BPS, o),
+            Bps::from_fraction_ceil(&env, numerator, denominator).raw()
+        );
+        assert_eq!(
+            Bps::try_from_fraction(&env, numerator, denominator).map(Bps::raw),
+            half_up_of(a, BPS, o),
+            "Bps::try_from_fraction({a}, {o})"
+        );
+        let weighted = Bps::from_weighted_sum(&env, signed, Wad::from(o)).raw();
+        assert!(
+            is_half_away(weighted, Wide::from(signed), o),
+            "Bps::from_weighted_sum({signed}, {o}) = {weighted}"
+        );
+
+        // The saturating forms clamp to `i128::MAX` exactly when the floor
+        // of a non-negative result does not fit.
+        assert_eq!(
+            ray.div_floor_saturating(&env, Ray::from(o)).raw(),
+            floor_of(a, RAY, o).unwrap_or(i128::MAX),
+            "Ray({a}).div_floor_saturating({o})"
+        );
+        assert_eq!(
+            wad.mul_floor_saturating(&env, Wad::from(o)).raw(),
+            floor_of(a, o, WAD).unwrap_or(i128::MAX),
+            "Wad({a}).mul_floor_saturating({o})"
+        );
+
+        // Ceiling fees: the receiver is the rate, `o` the amount.
+        exact!(ceil_of(o, a, BPS), bps.apply_to_ceil(&env, o));
+        exact!(
+            ceil_of(o, a, BPS),
+            bps.apply_to_ray_ceil(&env, Ray::from(o)).raw()
+        );
+
+        // Token valuation divides by the token unit once; the upscale to WAD
+        // is exact and rejects more than 18 decimals.
+        assert_eq!(
+            wad.try_value_of_token(&env, o, decimals).map(Wad::raw),
+            10i128
+                .checked_pow(decimals)
+                .and_then(|unit| half_up_of(o, a, unit)),
+            "Wad({a}).try_value_of_token({o}, {decimals})"
+        );
+        assert_eq!(
+            Wad::try_from_token_upscale(signed, decimals).map(Wad::raw),
+            WAD_DECIMALS
+                .checked_sub(decimals)
+                .filter(|_| signed >= 0)
+                .and_then(|gap| signed.checked_mul(10i128.pow(gap))),
+            "Wad::try_from_token_upscale({signed}, {decimals})"
+        );
+    }
+
+    // Zero is a valid amount: only a negative one is rejected.
+    assert_eq!(Wad::try_from_token_upscale(0, 7), Some(Wad::ZERO));
+    assert_eq!(Wad::try_from_token_upscale(-1, 7), None);
 }

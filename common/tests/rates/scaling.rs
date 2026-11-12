@@ -1,5 +1,10 @@
 use super::*;
-use crate::constants::RAY;
+use crate::constants::{RAY, RAY_DECIMALS};
+use crate::math::test_support::{ceil_of, floor_of, half_up_of, Sampler};
+use crate::rates::test_support::{
+    assert_exact, knife_edge_shares, sample_index, unmetered_env, KNIFE_EDGE_INDEX,
+};
+use crate::validation::max_cap_for_decimals;
 use soroban_sdk::Env;
 
 #[test]
@@ -352,4 +357,349 @@ fn resolve_repay_at_index_ceiling_still_closes() {
     let (burn, excess) = resolve_repay(&env, ceil_debt, pos, index, 7);
     assert_eq!(burn, pos);
     assert_eq!(excess, 0);
+}
+
+// --- exact reference for every conversion ----------------------------------
+//
+// The reference states each conversion as `docs/reference/formulas.md` does:
+// native units scale up to RAY exactly, and each division rounds in the one
+// direction the function is named for.
+
+/// Rounds `x * y / d`: one of the exact reference quotients.
+type Rounder = fn(i128, i128, i128) -> Option<i128>;
+
+/// Asset decimals from the smallest to the largest the protocol lists.
+const DECIMALS: [u32; 6] = [0, 3, 6, 7, 9, 18];
+
+/// RAY units per native unit of an asset with `decimals` decimals.
+fn ray_unit(decimals: u32) -> i128 {
+    10i128.pow(RAY_DECIMALS - decimals)
+}
+
+/// `amount` native units as shares at `index`: scaled up to RAY exactly, then
+/// divided by the index with `round`.
+fn exact_shares(amount: i128, decimals: u32, index: i128, round: Rounder) -> Option<i128> {
+    round(amount.checked_mul(ray_unit(decimals))?, RAY, index)
+}
+
+/// `scaled` shares as native units at `index`: multiplied by the index, then
+/// scaled down from RAY, with `round` at both steps.
+fn exact_tokens(scaled: i128, index: i128, decimals: u32, round: Rounder) -> Option<i128> {
+    round(round(scaled, index, RAY)?, 1, ray_unit(decimals))
+}
+
+fn sample_decimals(sampler: &mut Sampler) -> u32 {
+    DECIMALS[sampler.below(DECIMALS.len() as u32) as usize]
+}
+
+/// A native amount: within the asset's cap three times in four, otherwise any
+/// non-negative value.
+fn sample_amount(sampler: &mut Sampler, decimals: u32) -> i128 {
+    if sampler.below(4) == 0 {
+        sampler.non_negative()
+    } else {
+        sampler.at_most(max_cap_for_decimals(decimals))
+    }
+}
+
+/// Shares worth an amount within the asset's cap at `index`, plus dust so the
+/// floor, half-up and ceiling values differ. Any non-negative value when that
+/// share count does not fit.
+fn sample_position(sampler: &mut Sampler, decimals: u32, index: i128) -> i128 {
+    let amount = sampler.at_most(max_cap_for_decimals(decimals) / 4);
+    match exact_shares(amount, decimals, index, floor_of) {
+        Some(shares) => shares.saturating_add(sampler.at_most(2 * ray_unit(decimals))),
+        None => sampler.non_negative(),
+    }
+}
+
+/// The amounts on each side of `boundary`, or zeros when it is not representable.
+fn around(boundary: Option<i128>) -> [i128; 3] {
+    boundary.map_or([0; 3], |value| {
+        [(value - 1).max(0), value, value.saturating_add(1)]
+    })
+}
+
+#[test]
+fn exact_share_conversions_round_in_their_named_direction() {
+    type Mint = fn(&Env, i128, u32, Ray) -> Ray;
+    type Redeem = fn(&Env, Ray, Ray, u32) -> i128;
+
+    let env = unmetered_env();
+    let mints: [(Mint, Rounder); 4] = [
+        (calculate_scaled_supply, floor_of),
+        (calculate_scaled_supply_ceil, ceil_of),
+        (calculate_scaled_borrow, ceil_of),
+        (calculate_scaled_borrow_floor, floor_of),
+    ];
+    let redemptions: [(Redeem, Rounder); 4] = [
+        (unscale_supply, half_up_of),
+        (unscale_supply_floor, floor_of),
+        (unscale_borrow, half_up_of),
+        (unscale_borrow_ceil, ceil_of),
+    ];
+
+    let check = |amount: i128, scaled: i128, index: i128, decimals: u32| {
+        let case = (amount, scaled, index, decimals);
+
+        for (mint, round) in mints {
+            assert_exact(
+                &env,
+                exact_shares(amount, decimals, index, round),
+                |env| mint(env, amount, decimals, Ray::from(index)).raw(),
+                case,
+            );
+        }
+        for (redeem, round) in redemptions {
+            assert_exact(
+                &env,
+                exact_tokens(scaled, index, decimals, round),
+                |env| redeem(env, Ray::from(scaled), Ray::from(index), decimals),
+                case,
+            );
+        }
+        assert_exact(
+            &env,
+            half_up_of(scaled, index, RAY),
+            |env| scaled_to_original(env, Ray::from(scaled), Ray::from(index)).raw(),
+            case,
+        );
+        // The cap's rescale to RAY still overflows; only its division saturates.
+        assert_exact(
+            &env,
+            amount
+                .checked_mul(ray_unit(decimals))
+                .map(|cap| floor_of(cap, RAY, index).unwrap_or(i128::MAX)),
+            |env| calculate_scaled_cap(env, amount, decimals, Ray::from(index)).raw(),
+            case,
+        );
+    };
+
+    // Values next to a rounding boundary of the scale-down, where the
+    // rounding of the multiply decides the result.
+    for decimals in DECIMALS.into_iter().filter(|&decimals| decimals > 0) {
+        for scaled in knife_edge_shares(ray_unit(decimals)) {
+            check(0, scaled, KNIFE_EDGE_INDEX, decimals);
+        }
+    }
+    let mut sampler = Sampler::new(51);
+    for _ in 0..3_000 {
+        let decimals = sample_decimals(&mut sampler);
+        let index = sample_index(&mut sampler);
+        let amount = sample_amount(&mut sampler, decimals);
+        check(amount, sampler.non_negative(), index, decimals);
+    }
+}
+
+/// At one index, shares minted for a deposit never redeem for more than the
+/// deposit, and shares minted for a loan never owe less than the loan.
+#[test]
+fn exact_mint_then_redeem_never_favours_the_account() {
+    let env = unmetered_env();
+    let mut sampler = Sampler::new(52);
+    for _ in 0..3_000 {
+        let decimals = sample_decimals(&mut sampler);
+        let index = sample_index(&mut sampler);
+        let amount = sampler.at_most(max_cap_for_decimals(decimals));
+        let case = (amount, index, decimals);
+
+        if exact_shares(amount, decimals, index, floor_of).is_some() {
+            let minted = calculate_scaled_supply(&env, amount, decimals, Ray::from(index));
+            let claim = unscale_supply_floor(&env, minted, Ray::from(index), decimals);
+            let displayed = unscale_supply(&env, minted, Ray::from(index), decimals);
+            assert!(claim <= displayed && displayed <= amount, "{case:?}");
+        }
+        let owed = exact_shares(amount, decimals, index, ceil_of)
+            .and_then(|minted| exact_tokens(minted, index, decimals, ceil_of));
+        if owed.is_some() {
+            let minted = calculate_scaled_borrow(&env, amount, decimals, Ray::from(index));
+            let debt = unscale_borrow_ceil(&env, minted, Ray::from(index), decimals);
+            assert!(debt >= amount, "{case:?}");
+        }
+    }
+}
+
+/// `resolve_withdrawal` as documented: a request of at least the half-up
+/// balance burns the position and pays its floor value; a smaller one burns
+/// ceiling shares and pays the request. Returns `(burned, paid)`.
+fn exact_withdrawal(
+    amount: i128,
+    position: i128,
+    index: i128,
+    decimals: u32,
+) -> Option<(i128, i128)> {
+    let displayed = exact_tokens(position, index, decimals, half_up_of)?;
+    let payable = exact_tokens(position, index, decimals, floor_of)?;
+    if amount >= displayed {
+        Some((position, payable))
+    } else {
+        Some((exact_shares(amount, decimals, index, ceil_of)?, amount))
+    }
+}
+
+/// `resolve_repay` as documented: a payment of at least the ceiling debt
+/// burns the position and returns the excess; a smaller one burns floor
+/// shares. Returns `(burned, excess)`.
+fn exact_repay(amount: i128, position: i128, index: i128, decimals: u32) -> Option<(i128, i128)> {
+    let owed = exact_tokens(position, index, decimals, ceil_of)?;
+    if amount >= owed {
+        Some((position, amount - owed))
+    } else {
+        Some((exact_shares(amount, decimals, index, floor_of)?, 0))
+    }
+}
+
+#[test]
+fn exact_withdrawal_and_repay_split_at_the_documented_boundary() {
+    let env = unmetered_env();
+    let mut sampler = Sampler::new(53);
+    for _ in 0..2_000 {
+        let decimals = sample_decimals(&mut sampler);
+        let index = sample_index(&mut sampler);
+        let position = sample_position(&mut sampler, decimals, index);
+        let displayed = exact_tokens(position, index, decimals, half_up_of);
+        let owed = exact_tokens(position, index, decimals, ceil_of);
+
+        let amounts = [
+            [0, 1, sample_amount(&mut sampler, decimals)],
+            around(displayed),
+            around(owed),
+        ];
+        for amount in amounts.into_iter().flatten() {
+            let case = (amount, position, index, decimals);
+
+            let withdrawal = exact_withdrawal(amount, position, index, decimals);
+            assert_exact(
+                &env,
+                withdrawal,
+                |env| {
+                    let (burned, paid) = resolve_withdrawal(
+                        env,
+                        amount,
+                        Ray::from(position),
+                        Ray::from(index),
+                        decimals,
+                    );
+                    (burned.raw(), paid)
+                },
+                case,
+            );
+            if let Some((burned, paid)) = withdrawal {
+                // Never more shares than the position holds, and never a
+                // payout above the floor value of the shares burned.
+                let burned_value = exact_tokens(burned, index, decimals, floor_of);
+                assert!(burned <= position, "{case:?}");
+                assert!(burned_value.is_some_and(|value| paid <= value), "{case:?}");
+            }
+
+            let repay = exact_repay(amount, position, index, decimals);
+            assert_exact(
+                &env,
+                repay,
+                |env| {
+                    let (burned, excess) =
+                        resolve_repay(env, amount, Ray::from(position), Ray::from(index), decimals);
+                    (burned.raw(), excess)
+                },
+                case,
+            );
+            if let Some((burned, excess)) = repay {
+                // The debt cancelled, valued rounding up, never exceeds the
+                // payment kept, and a partial payment leaves a share behind.
+                let burned_value = exact_tokens(burned, index, decimals, ceil_of);
+                assert!(
+                    burned_value.is_some_and(|value| value <= amount - excess),
+                    "{case:?}"
+                );
+                if owed.is_some_and(|owed| amount < owed) {
+                    assert!(burned < position, "{case:?}");
+                }
+            }
+        }
+    }
+}
+
+/// `resolve_net_settle` as documented. Returns
+/// `(burned_supply, burned_debt, settled)`.
+fn exact_net_settle(
+    amount: i128,
+    (supply, supply_index): (i128, i128),
+    (debt, borrow_index): (i128, i128),
+    decimals: u32,
+) -> Option<(i128, i128, i128)> {
+    let payable = exact_tokens(supply, supply_index, decimals, floor_of)?;
+    let owed = exact_tokens(debt, borrow_index, decimals, ceil_of)?;
+    let settled = amount.min(payable).min(owed);
+    if settled <= 0 {
+        return Some((0, 0, 0));
+    }
+    let burned_supply = if settled == payable {
+        supply
+    } else {
+        exact_shares(settled, decimals, supply_index, ceil_of)?.min(supply)
+    };
+    let burned_debt = if settled == owed {
+        debt
+    } else {
+        exact_shares(settled, decimals, borrow_index, floor_of)?.min(debt)
+    };
+    Some((burned_supply, burned_debt, settled))
+}
+
+#[test]
+fn exact_net_settle_burns_each_side_in_its_conservative_direction() {
+    let env = unmetered_env();
+    let mut sampler = Sampler::new(54);
+    for _ in 0..2_000 {
+        let decimals = sample_decimals(&mut sampler);
+        let (supply_index, borrow_index) = (sample_index(&mut sampler), sample_index(&mut sampler));
+        let supply = sample_position(&mut sampler, decimals, supply_index);
+        let debt = sample_position(&mut sampler, decimals, borrow_index);
+        let payable = exact_tokens(supply, supply_index, decimals, floor_of);
+        let owed = exact_tokens(debt, borrow_index, decimals, ceil_of);
+
+        let amounts = [
+            [-1, 0, sample_amount(&mut sampler, decimals)],
+            around(payable),
+            around(owed),
+        ];
+        for amount in amounts.into_iter().flatten() {
+            let case = (amount, supply, debt, supply_index, borrow_index, decimals);
+            let expected = exact_net_settle(
+                amount,
+                (supply, supply_index),
+                (debt, borrow_index),
+                decimals,
+            );
+            assert_exact(
+                &env,
+                expected,
+                |env| {
+                    let (burned_supply, burned_debt, settled) = resolve_net_settle(
+                        env,
+                        amount,
+                        Ray::from(supply),
+                        Ray::from(debt),
+                        Ray::from(supply_index),
+                        Ray::from(borrow_index),
+                        decimals,
+                    );
+                    (burned_supply.raw(), burned_debt.raw(), settled)
+                },
+                case,
+            );
+            if let Some((burned_supply, burned_debt, settled)) = expected {
+                // The supply burned is worth at least the settled amount, and
+                // the debt cancelled at most that amount.
+                let supply_value = exact_tokens(burned_supply, supply_index, decimals, floor_of);
+                let debt_value = exact_tokens(burned_debt, borrow_index, decimals, ceil_of);
+                assert!(burned_supply <= supply && burned_debt <= debt, "{case:?}");
+                assert!(
+                    supply_value.is_some_and(|value| value >= settled),
+                    "{case:?}"
+                );
+                assert!(debt_value.is_some_and(|value| value <= settled), "{case:?}");
+            }
+        }
+    }
 }
