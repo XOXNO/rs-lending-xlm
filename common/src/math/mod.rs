@@ -3,6 +3,10 @@
 //! stay private; specialized LP invariants and integer AMM reserve algorithms
 //! retain wide arithmetic where intermediate values cannot fit these types.
 
+#[cfg(test)]
+#[path = "../../tests/math/support.rs"]
+pub(crate) mod test_support;
+
 pub mod fp;
 mod fp_core;
 

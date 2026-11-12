@@ -84,6 +84,16 @@ impl Ray {
             .unwrap_or_else(|| panic_with_error!(env, GenericError::MathOverflow)))
     }
 
+    /// Applies a RAY ratio with one half-up rounding, without quantizing the ratio first.
+    pub fn mul_ray_ratio(self, env: &Env, numerator: Ray, denominator: Ray) -> Ray {
+        Ray(fp_core::mul_div_half_up(
+            env,
+            self.0,
+            numerator.0,
+            denominator.0,
+        ))
+    }
+
     /// Applies a WAD ratio with one floor rounding, without quantizing the ratio first.
     pub fn mul_wad_ratio_floor(self, env: &Env, numerator: Wad, denominator: Wad) -> Ray {
         Ray(fp_core::mul_div_floor(

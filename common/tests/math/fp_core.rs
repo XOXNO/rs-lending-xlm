@@ -1,6 +1,11 @@
 use super::*;
 use crate::constants::{RAY, WAD};
-use soroban_sdk::Env;
+use crate::math::test_support::{
+    ceil_fits, ceil_of, contract_error_code, edges, floor_fits, floor_of, half_up_fits, half_up_of,
+    is_ceil, is_floor, is_half_away, is_half_up, is_rescaled, quotient_negative, rescale_fits,
+    Rounding, Sampler, Wide,
+};
+use soroban_sdk::{Env, I256};
 
 #[test]
 fn test_mul_basic() {
@@ -654,4 +659,336 @@ fn test_small_mul_div_floor_and_ceil_need_no_host_division() {
     assert_eq!(mul_div_ceil(&env, 7, 1, 3), 3);
     let divisions = budget.tracker(ContractCostType::Int256Div).iterations;
     assert_eq!(divisions, 0);
+}
+
+// ---------------------------------------------------------------------------
+// Exact differential tests.
+//
+// Each test compares a primitive with the exact rational result on every
+// combination of the edge values and on seeded random operands of every
+// magnitude and sign. `test_support` states the expected rounding through
+// inequalities on exact 256-bit products, so a result passes only if it is the
+// one integer the rounding rule allows.
+// ---------------------------------------------------------------------------
+
+/// Seeded random operand tuples checked by each exact test.
+const RANDOM_CASES: usize = 20_000;
+
+const MATH_OVERFLOW: Option<u32> = Some(GenericError::MathOverflow as u32);
+
+fn unmetered_env() -> Env {
+    let env = Env::default();
+    env.cost_estimate().budget().reset_unlimited();
+    env
+}
+
+#[test]
+fn exact_native_division_helpers_match_floor_and_ceiling() {
+    let check = |p: i128, d: i128| {
+        let (floor, ceil) = (div_floor_i128(p, d), div_ceil_i128(p, d));
+        if d == 0 || (p == i128::MIN && d == -1) {
+            assert_eq!((floor, ceil), (None, None), "{p} / {d}");
+            return;
+        }
+        let n = Wide::from(p);
+        assert!(
+            floor.is_some_and(|q| is_floor(q, n, d)),
+            "floor {p} / {d} = {floor:?}"
+        );
+        assert!(
+            ceil.is_some_and(|q| is_ceil(q, n, d)),
+            "ceil {p} / {d} = {ceil:?}"
+        );
+    };
+
+    for p in edges() {
+        for d in edges().chain([-1]) {
+            check(p, d);
+        }
+    }
+    let mut sampler = Sampler::new(1);
+    for _ in 0..RANDOM_CASES {
+        check(sampler.signed(), sampler.signed());
+    }
+}
+
+#[test]
+fn exact_quotient_sign_matches_the_exact_product() {
+    for x in edges() {
+        for y in edges() {
+            for d in edges().filter(|&d| d != 0) {
+                assert_eq!(
+                    quotient_is_negative(x, y, d),
+                    quotient_negative(Wide::product(x, y), d),
+                    "{x} * {y} / {d}"
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn exact_widened_division_helpers_match_floor_and_ceiling() {
+    let env = unmetered_env();
+    let check = |x: i128, y: i128, d: i128| {
+        let n = Wide::product(x, y);
+        let product = I256::from_i128(&env, x).mul(&I256::from_i128(&env, y));
+        let divisor = I256::from_i128(&env, d);
+        // The general branch, then the shortcut the callers take when the
+        // quotient is not negative.
+        for nonneg in [false, !quotient_negative(n, d)] {
+            let floor = div_floor_i256(&env, &product, &divisor, nonneg).to_i128();
+            assert_eq!(floor.is_some(), floor_fits(n, d), "floor {x} * {y} / {d}");
+            assert!(
+                floor.is_none_or(|q| is_floor(q, n, d)),
+                "floor {x} * {y} / {d} = {floor:?} (nonneg {nonneg})"
+            );
+            let ceil = div_ceil_i256(&env, &product, &divisor, nonneg).to_i128();
+            assert_eq!(ceil.is_some(), ceil_fits(n, d), "ceil {x} * {y} / {d}");
+            assert!(
+                ceil.is_none_or(|q| is_ceil(q, n, d)),
+                "ceil {x} * {y} / {d} = {ceil:?} (nonneg {nonneg})"
+            );
+        }
+    };
+
+    for x in edges() {
+        for y in edges() {
+            for d in edges().filter(|&d| d != 0) {
+                check(x, y, d);
+            }
+        }
+    }
+    let mut sampler = Sampler::new(2);
+    for _ in 0..RANDOM_CASES {
+        let (x, y, d) = (sampler.signed(), sampler.signed(), sampler.signed());
+        if d != 0 {
+            check(x, y, d);
+        }
+    }
+}
+
+#[test]
+fn exact_mul_div_matches_the_exact_quotient_or_reports_overflow() {
+    let env = unmetered_env();
+    // A typed panic gets slower as the environment accumulates host objects,
+    // so each expected panic runs in its own empty environment.
+    let check = |x: i128, y: i128, d: i128| {
+        let n = Wide::product(x, y);
+        let clamp = if quotient_negative(n, d) {
+            i128::MIN
+        } else {
+            i128::MAX
+        };
+
+        if floor_fits(n, d) {
+            let q = mul_div_floor(&env, x, y, d);
+            assert!(is_floor(q, n, d), "floor {x} * {y} / {d} = {q}");
+            assert_eq!(
+                mul_div_floor_saturating(&env, x, y, d),
+                q,
+                "saturating floor {x} * {y} / {d}"
+            );
+        } else {
+            let code = contract_error_code(|| {
+                mul_div_floor(&Env::default(), x, y, d);
+            });
+            assert_eq!(code, MATH_OVERFLOW, "floor {x} * {y} / {d}");
+            assert_eq!(
+                mul_div_floor_saturating(&env, x, y, d),
+                clamp,
+                "saturating floor {x} * {y} / {d}"
+            );
+        }
+
+        if ceil_fits(n, d) {
+            let q = mul_div_ceil(&env, x, y, d);
+            assert!(is_ceil(q, n, d), "ceil {x} * {y} / {d} = {q}");
+        } else {
+            let code = contract_error_code(|| {
+                mul_div_ceil(&Env::default(), x, y, d);
+            });
+            assert_eq!(code, MATH_OVERFLOW, "ceil {x} * {y} / {d}");
+        }
+
+        let half_up = try_mul_div_half_up(&env, x, y, d);
+        let in_domain = x >= 0 && y >= 0 && d > 0;
+        if in_domain && half_up_fits(n, d) {
+            assert!(
+                half_up.is_some_and(|q| is_half_up(q, n, d)),
+                "half up {x} * {y} / {d} = {half_up:?}"
+            );
+            assert_eq!(
+                Some(mul_div_half_up(&env, x, y, d)),
+                half_up,
+                "half up {x} * {y} / {d}"
+            );
+        } else {
+            assert_eq!(half_up, None, "half up {x} * {y} / {d}");
+            // Outside the domain the panicking variant trips its debug
+            // assertion first, so only the in-domain overflow is typed.
+            if in_domain {
+                let code = contract_error_code(|| {
+                    mul_div_half_up(&Env::default(), x, y, d);
+                });
+                assert_eq!(code, MATH_OVERFLOW, "half up {x} * {y} / {d}");
+            }
+        }
+    };
+
+    for x in edges() {
+        for y in edges() {
+            for d in edges().filter(|&d| d != 0) {
+                check(x, y, d);
+            }
+        }
+    }
+    let mut sampler = Sampler::new(3);
+    for _ in 0..RANDOM_CASES {
+        let (x, y, d) = (sampler.signed(), sampler.signed(), sampler.signed());
+        if d != 0 {
+            check(x, y, d);
+        }
+        check(
+            sampler.non_negative(),
+            sampler.non_negative(),
+            sampler.non_negative().max(1),
+        );
+    }
+}
+
+#[test]
+fn exact_div_by_int_rounds_halves_away_from_zero() {
+    let env = Env::default();
+    let check = |a: i128, b: i128| {
+        let q = div_by_int_half_up(&env, a, b);
+        assert!(is_half_away(q, Wide::from(a), b), "{a} / {b} = {q}");
+    };
+
+    for a in edges() {
+        for b in edges().filter(|&b| b > 0) {
+            check(a, b);
+        }
+    }
+    let mut sampler = Sampler::new(4);
+    for _ in 0..RANDOM_CASES {
+        check(sampler.signed(), sampler.non_negative().max(1));
+    }
+}
+
+#[test]
+fn exact_rescale_matches_each_rounding_rule_or_reports_overflow() {
+    // Protocol decimals, their neighbours, and gaps on both sides of the
+    // largest power of ten that fits `i128` (10^38).
+    const DECIMALS: [u32; 14] = [0, 1, 6, 7, 9, 18, 19, 27, 28, 37, 38, 39, 40, 77];
+    type Rescale = fn(&Env, i128, u32, u32) -> i128;
+    const VARIANTS: [(Rounding, Rescale); 3] = [
+        (Rounding::HalfAway, rescale_half_up),
+        (Rounding::TowardZero, rescale_floor),
+        (Rounding::Ceil, rescale_ceil),
+    ];
+
+    let env = Env::default();
+    let mut sampler = Sampler::new(5);
+    for from in DECIMALS {
+        for to in DECIMALS {
+            for a in edges().chain(core::iter::repeat_with(|| sampler.signed()).take(24)) {
+                for (rounding, rescale) in VARIANTS {
+                    if rescale_fits(a, from, to) {
+                        let r = rescale(&env, a, from, to);
+                        assert!(
+                            is_rescaled(r, a, from, to, rounding),
+                            "{rounding:?} {a} {from}->{to} = {r}"
+                        );
+                    } else {
+                        let code = contract_error_code(|| {
+                            rescale(&env, a, from, to);
+                        });
+                        assert_eq!(code, MATH_OVERFLOW, "{rounding:?} {a} {from}->{to}");
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Each reference predicate accepts exactly one integer: the neighbours of the
+/// correct result fail, including at an exact half and beyond `i128` products.
+#[test]
+fn exact_reference_predicates_reject_the_neighbouring_integers() {
+    let n = Wide::from;
+    // -7 / 3 = -2.33..: the floor is -3 and the ceiling is -2.
+    assert!(is_floor(-3, n(-7), 3) && !is_floor(-2, n(-7), 3) && !is_floor(-4, n(-7), 3));
+    assert!(is_ceil(-2, n(-7), 3) && !is_ceil(-3, n(-7), 3) && !is_ceil(-1, n(-7), 3));
+    // 7 / -3 is the same quotient through a negative divisor.
+    assert!(is_floor(-3, n(7), -3) && !is_floor(-2, n(7), -3));
+    assert!(is_ceil(-2, n(7), -3) && !is_ceil(-3, n(7), -3));
+    // 5 / 2 is an exact half: half up gives 3, and -5 / 2 rounds away to -3.
+    assert!(is_half_up(3, n(5), 2) && !is_half_up(2, n(5), 2));
+    assert!(is_half_away(-3, n(-5), 2) && !is_half_away(-2, n(-5), 2));
+    // 4 / 9 is just below a half and rounds down.
+    assert!(is_half_up(0, n(4), 9) && !is_half_up(1, n(4), 9));
+    // MAX * MAX / MAX is exactly MAX; dividing by MAX - 1 no longer fits.
+    let square = Wide::product(i128::MAX, i128::MAX);
+    assert!(is_floor(i128::MAX, square, i128::MAX));
+    assert!(!is_floor(i128::MAX - 1, square, i128::MAX));
+    assert!(floor_fits(square, i128::MAX) && !floor_fits(square, i128::MAX - 1));
+    assert!(ceil_fits(square, i128::MAX) && !ceil_fits(square, i128::MAX - 1));
+    assert!(half_up_fits(square, i128::MAX) && !half_up_fits(square, i128::MAX - 1));
+}
+
+/// The reference quotients find the integer their predicate accepts, report
+/// `None` exactly when it does not fit, and agree with native division where
+/// the product fits `i128`.
+#[test]
+fn exact_reference_quotients_match_their_predicates_and_native_division() {
+    let mut sampler = Sampler::new(11);
+    for _ in 0..RANDOM_CASES {
+        let (x, y) = (sampler.signed(), sampler.signed());
+        let d = sampler.non_negative().max(1);
+        let n = Wide::product(x, y);
+
+        let floor = floor_of(x, y, d);
+        assert_eq!(floor.is_some(), floor_fits(n, d), "floor {x} * {y} / {d}");
+        assert!(
+            floor.is_none_or(|q| is_floor(q, n, d)),
+            "floor {x} * {y} / {d}"
+        );
+        let ceil = ceil_of(x, y, d);
+        assert_eq!(ceil.is_some(), ceil_fits(n, d), "ceil {x} * {y} / {d}");
+        assert!(
+            ceil.is_none_or(|q| is_ceil(q, n, d)),
+            "ceil {x} * {y} / {d}"
+        );
+        if !n.is_negative() {
+            let half_up = half_up_of(x, y, d);
+            assert_eq!(
+                half_up.is_some(),
+                half_up_fits(n, d),
+                "half up {x} * {y} / {d}"
+            );
+            assert!(
+                half_up.is_none_or(|q| is_half_up(q, n, d)),
+                "half up {x} * {y} / {d}"
+            );
+        }
+
+        if let Some(p) = x.checked_mul(y) {
+            assert_eq!(floor, Some(p.div_euclid(d)), "floor {x} * {y} / {d}");
+            let rounds_up = i128::from(p.rem_euclid(d) != 0);
+            assert_eq!(
+                ceil,
+                p.div_euclid(d).checked_add(rounds_up),
+                "ceil {x} * {y} / {d}"
+            );
+        }
+    }
+    // 5 / 2 is an exact half and rounds up; 4 / 9 is below a half.
+    assert_eq!(half_up_of(5, 1, 2), Some(3));
+    assert_eq!(half_up_of(4, 1, 9), Some(0));
+    // The largest quotient is found, and one unit more no longer fits.
+    assert_eq!(floor_of(i128::MAX, i128::MAX, i128::MAX), Some(i128::MAX));
+    assert_eq!(half_up_of(i128::MAX, i128::MAX, i128::MAX - 1), None);
+    assert_eq!(floor_of(i128::MIN, 1, 1), Some(i128::MIN));
+    assert_eq!(ceil_of(i128::MIN, 1, 1), Some(i128::MIN));
 }

@@ -131,8 +131,9 @@ Zero supplied value gives zero utilization. A ratio that does not fit `i128`
 gives one RAY, so dust supply against residual debt cannot stop accrual. Rate
 selection caps utilization at one RAY. The annual borrow curve has three joined
 linear regions: base plus slope1 up to mid utilization, slope2 up to optimal,
-then slope3 up to full utilization. Each slope contribution uses half-up
-multiplication followed by half-up division. The result cannot exceed the
+then slope3 up to full utilization. Each slope contribution is one half-up
+multiply-divide, `slope * excess / width`, so each region ends exactly on its
+slope and the rate never falls as utilization rises. The result cannot exceed the
 configured maximum, which is limited to 200% APR. Parameter validation requires
 `base + slope1 + slope2 + slope3 <= max`, so the maximum never cuts the curve
 before full utilization.
