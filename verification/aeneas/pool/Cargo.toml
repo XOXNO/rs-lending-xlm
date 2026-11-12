@@ -1,0 +1,60 @@
+[package]
+name = "pool-aeneas"
+version = "0.0.0"
+publish = false
+edition = "2021"
+description = "Compiles the production pool accounting code (contracts/pool/src) and the common math it calls verbatim for Charon/Aeneas extraction to Lean"
+
+# Standalone workspace: never part of the root workspace, `make build`, or any
+# deployable Wasm, and separate from the rates crate one directory up.
+[workspace]
+members = [".", "shim", "shim-macros"]
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+# The production files say `use soroban_sdk::...`; this rename points them at
+# the shim, whose items Charon leaves opaque (signatures only).
+soroban-sdk = { package = "aeneas-pool-shim", path = "shim" }
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(feature, values("certora"))'] }
+
+# Extraction roots: only these items and what they call reach Lean. Storage,
+# events, token transfers and the contract entry points are outside the model
+# (see docs/pool.md).
+[package.metadata.charon]
+start_from = [
+  "crate::market_cache::shares",
+  "crate::market_cache::cash",
+  "crate::guards",
+  # `global_sync` reaches `NonZeroU64`, for which this Aeneas version emits a
+  # Lean structure with a duplicated field (`ZeroablePrimitive`);
+  # `postextract.sh` renames the second field (docs/pool.md).
+  "crate::interest::global_sync",
+  "crate::interest::accrue_chunk",
+  "crate::interest::add_protocol_revenue",
+  "crate::interest::apply_bad_debt_to_supply_index",
+  "crate::ops::flash::terms",
+  "crate::ops::flash::book_fee",
+  # The whole share-conversion module, so the copied RatesAeneas scaling
+  # proofs (FloorCeilRescale, FloorCeilScaling) find every function they name.
+  "crate::rates::scaling",
+  # The operation legs (token transfers, the flash-loan callback and the
+  # batch driver are outside the model: the roots are the `accounting` /
+  # `apply` functions that do no token call).
+  "crate::ops::supply::apply",
+  "crate::ops::borrow::accounting",
+  "crate::ops::withdraw::accounting",
+  "crate::ops::repay::accounting",
+  "crate::ops::net_settle::apply",
+  "crate::ops::seize::apply",
+  "crate::ops::recapitalize::accounting",
+  "crate::ops::strategy::accounting",
+  "crate::ops::revenue::accounting",
+]
+exclude = ["crate::market_cache::cash::_::transfer_out"]
+# Storage, ledger time and events: signatures only (stand-ins in src/; their
+# Lean meaning is in lean/PoolAeneas/FunsExternal.lean, docs/pool.md).
+opaque = ["crate::storage", "crate::time", "crate::events"]

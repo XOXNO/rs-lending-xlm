@@ -1,0 +1,12 @@
+[package]
+name = "aeneas-pool-shim"
+version = "0.0.0"
+publish = false
+edition = "2021"
+description = "Signature-only stand-in for the slice of soroban-sdk that the pool accounting code uses; Aeneas sees every item here as opaque and lean/PoolAeneas/FunsExternal.lean gives the reachable ones meaning"
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+aeneas-pool-shim-macros = { path = "../shim-macros" }

@@ -1,0 +1,349 @@
+/-
+Decimal rescaling with directed rounding: `fp_core::rescale_floor` and
+`fp_core::rescale_ceil`, for every `i128` value and every pair of decimal
+counts (no bound on the downscale distance: the branch where `10^k`
+overflows `i128` is covered).
+
+* Upscaling (`to > from`) multiplies by `10^(to - from)` exactly.
+* Downscaling (`to < from`), with `p = 10^(from - to)`:
+  - `rescale_floor` truncates toward zero: the floor of `a / p` for `a ≥ 0`
+    and the ceiling for `a < 0`;
+  - `rescale_ceil` is the ceiling of `a / p` for every `a` (rounding up for
+    `a ≥ 0`, truncation toward zero for `a < 0`, which is again the ceiling).
+* Equal decimal counts return `a` unchanged.
+-/
+import RatesAeneas.Proofs.FloorCeilCore
+
+open Aeneas Aeneas.Std Result
+open RatesAeneas.Spec
+open rates_aeneas
+
+set_option maxRecDepth 20000
+
+namespace RatesAeneas.Proofs
+
+/-! ## The generic `rescale` driver -/
+
+/-- `10^k` fits `i128` exactly when `k ≤ 38`. -/
+theorem pow10_lt_i128 (k : Nat) (hk : k ≤ 38) : (10 : Int) ^ k < 2 ^ 127 := by
+  calc (10 : Int) ^ k ≤ 10 ^ 38 := pow_le_pow_right₀ (by norm_num) hk
+    _ < 2 ^ 127 := by norm_num
+
+/-- `10^k` exceeds the `i128` range for `k ≥ 39`. -/
+theorem pow10_ge_i128 (k : Nat) (hk : 39 ≤ k) : (2 : Int) ^ 127 < 10 ^ k := by
+  calc (2 : Int) ^ 127 < 10 ^ 39 := by norm_num
+    _ ≤ 10 ^ k := pow_le_pow_right₀ (by norm_num) hk
+
+/-- Equal decimal counts: `rescale` returns its input. -/
+theorem rescale_eq {T0 : Type} (inst : core.ops.function.Fn T0 (Std.I128 × Option Std.I128) Std.I128)
+    (env : Env) (a : Std.I128) (fr dst : Std.U32) (rd : T0) (h : fr = dst) :
+    math.fp_core.rescale inst env a fr dst rd = ok a := by
+  unfold math.fp_core.rescale; simp [h]
+
+/-- Downscaling: `rescale` hands `(a, checked_pow(10, from - to))` to the
+rounding closure. -/
+theorem rescale_down_eq {T0 : Type}
+    (inst : core.ops.function.Fn T0 (Std.I128 × Option Std.I128) Std.I128)
+    (env : Env) (a : Std.I128) (fr dst : Std.U32) (rd : T0) (h : dst.val < fr.val) :
+    math.fp_core.rescale inst env a fr dst rd =
+      inst.call rd (a, IScalar.tryMkOpt .I128 ((10 : Int) ^ (fr.val - dst.val))) := by
+  unfold math.fp_core.rescale
+  have hne : ¬ (fr = dst) := by intro e; rw [e] at h; omega
+  have hngt : ¬ (dst > fr) := by simp only [gt_iff_lt, UScalar.lt_equiv]; omega
+  have hnle : ¬ (fr.val ≤ dst.val) := by omega
+  simp only [hne, hngt, ↓reduceIte, core.num.U32.abs_diff, hnle, UScalar.tryMk]
+  have hk := UScalar.tryMkOpt_eq .U32 (fr.val - dst.val)
+  have hfr := fr.hBounds
+  cases hko : UScalar.tryMkOpt .U32 (fr.val - dst.val) with
+  | none =>
+    exfalso; rw [hko] at hk; apply hk; simp [UScalar.inBounds] at hfr ⊢; omega
+  | some k =>
+    rw [hko] at hk; obtain ⟨hkv, _⟩ := hk
+    simp only [Result.ofOption, bind_ok, core.num.I128.checked_pow]
+    have h10 : (10#i128).val = 10 := by simp
+    rw [h10, hkv]
+
+/-- Upscaling: `rescale` multiplies by `10^(to - from)` exactly, provided the
+distance is at most 38 (so the factor fits `i128`) and the product fits. -/
+theorem rescale_up_spec {T0 : Type}
+    (inst : core.ops.function.Fn T0 (Std.I128 × Option Std.I128) Std.I128)
+    (env : Env) (a : Std.I128) (fr dst : Std.U32) (rd : T0) (h : fr.val < dst.val)
+    (hk : dst.val - fr.val ≤ 38)
+    (hfit : -2^127 ≤ a.val * 10^(dst.val - fr.val) ∧ a.val * 10^(dst.val - fr.val) < 2^127) :
+    math.fp_core.rescale inst env a fr dst rd ⦃ r => r.val = a.val * 10^(dst.val - fr.val) ⦄ := by
+  unfold math.fp_core.rescale
+  have hne : ¬ (fr = dst) := by intro e; rw [e] at h; omega
+  have hgt : (dst > fr) := by simp only [gt_iff_lt, UScalar.lt_equiv]; omega
+  have hle : fr.val ≤ dst.val := by omega
+  simp only [hne, hgt, ↓reduceIte, core.num.U32.abs_diff, hle, UScalar.tryMk]
+  have hkk := UScalar.tryMkOpt_eq .U32 (dst.val - fr.val)
+  have hdst := dst.hBounds
+  cases hko : UScalar.tryMkOpt .U32 (dst.val - fr.val) with
+  | none =>
+    exfalso; rw [hko] at hkk; apply hkk; simp [UScalar.inBounds] at hdst ⊢; omega
+  | some k =>
+    rw [hko] at hkk; obtain ⟨hkv, _⟩ := hkk
+    simp only [Result.ofOption, bind_ok, core.num.I128.checked_pow]
+    have h10 : (10#i128).val = 10 := by simp
+    rw [h10, hkv]
+    have hpl := pow10_lt_i128 _ hk
+    have hpos := pow_pos (show (0:Int) < 10 by norm_num) (dst.val - fr.val)
+    generalize hx : (10 : Int) ^ (dst.val - fr.val) = x at hfit hpl hpos ⊢
+    have hp := IScalar.tryMkOpt_eq .I128 x
+    cases hpo : IScalar.tryMkOpt .I128 x with
+    | none =>
+      exfalso; rw [hpo] at hp; apply hp
+      simp only [IScalar.inBounds, IScalarTy.numBits]; constructor <;> omega
+    | some f =>
+      rw [hpo] at hp; obtain ⟨hfv, _⟩ := hp
+      simp only [core.option.Option.and_then,
+        math.fp_core.rescale.closure.Insts.CoreOpsFunctionFnOnceTupleI128OptionI128,
+        math.fp_core.rescale.closure.Insts.CoreOpsFunctionFnOnceTupleI128OptionI128.call_once,
+        bind_ok]
+      rw [show I128.checked_mul a f = core.num.checked_mul_IScalar a f from rfl]
+      have hm := core.num.checked_mul_IScalar_bv_spec a f
+      cases hmo : core.num.checked_mul_IScalar a f with
+      | none =>
+        exfalso; rw [hmo] at hm; apply hm; rw [hfv]
+        simp only [IScalar.min, IScalar.max, IScalarTy.numBits]; omega
+      | some r =>
+        rw [hmo] at hm; obtain ⟨_, _, hr, _⟩ := hm
+        simp only [core.option.Option.unwrap_or_else, WP.spec_ok]
+        rw [hr, hfv]
+
+/-- Upscaling with a factor that overflows `i128` (`to - from ≥ 39`) or a
+product that overflows `i128` aborts (`MathOverflow` in production). -/
+theorem rescale_up_overflow {T0 : Type}
+    (inst : core.ops.function.Fn T0 (Std.I128 × Option Std.I128) Std.I128)
+    (env : Env) (a : Std.I128) (fr dst : Std.U32) (rd : T0) (h : fr.val < dst.val)
+    (hover : 38 < dst.val - fr.val ∨
+      ¬ (-2^127 ≤ a.val * 10^(dst.val - fr.val) ∧ a.val * 10^(dst.val - fr.val) < 2^127)) :
+    math.fp_core.rescale inst env a fr dst rd = fail .panic := by
+  unfold math.fp_core.rescale
+  have hne : ¬ (fr = dst) := by intro e; rw [e] at h; omega
+  have hgt : (dst > fr) := by simp only [gt_iff_lt, UScalar.lt_equiv]; omega
+  have hle : fr.val ≤ dst.val := by omega
+  simp only [hne, hgt, ↓reduceIte, core.num.U32.abs_diff, hle, UScalar.tryMk]
+  have hkk := UScalar.tryMkOpt_eq .U32 (dst.val - fr.val)
+  have hdst := dst.hBounds
+  cases hko : UScalar.tryMkOpt .U32 (dst.val - fr.val) with
+  | none =>
+    exfalso; rw [hko] at hkk; apply hkk; simp [UScalar.inBounds] at hdst ⊢; omega
+  | some k =>
+    rw [hko] at hkk; obtain ⟨hkv, _⟩ := hkk
+    simp only [Result.ofOption, bind_ok, core.num.I128.checked_pow]
+    have h10 : (10#i128).val = 10 := by simp
+    rw [h10, hkv]
+    have hpos := pow_pos (show (0:Int) < 10 by norm_num) (dst.val - fr.val)
+    have hbig : 38 < dst.val - fr.val → (2 : Int) ^ 127 < 10 ^ (dst.val - fr.val) :=
+      fun h' => pow10_ge_i128 _ h'
+    generalize hx : (10 : Int) ^ (dst.val - fr.val) = x at hover hpos hbig ⊢
+    have hp := IScalar.tryMkOpt_eq .I128 x
+    cases hpo : IScalar.tryMkOpt .I128 x with
+    | none =>
+      simp [core.option.Option.and_then, core.option.Option.unwrap_or_else,
+        math.fp_core.rescale.closure_1.Insts.CoreOpsFunctionFnOnceTupleI128.call_once]
+    | some f =>
+      rw [hpo] at hp; obtain ⟨hfv, hin⟩ := hp
+      simp only [IScalar.inBounds, IScalarTy.numBits] at hin
+      have hover' : ¬ (-2^127 ≤ a.val * x ∧ a.val * x < 2^127) := by
+        rcases hover with h1 | h1
+        · have := hbig h1; omega
+        · exact h1
+      simp only [core.option.Option.and_then,
+        math.fp_core.rescale.closure.Insts.CoreOpsFunctionFnOnceTupleI128OptionI128,
+        math.fp_core.rescale.closure.Insts.CoreOpsFunctionFnOnceTupleI128OptionI128.call_once,
+        bind_ok]
+      rw [show I128.checked_mul a f = core.num.checked_mul_IScalar a f from rfl]
+      have hm := core.num.checked_mul_IScalar_bv_spec a f
+      cases hmo : core.num.checked_mul_IScalar a f with
+      | none =>
+        simp [core.option.Option.unwrap_or_else,
+          math.fp_core.rescale.closure_1.Insts.CoreOpsFunctionFnOnceTupleI128.call_once]
+      | some r =>
+        exfalso; rw [hmo] at hm; obtain ⟨h1, h2, _, _⟩ := hm
+        rw [hfv] at h1 h2
+        simp only [IScalar.min, IScalar.max, IScalarTy.numBits] at h1 h2
+        exact hover' ⟨by omega, by omega⟩
+
+/-! ## Truncating division by a positive divisor -/
+
+/-- Truncating division of a non-negative value by a positive divisor is the floor. -/
+theorem tdiv_isFloor_of_nonneg (a p : Int) (hp : 0 < p) (ha : 0 ≤ a) :
+    IsFloor a p (Int.tdiv a p) := by
+  have := truncFloor_isFloor a p (by omega) (decide (¬ p ∣ a)) (by simp)
+  unfold truncFloor at this
+  rwa [if_neg (by simp; omega)] at this
+
+/-- Truncating division of a negative value by a positive divisor is the ceiling. -/
+theorem tdiv_isCeil_of_neg (a p : Int) (hp : 0 < p) (ha : a < 0) :
+    IsCeil a p (Int.tdiv a p) := by
+  have := truncCeil_isCeil a p (by omega) (decide (¬ p ∣ a)) (by simp)
+  unfold truncCeil at this
+  rwa [if_neg (by simp; omega)] at this
+
+/-- When `|a| < p`, the floor of `a / p` (for `a ≥ 0`) is 0. -/
+theorem isFloor_zero_of_small (a p : Int) (hp : 0 < p) (ha : 0 ≤ a) (hap : a < p) :
+    IsFloor a p 0 := by
+  unfold IsFloor; rw [if_pos hp]; omega
+
+/-- When `|a| < p` and `a < 0`, the ceiling of `a / p` is 0. -/
+theorem isCeil_zero_of_small_neg (a p : Int) (hp : 0 < p) (ha : a < 0) (hap : -p < a) :
+    IsCeil a p 0 := by
+  unfold IsCeil; rw [if_pos hp]; omega
+
+/-- When `0 < a < p`, the ceiling of `a / p` is 1. -/
+theorem isCeil_one_of_small_pos (a p : Int) (hp : 0 < p) (ha : 0 < a) (hap : a < p) :
+    IsCeil a p 1 := by
+  unfold IsCeil; rw [if_pos hp]; omega
+
+/-! ## `rescale_floor` -/
+
+/-- **`rescale_floor` downscaling truncates toward zero.** For every `i128`
+`a` and decimal counts `to < from`, with `p = 10^(from - to)`,
+`rescale_floor` returns (never aborts) the floor of `a / p` when `a ≥ 0` and
+the ceiling when `a < 0`. This includes `from - to ≥ 39`, where `10^(from-to)`
+overflows `i128`, `checked_pow` returns `None`, and the code returns 0: that is
+the correct truncation because `|a| < 2^127 ≤ p`. No hypotheses beyond the
+direction. -/
+theorem rescale_floor_down_spec (env : Env) (a : Std.I128) (fr dst : Std.U32)
+    (h : dst.val < fr.val) :
+    math.fp_core.rescale_floor env a fr dst ⦃ r =>
+      (0 ≤ a.val → IsFloor a.val (10 ^ (fr.val - dst.val)) r.val) ∧
+      (a.val < 0 → IsCeil a.val (10 ^ (fr.val - dst.val)) r.val) ⦄ := by
+  unfold math.fp_core.rescale_floor
+  rw [rescale_down_eq _ env a fr dst () h]
+  have ha := a.hBounds
+  simp only [IScalarTy.numBits] at ha
+  have hpos := pow_pos (show (0:Int) < 10 by norm_num) (fr.val - dst.val)
+  have hbig : 38 < fr.val - dst.val → (2 : Int) ^ 127 < 10 ^ (fr.val - dst.val) :=
+    fun h' => pow10_ge_i128 _ h'
+  have hsmall : fr.val - dst.val ≤ 38 → (10 : Int) ^ (fr.val - dst.val) < 2 ^ 127 :=
+    fun h' => pow10_lt_i128 _ h'
+  generalize hx : (10 : Int) ^ (fr.val - dst.val) = x at hpos hbig hsmall ⊢
+  have hp := IScalar.tryMkOpt_eq .I128 x
+  simp only [math.fp_core.rescale_floor.closure.Insts.CoreOpsFunctionFnPairI128OptionI128I128.call]
+  cases hpo : IScalar.tryMkOpt .I128 x with
+  | none =>
+    rw [hpo] at hp
+    simp only [IScalar.inBounds, IScalarTy.numBits] at hp
+    have hk : 38 < fr.val - dst.val := by
+      by_contra hc
+      have := hsmall (by omega)
+      exact hp ⟨by omega, by omega⟩
+    have hx2 : 2 ^ 127 < x := hbig hk
+    refine (WP.spec_ok _).mpr ?_
+    have h0 : (0#i128).val = 0 := by simp
+    rw [h0]
+    exact ⟨fun h1 => isFloor_zero_of_small _ _ hpos h1 (by omega),
+      fun h1 => isCeil_zero_of_small_neg _ _ hpos h1 (by omega)⟩
+  | some f =>
+    rw [hpo] at hp; obtain ⟨hfv, _⟩ := hp
+    step as ⟨q, hq⟩
+    rw [hq, hfv]
+    exact ⟨fun h1 => tdiv_isFloor_of_nonneg _ _ hpos h1,
+      fun h1 => tdiv_isCeil_of_neg _ _ hpos h1⟩
+
+/-- `rescale_floor` with equal decimal counts returns its input. -/
+theorem rescale_floor_eq (env : Env) (a : Std.I128) (fr dst : Std.U32) (h : fr = dst) :
+    math.fp_core.rescale_floor env a fr dst = ok a :=
+  rescale_eq _ env a fr dst () h
+
+/-- `rescale_floor` upscaling multiplies exactly by `10^(to - from)` when the
+distance is at most 38 and the product fits `i128`. -/
+theorem rescale_floor_up_spec (env : Env) (a : Std.I128) (fr dst : Std.U32)
+    (h : fr.val < dst.val) (hk : dst.val - fr.val ≤ 38)
+    (hfit : -2^127 ≤ a.val * 10^(dst.val - fr.val) ∧ a.val * 10^(dst.val - fr.val) < 2^127) :
+    math.fp_core.rescale_floor env a fr dst ⦃ r => r.val = a.val * 10^(dst.val - fr.val) ⦄ :=
+  rescale_up_spec _ env a fr dst () h hk hfit
+
+/-! ## `rescale_ceil` -/
+
+/-- **`rescale_ceil` downscaling is the ceiling.** For every `i128` `a` and
+decimal counts `to < from`, with `p = 10^(from - to)`, `rescale_ceil` returns
+(never aborts) `⌈a / p⌉`: rounding up for `a ≥ 0` with a remainder, and
+truncation toward zero for `a < 0` (which is the ceiling of a negative
+quotient). Includes `from - to ≥ 39` (factor overflows `i128`; the code returns
+`a > 0 ? 1 : 0`, which is the ceiling since `|a| < p`). No hypotheses beyond
+the direction. -/
+theorem rescale_ceil_down_spec (env : Env) (a : Std.I128) (fr dst : Std.U32)
+    (h : dst.val < fr.val) :
+    math.fp_core.rescale_ceil env a fr dst ⦃ r =>
+      IsCeil a.val (10 ^ (fr.val - dst.val)) r.val ⦄ := by
+  unfold math.fp_core.rescale_ceil
+  rw [rescale_down_eq _ env a fr dst () h]
+  have ha := a.hBounds
+  simp only [IScalarTy.numBits] at ha
+  have hpos := pow_pos (show (0:Int) < 10 by norm_num) (fr.val - dst.val)
+  have hbig : 38 < fr.val - dst.val → (2 : Int) ^ 127 < 10 ^ (fr.val - dst.val) :=
+    fun h' => pow10_ge_i128 _ h'
+  have hsmall : fr.val - dst.val ≤ 38 → (10 : Int) ^ (fr.val - dst.val) < 2 ^ 127 :=
+    fun h' => pow10_lt_i128 _ h'
+  generalize hx : (10 : Int) ^ (fr.val - dst.val) = x at hpos hbig hsmall ⊢
+  have hp := IScalar.tryMkOpt_eq .I128 x
+  simp only [math.fp_core.rescale_ceil.closure.Insts.CoreOpsFunctionFnPairI128OptionI128I128.call]
+  cases hpo : IScalar.tryMkOpt .I128 x with
+  | none =>
+    rw [hpo] at hp
+    simp only [IScalar.inBounds, IScalarTy.numBits] at hp
+    have hk : 38 < fr.val - dst.val := by
+      by_contra hc
+      have := hsmall (by omega)
+      exact hp ⟨by omega, by omega⟩
+    have hx2 : 2 ^ 127 < x := hbig hk
+    refine (WP.spec_ok _).mpr ?_
+    by_cases hap : 0 < a.val
+    · have h1 : (core.convert.num.FromI128Bool.from (decide (a > 0#i128))).val = 1 := by
+        have hg : a > 0#i128 := by simp [IScalar.lt_equiv]; omega
+        simp [core.convert.num.FromI128Bool.from, hg]
+      rw [h1]; exact isCeil_one_of_small_pos _ _ hpos hap (by omega)
+    · have h1 : (core.convert.num.FromI128Bool.from (decide (a > 0#i128))).val = 0 := by
+        have hg : ¬ a > 0#i128 := by simp [IScalar.lt_equiv]; omega
+        simp [core.convert.num.FromI128Bool.from, hg]
+      rw [h1]
+      unfold IsCeil; rw [if_pos hpos]; omega
+  | some f =>
+    rw [hpo] at hp; obtain ⟨hfv, _⟩ := hp
+    step as ⟨q, hq⟩
+    have hcl := truncCeil_isCeil a.val x (by omega) (decide (Int.tmod a.val x ≠ 0))
+      (by rw [decide_eq_true_iff, Int.dvd_iff_tmod_eq_zero])
+    unfold truncCeil at hcl
+    by_cases ha0 : 0 ≤ a.val
+    · have hge : (a >= 0#i128) = true := by simp [IScalar.le_equiv]; omega
+      simp only [hge, ↓reduceIte]
+      step as ⟨m, hm⟩
+      rw [hfv] at hm hq
+      by_cases hex : Int.tmod a.val x = 0
+      · have hm0 : (m != 0#i128) = false := by
+          simp only [bne_eq_false_iff_eq]; apply IScalar.eq_of_val_eq; simp [hm, hex]
+        simp only [hm0, Bool.false_eq_true, ↓reduceIte, WP.spec_ok]
+        rw [hq]; simpa [hex] using hcl
+      · have hm0 : (m != 0#i128) = true := by
+          simp only [bne_iff_ne, ne_eq]; intro e; apply hex; rw [← hm, e]; rfl
+        simp only [hm0, ↓reduceIte]
+        rw [if_pos (by simp [hex]; omega)] at hcl
+        have htd0 : 0 ≤ Int.tdiv a.val x := Int.tdiv_nonneg ha0 (by omega)
+        have hlt : Int.tdiv a.val x < a.val := by
+          have h2 := hcl
+          unfold IsCeil at h2; rw [if_pos hpos] at h2; nlinarith
+        step as ⟨c, hc⟩
+        rw [hc, hq]; exact hcl
+    · have hge : (a >= 0#i128) = false := by simp [IScalar.le_equiv]; omega
+      simp only [hge, Bool.false_eq_true, ↓reduceIte, WP.spec_ok]
+      rw [hq, hfv]
+      exact tdiv_isCeil_of_neg _ _ hpos (by omega)
+
+/-- `rescale_ceil` with equal decimal counts returns its input. -/
+theorem rescale_ceil_eq (env : Env) (a : Std.I128) (fr dst : Std.U32) (h : fr = dst) :
+    math.fp_core.rescale_ceil env a fr dst = ok a :=
+  rescale_eq _ env a fr dst () h
+
+/-- `rescale_ceil` upscaling multiplies exactly by `10^(to - from)` when the
+distance is at most 38 and the product fits `i128`. -/
+theorem rescale_ceil_up_spec (env : Env) (a : Std.I128) (fr dst : Std.U32)
+    (h : fr.val < dst.val) (hk : dst.val - fr.val ≤ 38)
+    (hfit : -2^127 ≤ a.val * 10^(dst.val - fr.val) ∧ a.val * 10^(dst.val - fr.val) < 2^127) :
+    math.fp_core.rescale_ceil env a fr dst ⦃ r => r.val = a.val * 10^(dst.val - fr.val) ⦄ :=
+  rescale_up_spec _ env a fr dst () h hk hfit
+
+end RatesAeneas.Proofs

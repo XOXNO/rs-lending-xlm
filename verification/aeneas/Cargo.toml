@@ -1,0 +1,22 @@
+[package]
+name = "rates-aeneas"
+version = "0.0.0"
+publish = false
+edition = "2021"
+description = "Compiles the production fixed-point and rate code in common/src verbatim for Charon/Aeneas extraction to Lean"
+
+# Standalone workspace: never part of the root workspace, `make build`, or any
+# deployable Wasm.
+[workspace]
+members = [".", "shim"]
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+# The production files say `use soroban_sdk::...`; this rename points them at
+# the shim, whose items Charon leaves opaque (signatures only).
+soroban-sdk = { package = "aeneas-soroban-shim", path = "shim" }
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(feature, values("certora"))'] }
