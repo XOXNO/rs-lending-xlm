@@ -72,7 +72,7 @@ and `aeneas`), pinned in README.md. Lean through elan (`~/.elan/bin` on
 * **`step` side goals.** After `step as ⟨x, hx⟩` a precondition the tactic
   could not discharge comes first; close it with a bullet. The `ne` default
   (`core.cmp.PartialEq.ne.trait_default`) leaves an `hEq` goal: close it with
-  `simp [<the eq function>]`. Check the goal list with `trace_state` instead of
+  `simp [<the eq function>]`. Check the goal list with the trace_state tactic instead of
   guessing.
 * **`if b then` after `cases b`** needs `simp only [↓reduceIte]` (or
   `Bool.false_eq_true, ↓reduceIte`) before `step` can see the call.

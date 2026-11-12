@@ -209,7 +209,7 @@ re-run. What changed in the proofs:
   `slope_contribution_spec` (`Curve.lean`).
 * `SegContrib e s g c` is now `IsHalfUp (s·e) g c`; `SegContrib.bound`
   strengthened from `c ≤ slope + RAY` to `c ≤ slope`. The old helper lemmas
-  `seg_bound`/`seg_fit` were removed.
+  The two per-segment bound lemmas of the old proof were removed.
 * `calculate_annual_borrow_rate_spec` restated for the single-rounded formula
   (same shape, `AnnualRate`); `calculate_annual_borrow_rate_bounds`,
   `calculate_annual_borrow_rate_mono`, `calculate_borrow_rate_spec` and

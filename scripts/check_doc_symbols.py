@@ -29,8 +29,9 @@ IDENT = re.compile(r"\b([A-Za-z_][A-Za-z0-9_]*)\b")
 
 # Non-Rust files that legitimately define names the docs cite: env vars live in
 # Dockerfiles and Compose files, Prometheus alert names in
-# services/*/ops/alerts.yml.
-EXTRA_SUFFIXES = (".toml", ".json", ".sh", ".py", ".yml", ".yaml")
+# services/*/ops/alerts.yml. Lean theorem and definition names cited by
+# verification/aeneas/docs live in the tracked *.lean proof files.
+EXTRA_SUFFIXES = (".toml", ".json", ".sh", ".py", ".yml", ".yaml", ".lean")
 EXTRA_NAMES = ("Makefile", "Dockerfile")
 
 # Dependencies whose internal items the docs name directly. Their sources are

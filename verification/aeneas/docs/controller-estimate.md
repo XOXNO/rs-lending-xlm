@@ -56,7 +56,7 @@ Inside `liquidation_at_target`: `dmax = hu(C·W/opb)`, `δ = hu(p·opb/W)`
 | `max_hf_cap_bounds` | `EstimateBasic` | same | `(BPS + cap)·p ≤ hf·BPS < (BPS + cap + 1)·p`: `cap` is the largest BPS bonus with `(1 + bonus)·p ≤ hf` | `p > 0` | INV-LIQ-02 | — |
 | `liquidation_at_target_spec_gen` | `EstimateBasic` | `curve.rs::liquidation_at_target` | returns `r` with `LiqAtTarget` (exact value of both branches), `0 ≤ r ≤ min(dmax, D)` | `0 ≤ b ≤ 10^8`, `C, Wc ≥ 0`, `0 ≤ p ≤ 10^22`, `0 ≤ D ≤ 10^36`, `0 < T ≤ 10 W`, and `q < 2^127` whenever the target-solve branch is taken | INV-LIQ-02 | — |
 | `liquidation_at_target_spec` | `EstimateBasic` | same | as above, with no overflow assumption: the rate cap bounds `q ≤ D + W` | basic domain + rate cap | INV-LIQ-02 | — |
-| `liquidation_at_target_abort` | `EstimateAbort` | same | target-solve branch taken (`δ < T`, `Wc < τ`) and `q ≥ 2^127` → aborts. With `_spec_gen`: on the basic domain it aborts **iff** this holds | basic domain | — | — |
+| `liquidation_at_target_abort` | `EstimateAbort` | same | target-solve branch taken (`δ < T`, `Wc < τ`) and `q ≥ 2^127` → aborts. With `liquidation_at_target_spec_gen`: on the basic domain it aborts **iff** this holds | basic domain | — | — |
 | `mul_div_half_up_overflow` | `EstimateAbort` | `fp_core.rs::mul_div_half_up` | on valid operands, a half-up quotient `≥ 2^127` makes the call fail | `x, y ≥ 0`, `d > 0` | — | — |
 | `rate_branch_dead` | `EstimateTarget` | `liquidation_at_target` | under the rate cap `δ < T`: the `target_hf <= denom_term` early return is dead code at the estimate's call | rate cap | — | — |
 | `estimate_liquidation_amount_spec` | `Estimate` | `curve.rs::estimate_liquidation_amount` | never aborts; returns `(r, b)` = `EstimateSpec` (branches below) with the curve bonus `sb` (`calculate_linear_bonus_spec`) | EstDomain | INV-LIQ-02 | `estimate_liquidation_sanity` (generalised: every domain input returns) |
@@ -195,7 +195,7 @@ meets its documented contract. Observations:
   `calculate_post_liquidation_hf` is not compiled into the extraction.
 * **Exact abort set of `estimate_liquidation_amount` outside `EstDomain`.**
   The exact abort condition is proved for `liquidation_at_target` on its basic
-  domain (`_spec_gen` and `_abort`). For the estimate, only non-abort on
+  domain (`liquidation_at_target_spec_gen` and `liquidation_at_target_abort`). For the estimate, only non-abort on
   `EstDomain` and the necessity counterexample are proved. Inputs with
   negative fields, `D > 10^36` or `max > 10^8` are not characterised.
 * **Does the full-close quote exceed collateral backing?** In the `cap < base`

@@ -96,8 +96,8 @@ compiled, so it is not extracted.
   `checked_mul` returns `None` instead of trapping, `to_u128` is `Some`
   exactly below `2^128`, `Clone` is the identity, comparisons are the order
   of the naturals. This follows soroban-sdk 28.0.0 `src/num.rs`, which calls
-  the host's `u256_add`/`u256_sub`/`u256_mul`/`u256_div` (trapping) and
-  `u256_checked_mul` (returning void on overflow).
+  the host's `U256.add`/`U256.sub`/`U256.mul`/`U256.div` (trapping) and
+  `U256.checked_mul` (returning void on overflow).
 * **Host `I256` as `Int`**: copied unchanged from
   `RatesAeneas/FunsExternal.lean` (used by `fp_core`'s widened path).
 * **Rust core** (new): `bool::then_some` (`if b then Some(t) else None`),
@@ -155,7 +155,7 @@ with `#print axioms`: each depends only on `propext`, `Classical.choice`,
 | `fair_stable_lp_price_wad_fails_closed` | `StableD.lean` | same | For every input: returns (no trap or panic) `Ok _` or `Err(InvalidPrice)` | none | INV-ORACLE-01 | unit test `absurd_reserve_errors_not_panics` |
 
 Why the hypotheses hold in production: `fair_lp_price_wad_value` /
-`_balanced` take the helper results as hypotheses; `reserve_value_wad_spec`
+`fair_lp_price_wad_balanced` take the helper results as hypotheses; `reserve_value_wad_spec`
 and `try_amount_to_wad_spec` say exactly when those are `Ok`, and
 `try_amount_to_wad_pos` (`Lp.lean`) proves `S > 0` whenever the share supply
 is positive, so the `share_supply_wad <= 0` branch in both pricers is
@@ -256,7 +256,7 @@ Commit 8f476115 made `fp_core` private and routed the oracle code through the
   when it exceeds `i128::MAX`; a negative amount and `decimals > 18` give
   `Err(InvalidPrice)` in both (only the order of the checks changed, which is
   not observable). Same results on every input; the theorems
-  (`try_amount_to_wad_spec`, `_cases`, `_pos`) only lost the `env` argument.
+  (`try_amount_to_wad_spec`, `try_amount_to_wad_cases`, `try_amount_to_wad_pos`) only lost the `env` argument.
   `try_normalize_positive_price` likewise now calls
   `Wad::try_from_token_upscale` (no theorem covers it).
 * The extraction crate now includes `fp.rs` verbatim and keeps `fp_core`
