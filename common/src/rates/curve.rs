@@ -3,10 +3,9 @@
 
 use soroban_sdk::{panic_with_error, Env};
 
-use crate::constants::{BPS, MILLISECONDS_PER_YEAR, RAY};
+use crate::constants::{BPS, MILLISECONDS_PER_YEAR};
 use crate::errors::GenericError;
 use crate::math::fp::{Bps, Ray};
-use crate::math::fp_core::try_mul_div_half_up;
 use crate::types::MarketParams;
 
 /// Computes the annual borrow APR (RAY) for `utilization` under the
@@ -110,7 +109,7 @@ pub fn utilization(env: &Env, borrowed: Ray, supplied: Ray) -> Ray {
     if borrowed < Ray::ZERO || supplied < Ray::ZERO {
         panic_with_error!(env, GenericError::MathOverflow);
     }
-    try_mul_div_half_up(env, borrowed.raw(), RAY, supplied.raw()).map_or(Ray::ONE, Ray::from)
+    borrowed.try_div(env, supplied).unwrap_or(Ray::ONE)
 }
 
 #[cfg(test)]

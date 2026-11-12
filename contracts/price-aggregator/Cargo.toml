@@ -19,7 +19,7 @@ cvlr-soroban-derive = { workspace = true, optional = true }
 
 [features]
 testing = []
-certora = ["cvlr", "cvlr-soroban", "cvlr-soroban-macros", "cvlr-soroban-derive"]
+certora = ["cvlr", "cvlr-soroban", "cvlr-soroban-macros", "cvlr-soroban-derive", "common/certora"]
 certora-focused = ["common/certora-focused"]
 certora-freshness-rules = ["certora", "certora-focused"]
 certora-oracle-rules = ["certora", "certora-focused"]

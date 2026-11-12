@@ -3,7 +3,7 @@
 
 use common::constants::{BPS, MAX_TOLERANCE, MIN_TOLERANCE};
 use common::errors::{GenericError, OracleError};
-use common::math::fp_core;
+use common::math::fp::Bps;
 use common::types::OracleTolerance;
 
 use soroban_sdk::{assert_with_error, panic_with_error, Env};
@@ -23,7 +23,7 @@ pub(crate) fn calculate_tolerance_range(env: &Env, tolerance_bps: u32) -> (i128,
     let upper_bound = BPS
         .checked_add(tolerance)
         .unwrap_or_else(|| panic_with_error!(env, GenericError::MathOverflow));
-    let lower_bound = fp_core::mul_div_half_up(env, BPS, BPS, upper_bound);
+    let lower_bound = Bps::ONE.div(env, Bps::from(upper_bound)).raw();
     (upper_bound, lower_bound)
 }
 

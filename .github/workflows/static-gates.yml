@@ -66,6 +66,9 @@ jobs:
       - name: Formatting
         run: make fmt-check
 
+      - name: Production fixed-point arithmetic uses the typed API
+        run: make fp-boundary-check
+
       - name: Doc links and symbol references resolve
         run: make docs-check
 

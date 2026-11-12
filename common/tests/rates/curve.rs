@@ -1,6 +1,6 @@
 use super::*;
 use crate::constants::{MILLISECONDS_PER_YEAR, RAY};
-use crate::math::fp_core::div_by_int_half_up;
+use crate::math::reference::div_by_int_half_up;
 use crate::rates::test_support::*;
 use soroban_sdk::Env;
 

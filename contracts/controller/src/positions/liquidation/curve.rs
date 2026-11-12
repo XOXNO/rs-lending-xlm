@@ -1,7 +1,6 @@
 use crate::constants::{BAD_DEBT_USD_THRESHOLD, BPS, WAD};
 use common::errors::GenericError;
 use common::math::fp::{Bps, Wad};
-use common::math::fp_core::mul_div_ceil;
 use common::types::SpokeConfig;
 use soroban_sdk::{panic_with_error, Env};
 
@@ -194,7 +193,9 @@ pub(crate) fn max_bonus_for_threshold(env: &Env, proportion_seized: Wad) -> Bps 
         return Bps::from(0);
     }
 
-    let eff_thr_bps = mul_div_ceil(env, proportion_seized.raw(), BPS, WAD).clamp(1, BPS);
+    let eff_thr_bps = Bps::from_fraction_ceil(env, proportion_seized, Wad::ONE)
+        .raw()
+        .clamp(1, BPS);
     let numerator = BPS
         .checked_mul(BPS - eff_thr_bps)
         .unwrap_or_else(|| panic_with_error!(env, GenericError::MathOverflow));

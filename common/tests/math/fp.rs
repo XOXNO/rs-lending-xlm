@@ -2,6 +2,174 @@ use super::*;
 use soroban_sdk::Env;
 
 #[test]
+fn typed_divisions_preserve_rounding_and_overflow_policy() {
+    let env = Env::default();
+    for (value, divisor) in [(1, 3), (i128::MAX, 1), (i128::MAX, RAY), (-3, 2)] {
+        let amount = Ray::from(value);
+        let index = Ray::from(divisor);
+        assert_eq!(
+            amount.div_floor_saturating(&env, index).raw(),
+            fp_core::mul_div_floor_saturating(&env, value, RAY, divisor)
+        );
+        assert_eq!(
+            amount.try_div(&env, index).map(Ray::raw),
+            fp_core::try_mul_div_half_up(&env, value, RAY, divisor)
+        );
+    }
+    for (value, divisor) in [(1, 3), (i128::MAX, WAD), (-3, 2)] {
+        assert_eq!(
+            Wad::from(value).div_ceil(&env, Wad::from(divisor)).raw(),
+            fp_core::mul_div_ceil(&env, value, WAD, divisor)
+        );
+    }
+    assert_eq!(Ray::ONE.try_div(&env, Ray::ZERO), None);
+    assert_eq!(Ray::from(i128::MAX).try_div(&env, Ray::from(1)), None);
+    assert_eq!(
+        Wad::from(i128::MAX)
+            .mul_floor_saturating(&env, Wad::from(2 * WAD))
+            .raw(),
+        i128::MAX
+    );
+}
+
+#[test]
+fn token_valuation_does_not_normalize_or_round_the_amount_first() {
+    let env = Env::default();
+    assert_eq!(
+        Wad::from(1).try_value_of_token(&env, i128::MAX, 0),
+        Some(Wad::from(i128::MAX))
+    );
+    assert_eq!(
+        Wad::from(5).try_value_of_token(&env, 1, 1),
+        Some(Wad::from(1))
+    );
+    assert_eq!(Wad::ONE.try_value_of_token(&env, -1, 7), None);
+    assert_eq!(Wad::from(-1).try_value_of_token(&env, 1, 7), None);
+    assert_eq!(Wad::ONE.try_value_of_token(&env, 0, 39), None);
+    assert_eq!(Wad::try_from_token_upscale(-1, 18), None);
+    assert_eq!(Wad::try_from_token_upscale(0, 19), None);
+    assert_eq!(
+        Wad::try_from_token_upscale(i128::MAX, 18),
+        Some(Wad::from(i128::MAX))
+    );
+    assert_eq!(Wad::try_from_token_upscale(i128::MAX, 17), None);
+}
+
+#[test]
+fn proportional_scaling_rounds_once_in_the_output_unit() {
+    let env = Env::default();
+    // Quantizing 1/3 to WAD first would turn this exact result into zero.
+    assert_eq!(
+        Ray::from(3).mul_wad_ratio_floor(&env, Wad::from(1), Wad::from(3)),
+        Ray::from(1)
+    );
+    assert_eq!(Wad::from(3).mul_ratio_floor(&env, 1, 3), Wad::from(1));
+    assert_eq!(
+        Wad::from(1).apply_ratio_to_amount_floor(&env, Wad::from(3), 3),
+        1
+    );
+    assert_eq!(Wad::from(-3).mul_ratio_floor(&env, 1, 2), Wad::from(-2));
+    assert_eq!(
+        Ray::from(i128::MAX).mul_wad_ratio_floor(&env, Wad::from(3), Wad::from(3)),
+        Ray::from(i128::MAX)
+    );
+}
+
+#[test]
+fn bps_ratios_and_fees_keep_their_rounding_direction() {
+    let env = Env::default();
+    let numerator = Wad::from(1);
+    let denominator = Wad::from(3);
+    assert_eq!(
+        Bps::from_fraction_floor(&env, numerator, denominator).raw(),
+        3_333
+    );
+    assert_eq!(
+        Bps::from_fraction_ceil(&env, numerator, denominator).raw(),
+        3_334
+    );
+    assert_eq!(
+        Bps::try_from_fraction(&env, numerator, denominator),
+        Some(Bps::from(3_333))
+    );
+    assert_eq!(Bps::try_from_fraction(&env, numerator, Wad::ZERO), None);
+    assert_eq!(
+        Bps::try_from_fraction(&env, Wad::from(i128::MAX), numerator),
+        None
+    );
+    assert_eq!(Bps::ONE.div(&env, Bps::from(10_500)).raw(), 9_524);
+    assert_eq!(Bps::from(1).apply_to_ceil(&env, 1), 1);
+    assert_eq!(
+        Bps::from(1).apply_to_ray_ceil(&env, Ray::from(1)),
+        Ray::from(1)
+    );
+    assert_eq!(Bps::from_weighted_sum(&env, 5, Wad::from(2)).raw(), 3);
+}
+
+#[test]
+fn native_scaling_and_averages_preserve_integer_boundaries() {
+    let env = Env::default();
+    assert_eq!(Ray::from(i128::MAX).mul_int(&env, 1), Ray::from(i128::MAX));
+    assert_eq!(Ray::from(i128::MAX).mul_int(&env, 0), Ray::ZERO);
+    assert_eq!(Wad::from(i128::MAX).try_add(Wad::from(1)), None);
+    assert_eq!(Wad::from(-3).try_div_by_int(2), Some(Wad::from(-1)));
+    assert_eq!(Wad::ONE.try_div_by_int(0), None);
+    assert_eq!(Wad::from(i128::MIN).try_div_by_int(-1), None);
+    for decimals in [0, 1, 7, 18, 27] {
+        let unit = 10i128.pow(RAY_DECIMALS - decimals);
+        let cap = Ray::max_asset_amount(decimals);
+        assert!(cap.checked_mul(unit).is_some());
+        assert!(cap
+            .checked_add(1)
+            .and_then(|next| next.checked_mul(unit))
+            .is_none());
+    }
+    assert_eq!(Ray::max_asset_amount(28), 0);
+    assert_eq!(Ray::max_asset_amount(u32::MAX), 0);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #33)")]
+fn integer_rate_multiplication_keeps_overflow_error() {
+    let env = Env::default();
+    let _ = Ray::from(i128::MAX).mul_int(&env, 2);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #55)")]
+fn saturating_division_keeps_zero_divisor_error_priority() {
+    let env = Env::default();
+    let _ = Ray::from(-1).div_floor_saturating(&env, Ray::ZERO);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #33)")]
+fn wad_ceiling_division_keeps_overflow_error() {
+    let env = Env::default();
+    let _ = Wad::from(i128::MAX).div_ceil(&env, Wad::from(1));
+}
+
+#[test]
+fn risk_bound_comparison_keeps_the_exact_product_boundary() {
+    let env = Env::default();
+    for (threshold, bonus) in [
+        (10_000, 0),
+        (9_999, 1),
+        (9_999, 2),
+        (6_666, 5_000),
+        (6_667, 5_000),
+        (1, u32::MAX),
+    ] {
+        let threshold = i128::from(threshold);
+        let bonus = i128::from(bonus);
+        assert_eq!(
+            Bps::from(BPS + bonus).apply_to_ceil(&env, threshold) <= BPS,
+            threshold * (BPS + bonus) <= BPS * BPS
+        );
+    }
+}
+
+#[test]
 fn test_ray_mul_div() {
     let env = Env::default();
     let a = Ray::from(2 * RAY);

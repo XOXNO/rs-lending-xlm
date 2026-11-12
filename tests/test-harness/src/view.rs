@@ -1,6 +1,5 @@
-use common::constants::{BPS, LIQUIDATION_BUFFER_BPS};
-use common::math::fp::Ray;
-use common::math::fp_core::mul_div_ceil;
+use common::constants::LIQUIDATION_BUFFER_BPS;
+use common::math::fp::{Bps, Ray};
 use common::rates::unscale_supply_floor;
 use controller::constants::RAY;
 use controller::types::{AccountPositionType, ControllerKey, PositionLimits};
@@ -319,6 +318,6 @@ impl LendingTest {
             Ray::from(sync.state.supply_index),
             sync.params.asset_decimals,
         );
-        mul_div_ceil(&self.env, supplied, LIQUIDATION_BUFFER_BPS, BPS)
+        Bps::from(LIQUIDATION_BUFFER_BPS).apply_to_ceil(&self.env, supplied)
     }
 }

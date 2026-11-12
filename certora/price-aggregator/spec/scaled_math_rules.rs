@@ -4,7 +4,7 @@ use soroban_sdk::Env;
 
 use common::constants::{MAX_REASONABLE_PRICE_WAD, WAD};
 use common::math::fp::Wad;
-use common::math::fp_core::mul_div_half_up;
+use common::math::reference::mul_div_half_up;
 
 /// Production `read_scaled` computes the scaled price as
 /// `factor.try_mul(quote)` (Wad), which is `fp_core::try_mul_div_half_up(factor,

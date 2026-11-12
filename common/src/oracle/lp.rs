@@ -3,7 +3,7 @@
 
 use crate::constants::WAD;
 use crate::errors::OracleError;
-use crate::math::fp_core::try_mul_div_half_up;
+use crate::math::fp::Wad;
 use crate::oracle::observation::{try_amount_to_wad, try_u256_to_i128};
 use soroban_sdk::{Env, U256};
 
@@ -90,10 +90,10 @@ pub fn fair_lp_price_wad(
 /// / 10^decimals`, rounded half up. Returns `OracleError::InvalidPrice` if
 /// `10^decimals` overflows `i128` or the multiply-divide fails.
 fn reserve_value_wad(env: &Env, leg: &LpLeg) -> Result<i128, OracleError> {
-    let denom = 10i128
-        .checked_pow(leg.decimals)
-        .ok_or(OracleError::InvalidPrice)?;
-    try_mul_div_half_up(env, leg.reserve, leg.price_wad, denom).ok_or(OracleError::InvalidPrice)
+    Wad::from(leg.price_wad)
+        .try_value_of_token(env, leg.reserve, leg.decimals)
+        .map(Wad::raw)
+        .ok_or(OracleError::InvalidPrice)
 }
 
 #[cfg(test)]

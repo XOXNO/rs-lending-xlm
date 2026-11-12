@@ -12,7 +12,7 @@ use soroban_sdk::Env;
 
 use crate::constants::{MILLISECONDS_PER_YEAR, RAY, WAD};
 use crate::math::fp::{Bps, Ray};
-use crate::math::fp_core::{div_by_int_half_up, mul_div_floor, mul_div_half_up, rescale_half_up};
+use crate::math::reference::{div_by_int_half_up, mul_div_floor, mul_div_half_up, rescale_half_up};
 use crate::rates::{calculate_borrow_rate, compound_interest};
 use crate::types::MarketParams;
 

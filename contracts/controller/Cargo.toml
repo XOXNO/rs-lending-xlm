@@ -25,7 +25,7 @@ cvlr-soroban-macros = { workspace = true, optional = true }
 cvlr-soroban-derive = { workspace = true, optional = true }
 
 [features]
-certora = ["cvlr", "cvlr-soroban", "cvlr-soroban-macros", "cvlr-soroban-derive"]
+certora = ["cvlr", "cvlr-soroban", "cvlr-soroban-macros", "cvlr-soroban-derive", "common/certora"]
 certora-focused = ["common/certora-focused"]
 certora-account-isolation-rules = ["certora", "certora-focused"]
 certora-boundary-rules = ["certora", "certora-focused"]

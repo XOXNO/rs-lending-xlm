@@ -6,7 +6,7 @@ use common::constants::{
     BPS, MAX_FLASHLOAN_FEE_BPS, MAX_SUPPLY_INDEX_RAY, RAY, SUPPLY_INDEX_FLOOR_RAW,
 };
 use common::math::fp::Ray;
-use common::math::fp_core;
+use common::math::reference as fp_core;
 
 use super::fixture::{
     expected_protocol_fee_shares, hub, params, read_state, seed, state, ASSET_DECIMALS,

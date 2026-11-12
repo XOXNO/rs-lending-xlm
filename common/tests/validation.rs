@@ -1,4 +1,5 @@
 use super::*;
+use crate::math::reference::mul_div_half_up;
 use soroban_sdk::testutils::Address as _;
 use soroban_sdk::{contract, contractimpl, Address, Env};
 
@@ -396,7 +397,7 @@ fn cap_ceiling_collapses_to_zero_above_ray_decimals() {
 fn cap_at_domain_ceiling_saturates_under_a_floored_supply_index() {
     use crate::constants::SUPPLY_INDEX_FLOOR_RAW;
     use crate::math::fp::Ray;
-    use crate::math::fp_core::mul_div_floor_saturating;
+    use crate::math::reference::mul_div_floor_saturating;
 
     let env = Env::default();
     let ceiling = max_cap_for_decimals(7);

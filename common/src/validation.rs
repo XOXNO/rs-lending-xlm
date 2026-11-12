@@ -6,7 +6,7 @@ use crate::constants::{
     MIN_SANITY_BAND_BPS, MIN_TOLERANCE, RAY_DECIMALS, WAD,
 };
 use crate::errors::{CollateralError, FlashLoanError, GenericError, OracleError};
-use crate::math::fp_core::{mul_div_ceil, mul_div_floor, mul_div_half_up};
+use crate::math::fp::{Bps, Ray, Wad};
 use crate::oracle::observation::{
     MAX_LP_SANITY_BAND_BPS, MAX_SINGLE_SOURCE_SANITY_BAND_BPS, MAX_TWAP_RECORDS,
 };
@@ -46,13 +46,7 @@ pub fn require_non_empty_payments<T>(env: &Env, payments: &Vec<T>) {
 /// [`require_cap_within_asset_domain`], so stored caps can never overflow the
 /// asset→ray rescale.
 pub fn max_cap_for_decimals(asset_decimals: u32) -> i128 {
-    let Some(exp) = RAY_DECIMALS.checked_sub(asset_decimals) else {
-        return 0;
-    };
-    let upscale = 10i128
-        .checked_pow(exp)
-        .expect("10^(RAY_DECIMALS - asset_decimals) fits i128 for asset_decimals <= RAY_DECIMALS");
-    i128::MAX / upscale
+    Ray::max_asset_amount(asset_decimals)
 }
 
 /// Panics with `CollateralError::AssetDecimalsTooHigh` if `asset_decimals`
@@ -103,7 +97,7 @@ pub fn validate_risk_bounds(env: &Env, ltv: u32, threshold: u32, bonus: u32) {
     );
     assert_with_error!(
         env,
-        threshold * (BPS + bonus) <= BPS * BPS,
+        Bps::from(BPS + bonus).apply_to_ceil(env, threshold) <= BPS,
         CollateralError::InvalidLiqThreshold
     );
 }
@@ -150,7 +144,9 @@ pub fn validate_oracle_tolerance(env: &Env, tolerance: &OracleTolerance) {
         OracleError::BadLastTolerance
     );
 
-    let expected_lower = mul_div_half_up(env, BPS, BPS, i128::from(tolerance.upper_ratio_bps));
+    let expected_lower = Bps::ONE
+        .div(env, Bps::from(tolerance.upper_ratio_bps))
+        .raw();
     assert_with_error!(
         env,
         i128::from(tolerance.lower_ratio_bps) == expected_lower,
@@ -170,7 +166,12 @@ pub fn validate_sanity_bounds(env: &Env, min_wad: i128, max_wad: i128) {
         OracleError::InvalidSanityBounds
     );
 
-    let half_width_bps = mul_div_floor(env, max_wad - min_wad, BPS, max_wad + min_wad);
+    let half_width_bps = Bps::from_fraction_floor(
+        env,
+        Wad::from(max_wad - min_wad),
+        Wad::from(max_wad + min_wad),
+    )
+    .raw();
     assert_with_error!(
         env,
         half_width_bps >= MIN_SANITY_BAND_BPS,
@@ -187,7 +188,12 @@ pub fn validate_single_source_sanity_band(env: &Env, is_dual: bool, min_wad: i12
         return;
     }
 
-    let band_bps = mul_div_ceil(env, max_wad - min_wad, BPS, max_wad + min_wad);
+    let band_bps = Bps::from_fraction_ceil(
+        env,
+        Wad::from(max_wad - min_wad),
+        Wad::from(max_wad + min_wad),
+    )
+    .raw();
     assert_with_error!(
         env,
         band_bps <= MAX_SINGLE_SOURCE_SANITY_BAND_BPS,
@@ -199,7 +205,12 @@ pub fn validate_single_source_sanity_band(env: &Env, is_dual: bool, min_wad: i12
 /// points and rounded up, does not exceed `MAX_LP_SANITY_BAND_BPS`, panicking with
 /// `OracleError::SanityBandTooWideForSingleSource` otherwise.
 pub fn validate_lp_sanity_band(env: &Env, min_wad: i128, max_wad: i128) {
-    let band_bps = mul_div_ceil(env, max_wad - min_wad, BPS, max_wad + min_wad);
+    let band_bps = Bps::from_fraction_ceil(
+        env,
+        Wad::from(max_wad - min_wad),
+        Wad::from(max_wad + min_wad),
+    )
+    .raw();
     assert_with_error!(
         env,
         band_bps <= MAX_LP_SANITY_BAND_BPS,

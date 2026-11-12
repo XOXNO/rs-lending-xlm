@@ -1,7 +1,7 @@
 #![no_main]
 use arbitrary::Arbitrary;
 use common::constants::{BPS, RAY, WAD};
-use common::math::fp_core::{div_by_int_half_up, mul_div_half_up, rescale_half_up};
+use common::math::reference::{div_by_int_half_up, mul_div_half_up, rescale_half_up};
 use libfuzzer_sys::fuzz_target;
 use soroban_sdk::Env;
 

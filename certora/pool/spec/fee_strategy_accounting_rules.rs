@@ -7,7 +7,7 @@ use common::constants::{
     RAY, SUPPLY_INDEX_FLOOR_RAW,
 };
 use common::math::fp::Ray;
-use common::math::fp_core;
+use common::math::reference as fp_core;
 use common::rates::{
     calculate_borrow_rate, compound_interest, update_borrow_index, update_supply_index,
 };

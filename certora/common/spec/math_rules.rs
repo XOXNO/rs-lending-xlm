@@ -4,7 +4,7 @@ use soroban_sdk::Env;
 
 use crate::constants::{BPS, RAY, WAD};
 use crate::math::fp::{Bps, Ray, Wad};
-use crate::math::fp_core::{mul_div_ceil, mul_div_floor, mul_div_half_up, rescale_half_up};
+use crate::math::reference::{mul_div_ceil, mul_div_floor, mul_div_half_up, rescale_half_up};
 
 /// Largest `x` for which `fp_core::try_mul_div_half_up(x, RAY, RAY)` stays on
 /// the native `i128` fast path.

@@ -1,7 +1,6 @@
 use common::constants::{BPS, MIN_BORROWABLE_ASSET_DECIMALS, RAY, WAD};
 use common::errors::{CollateralError, GenericError};
 use common::math::fp::{Bps, Ray, Wad};
-use common::math::fp_core::{div_by_int_half_up, mul_div_ceil, mul_div_floor};
 use common::rates::{
     position_value_floor, resolve_withdrawal, unscale_borrow_ceil, unscale_supply_floor,
 };
@@ -279,24 +278,14 @@ fn whole_unit_repayment(
     if quote_usd.mul(env, one_plus_bonus) >= unit_with_margin {
         return quote_usd;
     }
-    let unit_at_bonus = Wad::from(mul_div_floor(
-        env,
-        unit_usd.raw(),
-        Wad::ONE.raw(),
-        one_plus_bonus.raw(),
-    ));
+    let unit_at_bonus = unit_usd.div_floor(env, one_plus_bonus);
     let full_close_ceiling = snap
         .total_debt
         .checked_add(env, one_unit_per_debt_leg_usd(env, account, cache));
     if unit_at_bonus >= full_close_ceiling {
         return snap.total_debt;
     }
-    let unit_repayment = Wad::from(mul_div_ceil(
-        env,
-        unit_with_margin.raw(),
-        Wad::ONE.raw(),
-        one_plus_bonus.raw(),
-    ));
+    let unit_repayment = unit_with_margin.div_ceil(env, one_plus_bonus);
     if unit_repayment >= snap.total_debt {
         return quote_usd;
     }
@@ -567,7 +556,7 @@ pub(crate) fn split_seized_shares(
         panic_with_error!(env, GenericError::InternalError);
     }
 
-    let fee_scaled = Ray::from(mul_div_ceil(env, bonus_scaled.raw(), fees, BPS));
+    let fee_scaled = Bps::from(fees).apply_to_ray_ceil(env, bonus_scaled);
     // Recheck the computed fee against the seizure; rates come from position stamps.
     if fee_scaled > seized_scaled {
         panic_with_error!(env, GenericError::InternalError);
@@ -619,7 +608,8 @@ pub(crate) fn get_account_bonus_params(
             .unwrap_or_else(|| panic_with_error!(env, GenericError::MathOverflow));
     }
 
-    let weighted_bonus_bps = div_by_int_half_up(env, weighted_bonus_sum, total_collateral.raw());
+    let weighted_bonus_bps =
+        Bps::from_weighted_sum(env, weighted_bonus_sum, total_collateral).raw();
     let base = Bps::from(weighted_bonus_bps.min(max.raw()));
     BonusBounds { base, max }
 }
@@ -646,8 +636,6 @@ pub(crate) fn scale_seizures_to_received(
         return seized.clone();
     }
 
-    let num = received_usd.raw();
-    let den = planned_usd.raw();
     let mut scaled: Vec<SeizeEntry> = Vec::new(env);
     for entry in seized.iter() {
         assert_with_error!(
@@ -655,19 +643,27 @@ pub(crate) fn scale_seizures_to_received(
             entry.feed.asset_decimals >= MIN_BORROWABLE_ASSET_DECIMALS,
             GenericError::InvalidPayments
         );
-        let scaled_amount = mul_div_floor(env, entry.scaled_amount, num, den);
+        let scaled_amount = Ray::from(entry.scaled_amount)
+            .mul_wad_ratio_floor(env, received_usd, planned_usd)
+            .raw();
         let shares_amount = unscale_supply_floor(
             env,
             Ray::from(scaled_amount),
             Ray::from(entry.market_index.supply_index),
             entry.feed.asset_decimals,
         );
-        let amount = mul_div_floor(env, entry.amount, num, den).min(shares_amount);
+        let amount = received_usd
+            .apply_ratio_to_amount_floor(env, planned_usd, entry.amount)
+            .min(shares_amount);
         scaled.push_back(SeizeEntry {
             amount,
-            protocol_fee: mul_div_floor(env, entry.protocol_fee, num, den).min(amount),
+            protocol_fee: received_usd
+                .apply_ratio_to_amount_floor(env, planned_usd, entry.protocol_fee)
+                .min(amount),
             scaled_amount,
-            bonus_scaled: mul_div_floor(env, entry.bonus_scaled, num, den),
+            bonus_scaled: Ray::from(entry.bonus_scaled)
+                .mul_wad_ratio_floor(env, received_usd, planned_usd)
+                .raw(),
             liquidation_fees: entry.liquidation_fees,
             hub_asset: entry.hub_asset,
             feed: entry.feed,

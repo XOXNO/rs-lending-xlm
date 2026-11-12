@@ -2,7 +2,7 @@
 //! pools from the pool contract's own reserves, share supply, and metadata.
 
 use common::errors::OracleError;
-use common::math::fp_core::try_mul_div_half_up;
+use common::math::fp::Wad;
 use common::oracle::lp::{fair_lp_price_wad, LpLeg, LpSupply};
 use common::oracle::lp_stable::fair_stable_lp_price_wad;
 use common::oracle::providers::aquarius::{
@@ -112,11 +112,10 @@ pub(crate) fn read(
     } else {
         fair_lp_price_wad(&env, &leg_a, &leg_b, &supply)?
     };
-    let share_unit = 10i128
-        .checked_pow(share_decimals)
+    let pool_value_wad = Wad::from(price_wad)
+        .try_value_of_token(&env, total_shares, share_decimals)
         .ok_or(OracleError::InvalidPrice)?;
-    let pool_value_wad = try_mul_div_half_up(&env, price_wad, total_shares, share_unit)
-        .ok_or(OracleError::InvalidPrice)?;
+    let pool_value_wad = pool_value_wad.raw();
     if pool_value_wad < lp.min_pool_value_wad {
         return Err(OracleError::InsufficientAquariusLiquidity);
     }

@@ -10,7 +10,7 @@ use std::vec::Vec as StdVec;
 
 use arbitrary::Arbitrary;
 use common::constants::{BPS, MAX_REASONABLE_PRICE_WAD, MAX_TOLERANCE, MIN_TOLERANCE, WAD};
-use common::math::fp_core::mul_div_half_up;
+use common::math::reference::mul_div_half_up;
 use common::oracle::observation::{
     MAX_FUTURE_SKEW_SECONDS, MAX_ORACLE_DECIMALS, MAX_PRICE_STALE_SECONDS, MAX_TWAP_RECORDS,
     MIN_ORACLE_RESOLUTION_SECONDS, MIN_PRICE_STALE_SECONDS,

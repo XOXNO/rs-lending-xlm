@@ -4,7 +4,7 @@ use soroban_sdk::{panic_with_error, Env};
 
 use common::constants::{BPS, RAY, WAD};
 use common::errors::OracleError;
-use common::math::fp_core;
+use common::math::reference as fp_core;
 
 use common::types::OracleTolerance;
 

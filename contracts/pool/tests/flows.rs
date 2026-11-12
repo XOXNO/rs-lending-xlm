@@ -3065,7 +3065,7 @@ fn test_revenue_conversion_floor_never_exceeds_entitlement_but_half_up_does() {
 
     let state = t.state_snapshot();
     let entitlement_ray =
-        common::math::fp_core::mul_div_floor(&t.env, state.revenue, state.supply_index, RAY);
+        common::math::reference::mul_div_floor(&t.env, state.revenue, state.supply_index, RAY);
 
     let (half_up, floored) = t.env.as_contract(&t.pool, || {
         let cache = Cache::load(&t.env, &hub(&t.asset));
@@ -3106,7 +3106,7 @@ fn test_claims_never_outpay_burned_shares_where_half_up_would() {
         let paid = client.claim_revenue(&hub(&t.asset)).actual_amount;
         let after = t.state_snapshot();
 
-        let burned_ray = common::math::fp_core::mul_div_floor(
+        let burned_ray = common::math::reference::mul_div_floor(
             &t.env,
             before.revenue - after.revenue,
             before.supply_index,
@@ -3135,7 +3135,7 @@ fn test_revenue_claim_pays_out_once_entitlement_clears_one_raw_unit() {
 
     let before = t.state_snapshot();
     let owed_ray =
-        common::math::fp_core::mul_div_floor(&t.env, before.revenue, before.supply_index, RAY);
+        common::math::reference::mul_div_floor(&t.env, before.revenue, before.supply_index, RAY);
     assert!(owed_ray > WAD_PER_RAW);
 
     let paid = client.claim_revenue(&hub(&t.asset)).actual_amount;

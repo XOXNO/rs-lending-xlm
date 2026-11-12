@@ -1,7 +1,9 @@
 //! Soroswap (constant-product) hop: transfer in, then pool `swap`.
 
-use common::math::fp_core::mul_div_floor;
-use soroban_sdk::{panic_with_error, symbol_short, token, vec, Env, IntoVal, Symbol, Val, Vec};
+use common::errors::GenericError;
+use soroban_sdk::{
+    panic_with_error, symbol_short, token, vec, Env, IntoVal, Symbol, Val, Vec, U256,
+};
 
 use crate::errors::Error;
 use crate::math::{checked_add, checked_mul};
@@ -17,7 +19,7 @@ const FEE_DEN: i128 = 1_000;
 /// Computes the 0.3% swap fee on `amount_in`, rounded up. Returns zero if `amount_in` is not
 /// positive. Panics with `Error::IntegerOverflow` if the scaled numerator does not fit in `i128`.
 ///
-/// Panics instead of widening like [`mul_div_floor`]: an `amount_in` above `i128::MAX / 3` is a
+/// Panics instead of widening like the reserve formula: an `amount_in` above `i128::MAX / 3` is a
 /// corrupt amount, not a trade.
 fn soroswap_fee(env: &Env, amount_in: i128) -> i128 {
     if amount_in <= 0 {
@@ -39,7 +41,16 @@ fn soroswap_amount_out(env: &Env, amount_in: i128, reserve_in: i128, reserve_out
         return 0;
     }
     let denominator = checked_add(env, reserve_in, in_less);
-    mul_div_floor(env, in_less, reserve_out, denominator)
+    if let Some(product) = in_less.checked_mul(reserve_out) {
+        return product / denominator;
+    }
+    // Integer reserve math: widening preserves the exact quotient without quantizing a ratio.
+    U256::from_u128(env, in_less as u128)
+        .mul(&U256::from_u128(env, reserve_out as u128))
+        .div(&U256::from_u128(env, denominator as u128))
+        .to_u128()
+        .and_then(|out| i128::try_from(out).ok())
+        .unwrap_or_else(|| panic_with_error!(env, GenericError::MathOverflow))
 }
 
 /// Executes a swap against a Soroswap constant-product pair: reads the pair's live reserves,

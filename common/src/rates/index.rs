@@ -3,9 +3,8 @@
 
 use soroban_sdk::Env;
 
-use crate::constants::{MAX_BORROW_INDEX_RAY, MAX_SUPPLY_INDEX_RAY, RAY};
+use crate::constants::{MAX_BORROW_INDEX_RAY, MAX_SUPPLY_INDEX_RAY};
 use crate::math::fp::Ray;
-use crate::math::fp_core;
 use crate::types::MarketParams;
 
 /// Applies `interest_factor` to `old_index` to produce the new borrow index,
@@ -38,7 +37,7 @@ pub fn update_supply_index(env: &Env, supplied: Ray, old_index: Ray, rewards_inc
     }
 
     let new_value = total_supplied_value.checked_add(env, rewards_increase);
-    let grown = fp_core::mul_div_floor_saturating(env, new_value.raw(), RAY, supplied.raw());
+    let grown = new_value.div_floor_saturating(env, supplied).raw();
 
     let bounded_old = old_index.raw().min(MAX_SUPPLY_INDEX_RAY);
     Ray::from(grown.min(MAX_SUPPLY_INDEX_RAY).max(bounded_old))
@@ -92,7 +91,7 @@ pub fn calculate_supplier_rewards(
 /// (`fee / supply_index`), floor-rounded and saturating on overflow. Caps the
 /// result so that adding it to `supplied` cannot overflow `i128::MAX`.
 pub fn protocol_fee_shares(env: &Env, fee: Ray, supply_index: Ray, supplied: Ray) -> Ray {
-    let raw = fp_core::mul_div_floor_saturating(env, fee.raw(), RAY, supply_index.raw());
+    let raw = fee.div_floor_saturating(env, supply_index).raw();
 
     let headroom = i128::MAX.saturating_sub(supplied.raw());
     Ray::from(raw.min(headroom))
