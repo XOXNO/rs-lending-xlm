@@ -6,10 +6,11 @@
   "status": "PASSED",
   "verdict": "OK",
   "exit_code": 0,
-  "wall_seconds": 842,
+  "wall_seconds": 530,
   "smt_timeout_ms": 5000,
+  "memory_peak_bytes": 3124142080,
   "nodes": 4,
-  "rewrite_steps": 1747,
+  "rewrite_steps": 1754,
   "errors": []
  },
  {
@@ -19,10 +20,11 @@
   "status": "FAILED",
   "verdict": "OK",
   "exit_code": 1,
-  "wall_seconds": 899,
+  "wall_seconds": 536,
   "smt_timeout_ms": 5000,
+  "memory_peak_bytes": 2907328512,
   "nodes": 4,
-  "rewrite_steps": 1734,
+  "rewrite_steps": 1741,
   "errors": []
  },
  {
@@ -32,10 +34,11 @@
   "status": "PASSED",
   "verdict": "OK",
   "exit_code": 0,
-  "wall_seconds": 674,
+  "wall_seconds": 462,
   "smt_timeout_ms": 5000,
+  "memory_peak_bytes": 4186812416,
   "nodes": 3,
-  "rewrite_steps": 622,
+  "rewrite_steps": 567,
   "errors": []
  },
  {
@@ -45,10 +48,11 @@
   "status": "FAILED",
   "verdict": "OK",
   "exit_code": 1,
-  "wall_seconds": 631,
+  "wall_seconds": 423,
   "smt_timeout_ms": 5000,
+  "memory_peak_bytes": 3080794112,
   "nodes": 3,
-  "rewrite_steps": 477,
+  "rewrite_steps": 422,
   "errors": []
  },
  {
@@ -58,8 +62,9 @@
   "status": "PASSED",
   "verdict": "OK",
   "exit_code": 0,
-  "wall_seconds": 970,
+  "wall_seconds": 492,
   "smt_timeout_ms": 5000,
+  "memory_peak_bytes": 3376873472,
   "nodes": 4,
   "rewrite_steps": 1167,
   "errors": []

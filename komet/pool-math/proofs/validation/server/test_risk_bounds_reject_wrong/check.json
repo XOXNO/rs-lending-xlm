@@ -18,7 +18,7 @@
  },
  "id": "test_risk_bounds_reject_wrong",
  "input_fingerprint": {
-  "claim": "8554d664a7241ad911b7f69541308e824f4187390be4f592314895cf82ef0991",
+  "claim": "e838809535b089d41ec27a4e9f1e0406c3b78f2a53b869c939f0897fe94e65af",
   "definitions": {
    "haskell": "a66ba5710a4bfe9569247ce0b4fa777812c2f1835a71434d5e5676eb9c934b98",
    "llvm": "bc45d16cc07aa32904549e2086fc416b7eafa0c8c11afc9f9a47871d96610325"
@@ -28,7 +28,7 @@
   },
   "runner": "ac43e6cafd049c505f81b5e363968c509d656de5c9d57ab81c1eea091654a8e2"
  },
- "inputs_sha256": "0fd6afd98fdeb3bc1fc8add0578c98bfbcb97d4fd035264af73e997c040722a8",
+ "inputs_sha256": "62df706ad21ed6fc391cb1194201607308479995752ae2663c9f955104a0eb1d",
  "node_refutations": {},
  "nodes": 3,
  "pending": [],

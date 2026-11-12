@@ -38,7 +38,7 @@ each proof README for numbers.
 | `test_wad_try_mul_negative_wrong` | — | `try_mul(-1, 0) == Some(0)` | same | control fails (server, not packed) |
 | `test_from_asset_7_exact` [rescale-up] | product fits i128 (all signs) | `Ray::from_asset(a, 7) == a * 10^20` | `Ray::from_asset` → `rescale_half_up` | open: stopped after 2,061 s, resumable |
 | `test_from_asset_7_wrong` | — | one unit is 10^19 | same | control fails (server, not packed) |
-| `test_widened_ceil` [controls] | — | `mul_div_ceil(RAY+1, RAY+1, RAY) == RAY+3` | `fp_core::mul_div_ceil` | concrete only |
+| `test_widened_ceil` [controls] | — | `mul_div_ceil(RAY+1, RAY+1, RAY) == RAY+3` | `fp_core::mul_div_ceil` | proved (server) |
 
 ### Rates and indexes (`pm`)
 
@@ -64,9 +64,9 @@ each proof README for numbers.
 | `test_utilization_bounds` [utilization] | `0 <= b <= s`, `s > 0` | `0 <= U <= RAY` | `rates::utilization` | concrete only |
 | `test_utilization_exact` [utilization] | b, s >= 0; s == 0 or b <= s | `U == 0` at s == 0; else exact half-up quotient in `[0, RAY]` | same | open (Mac: 39-rule module, not closed) |
 | `test_utilization_round_wrong` | — | `U(1, 2*RAY) == 0` | same | control fails (Mac) |
-| `test_util_zero_supply` [controls] | every i128 borrowed | `U(b, 0) == 0` | same | proved (Mac, historical; older semantics) |
-| `test_utilization_wrong` [controls] | `0 <= b <= s`, `s > 0` | `U < RAY` (false at full use) | same | concrete control |
-| `test_full_utilization` / `test_full_utilization_wrong` [controls] | — | `U(RAY, RAY) == RAY` / `< RAY` | same | Mac diagnostic only |
+| `test_util_zero_supply` [controls] | every i128 borrowed | `U(b, 0) == 0` | same | proved (server, merged main) |
+| `test_utilization_wrong` [controls] | `0 <= b <= s`, `s > 0` | `U < RAY` (false at full use) | same | open: blocked on merged main (I256 quotient words) |
+| `test_full_utilization` / `test_full_utilization_wrong` [controls] | — | `U(RAY, RAY) == RAY` / `< RAY` | same | proved / control fails (server, merged main) |
 
 ### Settlements (`pm`)
 
@@ -195,19 +195,19 @@ directory's `wasm.sha256`.
 | [`komet/pool-math/proofs/oracle-time/server`](../../komet/pool-math/proofs/oracle-time/server/summary.json) | `test_future_wrong` | fail | `FAILED` | 3 | 90 | 196 |
 | [`komet/pool-math/proofs/oracle-time/server`](../../komet/pool-math/proofs/oracle-time/server/summary.json) | `test_stale_exact` | pass | `PASSED` | 3 | 540 | 233 |
 | [`komet/pool-math/proofs/oracle-time/server`](../../komet/pool-math/proofs/oracle-time/server/summary.json) | `test_stale_wrong` | fail | `FAILED` | 3 | 90 | 190 |
-| [`komet/pool-math/proofs/utilization/server-controls`](../../komet/pool-math/proofs/utilization/server-controls/summary.json) | `test_full_utilization` | pass | `PASSED` | 4 | 1,747 | 842 |
-| [`komet/pool-math/proofs/utilization/server-controls`](../../komet/pool-math/proofs/utilization/server-controls/summary.json) | `test_full_utilization_wrong` | fail | `FAILED` | 4 | 1,734 | 899 |
-| [`komet/pool-math/proofs/utilization/server-controls`](../../komet/pool-math/proofs/utilization/server-controls/summary.json) | `test_util_zero_supply` | pass | `PASSED` | 3 | 622 | 674 |
-| [`komet/pool-math/proofs/utilization/server-controls`](../../komet/pool-math/proofs/utilization/server-controls/summary.json) | `test_util_zero_supply_wrong` | fail | `FAILED` | 3 | 477 | 631 |
-| [`komet/pool-math/proofs/utilization/server-controls`](../../komet/pool-math/proofs/utilization/server-controls/summary.json) | `test_widened_ceil` | pass | `PASSED` | 4 | 1,167 | 970 |
-| [`komet/pool-math/proofs/validation/server`](../../komet/pool-math/proofs/validation/server/summary.json) | `test_liquidation_curve_accepts` | pass | `PASSED` | 47 | 1,506 | 870 |
-| [`komet/pool-math/proofs/validation/server`](../../komet/pool-math/proofs/validation/server/summary.json) | `test_liquidation_curve_rejects` | reject | `FAILED` | 19 | 1,595 | 527 |
-| [`komet/pool-math/proofs/validation/server`](../../komet/pool-math/proofs/validation/server/summary.json) | `test_risk_bounds_accepts` | pass | `PASSED` | 15 | 719 | 809 |
-| [`komet/pool-math/proofs/validation/server`](../../komet/pool-math/proofs/validation/server/summary.json) | `test_risk_bounds_reject_wrong` | fail | `FAILED` | 3 | 130 | 344 |
-| [`komet/pool-math/proofs/validation/server`](../../komet/pool-math/proofs/validation/server/summary.json) | `test_risk_bounds_rejects` | reject | `FAILED` | 11 | 768 | 928 |
-| [`komet/pool-math/proofs/validation/server`](../../komet/pool-math/proofs/validation/server/summary.json) | `test_twap_records_accepts` | pass | `PASSED` | 7 | 260 | 388 |
-| [`komet/pool-math/proofs/validation/server`](../../komet/pool-math/proofs/validation/server/summary.json) | `test_twap_records_reject_wrong` | fail | `FAILED` | 3 | 130 | 254 |
-| [`komet/pool-math/proofs/validation/server`](../../komet/pool-math/proofs/validation/server/summary.json) | `test_twap_records_rejects` | reject | `FAILED` | 11 | 319 | 459 |
+| [`komet/pool-math/proofs/utilization/server-controls`](../../komet/pool-math/proofs/utilization/server-controls/summary.json) | `test_full_utilization` | pass | `PASSED` | 4 | 1,754 | 530 |
+| [`komet/pool-math/proofs/utilization/server-controls`](../../komet/pool-math/proofs/utilization/server-controls/summary.json) | `test_full_utilization_wrong` | fail | `FAILED` | 4 | 1,741 | 536 |
+| [`komet/pool-math/proofs/utilization/server-controls`](../../komet/pool-math/proofs/utilization/server-controls/summary.json) | `test_util_zero_supply` | pass | `PASSED` | 3 | 567 | 462 |
+| [`komet/pool-math/proofs/utilization/server-controls`](../../komet/pool-math/proofs/utilization/server-controls/summary.json) | `test_util_zero_supply_wrong` | fail | `FAILED` | 3 | 422 | 423 |
+| [`komet/pool-math/proofs/utilization/server-controls`](../../komet/pool-math/proofs/utilization/server-controls/summary.json) | `test_widened_ceil` | pass | `PASSED` | 4 | 1,167 | 492 |
+| [`komet/pool-math/proofs/validation/server`](../../komet/pool-math/proofs/validation/server/summary.json) | `test_liquidation_curve_accepts` | pass | `PASSED` | 47 | 1,506 | 225 |
+| [`komet/pool-math/proofs/validation/server`](../../komet/pool-math/proofs/validation/server/summary.json) | `test_liquidation_curve_rejects` | reject | `FAILED` | 19 | 1,595 | 464 |
+| [`komet/pool-math/proofs/validation/server`](../../komet/pool-math/proofs/validation/server/summary.json) | `test_risk_bounds_accepts` | pass | `PASSED` | 15 | 719 | 452 |
+| [`komet/pool-math/proofs/validation/server`](../../komet/pool-math/proofs/validation/server/summary.json) | `test_risk_bounds_reject_wrong` | fail | `FAILED` | 3 | 130 | 150 |
+| [`komet/pool-math/proofs/validation/server`](../../komet/pool-math/proofs/validation/server/summary.json) | `test_risk_bounds_rejects` | reject | `FAILED` | 11 | 768 | 530 |
+| [`komet/pool-math/proofs/validation/server`](../../komet/pool-math/proofs/validation/server/summary.json) | `test_twap_records_accepts` | pass | `PASSED` | 7 | 260 | 215 |
+| [`komet/pool-math/proofs/validation/server`](../../komet/pool-math/proofs/validation/server/summary.json) | `test_twap_records_reject_wrong` | fail | `FAILED` | 3 | 130 | 150 |
+| [`komet/pool-math/proofs/validation/server`](../../komet/pool-math/proofs/validation/server/summary.json) | `test_twap_records_rejects` | reject | `FAILED` | 11 | 319 | 306 |
 
-Runs that ended `blocked`, `stopped` or out of memory are not packed. Each
+Runs that ended `blocked`, `stopped` or out of memory are not packed. Main rewrote `rates::utilization` to use the half-up `try_mul_div_half_up`, so the utilization rows were re-proved on the merged code. Each
 one is recorded in its claim's §1 status.

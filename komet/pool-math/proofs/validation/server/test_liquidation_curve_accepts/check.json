@@ -9,7 +9,7 @@
  "failing": [],
  "id": "test_liquidation_curve_accepts",
  "input_fingerprint": {
-  "claim": "600f2dc853a225bc47a3ee39560922df96b7f4276fd99125c703e43ea58d0e37",
+  "claim": "db3c8a896b8661bcb924f4658dc765444a456b5bec31f6b00a648144ab97a903",
   "definitions": {
    "haskell": "a66ba5710a4bfe9569247ce0b4fa777812c2f1835a71434d5e5676eb9c934b98",
    "llvm": "bc45d16cc07aa32904549e2086fc416b7eafa0c8c11afc9f9a47871d96610325"
@@ -19,7 +19,7 @@
   },
   "runner": "ac43e6cafd049c505f81b5e363968c509d656de5c9d57ab81c1eea091654a8e2"
  },
- "inputs_sha256": "4ca89e8f41b6b77da34806342c7ce75cc5369c24da157770a0ded9f2685c00cf",
+ "inputs_sha256": "416ff4c6adcdf1ffbd94a59c2e8eaeb6596f22fad0adeb153e8bf408b7a785f2",
  "node_refutations": {},
  "nodes": 47,
  "pending": [],

@@ -18,7 +18,7 @@
  },
  "id": "test_util_zero_supply_wrong",
  "input_fingerprint": {
-  "claim": "38ba0ef69565957a7a6e6e3cf119745b22aff727bd777c66f236fa8f4e7d1605",
+  "claim": "587dd04ee441b2b87fa5a517139f026058ba2254141a7f8b01b529f9e2e9c646",
   "definitions": {
    "haskell": "a66ba5710a4bfe9569247ce0b4fa777812c2f1835a71434d5e5676eb9c934b98",
    "llvm": "bc45d16cc07aa32904549e2086fc416b7eafa0c8c11afc9f9a47871d96610325"
@@ -28,11 +28,11 @@
   },
   "runner": "ac43e6cafd049c505f81b5e363968c509d656de5c9d57ab81c1eea091654a8e2"
  },
- "inputs_sha256": "05c92aec015f2224d0b66d8183c1a59dde0acc40eb333f7cf0134706dc69f457",
+ "inputs_sha256": "a5a9b1efc60db64e39149802e350e90bd55ec52b31ace9c119d74f89a74e1689",
  "node_refutations": {},
  "nodes": 3,
  "pending": [],
- "rewrite_steps": 477,
+ "rewrite_steps": 422,
  "splits": 0,
  "status": "FAILED",
  "stuck": [

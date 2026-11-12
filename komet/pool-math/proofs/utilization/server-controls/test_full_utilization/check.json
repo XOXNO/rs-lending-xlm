@@ -9,7 +9,7 @@
  "failing": [],
  "id": "test_full_utilization",
  "input_fingerprint": {
-  "claim": "b30673bfe16a4567edda72e2cfb1b2b6beb8a7e1229ea3f776ff6b7860afc12f",
+  "claim": "1ecf16233fc17c5eccbea754413f109a87566e367e052608880369da6a23daff",
   "definitions": {
    "haskell": "a66ba5710a4bfe9569247ce0b4fa777812c2f1835a71434d5e5676eb9c934b98",
    "llvm": "bc45d16cc07aa32904549e2086fc416b7eafa0c8c11afc9f9a47871d96610325"
@@ -19,11 +19,11 @@
   },
   "runner": "ac43e6cafd049c505f81b5e363968c509d656de5c9d57ab81c1eea091654a8e2"
  },
- "inputs_sha256": "5aad5d9f454c148259dadf3127a5dd75db51dbe8f43cc16fd872204e9248f4f5",
+ "inputs_sha256": "467e46659e2f669d6f8019f059de7a7aab5ed3c16f186439a06cf7dc2336fb75",
  "node_refutations": {},
  "nodes": 4,
  "pending": [],
- "rewrite_steps": 1747,
+ "rewrite_steps": 1754,
  "splits": 0,
  "status": "PASSED",
  "stuck": [],

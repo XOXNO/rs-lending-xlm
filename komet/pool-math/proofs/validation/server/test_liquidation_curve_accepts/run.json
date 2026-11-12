@@ -3,9 +3,21 @@
  "id": "test_liquidation_curve_accepts",
  "expect": "pass",
  "exit_code": 0,
- "wall_seconds": 870,
+ "wall_seconds": 225,
  "cap_seconds": 14400,
- "started_utc": "2026-11-03T14:34:09Z",
+ "started_utc": "2026-11-12T01:06:41Z",
+ "smt_timeout_ms": 5000,
+ "booster_rts": "",
+ "memory_limit": "5g",
+ "memory_peak_bytes": 2187788288,
+ "oom_killed": "false",
+ "outcome": "verdict",
+ "attempt": 2,
+ "resumed_from": {
+  "attempt": 1,
+  "nodes": 43,
+  "rewrite_steps": 1285
+ },
  "command": [
   "komet",
   "prove",

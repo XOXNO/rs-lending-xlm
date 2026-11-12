@@ -36,7 +36,7 @@
  },
  "id": "test_liquidation_curve_rejects",
  "input_fingerprint": {
-  "claim": "094341c01ed90217f767dcce0f50ff3efec925fe6325711d26eb0fc502bc590d",
+  "claim": "e16b4937d58186424bd698107668e8633ac3e16c521c9ef178a5a8fcad39920a",
   "definitions": {
    "haskell": "a66ba5710a4bfe9569247ce0b4fa777812c2f1835a71434d5e5676eb9c934b98",
    "llvm": "bc45d16cc07aa32904549e2086fc416b7eafa0c8c11afc9f9a47871d96610325"
@@ -46,7 +46,7 @@
   },
   "runner": "ac43e6cafd049c505f81b5e363968c509d656de5c9d57ab81c1eea091654a8e2"
  },
- "inputs_sha256": "0a62b428b8b2afc5fa7c950f14509c8b81cfabe900ca49aa503a3d5538d35764",
+ "inputs_sha256": "deb109d50f2456e76602f9330cbfc08857cece95718ed4ac12b41308c4e106c9",
  "node_refutations": {},
  "nodes": 19,
  "pending": [],

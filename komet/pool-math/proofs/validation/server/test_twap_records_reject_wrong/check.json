@@ -18,7 +18,7 @@
  },
  "id": "test_twap_records_reject_wrong",
  "input_fingerprint": {
-  "claim": "30f44e6d7fb28c18295652bf2961aae588f7e0eae66b0b0441d612e086f12c11",
+  "claim": "99d5fc799c23c1b4a6ba8bb656d14e8b35066f789fe25979aac8923b84124521",
   "definitions": {
    "haskell": "a66ba5710a4bfe9569247ce0b4fa777812c2f1835a71434d5e5676eb9c934b98",
    "llvm": "bc45d16cc07aa32904549e2086fc416b7eafa0c8c11afc9f9a47871d96610325"
@@ -28,7 +28,7 @@
   },
   "runner": "ac43e6cafd049c505f81b5e363968c509d656de5c9d57ab81c1eea091654a8e2"
  },
- "inputs_sha256": "daf6fb787735c3ac3cced01fa91dfec47dc1093258f7a3a00d49537e172c92cf",
+ "inputs_sha256": "5b3c2ed1d2576dafce434290c5a1b3e5df14eeb9c76c1bb14180aeea71865015",
  "node_refutations": {},
  "nodes": 3,
  "pending": [],

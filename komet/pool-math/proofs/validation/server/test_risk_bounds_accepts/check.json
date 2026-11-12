@@ -9,7 +9,7 @@
  "failing": [],
  "id": "test_risk_bounds_accepts",
  "input_fingerprint": {
-  "claim": "bcb8283b00854d43c438d6c742120cc86e7bbbe22d8fa05305cc500f14d0e990",
+  "claim": "c6432a8ec59284c6965c1941eb3c900ad93a61ef601d83e8eb5642679214eff2",
   "definitions": {
    "haskell": "a66ba5710a4bfe9569247ce0b4fa777812c2f1835a71434d5e5676eb9c934b98",
    "llvm": "bc45d16cc07aa32904549e2086fc416b7eafa0c8c11afc9f9a47871d96610325"
@@ -19,7 +19,7 @@
   },
   "runner": "ac43e6cafd049c505f81b5e363968c509d656de5c9d57ab81c1eea091654a8e2"
  },
- "inputs_sha256": "21a7132f99283cea2f51d06bf68cbbd4c27d197c3a010d1ca6e4155211ded9b0",
+ "inputs_sha256": "0a91f57afdfc0b503ce58ee6b77cab8c7c5dbbbe8a09caaecad94d90a2201756",
  "node_refutations": {},
  "nodes": 15,
  "pending": [],

@@ -9,7 +9,7 @@
  "failing": [],
  "id": "test_widened_ceil",
  "input_fingerprint": {
-  "claim": "99ed5152ce676b714c3c35b3840cbc30c5a6cf31d39fdfbe7acdfed3eae0a946",
+  "claim": "5a5f18a598fc3732a2758896195189006299a9f76ed78ca819f21e57551eaf24",
   "definitions": {
    "haskell": "a66ba5710a4bfe9569247ce0b4fa777812c2f1835a71434d5e5676eb9c934b98",
    "llvm": "bc45d16cc07aa32904549e2086fc416b7eafa0c8c11afc9f9a47871d96610325"
@@ -19,7 +19,7 @@
   },
   "runner": "ac43e6cafd049c505f81b5e363968c509d656de5c9d57ab81c1eea091654a8e2"
  },
- "inputs_sha256": "832d7bdd3d60959d03b4c3f134511f6ecc0da20994c08ff150b28bba3e0a09d4",
+ "inputs_sha256": "b3ea3eee6bfef35aeb3779ebd484601c8dcba62a3ee3f24035581effcd1adb73",
  "node_refutations": {},
  "nodes": 4,
  "pending": [],

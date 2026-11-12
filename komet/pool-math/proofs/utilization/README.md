@@ -81,7 +81,12 @@ Unchanged inputs resume the existing graph. Lean helper checks establish
 integer identities and partial-input models; they do not independently prove
 K/Wasm refinement or validate a saved APR certificate.
 
-## Server results (Linux pipeline, 2026-11-03)
+## Server results (Linux pipeline, re-proved 2026-11-12 on merged main)
+
+Main rewrote `rates::utilization`: negative inputs now panic with
+`MathOverflow`, and the ratio is `try_mul_div_half_up(borrowed, RAY,
+supplied)`, which returns `Ray::ONE` when the ratio does not fit in an `i128`. The rows below were
+re-proved on the Wasm built from that code.
 
 Pinned toolchain of [`komet/pipeline`](../../../pipeline/README.md), extra module
 [`pool-math-lemmas.k`](../../../pipeline/proofs/pool-math-lemmas.k) (every rule
@@ -89,12 +94,18 @@ Lean-backed). Records and graphs: [`server-controls/`](server-controls/summary.j
 
 | Claim | Domain | Result |
 |---|---|---|
-| `test_util_zero_supply` | every i128 borrowed, supplied = 0: utilization is 0 | `PASSED`, 3 nodes, 622 steps, 674 s |
-| `test_util_zero_supply_wrong` (false) | `U(RAY, 0) == RAY` | `FAILED` at the completed assertion, 631 s |
-| `test_full_utilization` | `U(RAY, RAY) == RAY` (concrete witness) | `PASSED`, 4 nodes, 1,747 steps, 842 s |
-| `test_full_utilization_wrong` (false) | `U(RAY, RAY) < RAY` | `FAILED` as required, 899 s |
-| `test_widened_ceil` | `mul_div_ceil(RAY+1, RAY+1, RAY) == RAY+3` | `PASSED`, 4 nodes, 1,167 steps, 970 s |
-| `test_utilization_round_wrong` (false) | floor rounding at `B=1, S=2*RAY` | `FAILED` as required, 344 s |
+| `test_util_zero_supply` | every i128 borrowed, supplied = 0: utilization is 0 | `PASSED`, 3 nodes, 567 steps, 462 s |
+| `test_util_zero_supply_wrong` (false) | `U(RAY, 0) == RAY` | `FAILED` at the completed assertion, 423 s |
+| `test_full_utilization` | `U(RAY, RAY) == RAY` (concrete witness) | `PASSED`, 4 nodes, 1,754 steps, 530 s |
+| `test_full_utilization_wrong` (false) | `U(RAY, RAY) < RAY` | `FAILED` as required, 536 s |
+| `test_widened_ceil` | `mul_div_ceil(RAY+1, RAY+1, RAY) == RAY+3` | `PASSED`, 4 nodes, 1,167 steps, 492 s |
+
+`test_utilization_wrong` (false: `U < RAY` on `0 <= B <= S`) is `blocked` on
+the new code. Z3 returns unknown on the 64-bit words of the symbolic I256
+quotient `(B*RAY + S/2) / S`, so it is not packed. Closing it needs
+Lean-backed rules for that quotient's words.
+`test_utilization_round_wrong` failed as required (344 s) on the code before
+the merge and has not been re-run.
 
 Still open on the server: `test_utilization_exact` / `test_utilization_bounds`
 (general), `test_util_wide_*` (2^64 <= B <= S) and `test_util_fixed_b*` (B fixed,
