@@ -183,6 +183,54 @@ if EXPECT_ERROR={expect_error} sdk_inv sdk_borrow buildStellarBorrowTx '{{}}' >/
     assert ('not the same call' in actions[-1]['note']) == ('same call' in drift), actions[-1]['note']
 print('The published SDK path retries a verified footprint-limit failure once, as a fresh process')
 
+REQUOTE_SETUP = '''
+tx_status() { echo SUCCESS; }
+fetch_resources() { RES_INSTR=1 RES_READ=0 RES_WRITE=0 RES_FEE=1; }
+latest_ledger() { echo 42; }
+quotes=()
+leg() { quotes+=("${AGGREGATOR_MIN_LEDGER:-0}"); inv swap admin contract -- multiply >/dev/null; }
+'''
+for errors, call, ledgers, statuses in [
+    (['Error(Contract, #5)'], 'requote_once swap leg', '0 42', ['retry', 'ok']),
+    (['Error(Contract, #5)', 'Error(Contract, #5)'], 'requote_once swap leg', '0 42', ['retry', 'FAIL']),
+    (['Error(Contract, #50)'], 'requote_once swap leg', '0', ['FAIL']),
+    (['Error(Contract, #102)'], 'requote_once swap leg', '0', ['FAIL']),
+    (['Error(Contract, #5)'], 'leg', '0', ['FAIL']),
+]:
+    stub = ' '.join(f"[ \"$n\" != {i} ] || {{ echo 'HostError: {e}' >&2; return 1; }};" for i, e in enumerate(errors, 1))
+    passes = int(statuses[-1] == 'ok')
+    attempts, _, actions = shell(REQUOTE_SETUP + f'''
+n=0
+stellar() {{ n=$((n+1)); {stub} echo 7; echo "Signing transaction: $(printf '%064d' 1)" >&2; }}
+if {call}; then [ {passes} = 1 ]; else [ {passes} = 0 ]; fi || exit 1
+[ "${{quotes[*]}}" = '{ledgers}' ] || exit 1
+[ -z "${{INV_REQUOTE:-}}" ] && [ -z "${{AGGREGATOR_MIN_LEDGER:-}}" ] || exit 1
+''')
+    assert [a['status'] for a in actions] == statuses, (errors, call, actions)
+    assert all(not a['hash'] and 'one new quote' in a['note'] for a in actions if a['status'] == 'retry'), actions
+attempts, _, actions = shell(SDK_SETUP + '''
+cat > "$RUN_DIR/node" <<'NODE'
+#!/bin/bash
+cat >/dev/null
+n=$(( $(cat "$RUN_DIR/node.count" 2>/dev/null || echo 0) + 1 )); echo "$n" > "$RUN_DIR/node.count"
+echo "$n" > "$4.simulation-1.json"
+[ "$n" != 1 ] || { echo 'HostError: Error(Contract, #5)' >&2; exit 1; }
+printf '%064d' "$n" > "$4.hash"
+printf '{"hash":"%064d","value":7}' "$n"
+NODE
+latest_ledger() { echo 42; }
+acct=''
+leg() { acct=$(sdk_inv sdk_multiply buildStellarMultiplyTx '{}'); }
+requote_once sdk_multiply leg || exit 1
+[ "$acct" = 7 ] && [ "$(cat "$LOG_DIR/sdk_multiply.requote.simulation-1.json")" = 1 ] && [ "$(cat "$LOG_DIR/sdk_multiply.simulation-1.json")" = 2 ] || exit 1
+grep -qF 'Error(Contract, #5)' "$LOG_DIR/sdk_multiply.requote.err" || exit 1
+rm "$RUN_DIR/node.count"
+if sdk_inv sdk_plain buildStellarMultiplyTx '{}' >/dev/null; then exit 1; fi
+''')
+assert [(a['label'], a['status'], a['fn']) for a in actions] == [
+    ('sdk_multiply', 'retry', 'multiply'), ('sdk_multiply', 'ok', 'multiply'), ('sdk_plain', 'FAIL', 'multiply')], actions
+print('A simulated router slippage error gets one new quote at a later ledger; a second one, another error or an unwrapped call stays final')
+
 attempts, _, actions = shell('''
 stellar() { echo "Signing transaction: $(printf '%064d' 1)" >&2; exit 130; }
 (inv interrupted admin contract -- supply) && exit 1

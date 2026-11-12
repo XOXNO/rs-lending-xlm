@@ -40,6 +40,13 @@ sdk_inv() {
             evidence="$LOG_DIR/${label}_retry"
             continue
         fi
+        if [ -z "$hash" ] && slippage_requote "$label" "$method" "$evidence.err" "$CONTROLLER"; then
+            local kept
+            for kept in err simulation-1.json; do
+                [ ! -e "$evidence.$kept" ] || mv "$evidence.$kept" "$evidence.requote.$kept"
+            done
+            return 1
+        fi
         record "$label" FAIL "$method" "$hash" "" "" "" "" "$(tail_err_note "$evidence.err")" "$execution" "$CONTROLLER"
         return 1
     done
@@ -90,21 +97,24 @@ flow_sdk_strategy() {
     phase sdk_strategy
     local route route_hex args acct hash
     local before="$LOG_DIR/sdk_multiply.before.json" after="$LOG_DIR/sdk_multiply.after.json" request="$LOG_DIR/sdk_multiply.request.json"
-    route_hex=$(agg_route_hex "$USDC_SAC" "$XLM_SAC" 100000000) || { _assert_fail sdk_quote "route missing"; return 1; }
-    route=$(printf '%s' "$route_hex" | xxd -r -p | base64 | tr -d '\n') || return 1
-    args=$(jq -nc --arg x "$XLM_SAC" --arg u "$USDC_SAC" --arg r "$route" --argjson h "$PRIMARY_HUB_ID" --argjson s "$PRIMARY_SPOKE_ID" \
-        '{spokeId:$s,accountNonce:0,collateral:{hubId:$h,asset:$x},debt:{hubId:$h,asset:$u},debtToFlashLoan:"100000000",mode:1,steps:{routeXdr:$r},initialPayment:{hubId:$h,asset:$x,amount:"10000000000"}}') || return 1
-    # Match the native financial reference to the exact published-builder inputs.
-    jq -c --arg caller "$ALICE_ADDR" --arg swap "$route_hex" '
-        def key: {hub_id:.hubId,asset:.asset};
-        {method:"multiply","--caller":$caller,"--account_id":(.accountNonce|tostring),
-         "--spoke_id":(.spokeId|tostring),"--mode":(.mode|tostring),
-         "--collateral":(.collateral|key|tojson),"--debt":(.debt|key|tojson),
-         "--debt_to_flash_loan":.debtToFlashLoan,"--swap":$swap,
-         "--initial_payment":([(.initialPayment|key),.initialPayment.amount]|tojson),
-         "--convert_swap":"null"}' <<<"$args" >"$request" || return 1
-    strategy_snapshot sdk_multiply_before "$ALICE_ADDR" 0 >"$before" || return 1
-    acct=$(sdk_inv sdk_multiply buildStellarMultiplyTx "$args") || return 1
+    leg_sdk_multiply() {
+        route_hex=$(agg_route_hex "$USDC_SAC" "$XLM_SAC" 100000000) || { _assert_fail sdk_quote "route missing"; return 1; }
+        route=$(printf '%s' "$route_hex" | xxd -r -p | base64 | tr -d '\n') || return 1
+        args=$(jq -nc --arg x "$XLM_SAC" --arg u "$USDC_SAC" --arg r "$route" --argjson h "$PRIMARY_HUB_ID" --argjson s "$PRIMARY_SPOKE_ID" \
+            '{spokeId:$s,accountNonce:0,collateral:{hubId:$h,asset:$x},debt:{hubId:$h,asset:$u},debtToFlashLoan:"100000000",mode:1,steps:{routeXdr:$r},initialPayment:{hubId:$h,asset:$x,amount:"10000000000"}}') || return 1
+        # Match the native financial reference to the exact published-builder inputs.
+        jq -c --arg caller "$ALICE_ADDR" --arg swap "$route_hex" '
+            def key: {hub_id:.hubId,asset:.asset};
+            {method:"multiply","--caller":$caller,"--account_id":(.accountNonce|tostring),
+             "--spoke_id":(.spokeId|tostring),"--mode":(.mode|tostring),
+             "--collateral":(.collateral|key|tojson),"--debt":(.debt|key|tojson),
+             "--debt_to_flash_loan":.debtToFlashLoan,"--swap":$swap,
+             "--initial_payment":([(.initialPayment|key),.initialPayment.amount]|tojson),
+             "--convert_swap":"null"}' <<<"$args" >"$request" || return 1
+        strategy_snapshot sdk_multiply_before "$ALICE_ADDR" 0 >"$before" || return 1
+        acct=$(sdk_inv sdk_multiply buildStellarMultiplyTx "$args") || return 1
+    }
+    requote_once sdk_multiply leg_sdk_multiply || return 1
     [[ "$acct" =~ ^[1-9][0-9]*$ ]] || { _assert_fail sdk_multiply "invalid strategy account"; return 1; }
     strategy_snapshot sdk_multiply_after "$ALICE_ADDR" "$acct" >"$after" || return 1
     hash=$(jq -er '.hash | select(type == "string" and test("^[0-9a-f]{64}$"))' "$LOG_DIR/sdk_multiply.sdk.json") || return 1

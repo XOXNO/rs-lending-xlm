@@ -264,24 +264,31 @@ strategy_inv() {
 flow_strategies() {
     phase strategies
     local flash_usdc=300000000
-    local swap_hex
-    swap_hex=$(agg_route_hex "$USDC_SAC" "$XLM_SAC" "$flash_usdc") || return 1
     local macct
-    macct=$(strategy_inv multiply_long "$ALICE" "$CONTROLLER" -- multiply \
-        --caller "$ALICE_ADDR" --account_id 0 --spoke_id "$PRIMARY_SPOKE_ID" \
-        --collateral "$(hub_key "$PRIMARY_HUB_ID" "$XLM_SAC")" --debt_to_flash_loan "$flash_usdc" \
-        --debt "$(hub_key "$PRIMARY_HUB_ID" "$USDC_SAC")" --mode 2 --swap "$swap_hex" \
-        --initial_payment "[$(hub_key "$PRIMARY_HUB_ID" "$XLM_SAC"),\"5000000000\"]" --convert_swap null | tr -d '"') || return 1
+    leg_multiply_long() {
+        local hex
+        hex=$(agg_route_hex "$USDC_SAC" "$XLM_SAC" "$flash_usdc") || return 1
+        macct=$(strategy_inv multiply_long "$ALICE" "$CONTROLLER" -- multiply \
+            --caller "$ALICE_ADDR" --account_id 0 --spoke_id "$PRIMARY_SPOKE_ID" \
+            --collateral "$(hub_key "$PRIMARY_HUB_ID" "$XLM_SAC")" --debt_to_flash_loan "$flash_usdc" \
+            --debt "$(hub_key "$PRIMARY_HUB_ID" "$USDC_SAC")" --mode 2 --swap "$hex" \
+            --initial_payment "[$(hub_key "$PRIMARY_HUB_ID" "$XLM_SAC"),\"5000000000\"]" --convert_swap null | tr -d '"') || return 1
+    }
+    requote_once multiply_long leg_multiply_long || return 1
     save_state ALICE_MACCT "$macct"
     log "multiply account = $macct"
     assert_hf_at_least hf_multiply "$macct" "$WAD"
 
     local new_xlm_debt=1000000000
-    swap_hex=$(agg_route_hex "$XLM_SAC" "$USDC_SAC" "$new_xlm_debt") || return 1
-    strategy_inv swap_debt "$ALICE" "$CONTROLLER" -- swap_debt \
-        --caller "$ALICE_ADDR" --account_id "$macct" \
-        --existing_debt "$(hub_key "$PRIMARY_HUB_ID" "$USDC_SAC")" --amount "$new_xlm_debt" \
-        --new_debt "$(hub_key "$PRIMARY_HUB_ID" "$XLM_SAC")" --swap "$swap_hex" >/dev/null || return 1
+    leg_swap_debt() {
+        local hex
+        hex=$(agg_route_hex "$XLM_SAC" "$USDC_SAC" "$new_xlm_debt") || return 1
+        strategy_inv swap_debt "$ALICE" "$CONTROLLER" -- swap_debt \
+            --caller "$ALICE_ADDR" --account_id "$macct" \
+            --existing_debt "$(hub_key "$PRIMARY_HUB_ID" "$USDC_SAC")" --amount "$new_xlm_debt" \
+            --new_debt "$(hub_key "$PRIMARY_HUB_ID" "$XLM_SAC")" --swap "$hex" >/dev/null || return 1
+    }
+    requote_once swap_debt leg_swap_debt || return 1
     assert_borrow_at_least xlm_debt_post_swap "$macct" "$XLM_SAC" 500000000
 
     leg_swap_collateral() {
@@ -292,7 +299,7 @@ flow_strategies() {
             --current "$(hub_key "$PRIMARY_HUB_ID" "$XLM_SAC")" --amount 2000000000 \
             --new "$(hub_key "$PRIMARY_HUB_ID" "$USDC_SAC")" --swap "$hex" >/dev/null || return 1
     }
-    leg_swap_collateral || return 1
+    requote_once swap_collateral leg_swap_collateral || return 1
 
     lifecycle_inv supply_for_rdwc "$ALICE" "$CONTROLLER" -- supply \
         --caller "$ALICE_ADDR" --account_id "$macct" --spoke_id "$PRIMARY_SPOKE_ID" \
@@ -308,7 +315,7 @@ flow_strategies() {
             --collateral "$(hub_key "$PRIMARY_HUB_ID" "$XLM_SAC")" --collateral_amount 5000000000 \
             --debt "$(hub_key "$PRIMARY_HUB_ID" "$USDC_SAC")" --swap "$hex" --close_position false >/dev/null || return 1
     }
-    leg_repay_debt_with_coll || return 1
+    requote_once repay_debt_with_coll leg_repay_debt_with_coll || return 1
 
     assert_hf_at_least hf_post_strategies "$macct" "$WAD"
 
@@ -328,7 +335,7 @@ flow_strategies() {
             --collateral "$(hub_key "$PRIMARY_HUB_ID" "$XLM_SAC")" --collateral_amount 4000000000 \
             --debt "$(hub_key "$PRIMARY_HUB_ID" "$USDC_SAC")" --swap "$hex" --close_position true >/dev/null || return 1
     }
-    leg_rdwc_close || return 1
+    requote_once rdwc_close leg_rdwc_close || return 1
 
     assert_bool_view rdwc_closed false account_exists --account_id "$rdwc_acct"
 
@@ -343,7 +350,7 @@ flow_strategies() {
             --initial_payment "[$(hub_key "$PRIMARY_HUB_ID" "$USDC_SAC"),\"1000000000\"]" --convert_swap null | tr -d '"') || return 1
         [ -n "$sacct" ]
     }
-    leg_multiply_short || return 1
+    requote_once multiply_short leg_multiply_short || return 1
     save_state ALICE_SACCT "$sacct"
     assert_hf_at_least hf_short "$sacct" "$WAD"
 }

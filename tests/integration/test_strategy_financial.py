@@ -200,14 +200,20 @@ print('Routed principal, identity, destination, missing debt and suppressed-refu
 with tempfile.TemporaryDirectory() as tmp:
     script = r'''set -uo pipefail
 source "$1"
-LOG_DIR="$2"; CHECK_RESULT="$3"; INTEG_DIR="$4"
+source "$4/lib/invoke.sh"
+LOG_DIR="$2"; CHECK_RESULT="$3"; INTEG_DIR="$4"; REQUOTE="$5"
 XLM_SAC=B; USDC_SAC=A; ALICE_ADDR=CALLER; PRIMARY_HUB_ID=1; PRIMARY_SPOKE_ID=2
 CONTROLLER=CTRL; AGGREGATOR=ROUTER; WAD=1000000000000000000
 phase() { :; }; _assert_fail() { echo "$*" >&2; return 1; }
-agg_route_hex() { [ "$*" = 'A B 100000000' ] || return 1; echo 01020304; }
+latest_ledger() { echo 9; }
+agg_route_hex() {
+    [ "$*" = 'A B 100000000' ] || return 1
+    if [ "$REQUOTE" = 1 ] && [ "${AGGREGATOR_MIN_LEDGER:-}" != 9 ]; then echo 0a0b0c0d; else echo 01020304; fi
+}
 strategy_snapshot() { printf '%s\n' "$*"; }
 sdk_inv() {
     [ "$1" = sdk_multiply ] && [ "$2" = buildStellarMultiplyTx ] || return 1
+    if [ "$REQUOTE" = 1 ] && [ -n "${INV_REQUOTE:-}" ]; then : > "$INV_REQUOTE"; return 1; fi
     printf '%s' "$3" >"$LOG_DIR/builder.json"
     printf '{"hash":"%064d"}' 1 >"$LOG_DIR/sdk_multiply.sdk.json"
     printf '{"committed":true}' >"$LOG_DIR/$(printf '%064d' 1).receipt.json"
@@ -245,10 +251,11 @@ assert_hf_at_least() { touch "$LOG_DIR/healthy"; }
 flow_sdk_strategy
 '''
     root=Path(tmp)
-    for check_result in (0,1):
-        for marker in ('checked','healthy'):
+    for check_result, requote in ((0,0),(1,0),(0,1)):
+        for marker in ('checked','healthy','sdk_multiply.requote'):
             (root/marker).unlink(missing_ok=True)
-        result=subprocess.run(['bash','-c',script,'_',str(HERE/'flows/sdk.sh'),tmp,str(check_result),str(HERE)],capture_output=True,text=True)
+        result=subprocess.run(['bash','-c',script,'_',str(HERE/'flows/sdk.sh'),tmp,str(check_result),str(HERE),str(requote)],capture_output=True,text=True)
+        assert (root/'sdk_multiply.requote').exists()==bool(requote), 'new-quote retry did not follow the slippage signal'
         assert result.returncode==check_result, result.stdout+result.stderr
         assert (root/'checked').exists(), 'SDK flow bypassed financial check'
         assert (root/'healthy').exists()==(check_result==0), 'failed accounting reached HF-only success'

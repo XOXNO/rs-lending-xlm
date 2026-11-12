@@ -144,12 +144,15 @@ sa_fee_trade() {
     token="$USDC_SAC"; [ "$mode" != output ] || token="$XLM_SAC"
     tokens=$(jq -nc --arg t "$token" '[$t]')
     inv "sa_${mode}_static_fee" "$ADMIN" "$agg" -- set_static_fee --fee_bps 50 >/dev/null || return 1
-    route=$(agg_route_hex "$USDC_SAC" "$XLM_SAC" "$amount") || return 1
-    route=$(agg_referral_route_hex "$route" "$referral") || { _assert_fail "sa_${mode}_route" "candidate referral route incompatible"; return 1; }
-    payer=$(financial_balance "$USDC_SAC" "$ALICE_ADDR") || return 1
-    recipient=$(financial_balance "$XLM_SAC" "$ALICE_ADDR") || return 1
-    reserve_before=$(financial_balance "$token" "$agg") || return 1
-    returned=$(inv "sa_${mode}_trade" "$ALICE" "$agg" -- execute_strategy --sender "$ALICE_ADDR" --total_in "$amount" --swap_xdr "$route" | tr -d '"[:space:]') || return 1
+    leg_sa_trade() {
+        route=$(agg_route_hex "$USDC_SAC" "$XLM_SAC" "$amount") || return 1
+        route=$(agg_referral_route_hex "$route" "$referral") || { _assert_fail "sa_${mode}_route" "candidate referral route incompatible"; return 1; }
+        payer=$(financial_balance "$USDC_SAC" "$ALICE_ADDR") || return 1
+        recipient=$(financial_balance "$XLM_SAC" "$ALICE_ADDR") || return 1
+        reserve_before=$(financial_balance "$token" "$agg") || return 1
+        returned=$(inv "sa_${mode}_trade" "$ALICE" "$agg" -- execute_strategy --sender "$ALICE_ADDR" --total_in "$amount" --swap_xdr "$route" | tr -d '"[:space:]') || return 1
+    }
+    requote_once "sa_${mode}_trade" leg_sa_trade || return 1
     assert_delta "sa_${mode}_payer" "$payer" "$(financial_balance "$USDC_SAC" "$ALICE_ADDR")" "-$amount" || return 1
     assert_delta "sa_${mode}_output" "$recipient" "$(financial_balance "$XLM_SAC" "$ALICE_ADDR")" "$returned" || return 1
     admin_fee=$(view "sa_${mode}_admin_fee" "$agg" -- admin_fee_balance --token "$token" | tr -d '"[:space:]') || return 1
