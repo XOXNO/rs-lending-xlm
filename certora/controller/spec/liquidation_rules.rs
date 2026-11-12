@@ -9,7 +9,7 @@ use crate::constants::{
 use crate::spec::fixture;
 use crate::types::{AccountPositionType, HubAssetKey};
 use common::math::fp::{Bps, Wad};
-use common::math::fp_core::{mul_div_ceil, mul_div_floor, mul_div_half_up};
+use common::math::reference::{mul_div_ceil, mul_div_floor, mul_div_half_up};
 
 const MAX_DEBT_AMOUNT_RAW: i128 = 1_000_000_000_000;
 

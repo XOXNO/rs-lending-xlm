@@ -1,7 +1,12 @@
 //! Fixed-point newtypes (`Ray`, `Wad`, `Bps`) built on the raw arithmetic in
-//! [`fp_core`]. Each type wraps an `i128` at a fixed decimal scale (27, 18,
+//! private `fp_core`. Each type wraps an `i128` at a fixed decimal scale (27, 18,
 //! and 4 decimals respectively) and exposes scale-safe multiplication,
 //! division, rescaling between types, and checked addition/subtraction.
+//!
+//! Raw primitives are not part of the public API:
+//! ```compile_fail
+//! use common::math::fp_core::mul_div_floor;
+//! ```
 
 use soroban_sdk::{panic_with_error, Env};
 
@@ -56,9 +61,37 @@ impl Ray {
         Ray(fp_core::mul_div_half_up(env, self.0, RAY, other.0))
     }
 
+    /// Divides half up, returning `None` for invalid signs, zero divisor or overflow.
+    pub fn try_div(self, env: &Env, other: Ray) -> Option<Ray> {
+        fp_core::try_mul_div_half_up(env, self.0, RAY, other.0).map(Ray)
+    }
+
     /// Divides this value by `other`, rounding the result down (floor).
     pub fn div_floor(self, env: &Env, other: Ray) -> Ray {
         Ray(fp_core::mul_div_floor(env, self.0, RAY, other.0))
+    }
+
+    /// Divides down, saturating on overflow; a zero divisor still panics.
+    pub fn div_floor_saturating(self, env: &Env, other: Ray) -> Ray {
+        Ray(fp_core::mul_div_floor_saturating(env, self.0, RAY, other.0))
+    }
+
+    /// Multiplies by an integer without rescaling. Panics on overflow.
+    pub fn mul_int(self, env: &Env, multiplier: i128) -> Ray {
+        Ray(self
+            .0
+            .checked_mul(multiplier)
+            .unwrap_or_else(|| panic_with_error!(env, GenericError::MathOverflow)))
+    }
+
+    /// Applies a WAD ratio with one floor rounding, without quantizing the ratio first.
+    pub fn mul_wad_ratio_floor(self, env: &Env, numerator: Wad, denominator: Wad) -> Ray {
+        Ray(fp_core::mul_div_floor(
+            env,
+            self.0,
+            numerator.0,
+            denominator.0,
+        ))
     }
 
     /// Divides this value by `other`, rounding the result up.
@@ -202,6 +235,11 @@ impl Wad {
         Wad(fp_core::mul_div_floor(env, self.0, WAD, other.0))
     }
 
+    /// Divides this value by `other`, rounding up.
+    pub fn div_ceil(self, env: &Env, other: Wad) -> Wad {
+        Wad(fp_core::mul_div_ceil(env, self.0, WAD, other.0))
+    }
+
     /// Divides this value by `other`, rounding down (floor) and saturating to
     /// `i128::MAX` instead of overflowing.
     pub fn div_floor_saturating(self, env: &Env, other: Wad) -> Wad {
@@ -211,6 +249,37 @@ impl Wad {
     /// Multiplies two wad values, rounding the result down (floor).
     pub fn mul_floor(self, env: &Env, other: Wad) -> Wad {
         Wad(fp_core::mul_div_floor(env, self.0, other.0, WAD))
+    }
+
+    /// Multiplies down, saturating at the signed i128 bounds on overflow.
+    pub fn mul_floor_saturating(self, env: &Env, other: Wad) -> Wad {
+        Wad(fp_core::mul_div_floor_saturating(env, self.0, other.0, WAD))
+    }
+
+    /// Applies a ratio of same-unit integers with a single floor rounding.
+    pub fn mul_ratio_floor(self, env: &Env, numerator: i128, denominator: i128) -> Wad {
+        Wad(fp_core::mul_div_floor(env, self.0, numerator, denominator))
+    }
+
+    /// Scales a token amount by `self / denominator`, rounding down only once.
+    pub fn apply_ratio_to_amount_floor(self, env: &Env, denominator: Wad, amount: i128) -> i128 {
+        fp_core::mul_div_floor(env, amount, self.0, denominator.0)
+    }
+
+    /// Values tokens at this WAD price, half up, without first normalizing the amount.
+    /// Returns `None` for invalid signs, an unrepresentable decimal factor or overflow.
+    pub fn try_value_of_token(self, env: &Env, amount: i128, decimals: u32) -> Option<Wad> {
+        let unit = 10i128.checked_pow(decimals)?;
+        fp_core::try_mul_div_half_up(env, amount, self.0, unit).map(Wad)
+    }
+
+    /// Exactly upscales nonnegative tokens to WAD; rejects decimals above 18 and overflow.
+    pub fn try_from_token_upscale(amount: i128, decimals: u32) -> Option<Wad> {
+        if amount < 0 {
+            return None;
+        }
+        let scale = 10i128.checked_pow(WAD_DECIMALS.checked_sub(decimals)?)?;
+        amount.checked_mul(scale).map(Wad)
     }
 
     /// Multiplies two wad values, rounding the result up.
@@ -281,6 +350,31 @@ impl Bps {
         self.0
     }
 
+    /// Divides two BPS ratios, rounding half up.
+    pub fn div(self, env: &Env, other: Bps) -> Bps {
+        Bps(fp_core::mul_div_half_up(env, self.0, BPS, other.0))
+    }
+
+    /// Forms a BPS ratio of WAD values, rounding down.
+    pub fn from_fraction_floor(env: &Env, numerator: Wad, denominator: Wad) -> Bps {
+        Bps(fp_core::mul_div_floor(env, numerator.0, BPS, denominator.0))
+    }
+
+    /// Forms a BPS ratio of WAD values, rounding up.
+    pub fn from_fraction_ceil(env: &Env, numerator: Wad, denominator: Wad) -> Bps {
+        Bps(fp_core::mul_div_ceil(env, numerator.0, BPS, denominator.0))
+    }
+
+    /// Forms a BPS ratio half up; returns `None` for invalid signs, zero divisor or overflow.
+    pub fn try_from_fraction(env: &Env, numerator: Wad, denominator: Wad) -> Option<Bps> {
+        fp_core::try_mul_div_half_up(env, numerator.0, BPS, denominator.0).map(Bps)
+    }
+
+    /// Divides a previously checked weighted BPS sum by its WAD weight, rounding half up.
+    pub fn from_weighted_sum(env: &Env, weighted_sum: i128, weight: Wad) -> Bps {
+        Bps(fp_core::div_by_int_half_up(env, weighted_sum, weight.0))
+    }
+
     /// Converts to a `Wad` ratio (basis points divided by 10,000), rounding half up.
     pub fn to_wad(self, env: &Env) -> Wad {
         Wad(fp_core::mul_div_half_up(env, self.0, WAD, BPS))
@@ -289,6 +383,16 @@ impl Bps {
     /// Applies this basis-point rate to a raw token `amount`, rounding half up.
     pub fn apply_to(self, env: &Env, amount: i128) -> i128 {
         fp_core::mul_div_half_up(env, amount, self.0, BPS)
+    }
+
+    /// Applies this rate to a token amount, rounding up.
+    pub fn apply_to_ceil(self, env: &Env, amount: i128) -> i128 {
+        fp_core::mul_div_ceil(env, amount, self.0, BPS)
+    }
+
+    /// Applies this rate to a RAY value, rounding up.
+    pub fn apply_to_ray_ceil(self, env: &Env, value: Ray) -> Ray {
+        Ray(fp_core::mul_div_ceil(env, value.0, self.0, BPS))
     }
 
     /// Applies this basis-point rate to `amount` as a flash-loan fee. Rounds half up, but if

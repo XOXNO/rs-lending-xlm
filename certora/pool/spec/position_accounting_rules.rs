@@ -7,7 +7,7 @@ use common::constants::{
     SUPPLY_INDEX_FLOOR_RAW,
 };
 use common::math::fp::Ray;
-use common::math::fp_core;
+use common::math::reference as fp_core;
 use common::types::{PoolBorrowEntry, PoolNetSettleEntry, PoolSupplyEntry, PoolWithdrawEntry};
 
 use super::fixture::{

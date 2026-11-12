@@ -72,7 +72,9 @@ fn multi_feed_ref(contract: &Address, feed_id: &String) -> MultiFeedRef {
 pub fn tolerance_band(env: &Env, tolerance_bps: u32) -> OracleTolerance {
     let bps = controller::constants::BPS;
     let upper = bps + i128::from(tolerance_bps);
-    let lower = common::math::fp_core::mul_div_half_up(env, bps, bps, upper);
+    let lower = common::math::fp::Bps::ONE
+        .div(env, common::math::fp::Bps::from(upper))
+        .raw();
     OracleTolerance {
         upper_ratio_bps: upper as u32,
         lower_ratio_bps: lower as u32,

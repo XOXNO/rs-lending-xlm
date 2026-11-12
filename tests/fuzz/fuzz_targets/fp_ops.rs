@@ -2,7 +2,7 @@
 use arbitrary::Arbitrary;
 use common::constants::{BPS, RAY, WAD};
 use common::math::fp::{Bps, Ray, Wad};
-use common::math::fp_core::{
+use common::math::reference::{
     mul_div_ceil, mul_div_floor, mul_div_floor_saturating, mul_div_half_up,
 };
 use common::rates::{

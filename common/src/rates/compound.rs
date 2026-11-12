@@ -1,10 +1,9 @@
 //! Computes compounding interest growth factors from a per-millisecond rate
 //! using a truncated Taylor-series expansion of `e^x`.
 
-use soroban_sdk::{panic_with_error, Env, I256};
+use soroban_sdk::Env;
 
 use crate::constants::MILLISECONDS_PER_YEAR;
-use crate::errors::GenericError;
 use crate::math::fp::Ray;
 
 /// Largest `delta_ms` passed to one [`compound_interest`] call: one year in
@@ -33,13 +32,7 @@ pub fn compound_interest(env: &Env, rate: Ray, delta_ms: u64) -> Ray {
         return Ray::ONE;
     }
 
-    let x = Ray::from({
-        let r = I256::from_i128(env, rate.raw());
-        let d = I256::from_i128(env, delta_ms as i128);
-        r.mul(&d)
-            .to_i128()
-            .unwrap_or_else(|| panic_with_error!(env, GenericError::MathOverflow))
-    });
+    let x = rate.mul_int(env, i128::from(delta_ms));
 
     let mut sum = Ray::ONE.checked_add(env, x);
     let mut pow = x;

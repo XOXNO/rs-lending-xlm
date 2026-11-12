@@ -1,5 +1,6 @@
 use super::*;
 use crate::constants::{MAX_BORROW_RATE_RAY, MILLISECONDS_PER_YEAR, RAY, SUPPLY_INDEX_FLOOR_RAW};
+use crate::math::reference as fp_core;
 use crate::rates::compound::{compound_interest, MAX_COMPOUND_DELTA_MS};
 use crate::rates::test_support::*;
 use soroban_sdk::Env;

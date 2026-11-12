@@ -18,7 +18,7 @@
 //!
 //! Tests prefixed `lqv_oracle_bound_`.
 
-use common::math::fp_core::{mul_div_ceil, mul_div_floor, mul_div_half_up};
+use common::math::reference::{mul_div_ceil, mul_div_floor, mul_div_half_up};
 use common::types::{AssetOracle, HubAssetKey, PriceKey, SeizeMode};
 use controller::constants::{
     BPS, DEFAULT_HF_FOR_MAX_BONUS_WAD, DEFAULT_LIQUIDATION_BONUS_FACTOR_BPS,

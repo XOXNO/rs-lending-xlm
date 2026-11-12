@@ -4,7 +4,7 @@
 
 use crate::constants::{MS_PER_SECOND, WAD_DECIMALS};
 use crate::errors::{GenericError, OracleError};
-use crate::math::fp_core::try_mul_div_half_up;
+use crate::math::fp::Wad;
 use soroban_sdk::{assert_with_error, panic_with_error, Env, U256};
 
 /// Maximum number of seconds a feed timestamp may exceed the current time
@@ -46,8 +46,7 @@ pub fn try_normalize_positive_price(price: i128, decimals: u32) -> Option<i128> 
     if price <= 0 || decimals > WAD_DECIMALS {
         return None;
     }
-    let factor = 10i128.checked_pow(WAD_DECIMALS - decimals)?;
-    price.checked_mul(factor)
+    Wad::try_from_token_upscale(price, decimals).map(Wad::raw)
 }
 
 /// Returns whether `feed_ts` is older than `max_stale` seconds relative to
@@ -92,16 +91,10 @@ pub fn try_u256_to_i128(value: &U256) -> Option<i128> {
 ///
 /// Fails with `OracleError::InvalidPrice` when `amount` is negative,
 /// `decimals > WAD_DECIMALS`, or the product overflows.
-pub(crate) fn try_amount_to_wad(
-    env: &Env,
-    amount: i128,
-    decimals: u32,
-) -> Result<i128, OracleError> {
-    let scale = WAD_DECIMALS
-        .checked_sub(decimals)
-        .and_then(|exp| 10i128.checked_pow(exp))
-        .ok_or(OracleError::InvalidPrice)?;
-    try_mul_div_half_up(env, amount, scale, 1).ok_or(OracleError::InvalidPrice)
+pub(crate) fn try_amount_to_wad(amount: i128, decimals: u32) -> Result<i128, OracleError> {
+    Wad::try_from_token_upscale(amount, decimals)
+        .map(Wad::raw)
+        .ok_or(OracleError::InvalidPrice)
 }
 
 /// Converts a millisecond timestamp to whole seconds via integer division.

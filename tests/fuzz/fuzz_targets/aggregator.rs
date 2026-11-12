@@ -2,7 +2,7 @@
 
 use arbitrary::Arbitrary;
 use common::constants::{BPS, WAD};
-use common::math::fp_core::mul_div_half_up;
+use common::math::reference::mul_div_half_up;
 use common::types::{
     AssetOracle, FeedNature, FeedSource, IndependencePolicy, MultiFeedRef, OracleTolerance,
     PriceFeedRaw, PriceKey, PriceSource, ProviderRef,

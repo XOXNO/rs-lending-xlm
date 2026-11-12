@@ -5,7 +5,7 @@ use crate::storage::{load_state, read_params as load_params};
 use crate::test_support::{hub, init_ledger};
 use crate::{LiquidityPool, LiquidityPoolClient};
 use common::constants::{MILLISECONDS_PER_YEAR, RAY};
-use common::math::fp_core::mul_div_half_up;
+use common::math::reference::mul_div_half_up;
 use common::types::{MarketParamsRaw, PoolKey, PoolStateRaw};
 use soroban_sdk::testutils::Address as _;
 use soroban_sdk::{token, Address};

@@ -33,4 +33,5 @@ certora-lifecycle-rules = ["certora", "certora-focused"]
 certora-state-invariant-rules = ["certora", "certora-focused"]
 
 [dev-dependencies]
+common = { path = "../../common", features = ["math-test"] }
 soroban-sdk = { workspace = true, features = ["testutils"] }

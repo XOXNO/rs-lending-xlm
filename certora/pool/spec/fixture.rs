@@ -5,7 +5,7 @@ use cvlr::nondet::nondet;
 
 use common::constants::{BPS, MAX_ASSET_DECIMALS, MIN_ASSET_DECIMALS, RAY};
 use common::math::fp::Ray;
-use common::math::fp_core;
+use common::math::reference as fp_core;
 use common::types::{
     HubAssetKey, MarketParamsRaw, PoolAction, PoolKey, PoolStateRaw, ScaledPositionRaw,
 };

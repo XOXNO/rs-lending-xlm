@@ -590,6 +590,11 @@ fmt-check:
 	cargo fmt --all -- --check
 
 
+.PHONY: fp-boundary-check
+fp-boundary-check:
+	python3 scripts/test_check_fp_boundary.py
+	python3 scripts/check_fp_boundary.py
+
 clippy:
 	cargo clippy --all-targets -- -D warnings
 

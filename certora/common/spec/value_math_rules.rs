@@ -13,7 +13,7 @@ use soroban_sdk::Env;
 
 use crate::constants::{BPS, WAD};
 use crate::math::fp::{Bps, Ray, Wad};
-use crate::math::fp_core::{mul_div_floor, mul_div_half_up};
+use crate::math::reference::{mul_div_floor, mul_div_half_up};
 
 /// Decimals of the collateral asset in the fee model: one token unit is `1e9` RAY.
 const ASSET_DECIMALS: u32 = 18;

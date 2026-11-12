@@ -1,8 +1,7 @@
 //! Tolerance-band check and midpoint for the two legs of a dual-source price.
 //! The band is a ratio in BPS, not a deviation width.
 
-use common::constants::BPS;
-use common::math::fp_core;
+use common::math::fp::{Bps, Wad};
 use common::types::OracleTolerance;
 use soroban_sdk::Env;
 
@@ -18,11 +17,11 @@ pub(crate) fn within_tolerance_band(
 ) -> bool {
     let high = anchor.max(primary);
     let low = anchor.min(primary);
-    let Some(upper_ratio_bps) = fp_core::try_mul_div_half_up(env, high, BPS, low) else {
+    let Some(upper_ratio_bps) = Bps::try_from_fraction(env, Wad::from(high), Wad::from(low)) else {
         return false;
     };
 
-    upper_ratio_bps <= i128::from(tolerance.upper_ratio_bps)
+    upper_ratio_bps <= Bps::from(tolerance.upper_ratio_bps)
 }
 
 /// Returns the average of `anchor_price` and `primary_price`, truncated

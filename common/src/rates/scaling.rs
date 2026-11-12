@@ -4,10 +4,8 @@
 
 use soroban_sdk::{panic_with_error, Env};
 
-use crate::constants::RAY;
 use crate::errors::GenericError;
 use crate::math::fp::Ray;
-use crate::math::fp_core;
 
 /// Converts a scaled `Ray` amount to its original (unscaled) value by
 /// multiplying by `index`, rounding half up.
@@ -24,12 +22,7 @@ pub fn scaled_to_original(env: &Env, scaled: Ray, index: Ray) -> Ray {
 /// uses [`calculate_scaled_supply`] and [`calculate_scaled_borrow`], which panic
 /// on overflow.
 pub fn calculate_scaled_cap(env: &Env, cap: i128, decimals: u32, index: Ray) -> Ray {
-    Ray::from(fp_core::mul_div_floor_saturating(
-        env,
-        Ray::from_asset(env, cap, decimals).raw(),
-        RAY,
-        index.raw(),
-    ))
+    Ray::from_asset(env, cap, decimals).div_floor_saturating(env, index)
 }
 
 /// Converts an asset-unit `amount` to a scaled supply `Ray` using floor

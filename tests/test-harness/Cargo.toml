@@ -15,7 +15,7 @@ testing = ["controller/testing", "governance/testing"]
 
 [dependencies]
 soroban-sdk = { workspace = true, features = ["testutils"] }
-common = { path = "../../common" }
+common = { path = "../../common", features = ["math-test"] }
 controller = { path = "../../contracts/controller", features = ["testing"] }
 governance = { path = "../../contracts/governance", features = ["testing"] }
 governance-interface = { path = "../../interfaces/governance" }

@@ -5,7 +5,7 @@ use crate::cache::Cache;
 use crate::test_support::{hub, init_ledger};
 use crate::{LiquidityPool, LiquidityPoolClient};
 use common::constants::{BPS, LIQUIDATION_BUFFER_BPS, RAY, SUPPLY_INDEX_FLOOR_RAW};
-use common::math::fp_core::mul_div_ceil;
+use common::math::reference::mul_div_ceil;
 use common::types::{MarketParamsRaw, PoolStateRaw};
 use soroban_sdk::testutils::Address as _;
 use soroban_sdk::{Address, Env};

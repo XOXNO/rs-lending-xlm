@@ -8,7 +8,7 @@ use crate::constants::{
     RAY, SUPPLY_INDEX_FLOOR_RAW, WAD,
 };
 use crate::math::fp::{Bps, Ray};
-use crate::math::fp_core::{div_by_int_half_up, mul_div_floor, mul_div_half_up};
+use crate::math::reference::{div_by_int_half_up, mul_div_floor, mul_div_half_up};
 use crate::rates::{
     calculate_borrow_rate, calculate_deposit_rate, calculate_supplier_rewards, compound_interest,
     protocol_fee_shares, simulate_update_indexes_body, update_borrow_index, update_supply_index,

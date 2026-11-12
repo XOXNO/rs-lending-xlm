@@ -2,7 +2,7 @@
 
 use common::constants::WAD;
 use common::errors::OracleError;
-use common::math::fp_core::mul_div_floor_saturating;
+use common::math::fp::Wad;
 use common::oracle::providers::curve::CurvePoolClient;
 use common::types::{CurveStableLpSource, PriceKey};
 use soroban_sdk::{Env, Executable};
@@ -84,13 +84,13 @@ pub(crate) fn read(
         .ok()
         .and_then(Result::ok)
         .ok_or(OracleError::NoLastPrice)?;
-    let price_wad = mul_div_floor_saturating(&env, virtual_price, minimum, WAD);
-    if mul_div_floor_saturating(&env, price_wad, supply, WAD) < lp.min_pool_value_wad {
+    let price_wad = Wad::from(virtual_price).mul_floor_saturating(&env, Wad::from(minimum));
+    if price_wad.mul_floor_saturating(&env, Wad::from(supply)) < Wad::from(lp.min_pool_value_wad) {
         return Err(OracleError::InsufficientCurveLiquidity);
     }
     Ok(Some((
         OracleObservation {
-            price_wad,
+            price_wad: price_wad.raw(),
             timestamp,
         },
         false,

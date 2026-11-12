@@ -14,7 +14,7 @@ use std::{format, panic, println, thread};
 
 use crate::config::config;
 use common::math::fp::{Bps, Ray, Wad};
-use common::math::fp_core::{mul_div_ceil, mul_div_floor};
+use common::math::reference::{mul_div_ceil, mul_div_floor};
 use common::rates::{position_value_floor, unscale_borrow_ceil};
 use common::types::{HubAssetKey, LiquidationEstimate, PriceKey, SeizeMode};
 use common::validation::max_cap_for_decimals;
