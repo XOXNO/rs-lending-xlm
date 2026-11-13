@@ -262,9 +262,17 @@ market_params_json() {
     }'
 }
 
+# Default supply and borrow cap of a harness listing, in asset base units:
+# 10 billion whole tokens of a 7-decimal asset. The controller rejects a cap
+# above the pool's entry ceiling with InvalidBorrowParams (116). For 7
+# decimals that ceiling is 212_676_479_324_336_539 base units
+# (`max_cap_for_decimals` in common/src/validation.rs).
+HARNESS_ASSET_CAP=100000000000000000
+
 asset_config_json() {
     local ltv="$1" thr="$2" bonus="$3" overrides="${4:-.}"
-    jq -nc --argjson ltv "$ltv" --argjson thr "$thr" --argjson bonus "$bonus" '{
+    jq -nc --argjson ltv "$ltv" --argjson thr "$thr" --argjson bonus "$bonus" \
+        --arg cap "$HARNESS_ASSET_CAP" '{
         is_collateralizable: true,
         is_borrowable: true,
         paused: false,
@@ -273,8 +281,8 @@ asset_config_json() {
         liquidation_threshold: $thr,
         liquidation_bonus: $bonus,
         liquidation_fees: 100,
-        supply_cap: "1000000000000000000",
-        borrow_cap: "1000000000000000000"
+        supply_cap: $cap,
+        borrow_cap: $cap
     }' | jq -c "$overrides"
 }
 
@@ -285,7 +293,7 @@ asset_config_json() {
 spoke_args() {
     jq -nc --argjson hub "$1" --arg asset "$2" --argjson spoke "$3" --argjson cc "$4" --argjson cb "$5" \
         --argjson ltv "$6" --argjson thr "$7" --argjson bonus "$8" \
-        --arg sc "${9:-1000000000000000000}" --arg bc "${10:-1000000000000000000}" \
+        --arg sc "${9:-$HARNESS_ASSET_CAP}" --arg bc "${10:-$HARNESS_ASSET_CAP}" \
         --argjson ns "${11:-false}" '{
         hub_id: $hub,
         asset: $asset,
