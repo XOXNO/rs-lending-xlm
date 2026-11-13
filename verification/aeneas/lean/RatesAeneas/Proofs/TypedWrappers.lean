@@ -9,7 +9,8 @@ each spec is the core spec with the wrapper's constant (`RAY`, `WAD`, `BPS`)
 substituted.
 
 The two wrappers the rates code calls are proved next to their users:
-`ray_try_div_spec` (`HalfUpWrappers.lean`, used by `utilization`) and
+`ray_try_div_spec` and `ray_try_mul_spec` (`HalfUpWrappers.lean`; `accrue_step`
+values the market totals with `Ray::try_mul`) and
 `ray_div_floor_saturating_spec` (`FloorCeilScaling.lean`, used by
 `calculate_scaled_cap`, `protocol_fee_shares`, `scaled_to_original`, and,
 for non-abort, `update_supply_index`).

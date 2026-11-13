@@ -97,6 +97,9 @@ fn test_liquidation_seize_proportional_subunit_collateral() {
 
     let alice = "alice_dust";
 
+    // Alice's own ETH supply is one base unit. Another account supplies the
+    // ETH she borrows: a debt mint cannot take debt value above supply value.
+    t.supply("eth_lp", "ETH", 100.0);
     t.supply(alice, "USDC", 20_000.0);
     t.supply(alice, "ETH", 0.0000001);
     t.borrow(alice, "ETH", 6.0);

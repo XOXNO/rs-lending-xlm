@@ -14,7 +14,7 @@ import PoolAeneas.Proofs.Shares
 import PoolAeneas.Proofs.Wrappers
 
 open Aeneas Aeneas.Std Result
-open FixedPoint.Spec
+open FixedPoint.Spec FixedPoint.HalfUpSpec
 open pool_aeneas
 
 set_option maxRecDepth 20000
@@ -38,28 +38,30 @@ theorem require_supply_for_debt_spec (env : Env) (c : market_cache.Cache) :
 /-! ## `require_utilization_below_max` (INV-ACCT-08) -/
 
 /-- The pass condition of `require_utilization_below_max`: no supply shares,
-an effectively unbounded ceiling (`max_utilization ≥ RAY`), no debt value, or
-a positive floored supply value with `B / S ≤ max_utilization`, i.e.
-`B * RAY ≤ max_utilization * S` (the ceiled ratio `⌈B*RAY/S⌉` is at most the
-ceiling exactly when this holds). -/
+no debt value, or `B ≤ ⌊S * max_utilization / RAY⌋`, i.e.
+`B * RAY ≤ max_utilization * S`. There is no exemption for a 100% ceiling:
+at `max_utilization = RAY` the condition is `B ≤ S`, debt value at most
+supply value. -/
 def UtilPass (c : market_cache.Cache) (B S : Int) : Prop :=
-  c.supplied.val = 0 ∨ 10^27 ≤ c.params.max_utilization.val ∨ B = 0 ∨
-    (0 < S ∧ B * 10^27 ≤ c.params.max_utilization.val * S)
+  c.supplied.val = 0 ∨ B = 0 ∨ B * 10^27 ≤ c.params.max_utilization.val * S
 
 /-- **`require_utilization_below_max` passes exactly on `UtilPass`
-(INV-ACCT-08).** For the ceiled debt value `B` and floored supply value `S`
-the code computes, the guard returns iff `UtilPass c B S`; otherwise it
-aborts. So rounding can never admit utilization above the ceiling: debt is
-rounded up, supply down, and the ratio up. Debt against a zero floored supply
-value fails.
+(INV-ACCT-08), at every ceiling including 100%, and divides nothing.** For the
+ceiled debt value `B` and floored supply value `S` the code computes, the
+guard returns iff `UtilPass c B S`; otherwise it aborts. The code compares `B`
+with `⌊S * max_utilization / RAY⌋`: debt is rounded up, supply down and the
+allowed side down, so rounding can never admit utilization above the ceiling,
+and no quotient can overflow. Debt against a zero floored supply value fails.
+This is the guard of the debt-creating legs (`mint_debt`): audit finding S-03.
 
 Hypotheses: share totals and indexes are non-negative (INV-ACCT-01, indexes
-start at RAY and stay above `SUPPLY_INDEX_FLOOR_RAW`); `B` and `S` fit `i128`
-(otherwise `mul_ceil`/`mul_floor` abort with `MathOverflow`, which is also a
-rejection). -/
+start at RAY and stay above `SUPPLY_INDEX_FLOOR_RAW`); `0 ≤ max_utilization ≤
+RAY` (`InterestRateModel::verify`); `B` and `S` fit `i128` (otherwise
+`mul_ceil`/`mul_floor` abort with `MathOverflow`, which is also a rejection). -/
 theorem require_utilization_below_max_spec (env : Env) (c : market_cache.Cache) (B S : Int)
     (hb : 0 ≤ c.borrowed.val) (hbi : 0 ≤ c.borrow_index.val)
     (hs : 0 ≤ c.supplied.val) (hsi : 0 ≤ c.supply_index.val)
+    (hm : 0 ≤ c.params.max_utilization.val) (hmR : c.params.max_utilization.val ≤ 10^27)
     (hB : IsCeil (c.borrowed.val * c.borrow_index.val) (10^27) B) (hBfit : B < 2^127)
     (hS : IsFloor (c.supplied.val * c.supply_index.val) (10^27) S) (hSfit : S < 2^127) :
     (∃ u, guards.require_utilization_below_max env c = ok u) ↔ UtilPass c B S := by
@@ -69,60 +71,211 @@ theorem require_utilization_below_max_spec (env : Env) (c : market_cache.Cache) 
   unfold guards.require_utilization_below_max UtilPass
   simp only [market_cache.Cache.impl.supplied, market_cache.Cache.impl.borrowed,
     market_cache.Cache.impl.params, market_cache.Cache.impl.borrow_index,
-    market_cache.Cache.impl.supply_index, bind_ok, ray_eq_eq, zero_val, ray_ge_eq, ray_one_val]
+    market_cache.Cache.impl.supply_index, bind_ok, ray_eq_eq, zero_val]
   by_cases h0 : c.supplied.val = 0
   · simp [h0]
   simp only [h0, decide_false, Bool.false_eq_true, ↓reduceIte, false_or]
-  by_cases hmax : 10^27 ≤ c.params.max_utilization.val
-  · simp only [hmax, decide_true, ↓reduceIte, true_or, iff_true]; exact ⟨(), by simp⟩
-  simp only [hmax, decide_false, Bool.false_eq_true, ↓reduceIte, false_or]
-  have hmc := spec_imp_eq_ok (ray_mul_ceil_spec env c.borrowed c.borrow_index
+  obtain ⟨b, hbeq, hbv⟩ := spec_imp_eq_ok (ray_mul_ceil_spec env c.borrowed c.borrow_index
     ⟨B, hB, by omega, hBfit⟩)
-  obtain ⟨b, hbeq, hbv⟩ := hmc
   have hbB : b.val = B := IsCeil.unique (by norm_num) hbv hB
   rw [hbeq]; simp only [bind_ok, ray_eq_eq, zero_val, hbB]
   by_cases hB0' : B = 0
   · simp [hB0']
   simp only [hB0', decide_false, Bool.false_eq_true, ↓reduceIte, false_or]
-  have hmf := spec_imp_eq_ok (ray_mul_floor_spec env c.supplied c.supply_index
+  obtain ⟨s, hseq, hsv⟩ := spec_imp_eq_ok (ray_mul_floor_spec env c.supplied c.supply_index
     ⟨S, hS, by omega, hSfit⟩)
-  obtain ⟨s, hseq, hsv⟩ := hmf
   have hsS : s.val = S := IsFloor.unique (by norm_num) hsv hS
-  rw [hseq]; simp only [bind_ok, ray_gt_eq, zero_val, hsS]
-  by_cases hSpos : 0 < S
-  swap
-  · simp [hSpos, massert]
-  simp only [hSpos, decide_true, massert, ↓reduceIte, bind_ok, true_and]
-  constructor
-  · rintro ⟨u, hu⟩
-    obtain ⟨q, hq_eq, hu⟩ := bind_eq_ok hu
-    have hq : IsCeil (b.val * 10^27) s.val q.val := by
-      unfold math.fp.Ray.div_ceil at hq_eq
-      obtain ⟨q', hq', hqq⟩ := bind_eq_ok hq_eq
-      simp only [ok.injEq] at hqq
-      have := mul_div_ceil_eq_ok env b constants.shared.RAY s q' (by omega) hq'
-      rw [ray_val] at this; rw [← hqq]; exact this
-    rw [ray_le_eq] at hu
-    by_cases hle : q.val ≤ c.params.max_utilization.val
-    · rw [hbB, hsS] at hq
-      unfold IsCeil at hq; rw [if_pos hSpos] at hq
-      nlinarith
-    · simp [hle] at hu
-  · intro hle
-    obtain ⟨q, hq⟩ := isCeil_exists (B * 10^27) S hSpos
-    have hq' := hq; unfold IsCeil at hq'; rw [if_pos hSpos] at hq'
-    have hqle : q ≤ c.params.max_utilization.val := by
+  rw [hseq]; simp only [bind_ok]
+  -- the allowed debt value: `A = ⌊S * max_utilization / RAY⌋ ≤ S`
+  have hA := isFloor_ediv (S * c.params.max_utilization.val) (10^27) (by norm_num)
+  set A := S * c.params.max_utilization.val / 10^27 with hAdef
+  have hA' := hA; unfold IsFloor at hA'; rw [if_pos (by norm_num)] at hA'
+  have hA0 : 0 ≤ A := IsFloor.nonneg (by norm_num) (Int.mul_nonneg hS0 hm) hA
+  have hAS : A ≤ S := by
+    by_contra hc; have hc := not_le.mp hc
+    have h1 : S * c.params.max_utilization.val ≤ S * 10^27 :=
+      Int.mul_le_mul_of_nonneg_left hmR hS0
+    have h2 : (S + 1) * 10^27 ≤ A * 10^27 := by nlinarith
+    nlinarith
+  obtain ⟨a, haeq, hav⟩ := spec_imp_eq_ok (ray_mul_floor_spec env s c.params.max_utilization
+    ⟨A, by rw [hsS]; exact hA, by omega, by omega⟩)
+  have haA : a.val = A := IsFloor.unique (by norm_num) hav (by rw [hsS]; exact hA)
+  rw [haeq]; simp only [bind_ok, ray_le_eq, hbB, haA]
+  have key : B ≤ A ↔ B * 10^27 ≤ c.params.max_utilization.val * S := by
+    constructor
+    · intro h; nlinarith
+    · intro h
       by_contra hc; have hc := not_le.mp hc
-      have : (c.params.max_utilization.val + 1) * S ≤ q * S := by nlinarith
+      have : (A + 1) * 10^27 ≤ B * 10^27 := by nlinarith
       nlinarith
-    have hq0 : 0 ≤ q := by
-      by_contra hc; have hc := not_le.mp hc; nlinarith
-    have hdc := spec_imp_eq_ok (ray_div_ceil_spec env b s (by omega)
-      ⟨q, by rw [hbB, hsS]; exact hq, by omega, by omega⟩)
-    obtain ⟨r, hreq, hrv⟩ := hdc
-    have hrq : r.val = q := IsCeil.unique (by omega) hrv (by rw [hbB, hsS]; exact hq)
-    rw [hreq]
-    simp [ray_le_eq, hrq, hqle, massert]
+  by_cases hle : B ≤ A
+  · simp only [hle, decide_true, massert, ↓reduceIte, key.mp hle, iff_true]
+    exact ⟨(), by simp⟩
+  · have hnk : ¬ B * 10^27 ≤ c.params.max_utilization.val * S := fun h => hle (key.mpr h)
+    constructor
+    · rintro ⟨u, hu⟩; simp [hle, massert] at hu
+    · intro h; exact absurd h hnk
+
+/-- **`require_exit_utilization_below_max` is the same gate, skipped at a 100%
+ceiling (INV-ACCT-08).** It returns iff `max_utilization ≥ RAY` or `UtilPass c
+B S`. Ordinary withdrawals and revenue claims call it: an exit cannot draw
+more than cash (`require_reserves`), so at a 100% ceiling the comparison could
+only fail on the rounding dust between cash plus debt and the supplier
+claims, and would stop the withdrawal of the last cash. Below 100% it is
+exactly `require_utilization_below_max`. Hypotheses as there. -/
+theorem require_exit_utilization_below_max_spec (env : Env) (c : market_cache.Cache)
+    (B S : Int)
+    (hb : 0 ≤ c.borrowed.val) (hbi : 0 ≤ c.borrow_index.val)
+    (hs : 0 ≤ c.supplied.val) (hsi : 0 ≤ c.supply_index.val)
+    (hm : 0 ≤ c.params.max_utilization.val) (hmR : c.params.max_utilization.val ≤ 10^27)
+    (hB : IsCeil (c.borrowed.val * c.borrow_index.val) (10^27) B) (hBfit : B < 2^127)
+    (hS : IsFloor (c.supplied.val * c.supply_index.val) (10^27) S) (hSfit : S < 2^127) :
+    (∃ u, guards.require_exit_utilization_below_max env c = ok u) ↔
+      (10^27 ≤ c.params.max_utilization.val ∨ UtilPass c B S) := by
+  unfold guards.require_exit_utilization_below_max
+  simp only [market_cache.Cache.impl.params, bind_ok, ray_ge_eq, ray_one_val]
+  by_cases hmax : 10^27 ≤ c.params.max_utilization.val
+  · simp only [hmax, decide_true, ↓reduceIte, true_or, iff_true]; exact ⟨(), by simp⟩
+  · simp only [hmax, decide_false, Bool.false_eq_true, ↓reduceIte, false_or]
+    exact require_utilization_below_max_spec env c B S hb hbi hs hsi hm hmR hB hBfit hS hSfit
+
+/-- Whatever the exit gate returns below a 100% ceiling, the full gate
+returned too (same cache). -/
+theorem require_exit_utilization_ok (env : Env) (c : market_cache.Cache) (u : Unit)
+    (h : guards.require_exit_utilization_below_max env c = ok u) :
+    10^27 ≤ c.params.max_utilization.val ∨
+      ∃ u', guards.require_utilization_below_max env c = ok u' := by
+  unfold guards.require_exit_utilization_below_max at h
+  simp only [market_cache.Cache.impl.params, bind_ok, ray_ge_eq, ray_one_val] at h
+  by_cases hmax : 10^27 ≤ c.params.max_utilization.val
+  · exact Or.inl hmax
+  · simp only [hmax, decide_false, Bool.false_eq_true, ↓reduceIte] at h
+    exact Or.inr ⟨u, h⟩
+
+/-! ## The market value and entry ceilings (INV-IDX-06, INV-ACCT-11) -/
+
+/-- `MAX_MARKET_VALUE_RAY = i128::MAX − RAY`: the ceiling accrual holds a
+market's total supply value and total debt value at. -/
+def MaxMarketValue : Int := 2^127 - 1 - 10^27
+
+/-- `MAX_MARKET_ENTRY_RAY = MAX_MARKET_VALUE_RAY / 8`: the ceiling entries
+enforce on a market total, as a share count and as a value. -/
+def MaxMarketEntry : Int := 21267647932433653966460912964485513215
+
+/-- The entry ceiling is the value ceiling divided by the headroom factor 8,
+rounded down. -/
+theorem maxMarketEntry_eq : MaxMarketEntry = MaxMarketValue / 8 := by
+  unfold MaxMarketEntry MaxMarketValue; norm_num
+
+/-- `MAX_MARKET_VALUE_RAY` evaluates to `i128::MAX − RAY`. -/
+theorem max_market_value_spec :
+    constants.pool.MAX_MARKET_VALUE_RAY ⦃ v => v.val = MaxMarketValue ⦄ := by
+  unfold constants.pool.MAX_MARKET_VALUE_RAY MaxMarketValue
+  have hR : constants.shared.RAY = 1000000000000000000000000000#i128 := by
+    unfold constants.shared.RAY; rfl
+  have hM : (core.num.I128.MAX).val = 2^127 - 1 := by simp [core.num.I128.MAX, I128.rMax]
+  rw [hR]
+  step as ⟨v, hv⟩
+  rw [hv]; simp [I128.rMax]
+
+/-- `MAX_MARKET_ENTRY_RAY` evaluates to `(i128::MAX − RAY) / 8`. -/
+theorem max_market_entry_spec :
+    constants.pool.MAX_MARKET_ENTRY_RAY ⦃ v => v.val = MaxMarketEntry ⦄ := by
+  unfold constants.pool.MAX_MARKET_ENTRY_RAY constants.pool.MARKET_ENTRY_HEADROOM
+  step with max_market_value_spec as ⟨i, hi⟩
+  step as ⟨v, hv⟩
+  rw [hv, hi]; unfold MaxMarketValue MaxMarketEntry; norm_num
+
+/-- A market total fits the entry ceiling: the share count is at most
+`MAX_MARKET_ENTRY_RAY`, and so is its half-up value at the index (which must
+therefore be representable). -/
+def EntryFits (x i : Int) : Prop :=
+  x ≤ MaxMarketEntry ∧ ∃ v, IsHalfUp (x * i) (10^27) v ∧ v ≤ MaxMarketEntry
+
+/-- **`fits_entry_ceiling` never aborts and decides `EntryFits`** for
+non-negative shares and index: `true` iff the share count and its half-up
+value are both at most `MAX_MARKET_ENTRY_RAY`. A value that does not fit
+`i128` gives `false` (`Ray::try_mul` returns `None`), not an abort. -/
+theorem fits_entry_ceiling_spec (env : Env) (x i : math.fp.Ray)
+    (hx : 0 ≤ x.val) (hi : 0 ≤ i.val) :
+    guards.fits_entry_ceiling env x i ⦃ r => r = true ↔ EntryFits x.val i.val ⦄ := by
+  unfold guards.fits_entry_ceiling EntryFits
+  step with max_market_entry_spec as ⟨e, he⟩
+  simp only [ray_from_same, bind_ok, ray_gt_eq, he]
+  obtain ⟨v, hv⟩ := IsHalfUp.exists (x.val * i.val) (10^27) (by norm_num)
+  have hv0 := IsHalfUp.nonneg (by norm_num) (Int.mul_nonneg hx hi) hv
+  by_cases hgt : MaxMarketEntry < x.val
+  · simp only [hgt, decide_true, ↓reduceIte, WP.spec_ok]
+    constructor
+    · intro h; exact absurd h (by simp)
+    · rintro ⟨h, _⟩; omega
+  simp only [hgt, decide_false, Bool.false_eq_true, ↓reduceIte]
+  step with ray_try_mul_spec env x i as ⟨o, _, ho⟩
+  have hres := ho hx hi
+  cases o with
+  | none =>
+    simp only [WP.spec_ok]
+    simp only [HalfUpResult] at hres
+    constructor
+    · intro h; exact absurd h (by simp)
+    · rintro ⟨_, w, hw, hwle⟩
+      exact absurd (by unfold MaxMarketEntry at hwle; omega) (hres w hw)
+  | some w =>
+    simp only [HalfUpResult] at hres
+    have hwv : w.val = v := IsHalfUp.unique (by norm_num) hres hv
+    simp only [ray_le_eq, WP.spec_ok, he, hwv]
+    constructor
+    · intro h
+      exact ⟨by omega, v, hv, by simpa using h⟩
+    · rintro ⟨_, v', hv', hle⟩
+      have : v' = v := IsHalfUp.unique (by norm_num) hv' hv
+      subst this; simpa using hle
+
+/-- **`require_within_entry_ceiling` passes exactly when both market totals
+fit the entry ceiling (INV-ACCT-11).** It returns iff `EntryFits` holds for
+total supply at the supply index and for total debt at the borrow index;
+otherwise it aborts (`MarketCeilingReached`). Supply, borrow, strategy and
+flash-loan entries call it after they raise a total, so an entry leaves both
+totals at most `MAX_MARKET_ENTRY_RAY`, a factor 8 below the ceiling accrual
+holds them at. Hypotheses: non-negative share totals and indexes. -/
+theorem require_within_entry_ceiling_spec (env : Env) (c : market_cache.Cache)
+    (hs : 0 ≤ c.supplied.val) (hsi : 0 ≤ c.supply_index.val)
+    (hb : 0 ≤ c.borrowed.val) (hbi : 0 ≤ c.borrow_index.val) :
+    (∃ u, guards.require_within_entry_ceiling env c = ok u) ↔
+      (EntryFits c.supplied.val c.supply_index.val ∧
+        EntryFits c.borrowed.val c.borrow_index.val) := by
+  unfold guards.require_within_entry_ceiling
+  simp only [market_cache.Cache.impl.supplied, market_cache.Cache.impl.supply_index,
+    market_cache.Cache.impl.borrowed, market_cache.Cache.impl.borrow_index, bind_ok]
+  obtain ⟨r1, hr1, h1⟩ := spec_imp_eq_ok
+    (fits_entry_ceiling_spec env c.supplied c.supply_index hs hsi)
+  obtain ⟨r2, hr2, h2⟩ := spec_imp_eq_ok
+    (fits_entry_ceiling_spec env c.borrowed c.borrow_index hb hbi)
+  rw [hr1]; simp only [bind_ok, massert]
+  by_cases hf1 : r1 = true
+  · simp only [hf1, ↓reduceIte, bind_ok, hr2]
+    by_cases hf2 : r2 = true
+    · simp only [hf2, ↓reduceIte]
+      exact ⟨fun _ => ⟨h1.mp hf1, h2.mp hf2⟩, fun _ => ⟨(), by simp⟩⟩
+    · simp only [hf2, Bool.false_eq_true, ↓reduceIte]
+      constructor
+      · rintro ⟨u, hu⟩; exact absurd hu (by simp)
+      · rintro ⟨_, h⟩; exact absurd (h2.mpr h) hf2
+  · simp only [hf1, Bool.false_eq_true, ↓reduceIte]
+    constructor
+    · rintro ⟨u, hu⟩; simp at hu
+    · rintro ⟨h, _⟩; exact absurd (h1.mpr h) hf1
+
+/-- The entry-ceiling guard reads only the share totals and the indexes: two
+caches that agree on them get the same answer (so a guard that passed before
+a cash movement also holds for the committed cache). -/
+theorem require_within_entry_ceiling_congr (env : Env) (c c' : market_cache.Cache)
+    (h1 : c'.supplied = c.supplied) (h2 : c'.supply_index = c.supply_index)
+    (h3 : c'.borrowed = c.borrowed) (h4 : c'.borrow_index = c.borrow_index) :
+    guards.require_within_entry_ceiling env c' = guards.require_within_entry_ceiling env c := by
+  unfold guards.require_within_entry_ceiling
+  simp only [market_cache.Cache.impl.supplied, market_cache.Cache.impl.supply_index,
+    market_cache.Cache.impl.borrowed, market_cache.Cache.impl.borrow_index, h1, h2, h3, h4]
 
 /-! ## `require_liquidation_buffer` (INV-ACCT-07) -/
 

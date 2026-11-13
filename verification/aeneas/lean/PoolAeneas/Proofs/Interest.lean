@@ -23,12 +23,6 @@ theorem supply_index_floor_spec :
   step as ⟨v, hv⟩
   rw [hv]; rfl
 
-/-- `Ray::from(v)` for an `i128` wraps `v` unchanged. -/
-theorem ray_from_same (v : Std.I128) :
-    math.fp.Ray.from (core.convert.IntoFrom (core.convert.FromSame Std.I128)) v = ok v := by
-  simp [math.fp.Ray.from, core.convert.IntoFrom, core.convert.IntoFrom.into,
-    core.convert.FromSame, core.convert.FromSame.from]
-
 /-! ## `add_protocol_revenue` -/
 
 /-- **`add_protocol_revenue` books a fee as revenue shares and never aborts.**

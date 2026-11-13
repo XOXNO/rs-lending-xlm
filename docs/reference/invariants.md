@@ -163,8 +163,9 @@ Revenue payout cannot exceed tracked cash or the floored revenue claim. Full
 payout burns all revenue shares; cash-limited payout burns a proportional
 ceiling of shares. Positive payout cannot burn zero shares.
 
-Claims enforce utilization and reject zero total supply with outstanding debt.
-These checks do not establish full backing. The [payout formula](formulas.md#revenue-payout)
+Claims enforce utilization below a 100% ceiling
+([INV-ACCT-08](#inv-acct-08)) and reject zero total supply with outstanding
+debt. These checks do not establish full backing. The [payout formula](formulas.md#revenue-payout)
 defines the burn calculation.
 
 <a id="inv-acct-07"></a>
@@ -185,10 +186,18 @@ subsequent liquidation.
 ### INV-ACCT-08 — Selected operations enforce the utilization ceiling
 
 Borrow debt minting, ordinary withdrawal and revenue claims reject utilization
-above the market ceiling. The gate divides ceiled debt value by floored supply
-value and rounds the ratio up, so rounding cannot admit utilization above the
-ceiling. It skips zero total supply, zero debt value and ceilings at least one
-RAY. Debt against a zero floored supply value fails the gate.
+above the market ceiling. The gate compares ceiled debt value with floored
+supply value times the ceiling, rounded down, so rounding cannot admit
+utilization above the ceiling and no quotient can overflow. It skips zero
+total supply shares and zero debt value. Debt against a zero floored supply
+value fails the gate.
+
+A debt mint is checked at every ceiling, 100% included. After a borrow or a
+strategy opening on a market with supply shares, debt value does not exceed
+supply value. Ordinary withdrawal and revenue claims skip a 100% ceiling:
+they cannot draw more than cash, so there the comparison could fail only on
+the rounding dust between cash plus debt and supplier claims, and would block
+the withdrawal of the last cash.
 
 Liquidation withdrawal skips the gate. Accrual and bad-debt writeoff can exceed
 the ceiling; it is not a market-wide bound maintained by every operation.
@@ -234,6 +243,25 @@ on-chain view enumerates accounts, so on a live network only the spoke-level
 identity (pool supplied minus the sum of spoke usage equals revenue) can be
 read.
 
+<a id="inv-acct-11"></a>
+
+### INV-ACCT-11 — Entries keep market totals under the entry ceiling
+
+After a supply, a borrow, a strategy opening or a flash loan, total supply and
+total debt are each at most `MAX_MARKET_ENTRY_RAY` (about 21.27 billion whole
+tokens), as a share count and as a half-up value at the live index. An entry
+that would leave a total above it reverts with `MarketCeilingReached` (136).
+The admitted cap maximum is the same ceiling in asset units.
+
+The ceiling is a factor 8 below the value ceiling of
+[INV-IDX-06](#inv-idx-06), which leaves room for interest. The share count is
+bounded as well as the value because a supply index written down to its floor
+mints 1,000 shares per unit of value.
+
+Exits never check it. Interest can take a total above the entry ceiling. The
+market then takes no entry until repayments, withdrawals or liquidations bring
+it back under. See [numeric limits](formulas.md#numeric-limits).
+
 ## Indexes and accrual
 
 <a id="inv-idx-01"></a>
@@ -244,8 +272,9 @@ Both indexes start at one RAY. Successful accrual with validated rate parameters
 cannot lower the borrow index and caps it at the protocol constant 10^36 raw
 RAY. At the ceiling, further accrual produces no borrower interest.
 
-Debt-value overflow can still revert accrual before that ceiling is reached.
-Bounded indexes do not guarantee representable position or market values.
+The market value ceiling of [INV-IDX-06](#inv-idx-06) stops borrow-index
+growth earlier when a market value would pass it. Accrual does not revert on a
+market value.
 
 <a id="inv-idx-02"></a>
 
@@ -257,6 +286,10 @@ are protocol constants, not per-market governance settings.
 
 The lower bound prevents a zero conversion divisor but can preserve an unbacked
 residual claim.
+
+The upper bound is the index cap. The market value ceiling of
+[INV-IDX-06](#inv-idx-06) holds the supply value a market can reach through
+interest.
 
 <a id="inv-idx-03"></a>
 
@@ -298,6 +331,30 @@ join the protocol reward.
 Revenue-share conversion floors at the new supply index and caps at remaining
 total-supply share headroom. That conversion can leave reward value unrepresented;
 exact conservation of booked supplier and revenue value is not guaranteed. See
+[interest allocation](formulas.md#compounding-and-interest-allocation).
+
+<a id="inv-idx-06"></a>
+
+### INV-IDX-06 — Accrual holds interest at the market value ceiling
+
+Accrual does not overflow on a market value. Each chunk caps borrow-index
+growth so that borrower interest is at most the room the larger of total debt
+value and total supply value has below `MAX_MARKET_VALUE_RAY`
+(`i128::MAX - RAY`, about 170.14 billion whole tokens). A market within the
+ceiling stays within it under accrual. With no room, or with a total whose
+value does not fit `i128`, a chunk changes no index and books no revenue. Time
+still advances, so the loop over chunks stays bounded.
+
+Every pool operation accrues first. For any stored state with non-negative
+share totals and indexes in range, accrual therefore cannot block a
+repayment, a withdrawal or a liquidation, whatever the elapsed time. Limits
+on market size are enforced on entries instead
+([INV-ACCT-11](#inv-acct-11)).
+
+The pool emits `MarketValueCeilingEvent` for each accrual in which the ceiling
+held interest. Borrowers of that market then accrue less than the rate
+implies. Accrual still reverts on a negative share total or index, which no
+operation produces. See
 [interest allocation](formulas.md#compounding-and-interest-allocation).
 
 ## Oracle validity
@@ -541,10 +598,12 @@ usage against the asset-unit cap converted at the returned live index.
 
 That conversion saturates at `i128::MAX` instead of reverting, so the scaled
 cap can fail open: once saturated, the configured asset-unit limit is not
-enforced. An admitted cap saturates only at an index below one RAY. At the
-supply-index floor (`RAY / 1000`), a supply cap above 1/1000 of the admitted
-maximum saturates. The borrow index never falls below one RAY, so an admitted
-borrow cap cannot saturate. See
+enforced. An admitted cap saturates only at an index below an eighth of one
+RAY. At the supply-index floor (`RAY / 1000`), a supply cap above about 1/125
+of the admitted maximum saturates; the pool's entry ceiling
+([INV-ACCT-11](#inv-acct-11)) still bounds that market's share count. The
+borrow index never falls below one RAY, so an admitted borrow cap cannot
+saturate. See
 [cap conversion](formulas.md#caps-fees-and-numeric-limits).
 
 Exits consume no cap. Missing usage rows and zero deltas are no-ops, and stored

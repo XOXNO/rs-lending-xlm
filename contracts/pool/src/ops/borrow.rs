@@ -55,11 +55,13 @@ pub(crate) fn accounting(env: &Env, entry: &PoolBorrowEntry) -> BorrowOutcome {
     }
 }
 
-/// Mints scaled debt for `amount` of underlying and enforces max utilization.
+/// Mints scaled debt for `amount` of underlying and enforces the entry
+/// ceiling and max utilization.
 ///
 /// Requires positive amount, sufficient cash reserves, and that the draw
 /// leaves the liquidation buffer intact. Panics if the scaled mint rounds to
-/// zero shares.
+/// zero shares. The utilization check also applies at a 100% ceiling, so the
+/// debt value after the mint cannot exceed the supply value.
 pub(crate) fn mint_debt(env: &Env, cache: &mut Cache, position: &mut Ray, amount: i128) {
     require_positive_amount(env, amount);
     cache.require_reserves(amount);
@@ -75,5 +77,6 @@ pub(crate) fn mint_debt(env: &Env, cache: &mut Cache, position: &mut Ray, amount
 
     *position = position.checked_add(env, minted);
     cache.mint_debt(minted);
+    guards::require_within_entry_ceiling(env, cache);
     guards::require_utilization_below_max(env, cache);
 }

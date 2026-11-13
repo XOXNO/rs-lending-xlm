@@ -361,18 +361,28 @@ fn pool_loss_floor_recapitalization_returns_only_unused_funding() {
 // Uses a real SAC and no market storage injection.
 #[cfg(test)]
 mod fee_headroom {
-    use common::constants::RAY;
+    use common::constants::{MAX_MARKET_ENTRY_RAY, RAY};
+    use common::errors::CollateralError;
     use common::types::{
         HubAssetKey, MarketParamsRaw, PoolAction, PoolSupplyEntry, PoolWithdrawEntry,
         ScaledPositionRaw,
     };
+    use common::validation::max_cap_for_decimals;
     use pool::{LiquidityPool, LiquidityPoolClient};
     use soroban_sdk::testutils::{Address as _, Ledger};
     use soroban_sdk::{token, vec, Address, Env};
     use test_harness::presets::LEDGER_PROTOCOL_VERSION;
 
+    /// The largest supply the pool admits is the entry ceiling, an eighth of
+    /// the share range, so a liquidation fee always has share headroom to
+    /// book into: `protocol_fee_shares` never caps it. One unit above the
+    /// ceiling is refused, so a share total next to `i128::MAX`, where the
+    /// fee could only book into the headroom freed by the supply burn, can no
+    /// longer be built by a supply (the pool crate's unit test
+    /// `test_liquidation_withdraw_uses_post_burn_fee_headroom_and_final_debt_guard`
+    /// keeps that ordering covered on an injected state).
     #[test]
-    fn liquidation_fee_uses_headroom_freed_by_supply_burn() {
+    fn liquidation_fee_books_in_full_at_the_entry_ceiling() {
         let env = Env::default();
         env.mock_all_auths();
         env.ledger().with_mut(|info| {
@@ -409,25 +419,34 @@ mod fee_headroom {
         };
         client.create_market(&0, &params);
         let ray_per_unit = RAY / 10_000_000;
-        let amount = i128::MAX / ray_per_unit;
+        let amount = max_cap_for_decimals(7);
+        assert_eq!(amount, MAX_MARKET_ENTRY_RAY / ray_per_unit);
         let gross = 100 * 10_000_000;
         let fee = 10 * 10_000_000;
-        token::StellarAssetClient::new(&env, &asset).mint(&supplier, &amount);
+        token::StellarAssetClient::new(&env, &asset).mint(&supplier, &(amount + 1));
         let tok = token::Client::new(&env, &asset);
         tok.transfer(&supplier, &pool, &amount);
-        let supply = client
-            .supply(&vec![
+        let supply_entry = |amount: i128, scaled_amount: i128| {
+            vec![
                 &env,
                 PoolSupplyEntry {
                     action: PoolAction {
                         hub_asset: market.clone(),
                         amount,
-                        position: ScaledPositionRaw { scaled_amount: 0 },
+                        position: ScaledPositionRaw { scaled_amount },
                     },
                 },
-            ])
-            .get(0)
-            .unwrap();
+            ]
+        };
+        let supply = client.supply(&supply_entry(amount, 0)).get(0).unwrap();
+        // One more unit is over the entry ceiling.
+        let refused = client.try_supply(&supply_entry(1, supply.position.scaled_amount));
+        assert_eq!(
+            refused.err(),
+            Some(Ok(soroban_sdk::Error::from_contract_error(
+                CollateralError::MarketCeilingReached as u32
+            )))
+        );
         let withdrawn = client
             .withdraw(
                 &recipient,

@@ -4,7 +4,6 @@ use test_harness::hub_asset;
 const ACCOUNTING_TOLERANCE_UNITS: i128 = 4;
 
 pub fn assert_user_health(t: &LendingTest, user: &str, min_hf: f64) {
-
     let Some(hf_raw) = t.try_health_factor_raw(user) else {
         return;
     };
@@ -60,7 +59,6 @@ pub fn assert_flash_guard_cleared(t: &LendingTest) {
 
 #[derive(Clone, Debug)]
 pub struct StateSnapshot {
-
     pub health_raw: Option<i128>,
     pub token_raw: Vec<i128>,
     pub pool_state: Vec<PoolStateSnapshot>,

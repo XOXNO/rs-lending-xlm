@@ -1185,11 +1185,11 @@ fn zdc_large_position_near_cap() {
 }
 
 #[test]
-fn zdc_cap_domain_at_zero_decimals_is_170_billion_units() {
+fn zdc_cap_domain_at_zero_decimals_is_21_billion_units() {
     let z = setup(nav(1_000));
     let admin = z.t.admin();
     let max = max_cap_for_decimals(0);
-    assert_eq!(max, 170_141_183_460);
+    assert_eq!(max, 21_267_647_932);
     let args = |cap: i128| SpokeAssetArgs {
         hub_id: z.hub,
         asset: z.liq.clone(),

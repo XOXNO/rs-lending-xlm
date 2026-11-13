@@ -110,8 +110,11 @@ pub fn calculate_deposit_rate(
 }
 
 /// Computes the pool utilization ratio `borrowed / supplied`, rounded half
-/// up. Returns `Ray::ZERO` if `supplied` is zero, and `Ray::ONE` if the ratio
-/// does not fit in `i128`.
+/// up and capped at `Ray::ONE`. The result is always in `[0, Ray::ONE]`.
+///
+/// Returns `Ray::ZERO` if `supplied` is zero, and `Ray::ONE` if `borrowed` is
+/// at least `supplied`. Only a `borrowed` below `supplied` is divided, so the
+/// quotient cannot overflow.
 ///
 /// Panics with `GenericError::MathOverflow` if `borrowed` or `supplied` is
 /// negative.
@@ -122,7 +125,10 @@ pub fn utilization(env: &Env, borrowed: Ray, supplied: Ray) -> Ray {
     if borrowed < Ray::ZERO || supplied < Ray::ZERO {
         panic_with_error!(env, GenericError::MathOverflow);
     }
-    borrowed.try_div(env, supplied).unwrap_or(Ray::ONE)
+    if borrowed >= supplied {
+        return Ray::ONE;
+    }
+    borrowed.div(env, supplied)
 }
 
 #[cfg(test)]

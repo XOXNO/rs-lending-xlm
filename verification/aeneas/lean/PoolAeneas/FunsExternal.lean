@@ -246,3 +246,10 @@ fields); nothing in a leg reads storage after its commit. -/
 def storage.write_state (_ : aeneas_pool_shim.Env) (_ : types.pool.HubAssetKey)
     (_ : types.pool.PoolStateRaw) : Result Unit :=
   ok ()
+
+/-- `events::emit_market_value_ceiling` (in `interest::global_sync`): publishes
+`MarketValueCeilingEvent`; returns `()`. An event writes only the host event
+buffer, which nothing in the extracted code reads. -/
+def events.emit_market_value_ceiling (_ : aeneas_pool_shim.Env) (_ : types.pool.HubAssetKey) :
+    Result Unit :=
+  ok ()

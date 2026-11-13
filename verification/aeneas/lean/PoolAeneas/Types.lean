@@ -87,9 +87,9 @@ inductive errors.GenericError where
 | DivisionByZero : errors.GenericError
 
 /-- [pool_aeneas::errors::CollateralError]
-    Source: 'src/../../../../common/src/errors.rs', lines 104:0-166:1
+    Source: 'src/../../../../common/src/errors.rs', lines 104:0-168:1
     Visibility: public -/
-@[discriminant u32 [100,101,102,104,107,109,110,111,112,113,114,115,116,117,118,119,120,121,122,123,126,127,128,129,130,131,132,133,134,135]]
+@[discriminant u32 [100,101,102,104,107,109,110,111,112,113,114,115,116,117,118,119,120,121,122,123,126,127,128,129,130,131,132,133,134,135,136]]
 inductive errors.CollateralError where
 | InsufficientCollateral : errors.CollateralError
 | HealthFactorTooHigh : errors.CollateralError
@@ -121,9 +121,10 @@ inductive errors.CollateralError where
 | SelfLiquidationNotAllowed : errors.CollateralError
 | InvalidLiquidationCurve : errors.CollateralError
 | FullCloseRequired : errors.CollateralError
+| MarketCeilingReached : errors.CollateralError
 
 /-- [pool_aeneas::errors::FlashLoanError]
-    Source: 'src/../../../../common/src/errors.rs', lines 282:0-292:1
+    Source: 'src/../../../../common/src/errors.rs', lines 284:0-294:1
     Visibility: public -/
 @[discriminant u32 [400,401,402,409,412]]
 inductive errors.FlashLoanError where
@@ -170,7 +171,7 @@ def math.fp_core.mul_div_floor.closure := Std.I128
 def math.fp_core.mul_div_floor_saturating.closure := Std.I128
 
 /-- [pool_aeneas::math::fp::{pool_aeneas::math::fp::Ray}::mul_int::{closure}]
-    Source: 'src/../../../../common/src/math/fp.rs', lines 84:28-84:81 -/
+    Source: 'src/../../../../common/src/math/fp.rs', lines 89:28-89:81 -/
 @[reducible]
 def math.fp.Ray.mul_int.closure := aeneas_pool_shim.Env
 
@@ -205,7 +206,7 @@ def math.fp_core.rescale_floor.closure := Unit
 def math.fp_core.rescale_ceil.closure := Unit
 
 /-- [pool_aeneas::math::fp::Bps]
-    Source: 'src/../../../../common/src/math/fp.rs', lines 345:0-345:21
+    Source: 'src/../../../../common/src/math/fp.rs', lines 350:0-350:21
     Visibility: public -/
 @[reducible]
 def math.fp.Bps := Std.I128
@@ -234,12 +235,13 @@ structure types.pool.MarketParams where
 def rates.scaling.resolve_repay.closure := aeneas_pool_shim.Env
 
 /-- [pool_aeneas::rates::simulate::AccrualStep]
-    Source: 'src/../../../../common/src/rates/simulate.rs', lines 24:0-37:1
+    Source: 'src/../../../../common/src/rates/simulate.rs', lines 25:0-41:1
     Visibility: public -/
 structure rates.simulate.AccrualStep where
   borrow_index : math.fp.Ray
   supply_index : math.fp.Ray
   revenue_shares : math.fp.Ray
+  value_capped : Bool
 
 /-- [pool_aeneas::types::pool::MarketParamsRaw]
     Source: 'src/../../../../common/src/types/pool.rs', lines 19:0-44:1
@@ -496,7 +498,7 @@ structure ops.strategy.StrategyOutcome where
   fee : Std.I128
 
 /-- [pool_aeneas::ops::strategy::accounting::{closure}]
-    Source: 'src/../../../../contracts/pool/src/ops/strategy.rs', lines 78:24-78:77 -/
+    Source: 'src/../../../../contracts/pool/src/ops/strategy.rs', lines 80:24-80:77 -/
 @[reducible]
 def ops.strategy.accounting.closure := aeneas_pool_shim.Env
 

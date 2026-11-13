@@ -5,8 +5,8 @@ use crate::cache::Cache;
 use crate::ops::flash;
 use crate::test_support::{hub, LEDGER_PROTOCOL_VERSION};
 use common::constants::{
-    BPS, MILLISECONDS_PER_YEAR, MS_PER_SECOND, RAY, TTL_BUMP_INSTANCE, TTL_BUMP_SHARED,
-    TTL_THRESHOLD_INSTANCE, TTL_THRESHOLD_SHARED,
+    BPS, MAX_MARKET_ENTRY_RAY, MAX_MARKET_VALUE_RAY, MILLISECONDS_PER_YEAR, MS_PER_SECOND, RAY,
+    TTL_BUMP_INSTANCE, TTL_BUMP_SHARED, TTL_THRESHOLD_INSTANCE, TTL_THRESHOLD_SHARED,
 };
 use common::errors::{CollateralError, FlashLoanError, GenericError};
 use common::math::fp::Ray;
@@ -15,6 +15,7 @@ use common::types::{
     AccountPositionType, InterestRateModel, MarketIndexRaw, MarketParamsRaw, PoolKey,
     PoolNetSettleEntry, PoolStateRaw, ScaledPositionRaw,
 };
+use common::validation::max_cap_for_decimals;
 use soroban_sdk::testutils::storage::{Instance as _, Persistent as _};
 use soroban_sdk::testutils::{Address as _, ContractEvents, Events, Ledger, LedgerInfo};
 use soroban_sdk::xdr::{ContractEventBody, ScVal, SorobanAuthorizationEntry};
@@ -902,8 +903,9 @@ fn test_withdraw_rejects_when_reserves_are_insufficient() {
         .supply(&t.sup(0, 10_000_000_000i128))
         .get_unchecked(0);
 
+    // The debt stays under the supplied value: a debt mint cannot exceed it.
     let borrower = Address::generate(&t.env);
-    client.borrow(&borrower, &t.bor(0, 99_999_990_000_000i128));
+    client.borrow(&borrower, &t.bor(0, 9_000_000_000i128));
 
     t.edit_state(|s| s.cash = 5_000_000_000i128);
 
@@ -3914,5 +3916,447 @@ fn rv_poc_c20_control_two_step_exit_rounding() {
     std::println!(
         "control: deposited 5000000000, withdrew {} in all",
         partial.actual_amount + rest
+    );
+}
+
+/// A market with no seeded cash, so every unit of cash has supply shares
+/// behind it. `market_params` gives it a 100% utilization ceiling.
+fn unseeded_market(edit: impl FnOnce(&mut MarketParamsRaw)) -> TestSetup {
+    let env = Env::default();
+    env.mock_all_auths();
+    let admin = Address::generate(&env);
+    let asset = env
+        .register_stellar_asset_contract_v2(admin.clone())
+        .address()
+        .clone();
+    test_support::init_ledger(&env);
+    let pool = env.register(LiquidityPool, (admin.clone(),));
+    let mut params = market_params(&asset);
+    edit(&mut params);
+    LiquidityPoolClient::new(&env, &pool).create_market(&0u32, &params);
+    TestSetup {
+        env,
+        admin,
+        asset,
+        pool,
+    }
+}
+
+/// Mints `amount` to the pool, as the controller's transfer does before a
+/// supply or a repayment.
+fn fund_pool(t: &TestSetup, amount: i128) {
+    token::StellarAssetClient::new(&t.env, &t.asset).mint(&t.pool, &amount);
+}
+
+/// Half-up RAY value of `scaled` shares at `index`.
+fn ray_value(t: &TestSetup, scaled: i128, index: i128) -> i128 {
+    Ray::from(scaled).mul(&t.env, Ray::from(index)).raw()
+}
+
+/// Audit finding S-03, inverted. The audit borrowed a market's last cash at a
+/// 100% utilization ceiling while its only supply was sub-unit dust: the
+/// ceiling skipped the guard and the dust floored the liquidation buffer to
+/// zero. The borrow is now refused with `UtilizationAboveMax`, and the market
+/// keeps working for the next supplier and borrower.
+#[test]
+fn rv_s03_last_cash_borrow_against_dust_supply_is_refused_at_a_full_cap() {
+    let t = unseeded_market(|_| {});
+    let client = t.client();
+    let key = hub(&t.asset);
+    let supplier = Address::generate(&t.env);
+    let borrower = Address::generate(&t.env);
+    let attacker = Address::generate(&t.env);
+    let late_supplier = Address::generate(&t.env);
+    let sync = || client.update_indexes(&vec![&t.env, key.clone()]);
+    assert_eq!(client.get_sync_data(&key).params.max_utilization, RAY);
+
+    // A supplier and a borrower come and go. Revenue is claimed, then a few
+    // more seconds of interest leave a fraction of a unit of revenue shares.
+    fund_pool(&t, 10_000_000_000);
+    let supply_scaled = client
+        .supply(&t.sup(0, 10_000_000_000))
+        .get_unchecked(0)
+        .position
+        .scaled_amount;
+    let debt_scaled = client
+        .borrow(&borrower, &t.bor(0, 1_000_000_007))
+        .get_unchecked(0)
+        .position
+        .scaled_amount;
+    t.advance_time(30 * 86_400 + 17);
+    sync();
+    client.claim_revenue(&key);
+    t.advance_time(30 * 86_400 + 22);
+    sync();
+    let debt = client.get_borrowed_amount(&key);
+    fund_pool(&t, debt + 10);
+    client.repay(&borrower, &t.ract(debt_scaled, debt + 10));
+    client.withdraw(&supplier, &false, &t.wdr(supply_scaled, i128::MAX, 0));
+
+    let dust = t.state_snapshot();
+    let one_unit = RAY / 10_000_000;
+    assert!(dust.supplied > 0, "fixture must leave dust supply shares");
+    assert!(
+        ray_value(&t, dust.supplied, dust.supply_index) < one_unit,
+        "fixture supply must be worth less than one token unit"
+    );
+    assert_eq!(dust.borrowed, 0);
+    assert!(dust.cash > 0, "fixture must leave rounding cash");
+
+    // The audit's borrow: all the cash, against the dust.
+    let stolen = dust.cash;
+    assert_contract_error(
+        flatten_contract_result(client.try_borrow(&attacker, &t.bor(0, stolen))),
+        CollateralError::UtilizationAboveMax as u32,
+    );
+    assert_pool_state_eq(&t.state_snapshot(), &dust);
+    assert_eq!(t.state_snapshot().cash, dust.cash);
+    // One unit is refused as well: any debt is worth more than the dust.
+    assert_contract_error(
+        flatten_contract_result(client.try_borrow(&attacker, &t.bor(0, 1))),
+        CollateralError::UtilizationAboveMax as u32,
+    );
+
+    // The market keeps working. Accrual runs on the dust, a new supplier
+    // enters, and a borrow inside the new supply goes through at the same cap.
+    t.advance_time(60 * 86_400);
+    sync();
+    assert_eq!(client.get_utilisation(&key), 0);
+    fund_pool(&t, 5_000_000_000);
+    let late_scaled = client
+        .supply(&t.sup(0, 5_000_000_000))
+        .get_unchecked(0)
+        .position
+        .scaled_amount;
+    let reserved = 5_000_000_000 * 2 / 100 + 1;
+    let late_debt = client
+        .borrow(&borrower, &t.bor(0, 5_000_000_000 - reserved))
+        .get_unchecked(0);
+    assert_eq!(late_debt.actual_amount, 5_000_000_000 - reserved);
+    let live = t.state_snapshot();
+    assert!(
+        ray_value(&t, live.borrowed, live.borrow_index)
+            <= ray_value(&t, live.supplied, live.supply_index),
+        "debt value stays within supply value"
+    );
+
+    t.advance_time(90 * 86_400);
+    sync();
+    assert!(client.get_utilisation(&key) <= RAY);
+    let owed = client.get_borrowed_amount(&key);
+    fund_pool(&t, owed + 10);
+    let closed = client
+        .repay(
+            &borrower,
+            &t.ract(late_debt.position.scaled_amount, owed + 10),
+        )
+        .get_unchecked(0);
+    assert_eq!(closed.position.scaled_amount, 0);
+    let paid = client
+        .withdraw(&late_supplier, &false, &t.wdr(late_scaled, i128::MAX, 0))
+        .get_unchecked(0);
+    assert_eq!(paid.position.scaled_amount, 0);
+    assert!(
+        paid.actual_amount >= 5_000_000_000,
+        "the late supplier leaves with principal and interest"
+    );
+}
+
+/// State of a 7-decimal market supplied at the admitted cap, 90% borrowed by
+/// two accounts, after ten years of interest.
+struct CappedMarket {
+    t: TestSetup,
+    cap: i128,
+    supply_scaled: i128,
+    debt_scaled: i128,
+    small_debt_scaled: i128,
+}
+
+fn market_at_the_admitted_cap_after_ten_years() -> CappedMarket {
+    let t = unseeded_market(|_| {});
+    let client = t.client();
+    let key = hub(&t.asset);
+    let cap = max_cap_for_decimals(7);
+    fund_pool(&t, cap);
+    let supply_scaled = client
+        .supply(&t.sup(0, cap))
+        .get_unchecked(0)
+        .position
+        .scaled_amount;
+    let borrower = Address::generate(&t.env);
+    let debt_scaled = client
+        .borrow(&borrower, &t.bor(0, cap / 100 * 85))
+        .get_unchecked(0)
+        .position
+        .scaled_amount;
+    let small_debt_scaled = client
+        .borrow(&borrower, &t.bor(0, cap / 100 * 5))
+        .get_unchecked(0)
+        .position
+        .scaled_amount;
+
+    t.advance_time(10 * 31_556_926);
+    client.update_indexes(&vec![&t.env, key]);
+    CappedMarket {
+        t,
+        cap,
+        supply_scaled,
+        debt_scaled,
+        small_debt_scaled,
+    }
+}
+
+/// Audit finding S-04, inverted. The audit supplied a market to the admitted
+/// cap; interest then took a market value past `i128` and every later
+/// accrual panicked with `MathOverflow`, so withdrawals, repayments and
+/// liquidations reverted until a pool upgrade. Accrual now holds interest at
+/// the value ceiling, and every exit keeps working.
+#[test]
+fn rv_s04_market_at_the_admitted_cap_keeps_exits_open_after_interest() {
+    let CappedMarket {
+        t,
+        cap,
+        supply_scaled,
+        debt_scaled,
+        small_debt_scaled,
+    } = market_at_the_admitted_cap_after_ten_years();
+    let client = t.client();
+    let key = hub(&t.asset);
+    let user = Address::generate(&t.env);
+
+    // Ten years of interest reached the ceiling. The accrual returned, said
+    // so in an event, and left both totals representable.
+    assert_eq!(
+        count_topic(&t.env.events().all(), "market", "value_ceiling"),
+        1,
+        "the accrual that hit the ceiling reports it"
+    );
+    let held = t.state_snapshot();
+    let debt_value = ray_value(&t, held.borrowed, held.borrow_index);
+    let supply_value = ray_value(&t, held.supplied, held.supply_index);
+    assert!(debt_value <= MAX_MARKET_VALUE_RAY && supply_value <= MAX_MARKET_VALUE_RAY);
+    assert!(
+        supply_value > MAX_MARKET_VALUE_RAY / 100 * 99,
+        "ten years must take the market to the ceiling: {supply_value}"
+    );
+    assert!(held.borrow_index > 7 * RAY, "interest accrued up to it");
+    assert_eq!(held.last_timestamp, (1000 + 10 * 31_556_926) * 1000);
+
+    // Time still advances at the ceiling, and no more interest accrues.
+    t.advance_time(11 * 31_556_926);
+    client.update_indexes(&vec![&t.env, key.clone()]);
+    let later = t.state_snapshot();
+    assert_eq!(later.borrow_index, held.borrow_index);
+    assert_eq!(later.supply_index, held.supply_index);
+    assert_eq!(later.supplied, held.supplied);
+    assert_eq!(later.last_timestamp, (1000 + 11 * 31_556_926) * 1000);
+
+    // Repayment.
+    let repaid = cap / 10;
+    fund_pool(&t, repaid);
+    let after_repay = client
+        .repay(&user, &t.ract(debt_scaled, repaid))
+        .get_unchecked(0);
+    assert_eq!(after_repay.actual_amount, repaid);
+    assert!(after_repay.position.scaled_amount < debt_scaled);
+
+    // Ordinary withdrawal.
+    let after_withdraw = client
+        .withdraw(&user, &false, &t.wdr(supply_scaled, cap / 20, 0))
+        .get_unchecked(0);
+    assert_eq!(after_withdraw.actual_amount, cap / 20);
+
+    // Liquidation: a seizing withdrawal with a protocol fee, a deposit-side
+    // seizure, and a bad-debt write-off of the smaller debt position.
+    let after_seize = client
+        .withdraw(
+            &user,
+            &true,
+            &t.wdr(after_withdraw.position.scaled_amount, cap / 50, cap / 5_000),
+        )
+        .get_unchecked(0);
+    assert_eq!(after_seize.actual_amount, cap / 50);
+    let seized_shares = after_seize.position.scaled_amount / 1_000;
+    client.seize_positions(&t.sez(
+        AccountPositionType::Deposit,
+        &ScaledPositionRaw {
+            scaled_amount: seized_shares,
+        },
+    ));
+    let before_writeoff = t.state_snapshot();
+    client.seize_positions(&t.sez(
+        AccountPositionType::Borrow,
+        &ScaledPositionRaw {
+            scaled_amount: small_debt_scaled,
+        },
+    ));
+    let after_writeoff = t.state_snapshot();
+    assert_eq!(
+        after_writeoff.borrowed,
+        before_writeoff.borrowed - small_debt_scaled
+    );
+    assert!(after_writeoff.supply_index < before_writeoff.supply_index);
+
+    // Full exit: the rest of the debt, then the supplier, then the revenue.
+    client.update_indexes(&vec![&t.env, key.clone()]);
+    let owed = client.get_borrowed_amount(&key);
+    fund_pool(&t, owed + 10);
+    let closed = client
+        .repay(
+            &user,
+            &t.ract(after_repay.position.scaled_amount, owed + 10),
+        )
+        .get_unchecked(0);
+    assert_eq!(closed.position.scaled_amount, 0);
+    assert_eq!(t.state_snapshot().borrowed, 0);
+    let exit = client
+        .withdraw(
+            &user,
+            &false,
+            &t.wdr(
+                after_seize.position.scaled_amount - seized_shares,
+                i128::MAX,
+                0,
+            ),
+        )
+        .get_unchecked(0);
+    assert_eq!(exit.position.scaled_amount, 0);
+    assert!(exit.actual_amount > 0);
+    assert!(client.claim_revenue(&key).actual_amount > 0);
+}
+
+/// A market that interest has taken above the entry ceiling takes no entry
+/// until exits bring it back under: supply, borrow, strategy and flash loan
+/// are refused with `MarketCeilingReached` (INV-ACCT-11).
+#[test]
+fn test_entries_are_refused_above_the_entry_ceiling() {
+    let CappedMarket {
+        t,
+        cap,
+        debt_scaled,
+        ..
+    } = market_at_the_admitted_cap_after_ten_years();
+    let client = t.client();
+    let caller = Address::generate(&t.env);
+    // A repayment refills cash past the liquidation buffer, so the checks
+    // below reach the ceiling guard. Both totals stay above the entry ceiling.
+    fund_pool(&t, 4 * cap);
+    client.repay(&caller, &t.ract(debt_scaled, 4 * cap));
+    let before = t.state_snapshot();
+    assert!(ray_value(&t, before.supplied, before.supply_index) > MAX_MARKET_ENTRY_RAY);
+    assert!(ray_value(&t, before.borrowed, before.borrow_index) > MAX_MARKET_ENTRY_RAY);
+    let refused = CollateralError::MarketCeilingReached as u32;
+
+    fund_pool(&t, 1);
+    assert_contract_error(
+        flatten_contract_result(client.try_supply(&t.sup(0, 1))),
+        refused,
+    );
+    assert_contract_error(
+        flatten_contract_result(client.try_borrow(&caller, &t.bor(0, 1))),
+        refused,
+    );
+    assert_contract_error(
+        flatten_contract_result(client.try_create_strategy(&caller, &t.action(0, 1), &false)),
+        refused,
+    );
+
+    enable_flashloan(&t);
+    let receiver = t.env.register(PoolFlashLoanReceiver, ());
+    token::StellarAssetClient::new(&t.env, &t.asset).mint(&receiver, &cap);
+    assert_contract_error(
+        flatten_contract_result(client.try_flash_loan(
+            &hub(&t.asset),
+            &t.admin,
+            &receiver,
+            &1_000_000_000,
+            &Bytes::new(&t.env),
+        )),
+        refused,
+    );
+    assert_pool_state_eq(&t.state_snapshot(), &before);
+    assert_eq!(t.state_snapshot().cash, before.cash);
+}
+
+/// The entry ceiling at the boundary: the admitted cap supplies in full, one
+/// more unit is refused, and debt up to the cap is admitted.
+#[test]
+fn test_supply_and_borrow_up_to_the_entry_ceiling() {
+    let t = unseeded_market(|_| {});
+    let client = t.client();
+    let caller = Address::generate(&t.env);
+    let cap = max_cap_for_decimals(7);
+    let refused = CollateralError::MarketCeilingReached as u32;
+
+    fund_pool(&t, cap + 1);
+    client.supply(&t.sup(0, cap));
+    assert_contract_error(
+        flatten_contract_result(client.try_supply(&t.sup(0, 1))),
+        refused,
+    );
+    let state = t.state_snapshot();
+    assert_eq!(state.supplied, cap * (RAY / 10_000_000));
+    assert!(state.supplied <= MAX_MARKET_ENTRY_RAY);
+    assert!(state.supplied + RAY / 10_000_000 > MAX_MARKET_ENTRY_RAY);
+
+    // Debt up to the liquidation buffer passes both the ceiling and the
+    // utilization check.
+    let reserved = cap / 50 + 1;
+    client.borrow(&caller, &t.bor(0, cap - reserved));
+    let state = t.state_snapshot();
+    assert!(state.borrowed <= MAX_MARKET_ENTRY_RAY);
+}
+
+/// The debt side alone: debt whose value interest has taken above the entry
+/// ceiling takes no new borrow or strategy, with supply still at the ceiling.
+#[test]
+fn test_debt_above_the_entry_ceiling_takes_no_new_debt() {
+    let t = unseeded_market(|_| {});
+    let client = t.client();
+    let caller = Address::generate(&t.env);
+    let cap = max_cap_for_decimals(7);
+    let refused = CollateralError::MarketCeilingReached as u32;
+
+    fund_pool(&t, cap);
+    client.supply(&t.sup(0, cap));
+    client.borrow(&caller, &t.bor(0, cap / 2));
+    t.edit_state(|state| state.borrow_index = RAY * 21 / 10);
+    let before = t.state_snapshot();
+    assert!(ray_value(&t, before.borrowed, before.borrow_index) > MAX_MARKET_ENTRY_RAY);
+    assert!(ray_value(&t, before.supplied, before.supply_index) <= MAX_MARKET_ENTRY_RAY);
+
+    assert_contract_error(
+        flatten_contract_result(client.try_borrow(&caller, &t.bor(0, 1))),
+        refused,
+    );
+    assert_contract_error(
+        flatten_contract_result(client.try_create_strategy(&caller, &t.action(0, 1), &false)),
+        refused,
+    );
+    assert_pool_state_eq(&t.state_snapshot(), &before);
+}
+
+/// A share count above the ceiling is refused even when its value is far
+/// below it: a supply index at its floor mints 1,000 shares per unit of value.
+#[test]
+fn test_supply_at_the_index_floor_is_bounded_by_the_share_count() {
+    let t = unseeded_market(|_| {});
+    let client = t.client();
+    let floor = common::constants::SUPPLY_INDEX_FLOOR_RAW;
+    t.edit_state(|state| state.supply_index = floor);
+    let largest = max_cap_for_decimals(7) / 1_000;
+
+    fund_pool(&t, largest + 1);
+    client.supply(&t.sup(0, largest));
+    let state = t.state_snapshot();
+    assert_eq!(state.supplied, largest * (RAY / 10_000_000) * 1_000);
+    assert!(state.supplied <= MAX_MARKET_ENTRY_RAY);
+    assert!(
+        ray_value(&t, state.supplied, floor) <= MAX_MARKET_ENTRY_RAY / 1_000,
+        "the value is three decades under the ceiling"
+    );
+    assert_contract_error(
+        flatten_contract_result(client.try_supply(&t.sup(0, 1))),
+        CollateralError::MarketCeilingReached as u32,
     );
 }

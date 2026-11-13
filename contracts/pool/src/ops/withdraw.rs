@@ -112,7 +112,7 @@ fn gate_and_debit(env: &Env, cache: &mut Cache, net_transfer: i128, skip_utiliza
     cache.require_reserves(net_transfer);
 
     if !skip_utilization_check {
-        guards::require_utilization_below_max(env, cache);
+        guards::require_exit_utilization_below_max(env, cache);
     }
     guards::require_supply_for_debt(env, cache);
     cache.debit_cash(net_transfer);

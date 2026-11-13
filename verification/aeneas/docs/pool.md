@@ -97,11 +97,12 @@ ledger-time and event stand-ins are translated as signatures only, and
 their meaning is in `FunsExternal.lean` (trusted base below). Through the
 legs, `Cache::load` (storage reads, `now_ms`), `Cache::commit` (storage
 write), `ttl::renew_instance` (instance TTL) and the full `global_sync` are
-now in the Lean code. Token transfers (`Cache::transfer_out`, still
-excluded; the `apply` wrappers of borrow/withdraw/repay/recapitalize/
-strategy/revenue), events, the flash-loan callback, `run_batch`, `market.rs`
-and the contract entry points (`lib.rs`, so also `get_sync_data`) are not
-reached.
+now in the Lean code, and with `global_sync` the one event it can publish
+(`events::emit_market_value_ceiling`). Token transfers (`Cache::transfer_out`,
+still excluded; the `apply` wrappers of borrow/withdraw/repay/recapitalize/
+strategy/revenue), the other events, the flash-loan callback, `run_batch`,
+`market.rs` and the contract entry points (`lib.rs`, so also `get_sync_data`)
+are not reached.
 
 ### Aeneas bug: duplicate parent-clause field (`postextract.sh`)
 
@@ -161,7 +162,7 @@ verbatim.
 | `src/oracle.rs` | `common::oracle::observation` | No | The three constants `validation.rs` imports, copied with production values |
 | `src/storage.rs` | `contracts/pool/src/storage.rs` | Signatures only (`opaque`): `read_params`, `read_state`, `write_state`, `renew_market` | Production signatures, `unimplemented!()` bodies (never executed). Persistent storage is modelled in `FunsExternal.lean`: reads are uninterpreted, writes return `()`. `market_exists`, `write_params`, `write_rate_model`, `load_state`, `load_sync_data` exist only for `market.rs` / type-checking |
 | `src/time.rs` | `contracts/pool/src/time.rs` | Signature only (`opaque`) | `now_ms`, uninterpreted in Lean |
-| `src/events.rs` | `contracts/pool/src/events.rs` | No (`opaque`, not reached) | The four emitters' signatures; only the `apply` wrappers and `run_batch` call them |
+| `src/events.rs` | `contracts/pool/src/events.rs` | Signature only (`opaque`): `emit_market_value_ceiling` | The five emitters' signatures. `global_sync` calls `emit_market_value_ceiling` when the value ceiling held a chunk's interest; only the `apply` wrappers and `run_batch` call the other four, so they are not reached |
 | `src/ownable.rs` | `stellar_access::ownable` | No | `get_owner` signature, for `ops::revenue::apply` (not a root) |
 
 ### Shim (`pool/shim`, `pool/shim-macros`)
@@ -211,6 +212,7 @@ meanings in `lean/PoolAeneas/TypesExternal.lean` and `FunsExternal.lean`:
 | `storedParams`, `storedState` (`opaque`), `storage.read_params`, `storage.read_state` | Persistent reads of a market's params and state (aborting for a missing market) | **Uninterpreted** functions of the key. The leg theorems never inspect them: they name the synced cache by the hypothesis `ops.synced_market env k = ok c`, and `load_ok` relates the loaded cache to the stored state. Modelling a read as a function of the key is sound for one leg: each leg loads its market once |
 | `storage.renew_market` | Persistent TTL extension of a market | `ok ()` |
 | `storage.write_state` | Persistent write of a market's state (`Cache::commit`) | `ok ()`. The written state is the committed cache, which the theorems describe (`commit_eq`: `commit c = ok (snapOf c)`); nothing in a leg reads storage after its commit. Host write traps (resource limits) are not modelled |
+| `events.emit_market_value_ceiling` | Publication of `MarketValueCeilingEvent` (`interest::global_sync`, when the value ceiling held interest) | `ok ()`. An event writes only the host event buffer, which nothing in the extracted code reads; the cache is unchanged (`global_sync_spec_of_inv`). Added with the S-04 fix |
 
 Storage and time are not state in the model: nothing here says that a read
 returns what an earlier write stored. The "stored-state invariant is
@@ -262,7 +264,13 @@ fit `i128`" (otherwise `mul_floor`/`mul_ceil` abort, also a rejection).
 | Lean name | Rust function | Claim | Extra hypotheses | Invariants |
 |---|---|---|---|---|
 | `require_supply_for_debt_spec` | `guards::require_supply_for_debt` | Passes iff `¬(supplied = 0 ∧ borrowed ≠ 0)` | none | INV-ACCT-09 |
-| `require_utilization_below_max_spec` | `guards::require_utilization_below_max` | Passes iff `supplied = 0 ∨ max_utilization ≥ RAY ∨ B = 0 ∨ (S > 0 ∧ B·RAY ≤ max_utilization·S)`. Debt rounded up, supply down, ratio up: rounding cannot admit utilization above the ceiling; debt against zero floored supply fails | `B`, `S` fit | INV-ACCT-08 |
+| `require_utilization_below_max_spec` | `guards::require_utilization_below_max` (debt mints) | Passes iff `supplied = 0 ∨ B = 0 ∨ B·RAY ≤ max_utilization·S` (`UtilPass`), at every ceiling including 100%, where it reads `B ≤ S`. The code compares `B` with `⌊S·max_utilization/RAY⌋` and divides nothing: debt rounded up, supply and the allowed side down, so rounding cannot admit utilization above the ceiling and no quotient can overflow; debt against zero floored supply fails | `B`, `S` fit; `0 ≤ max_utilization ≤ RAY` (`verify`) | INV-ACCT-08, audit S-03 |
+| `require_exit_utilization_below_max_spec` | `guards::require_exit_utilization_below_max` (ordinary withdrawals, revenue claims) | Passes iff `max_utilization ≥ RAY ∨ UtilPass`: the same gate below a 100% ceiling, no check at 100% | as above | INV-ACCT-08 |
+| `require_exit_utilization_ok` | `guards::require_exit_utilization_below_max` | Returned ⇒ `max_utilization ≥ RAY`, or the full gate returned on the same cache | none | INV-ACCT-08 |
+| `max_market_value_spec`, `max_market_entry_spec`, `maxMarketEntry_eq` | `constants::MAX_MARKET_VALUE_RAY`, `MAX_MARKET_ENTRY_RAY` | Evaluate to `MaxMarketValue = 2^127 − 1 − 10^27` and `MaxMarketEntry = MaxMarketValue / 8` (rounded down) | none | INV-IDX-06, INV-ACCT-11 |
+| `fits_entry_ceiling_spec` | `guards::fits_entry_ceiling` | Never aborts; `true` iff `EntryFits shares index`: the share count is at most `MaxMarketEntry` and so is its half-up value. A value that does not fit `i128` gives `false`, not an abort | `shares, index ≥ 0` | INV-ACCT-11 |
+| `require_within_entry_ceiling_spec` | `guards::require_within_entry_ceiling` (supply, borrow, strategy and flash-loan entries) | Passes iff `EntryFits supplied supply_index ∧ EntryFits borrowed borrow_index` | share totals and indexes `≥ 0` | INV-ACCT-11 |
+| `require_within_entry_ceiling_congr` | `guards::require_within_entry_ceiling` | Depends only on the share totals and the indexes: two caches that agree on them get the same answer | none | INV-ACCT-11 |
 | `require_liquidation_buffer_spec` | `guards::require_liquidation_buffer` (reserve via `Bps::apply_to_ceil` since #224) | With `Sa = ⌊supplied·supply_index/(RAY·10^k)⌋` and `R = ⌈Sa·200/10000⌉`: passes iff `cash − draw ≥ R`, iff `Sa·200 ≤ (cash − draw)·10000` | `cash ≥ 0`, `draw ≥ 0`, `dec ≤ 27` | INV-ACCT-07 |
 | `backing_shortfall_spec` | `guards::backing_shortfall` | Never aborts. With `C = S` (floored claims) and `Dt = B` (ceiled debt): `C ≤ Dt → 0`; otherwise `max(0, U − cash)` with `U = ⌊(C − Dt)/10^k⌋` (one floor to token units); a positive shortfall satisfies `shortfall·10^k ≤ C − Dt − cash·10^k` (never over-reported) | `cash ≥ 0`, `dec ≤ 27` | INV-ACCT-04 |
 | `require_backed_market_spec` | `guards::require_backed_market` | Passes iff `C ≤ Dt ∨ C − Dt < (cash + 1)·10^k` | as above | INV-ACCT-04 |
@@ -277,12 +285,14 @@ wrapper.
 |---|---|---|---|---|
 | `ray_div_floor_saturating_spec` (in `FloorCeilScaling.lean`) | `Ray::div_floor_saturating` | Never aborts; returns `⌊a·RAY/b⌋` clamped to `[i128::MIN, i128::MAX]` | `b ≠ 0` | `protocol_fee_shares` (`add_protocol_revenue_spec`, `book_fee_spec`), `calculate_scaled_cap_spec` |
 | `bps_apply_to_ceil_spec` | `Bps::apply_to_ceil` | Returns exactly `⌈amount·bps/10000⌉` (every sign) | that ceiling fits `i128` | `require_liquidation_buffer_spec` |
-| `ray_try_div_spec` | `Ray::try_div` | Never aborts; `None` when `a < 0` or `b ≤ 0`; for `a ≥ 0`, `b > 0`: `Some(half-up a·RAY/b)` when it fits, `None` exactly when it does not | none | `rates::curve::utilization` (the copied `RatesProofs.utilization_spec` uses its own copy of this spec) |
+| `ray_try_mul_spec` | `Ray::try_mul` | Never aborts; `None` for a negative operand; for `a, b ≥ 0`: `Some(half-up a·b/RAY)` when it fits, `None` exactly when it does not | none | `rates::simulate::market_value` (`accrue_step`), `guards::fits_entry_ceiling` |
 | `ray_mul_int_spec` | `Ray::mul_int` | Returns exactly `a·m` | `a·m` fits `i128` | `compound_interest_spec` |
 | `ray_mul_int_overflow` | `Ray::mul_int` | Never returns when `a·m` does not fit (the `MathOverflow` panic); with the above, the exact pass condition | `a·m` does not fit | |
 | `i128_from_u64_spec` | `i128::from(u64)` (trusted model) | Never aborts; the same integer | none | `compound_interest` |
 | `bps_from_same` | `Bps::from::<i128>` | Wraps the value unchanged | none | `require_liquidation_buffer_spec` |
 
+`Ray::try_div` is no longer in the pool extraction: `utilization` stopped
+calling it (it divides with `Ray::div`, and only below `supplied`).
 The other wrappers added by #224 (`Ray::mul_wad_ratio_floor`, `Wad::*`,
 `Bps::{div, from_fraction_floor, from_fraction_ceil, try_from_fraction,
 from_weighted_sum, apply_to_ray_ceil}`) are not reached from the pool
@@ -327,29 +337,41 @@ extraction roots, so they are not in the pool Lean code.
 | `protocol_fee_shares_spec` | `rates::protocol_fee_shares` | Never aborts; `0 ≤ sh`, `supplied + sh ≤ i128::MAX`, `sh·supply_index ≤ fee·RAY` | `fee ≥ 0`, `supply_index > 0`, `supplied ≥ 0` | INV-IDX-05, INV-ACCT-01 |
 | `update_supply_index_strong` | `rates::update_supply_index` | Never aborts; `old ≤ n ≤ 10^36`, and `n = old` or `supplied·n ≤ (V + rewards)·RAY` (the index move distributes at most `rewards`) | `supplied, rewards ≥ 0`, `0 < old ≤ 10^36`, `V + rewards` fits | INV-IDX-02 |
 | `supply_index_reward_shortfall_total` | `rates::supply_index_reward_shortfall` | Never aborts when `t ≤ t' ≤ t + rewards < 2^127` (old/new supply values); returns `rewards − (t' − t) ∈ [0, rewards]` | as stated | INV-IDX-05 |
-| `accrue_step_spec` | `rates::accrue_step` | Never aborts; `borrow_index ≤ b' ≤ 10^36`, `supply_index ≤ s' ≤ 10^36`, `0 ≤ revenue_shares`, `supplied + revenue_shares ≤ i128::MAX`, and `revenue_shares·s' + (t' − t)·RAY ≤ (nd − od)·RAY` (revenue value plus value distributed to suppliers ≤ accrued interest; `od, nd` old/new debt values, `t ≤ t'` old/new supply values) | `ValidRateModel` (incl. `max_borrow_rate ≤ 2·RAY`), `borrowed, supplied ≥ 0`, `0 ≤ borrow_index ≤ 10^36`, `0 < supply_index ≤ 10^36`, `delta ≤ MAX_COMPOUND_DELTA_MS`, `borrowed·21·borrow_index < 2^125·RAY`, `supplied·supply_index < 2^125·RAY` | INV-IDX-01, INV-IDX-02, INV-IDX-05 |
-| `hu_scale_le`, `hu_le_of_le`, `hu_lt_of_lt`, `max_compound_delta_val` | | Half-up bounds; `MAX_COMPOUND_DELTA_MS = 31_556_926_000` | | |
+| `market_value_spec` | `rates::simulate::market_value` | Never aborts on non-negative operands; `Some(hu(shares·index, RAY))` when that fits `i128`, `None` exactly when it does not | `shares, index ≥ 0` | INV-IDX-06 |
+| `value_room_spec` | `rates::simulate::value_room` | Never aborts; `room = max(0, MAX_MARKET_VALUE_RAY − max(debt_value, supply_value))` | values `≥ 0` | INV-IDX-06 |
+| `cap_borrow_index_spec` | `rates::simulate::cap_borrow_index` | Never aborts; result `n` with `old ≤ n ≤ grown` and `borrowed·(n − old) ≤ room·RAY` (the debt value at `n` exceeds its value at `old` by at most `room`; the allowed index growth rounds down) | `borrowed ≥ 0`, `0 ≤ old ≤ grown`, `room ≥ 0` | INV-IDX-06, INV-IDX-01 |
+| `accrue_step_spec` | `rates::accrue_step` | **Never aborts, with no hypothesis on the size of the market values.** `borrow_index ≤ b' ≤ 10^36`, `supply_index ≤ s' ≤ 10^36`, `0 ≤ revenue_shares`, `supplied + revenue_shares ≤ i128::MAX`, `revenue_shares·s' + (t' − t)·RAY ≤ (nd − od)·RAY` (revenue value plus value distributed to suppliers ≤ accrued interest; `od, nd` old/new debt values, `t ≤ t'` old/new supply values), and `nd − od ≤ max(0, MAX_MARKET_VALUE_RAY − max(od, t))` (interest is at most the room below the value ceiling; zero when a total is at or above it, or does not fit `i128`) | `ValidRateModel` (incl. `max_borrow_rate ≤ 2·RAY`), `borrowed, supplied ≥ 0`, `0 ≤ borrow_index ≤ 10^36`, `0 < supply_index ≤ 10^36`, `delta ≤ MAX_COMPOUND_DELTA_MS` | INV-IDX-06, INV-IDX-01, INV-IDX-02, INV-IDX-05, audit S-04 |
+| `accrue_step_within_ceiling` | (arithmetic consequence of `accrue_step_spec`) | If the old debt value and the old supply value are at most `MAX_MARKET_VALUE_RAY`, so are the new debt value and the supply value after the step's revenue shares are added at the new index | the last two conclusions of `accrue_step_spec` | INV-IDX-06 |
+| `hu_scale_le`, `hu_le_of_le`, `hu_lt_of_lt`, `hu_add_le`, `max_compound_delta_val` | | Half-up bounds (`hu_add_le`: `n' ≤ n + r·RAY → hu(n') ≤ hu(n) + r`); `MAX_COMPOUND_DELTA_MS = 31_556_926_000` | | |
 
-The fit hypotheses are sufficient, not exact: they make every intermediate
-`Ray` value representable (the factor is `≤ 21·RAY`, so the new debt value is
-at most 21 times the old). `2^125` RAY is about `4·10^10` whole tokens of value.
-The real factor is below `e^2.01 ≈ 7.5` per chunk, so the bound is loose by
-about 3×.
+Before the S-04 fix `accrue_step_spec` needed two fit hypotheses
+(`borrowed·21·borrow_index < 2^125·RAY`, `supplied·supply_index < 2^125·RAY`),
+because the step aborted with `MathOverflow` once a market value passed
+`i128`. The step now values both totals with `Ray::try_mul` and caps the
+borrow index at the room below `MAX_MARKET_VALUE_RAY`; every later product is
+then bounded by an old value plus that room, which is what the proof uses in
+place of the hypotheses. The only abort paths left are the sign checks in
+`market_value`, excluded by INV-ACCT-01 and the index bounds.
 
 ### Chunk and `global_sync` (`GlobalSync.lean`, `contracts/pool/src/interest.rs`)
 
 `AccrualDomain c` is the hypothesis list of `accrue_step_spec` on the cache
-fields plus `SharesInv c`. `ChunkPost c c'`: `SharesInv c'`, both indexes
-monotone and `≤ 10^36`, `revenue` and `supplied` grow by the same `sh ≥ 0`,
-no other field changes.
+fields plus `SharesInv c`: a validated rate model, INV-ACCT-01 and indexes in
+range. It has no hypothesis on the size of the market values (its two
+value-fit fields are gone). `ChunkPost c c'`: `SharesInv c'`,
+both indexes monotone and `≤ 10^36`, `revenue` and `supplied` grow by the same
+`sh ≥ 0`, no other field changes. `ChunkPost` is reflexive on `AccrualDomain`
+and transitive, and a chunk keeps the cache in `AccrualDomain`
+(`ChunkPost.refl`, `ChunkPost.trans`, `AccrualDomain.of_chunk`), so it is a
+loop invariant for any number of chunks.
 
 | Lean name | Rust function | Claim | Hypotheses | Invariants |
 |---|---|---|---|---|
-| `accrue_chunk_spec` | `interest::accrue_chunk` | Never aborts; `ChunkPost c c'` | `AccrualDomain c`, `delta_ms ≤ MAX_COMPOUND_DELTA_MS` | INV-IDX-01, INV-IDX-02, INV-ACCT-01 |
+| `accrue_chunk_spec` | `interest::accrue_chunk` | Never aborts; `ChunkPost c c'` (the returned flag says whether the value ceiling held the chunk's interest) | `AccrualDomain c`, `delta_ms ≤ MAX_COMPOUND_DELTA_MS` | INV-IDX-01, INV-IDX-02, INV-IDX-06, INV-ACCT-01 |
 | `global_sync_loop_spec` | `global_sync`'s loop | Induction principle: any `Inv remaining cache` preserved by every chunk `k = min(r, MAX_COMPOUND_DELTA_MS)` with `r > 0` (from `Inv r` to `Inv (r − k)`) holds at `remaining = 0`; the loop terminates. So chunks are positive, at most one year, all but the last full, and sum to the elapsed time | the step hypothesis | INV-IDX-04 |
 | `global_sync_noop` | `interest::global_sync` | `current ≤ last` (no elapsed time): returns the cache unchanged, no timestamp advance | none | INV-IDX-04 |
 | `global_sync_spec_of_inv` | `interest::global_sync` | With `e = current − last`: given a chunk invariant with `Inv e c`, never aborts; `e = 0` → unchanged; else the result is `{x with last_timestamp := current}` for an `x` with `Inv 0 x` | as `global_sync_loop_spec` | INV-IDX-04 |
-| `global_sync_one_chunk_spec` | `interest::global_sync` | Never aborts; `e = 0` → unchanged; otherwise one chunk of the whole elapsed time (`ChunkPost`) and `last_timestamp = current_timestamp` | `AccrualDomain c`, `e ≤ MAX_COMPOUND_DELTA_MS` | INV-IDX-01, INV-IDX-02, INV-IDX-04, INV-ACCT-01 |
+| `global_sync_spec` | `interest::global_sync` | **Never aborts, for any elapsed time.** `e = 0` → unchanged; otherwise the elapsed time is accrued in chunks of at most one year, the result `x` satisfies `ChunkPost c x` and `AccrualDomain x`, and `last_timestamp = current_timestamp`. The value-ceiling event, when published, changes nothing in the cache | `AccrualDomain c` | INV-IDX-06, INV-IDX-01, INV-IDX-02, INV-IDX-04, INV-ACCT-01, audit S-04 |
 | `min_u64_val`, `sat_sub_u64_val`, `elapsed_val` | `u64::min`, `u64::saturating_sub`, `Cache::elapsed_ms` | Value lemmas | | |
 
 INV-IDX-04's "mutating accrual and read-only projection use the same
@@ -385,22 +407,23 @@ returns, `indexOf c` the returned index pair. `k = 27 − decimals`.
 | `renewed_market_ok` | `ops::renewed_market` | Returned `c` ⇒ `synced_market` returned `c` | none | |
 | `market_index_eq`, `position_mutation_eq`, `strategy_mutation_eq` | `Cache::{market_index, position_mutation, strategy_mutation}` | The DTOs carry the given position/amounts, `indexOf c` and the cache's decimals | none | |
 | `nonneg_of_ok`, `positive_of_ok`, `massert_ok`, `sub_unwrap_eq_ok`, `ceil_le_of_index_ge_ray` | validation helpers, `checked_sub().unwrap_or_else(panic)` | Returned ⇒ the checked condition; the checked difference is exact; `⌈A·RAY/bi⌉ ≤ A` for `bi ≥ RAY` | as stated | |
-| `supply_apply_spec` | `ops::supply::apply` | `amount, position ≥ 0`; minted `m = ⌊amount·10^k·RAY/si⌋ ≥ 0` (floor), `m > 0` if `amount > 0`, `m = 0` if `amount = 0`; new position `= position + m`; `actual_amount = amount`; committed cache = `c` with `supplied += m`, `cash += amount` only; `PoolInv` | `PoolInv c`, `dec ≤ 18`, `amount·10^k < 2^127`, floor fits | INV-ACCT-01/02/03/05/10, ADR-0003 |
-| `mint_debt_ok` | `ops::borrow::mint_debt` | `amount > 0`, `amount ≤ cash`, liquidation-buffer guard passed on the gross amount, minted `m = ⌈amount·10^k·RAY/bi⌉ > 0`, `m ≤ amount·10^k`, position `+= m`, cache `borrowed += m` only, utilization guard passed after | `PoolInv c`, `dec ≤ 18`, `amount·10^k < 2^127` | INV-ACCT-05/07/08 |
-| `borrow_accounting_spec` | `ops::borrow::accounting` | As `mint_debt_ok`, plus `actual_amount = amount`, committed cache = `c` with `borrowed += m`, `cash -= amount` only, `PoolInv` | as above | INV-ACCT-01/02/05/07/08/10 |
+| `supply_apply_spec` | `ops::supply::apply` | `amount, position ≥ 0`; minted `m = ⌊amount·10^k·RAY/si⌋ ≥ 0` (floor), `m > 0` if `amount > 0`, `m = 0` if `amount = 0`; new position `= position + m`; `actual_amount = amount`; committed cache = `c` with `supplied += m`, `cash += amount` only; `PoolInv`; the committed cache passes the entry-ceiling guard | `PoolInv c`, `dec ≤ 18`, `amount·10^k < 2^127`, floor fits | INV-ACCT-01/02/03/05/10/11, ADR-0003 |
+| `mint_debt_ok` | `ops::borrow::mint_debt` | `amount > 0`, `amount ≤ cash`, liquidation-buffer guard passed on the gross amount, minted `m = ⌈amount·10^k·RAY/bi⌉ > 0`, `m ≤ amount·10^k`, position `+= m`, cache `borrowed += m` only, the utilization guard (every ceiling, 100% included) and the entry-ceiling guard passed after | `PoolInv c`, `dec ≤ 18`, `amount·10^k < 2^127` | INV-ACCT-05/07/08/11 |
+| `borrow_accounting_spec` | `ops::borrow::accounting` | As `mint_debt_ok`, plus `actual_amount = amount`, committed cache = `c` with `borrowed += m`, `cash -= amount` only, `PoolInv`; the committed cache passes the entry-ceiling guard | as above | INV-ACCT-01/02/05/07/08/10/11 |
 | `repay_accounting_spec` | `ops::repay::accounting` | With `D = ⌈position·bi/(RAY·10^k)⌉`: `0 ≤ net ≤ amount`, `overpayment = amount − net`; full (`D ≤ amount`): new `= 0`, `net = D`; partial: `net = amount`, burn `= ⌊amount·10^k·RAY/bi⌋`; `amount > 0 ∧ position > 0 → new < position`, otherwise `new = position`; cache `borrowed -= burn`, `cash += net` only; `PoolInv` | `PoolInv c`, `dec ≤ 18`, `⌈position·bi/RAY⌉` fits | INV-ACCT-01/02/03/05/10, ADR-0003 |
 | `withhold_liquidation_fee_ok` | `withdraw::withhold_liquidation_fee` | No fee-bearing liquidation: `net = gross`, cache unchanged; otherwise `fee ≤ gross`, `net = gross − fee`, fee booked as `s ≥ 0` shares into `revenue` and `supplied` | `SharesInv`, `si > 0`, `fee ≥ 0`, `dec < 27`, `gross·10^k < 2^127` | INV-ACCT-01 |
-| `gate_and_debit_ok` | `withdraw::gate_and_debit` | `0 ≤ net ≤ cash`; utilization passed unless skipped; not `supplied = 0 ∧ borrowed ≠ 0`; cache `cash -= net` only | none | INV-ACCT-02/08/09 |
+| `gate_and_debit_ok` | `withdraw::gate_and_debit` | `0 ≤ net ≤ cash`; the exit utilization guard passed unless skipped; not `supplied = 0 ∧ borrowed ≠ 0`; cache `cash -= net` only | none | INV-ACCT-02/08/09 |
 | `withdraw_accounting_spec` | `ops::withdraw::accounting` | With `H` the half-up position value, `F` its floor value, `G` gross: `0 ≤ G ≤ F`, `G ≤ amount`, `0 ≤ new ≤ position`; full (`H ≤ amount`): `new = 0`, `G = F`; partial: `G = amount`, burn `= ⌈amount·10^k·RAY/si⌉`; `amount = 0 ∧ H > 0 → new = position`; `G > 0 → new < position`; `amount > 0 ∧ position > 0 → new < position`; `position = 0 → new = 0`; `net = G` or `G − fee` (fee-bearing liquidation), `0 ≤ net ≤ G`; cache `supplied := supplied − burn + s`, `revenue += s` (`s = 0` without fee), `cash -= net` only; `PoolInv`; not `supplied = 0 ∧ borrowed ≠ 0` after | `PoolInv c`, `dec ≤ 18`, `hu(position·si, RAY)` fits (the exact abort condition of `resolve_withdrawal`) | INV-ACCT-01/02/05/09/10, ADR-0003 |
 | `net_settle_apply_spec` | `ops::net_settle::apply` | `0 ≤ settled ≤ amount` (and `≤ F`, `≤ D` when positive); `0 ≤ ns ≤ ss`, `0 ≤ nd ≤ ds`; `settled > 0` burns both sides, `settled = 0` burns neither; full close only when exhausted; partial burns favour the protocol; cache `supplied -= ss − ns`, `borrowed -= ds − nd` only (no cash); `PoolInv`; not `supplied = 0 ∧ borrowed ≠ 0` | `PoolInv c`, `dec ≤ 18`, `⌊ss·si/RAY⌋`, `⌈ds·bi/RAY⌉` fit | INV-ACCT-01/02/05/09/10, ADR-0003 |
 | `seize_apply_spec` | `ops::seize::apply` | Position `≥ 0`; committed cache satisfies `PoolInv`, cash unchanged; deposit side: `revenue += p` only; borrow side: `borrowed -= p`, supply index written down (`≥ 10^24`, `≤ old`), nothing else | `PoolInv c`; borrow side: `hu(supplied·si, RAY)` fits | INV-ACCT-01/10, INV-IDX-03 |
 | `backing_shortfall_nonneg` | `guards::backing_shortfall` | Returned ⇒ `≥ 0` | none | INV-ACCT-04 |
 | `recapitalize_accounting_spec` | `ops::recapitalize::accounting` | `amount ≥ 0`; `applied = min(amount, sf)` for the returned shortfall `sf ≥ 0`, so `0 ≤ applied ≤ amount`; `refund = amount − applied`; cache `cash += applied` only (no shares, no index move); `PoolInv` | `PoolInv c` | INV-ACCT-02/03/04 |
 | `compute_fee_ok` | `strategy::compute_fee` | `0 ≤ fee ≤ amount`; 0 without `charge_fee`; otherwise the flash-loan fee | `amount ≥ 0`, `flashloan_fee ≤ 10000` | INV-FLASH-01 |
-| `strategy_accounting_spec` | `ops::strategy::accounting` | `amount > 0`; buffer guard on the gross amount; `0 ≤ fee ≤ amount`; minted `m > 0` (ceiling); position `+= m`; `actual_amount = amount`, `amount_received = amount − fee`; cache `borrowed += m`, `revenue` and `supplied += s ≥ 0` (`0` for zero fee), `cash -= amount − fee` only; `PoolInv` | `PoolInv c`, `ParamsOk c`, `amount·10^k < 2^127` | INV-ACCT-01/02/05/07/10 |
-| `revenue_accounting_spec` | `ops::revenue::accounting` | `burn_claimable_revenue` gave `(amt, c1)` with `ClaimResult c T amt c1`; `0 ≤ amt ≤ cash`; utilization passed on `c1`; committed cache = `c1` with `cash -= amt`; `PoolInv`; not `supplied = 0 ∧ borrowed ≠ 0` | `PoolInv c`, `dec ≤ 27`, `revenue·si < 2^127·RAY` | INV-ACCT-01/02/06/08/09 |
+| `strategy_accounting_spec` | `ops::strategy::accounting` | `amount > 0`; buffer guard on the gross amount; `0 ≤ fee ≤ amount`; minted `m > 0` (ceiling); position `+= m`; `actual_amount = amount`, `amount_received = amount − fee`; cache `borrowed += m`, `revenue` and `supplied += s ≥ 0` (`0` for zero fee), `cash -= amount − fee` only; `PoolInv`; the committed cache passes the entry-ceiling guard (checked after the mint and again after the fee shares) | `PoolInv c`, `ParamsOk c`, `amount·10^k < 2^127` | INV-ACCT-01/02/05/07/10/11 |
+| `revenue_accounting_spec` | `ops::revenue::accounting` | `burn_claimable_revenue` gave `(amt, c1)` with `ClaimResult c T amt c1`; `0 ≤ amt ≤ cash`; the exit utilization guard passed on `c1`; committed cache = `c1` with `cash -= amt`; `PoolInv`; not `supplied = 0 ∧ borrowed ≠ 0` | `PoolInv c`, `dec ≤ 27`, `revenue·si < 2^127·RAY` | INV-ACCT-01/02/06/08/09 |
 | `load_ok` | `Cache::load` | The loaded share totals, indexes, cash and timestamp are the stored ones | `storedState k = ok st` | |
-| `synced_market_spec` | `ops::synced_market` | Never aborts; `PoolInv` preserved, cash and params unchanged, indexes not lower | load returned `c0`, `PoolInv c0`, `AccrualDomain c0`, elapsed ≤ 1 year | INV-IDX-01/02/04, INV-ACCT-01/02 |
+| `synced_market_spec` | `ops::synced_market` | **Never aborts, for any elapsed time and any size of the market values**; `PoolInv` preserved, cash and params unchanged, indexes not lower | load returned `c0`, `PoolInv c0`, `ValidRateModel c0.params` | INV-IDX-06, INV-IDX-01/02/04, INV-ACCT-01/02, audit S-04 |
+| `AccrualDomain.of_poolInv` | | `PoolInv c` with a validated rate model gives `AccrualDomain c` | as stated | |
 
 INV-ACCT-10 (pool side). The pool keeps no per-account book, so the
 invariant "Σ account supply shares = supplied − revenue, Σ account debt
@@ -486,6 +509,14 @@ is not reachable from the pool roots). They supply
 `calculate_supplier_rewards_spec`, `ray_mul_spec` and the `Ray` `Ord`
 min/max specs used by `accrue_step_spec`.
 
+Pool-local differences in the copies after the S-03 fix:
+`RatesHalfUpWrappers.lean` carries `ray_div_spec` again (`utilization` calls
+`Ray::div`) and omits `ray_try_div_spec` (the pool extraction no longer
+contains `Ray::try_div`) and `ray_try_mul_spec` (the pool's own is in
+`Wrappers.lean`); `RatesCurveBase.lean` carries the new `utilization_spec`
+(result in `[0, RAY]`) and `ray_ge_eq`, and no longer has the separate bound
+lemma that needed `borrowed ≤ supplied`.
+
 Pool-local edits to the copies after #224 (the RatesAeneas snapshot predates
 it): `FloorCeilScaling.lean` gains `ray_div_floor_saturating_spec`, and
 `calculate_scaled_cap_spec` (statement unchanged) is re-proved through it,
@@ -507,13 +538,13 @@ unextracted `MarketParamsRaw::verify`).
 
 | Summary | Status | Theorems | What is not discharged |
 |---|---|---|---|
-| `nondet_market_index_raw` | Discharged | `indexOf_inRange`; every leg's `PoolInv` of its committed cache; `synced_market_spec`, `apply_bad_debt_spec`, `accrue_chunk_spec` | Accrual gaps > 1 year (multi-chunk `global_sync`, see Not covered) |
+| `nondet_market_index_raw` | Discharged | `indexOf_inRange`; every leg's `PoolInv` of its committed cache; `synced_market_spec` (any elapsed time), `apply_bad_debt_spec`, `accrue_chunk_spec` | |
 | `supply_summary` | Discharged | `supply_summary_holds`, `supply_apply_spec` | Decimals `≥ 0` is by type (`u32`), `≤ 18` from `ParamsOk` |
 | `borrow_summary` | Discharged | `borrow_summary_holds`, `borrow_accounting_spec` | The outbound transfer of `actual_amount` (`borrow::apply`) |
 | `withdraw_summary` | **Partial** | `withdraw_summary_partial`, `withdraw_accounting_spec`, `withdraw_zero_amount_closes_dust` | **The summary's `amount = 0 → new = position` is false** for dust positions (Findings 1). All other clauses hold. Transfer of `net_transfer` not covered |
 | `repay_summary` | Discharged | `repay_summary_holds`, `repay_accounting_spec` | Refund transfer of `overpayment` |
 | `net_settle_summary` | Discharged | `net_settle_summary_holds`, `net_settle_apply_spec` | |
-| `update_indexes_summary` (empty) | Discharged for one-chunk accrual | `synced_market_spec`, `global_sync_one_chunk_spec` | Gaps > 1 year; `ops::market::accrue` (loop over keys, events) not extracted |
+| `update_indexes_summary` (empty) | Discharged | `synced_market_spec`, `global_sync_spec` | `ops::market::accrue` (loop over keys, events) not extracted |
 | `recapitalize_summary` | Discharged | `recapitalize_summary_holds`, `recapitalize_accounting_spec` | Refund transfer |
 | `flash_loan_summary` | Discharged (fee arithmetic) | `terms_spec`, `book_fee_spec` | `flash::apply`/`finalize` (callback, balance measurement, transfers) not extracted |
 | `create_strategy_summary` | Discharged | `create_strategy_summary_holds`, `strategy_accounting_spec` | Transfer of `amount_received`, strategy-fee event |
@@ -555,23 +586,21 @@ and do not appear.
 
 ## Not covered
 
-* **`global_sync` over more than one chunk (gaps longer than one year),
-  non-abort (stretch goal, not done).** Blocker: `ChunkPost` records only
-  that the indexes are monotone and capped at `10^36`; a per-chunk
-  domain needs growth bounds (`borrow_index' ≤ 21·borrow_index`, and
-  `supplied'·si' ≤ supplied·si + (debt value growth)·RAY`, which
-  `accrue_step_spec` implies but `accrue_chunk_spec` does not export), so
-  the fit budget can be threaded through `global_sync_loop_spec` as
-  `borrowed·21^(n+1)·bi < 2^125·RAY` for `n` remaining chunks. `global_sync_spec_of_inv` reduces it to a chunk invariant, but
-  `AccrualDomain` is not preserved by a chunk: the debt value may grow 21-fold
-  per chunk (really up to `e^2 ≈ 7.4`), and `supplied` grows by the minted
-  revenue shares. A total-correctness statement needs a fit budget that grows
-  with the number of chunks; not attempted. Part of this is real behaviour,
-  not only a proof gap: INV-IDX-01 already notes that debt-value overflow can
-  revert accrual before the index cap (a large market idle for years at a high
-  rate; not demonstrated with a concrete trace here).
-* **Exact abort conditions of `accrue_step`.** The fit hypotheses are
-  sufficient (2^125 bounds and a 21× factor bound), not necessary.
+* **That entries keep the value ceiling as a stored-state invariant.**
+  `accrue_step_within_ceiling` shows accrual never takes a total across
+  `MAX_MARKET_VALUE_RAY`, and the supply, borrow and strategy theorems show
+  the committed cache passes the entry-ceiling guard. That the other legs
+  (withdraw with a liquidation fee, seize, repay, net settlement, revenue
+  claim) never raise a market value is argued in
+  `docs/reference/invariants.md` (INV-ACCT-11, INV-IDX-06) but is not a Lean
+  theorem: `PoolInv` does not carry the ceiling. Non-abort of accrual does
+  not depend on it (`accrue_step_spec` has no value hypothesis); the exit
+  legs' own conversions still assume their values fit `i128`, as before.
+* **The flash-loan entry check.** `ops::flash::finalize`, which calls
+  `require_within_entry_ceiling` after booking the fee, is not extracted
+  (events); the guard itself is specified.
+* **Which accruals publish the ceiling event.** The `value_capped` flag is
+  carried through the loop but no theorem relates it to the interest held.
 * **`compound_interest` accuracy.** Only the bounds `RAY + x ≤ f ≤ 21·RAY`
   are proved, not the documented truncation error against `e^x`.
 * **`simulate_update_indexes`** (the read-only projection) is not extracted;
@@ -593,6 +622,45 @@ and do not appear.
 * **`Cache::transfer_out`.** Excluded from extraction (token client).
 * **Error codes.** Every abort is "failure"; which `CollateralError` /
   `GenericError` code is raised is not modelled.
+
+## Changes for audit findings S-03 and S-04
+
+The Runtime Verification audit left two pool findings partly open. The fix
+changed five production files in the extraction (`rates/curve.rs`,
+`rates/simulate.rs`, `math/fp.rs`, `guards.rs`, `interest.rs`, plus the entry
+checks in `ops/{supply,borrow,strategy}.rs` and two constants), and the
+proofs changed with them.
+
+**S-03 (utilization at a 100% ceiling).**
+
+* `utilization` returns `RAY` when `borrowed ≥ supplied` and divides only
+  below it. `utilization_spec` now proves the result is in `[0, RAY]` for all
+  non-negative inputs, with no overflow case; the separate bound lemma that
+  needed `borrowed ≤ supplied` is gone.
+* `require_utilization_below_max` compares `B ≤ ⌊S·max_utilization/RAY⌋` and
+  applies at every ceiling; `UtilPass` lost its `max_utilization ≥ RAY`
+  disjunct, and the proof no longer needs the partial-correctness lemma for
+  `div_ceil` (there is no division). New
+  `require_exit_utilization_below_max_spec` for the exit form, which skips a
+  100% ceiling.
+
+**S-04 (accrual overflow).**
+
+* `accrue_step_spec`, `accrue_chunk_spec` and `synced_market_spec` lost their
+  value-fit hypotheses, and the one-chunk `global_sync` theorem (at most one
+  year elapsed) became `global_sync_spec` (any elapsed time). `AccrualDomain` lost its two
+  value-fit fields.
+* New: `market_value_spec`, `value_room_spec`, `cap_borrow_index_spec`,
+  `accrue_step_within_ceiling`, `ray_try_mul_spec`, the entry-ceiling specs
+  (`fits_entry_ceiling_spec`, `require_within_entry_ceiling_spec`,
+  `require_within_entry_ceiling_congr`) and the two constant specs.
+* The supply, borrow and strategy theorems gained the conclusion that the
+  committed cache passes the entry-ceiling guard; `gate_and_debit_ok` and
+  `revenue_accounting_spec` name the exit utilization guard.
+* One trusted-base addition: `events.emit_market_value_ceiling` returns `()`.
+
+No previously proved property was lost. `ray_from_same` moved from
+`Interest.lean` to `Wrappers.lean`.
 
 ## Changes after #224 (typed fixed-point boundary)
 

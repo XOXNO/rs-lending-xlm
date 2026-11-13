@@ -134,19 +134,35 @@ fn test_liquidation_withdraw_uses_post_burn_fee_headroom_and_final_debt_guard() 
         let tok = token::Client::new(&t.env, asset);
         token::StellarAssetClient::new(&t.env, asset).mint(&payer, &deposit);
         tok.transfer(&payer, &t.contract, &deposit);
-        let supplied = client
-            .supply(&vec![
-                &t.env,
-                PoolSupplyEntry {
-                    action: PoolAction {
-                        hub_asset: key.clone(),
-                        position: ScaledPositionRaw { scaled_amount: 0 },
-                        amount: deposit,
+        let position = if deposit == largest_deposit {
+            // A share total next to `i128::MAX` is past the entry ceiling, so
+            // no supply can build it (INV-ACCT-11). It is written into
+            // storage, and stands for shares that grew that far through
+            // revenue booked at a written-down supply index.
+            let scaled_amount = deposit * (RAY / UNIT);
+            t.as_contract(|| {
+                let mut state = storage::read_state(&t.env, &key);
+                state.supplied = scaled_amount;
+                state.cash = deposit;
+                storage::write_state(&t.env, &key, &state);
+            });
+            ScaledPositionRaw { scaled_amount }
+        } else {
+            client
+                .supply(&vec![
+                    &t.env,
+                    PoolSupplyEntry {
+                        action: PoolAction {
+                            hub_asset: key.clone(),
+                            position: ScaledPositionRaw { scaled_amount: 0 },
+                            amount: deposit,
+                        },
                     },
-                },
-            ])
-            .get(0)
-            .unwrap();
+                ])
+                .get(0)
+                .unwrap()
+                .position
+        };
         if borrowed > 0 {
             client.borrow(
                 &payer,
@@ -174,7 +190,7 @@ fn test_liquidation_withdraw_uses_post_burn_fee_headroom_and_final_debt_guard() 
                     PoolWithdrawEntry {
                         action: PoolAction {
                             hub_asset: key.clone(),
-                            position: supplied.position,
+                            position,
                             amount: if full_close { i128::MAX } else { gross },
                         },
                         protocol_fee: fee,

@@ -3,7 +3,7 @@ extern crate std;
 use super::*;
 use crate::test_support::{hub, init_ledger};
 use crate::{LiquidityPool, LiquidityPoolClient};
-use common::constants::RAY;
+use common::constants::{MAX_MARKET_ENTRY_RAY, MAX_MARKET_VALUE_RAY, MILLISECONDS_PER_YEAR, RAY};
 // `src/interest.rs` calls the shared `accrue_step`; these tests rebuild the step
 // from its primitives to check it.
 use common::rates::{
@@ -1218,4 +1218,115 @@ fn test_frequent_accrual_does_not_round_protocol_fee_to_zero() {
             );
         }
     }
+}
+
+/// Number of `MarketValueCeilingEvent`s published so far.
+fn value_ceiling_events(env: &Env) -> usize {
+    use soroban_sdk::testutils::Events as _;
+    use soroban_sdk::xdr::{ContractEventBody, ScVal};
+    env.events()
+        .all()
+        .events()
+        .iter()
+        .filter(|event| {
+            let ContractEventBody::V0(body) = &event.body;
+            matches!(
+                (body.topics.first(), body.topics.get(1)),
+                (Some(ScVal::Symbol(a)), Some(ScVal::Symbol(b)))
+                    if a.0.to_utf8_string().as_deref() == Ok("market")
+                        && b.0.to_utf8_string().as_deref() == Ok("value_ceiling")
+            )
+        })
+        .count()
+}
+
+/// The audit's S-04 state at cache level: a market at the entry ceiling left
+/// alone for twenty years. `global_sync` used to panic with `MathOverflow`
+/// once the debt value passed `i128`; it now holds interest at the ceiling,
+/// advances the timestamp, and reports the ceiling once.
+#[test]
+fn test_global_sync_holds_interest_at_the_value_ceiling() {
+    let t = TestSetup::new();
+    let borrowed = MAX_MARKET_ENTRY_RAY / 10 * 9;
+    t.as_contract(|| {
+        let mut cache = t.fresh_cache(PoolStateRaw {
+            supplied: MAX_MARKET_ENTRY_RAY,
+            borrowed,
+            revenue: 0,
+            borrow_index: RAY,
+            supply_index: RAY,
+            last_timestamp: 0,
+            cash: 0,
+        });
+        cache.set_current_timestamp(20 * MILLISECONDS_PER_YEAR);
+        global_sync(&t.env, &mut cache);
+
+        assert_eq!(cache.last_timestamp(), 20 * MILLISECONDS_PER_YEAR);
+        assert!(!cache.needs_accrual());
+        let debt = cache.borrowed().mul(&t.env, cache.borrow_index()).raw();
+        let supply = cache.supplied().mul(&t.env, cache.supply_index()).raw();
+        assert!(debt <= MAX_MARKET_VALUE_RAY && supply <= MAX_MARKET_VALUE_RAY);
+        assert!(supply > MAX_MARKET_VALUE_RAY / 100 * 99);
+        assert!(cache.revenue() <= cache.supplied());
+
+        // Ten more years: nothing accrues, time still advances.
+        let (bi, si, supplied) = (cache.borrow_index(), cache.supply_index(), cache.supplied());
+        cache.set_current_timestamp(30 * MILLISECONDS_PER_YEAR);
+        global_sync(&t.env, &mut cache);
+        assert_eq!(cache.last_timestamp(), 30 * MILLISECONDS_PER_YEAR);
+        assert_eq!(
+            (cache.borrow_index(), cache.supply_index(), cache.supplied()),
+            (bi, si, supplied)
+        );
+    });
+    assert_eq!(
+        value_ceiling_events(&t.env),
+        2,
+        "one event per accrual that the ceiling held"
+    );
+}
+
+#[test]
+fn test_global_sync_below_the_ceiling_emits_no_ceiling_event() {
+    let t = TestSetup::new();
+    t.as_contract(|| {
+        let mut cache = t.fresh_cache(PoolStateRaw {
+            supplied: 100 * RAY,
+            borrowed: 60 * RAY,
+            revenue: 0,
+            borrow_index: RAY,
+            supply_index: RAY,
+            last_timestamp: 0,
+            cash: 0,
+        });
+        cache.set_current_timestamp(3 * MILLISECONDS_PER_YEAR);
+        global_sync(&t.env, &mut cache);
+        assert!(cache.borrow_index().raw() > RAY);
+    });
+    assert_eq!(value_ceiling_events(&t.env), 0);
+}
+
+/// A stored total that does not even fit `i128` as a value (unreachable
+/// through the entry ceiling) still accrues without a panic.
+#[test]
+fn test_global_sync_survives_an_unrepresentable_total() {
+    let t = TestSetup::new();
+    t.as_contract(|| {
+        let mut cache = t.fresh_cache(PoolStateRaw {
+            supplied: i128::MAX / 2,
+            borrowed: i128::MAX / 4,
+            revenue: 0,
+            borrow_index: 3 * RAY,
+            supply_index: 5 * RAY,
+            last_timestamp: 0,
+            cash: 0,
+        });
+        cache.set_current_timestamp(5 * MILLISECONDS_PER_YEAR);
+        global_sync(&t.env, &mut cache);
+        assert_eq!(cache.last_timestamp(), 5 * MILLISECONDS_PER_YEAR);
+        assert_eq!(cache.borrow_index().raw(), 3 * RAY);
+        assert_eq!(cache.supply_index().raw(), 5 * RAY);
+        assert_eq!(cache.supplied().raw(), i128::MAX / 2);
+    });
+    assert_eq!(value_ceiling_events(&t.env), 1);
 }

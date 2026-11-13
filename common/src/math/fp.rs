@@ -56,6 +56,11 @@ impl Ray {
         Ray(fp_core::mul_div_half_up(env, self.0, other.0, RAY))
     }
 
+    /// Multiplies half up, returning `None` for a negative operand or overflow.
+    pub fn try_mul(self, env: &Env, other: Ray) -> Option<Ray> {
+        fp_core::try_mul_div_half_up(env, self.0, other.0, RAY).map(Ray)
+    }
+
     /// Divides this value by `other`, rounding the result half up.
     pub fn div(self, env: &Env, other: Ray) -> Ray {
         Ray(fp_core::mul_div_half_up(env, self.0, RAY, other.0))

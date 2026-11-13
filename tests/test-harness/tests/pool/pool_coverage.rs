@@ -54,8 +54,13 @@ fn test_pool_claim_revenue_burns_supplied_ray_coverage() {
 
 #[test]
 fn test_pool_claim_revenue_proportional_burn_when_reserves_low() {
+    // USDC starts with no seeded cash: BOB borrows the reserves down to the
+    // buffer, and a debt mint cannot take debt value above supply value.
+    let mut usdc = test_harness::usdc_preset();
+    usdc.initial_liquidity = 0.0;
     let mut t = LendingTest::new()
-        .standard_two_asset()
+        .with_market(usdc)
+        .with_market(test_harness::eth_preset())
         .with_max_utilization_disabled_all_markets()
         .build();
 

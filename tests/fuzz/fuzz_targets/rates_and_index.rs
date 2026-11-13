@@ -6,10 +6,9 @@ use common::constants::{
 };
 use common::math::fp::Ray;
 use common::rates::{
-    calculate_borrow_rate, calculate_deposit_rate, calculate_supplier_rewards, compound_interest,
-    protocol_fee_shares, scaled_to_original, simulate_update_indexes,
-    supply_index_reward_shortfall, update_borrow_index, update_supply_index, utilization,
-    MAX_COMPOUND_DELTA_MS,
+    accrue_step, calculate_borrow_rate, calculate_deposit_rate, calculate_supplier_rewards,
+    compound_interest, simulate_update_indexes, supply_index_reward_shortfall, update_borrow_index,
+    update_supply_index, MAX_COMPOUND_DELTA_MS,
 };
 use common::types::{MarketParams, MarketParamsRaw, PoolStateRaw, PoolSyncData};
 use libfuzzer_sys::fuzz_target;
@@ -31,7 +30,8 @@ const SUPPLY_INDEX_MIN_DIVISOR: i128 = 16;
 
 const SWEEP_SUPPLIED_MAX: i128 = i128::MAX / (2 * (MAX_SUPPLY_INDEX_RAY / RAY));
 const REWARD_CAP_RAW: i128 = i128::MAX / 4;
-const INDEX_SPAN_PER_UNIT: i128 = (MAX_SUPPLY_INDEX_RAY - SUPPLY_INDEX_FLOOR_RAW) / (u64::MAX as i128);
+const INDEX_SPAN_PER_UNIT: i128 =
+    (MAX_SUPPLY_INDEX_RAY - SUPPLY_INDEX_FLOOR_RAW) / (u64::MAX as i128);
 
 #[derive(Debug, Arbitrary)]
 struct In {
@@ -278,8 +278,8 @@ struct AccrualState {
     supplied: Ray,
 }
 
-/// Mirrors `simulate_update_indexes_body` using only public `common::rates`
-/// helpers, so a span can be accrued in pieces.
+/// Runs `simulate_update_indexes_body`'s loop over the public
+/// `common::rates::accrue_step`, so a span can be accrued in pieces.
 ///
 /// `assert_partition_invariants` pins this against the production entry point
 /// on the unpartitioned span before using it, so it cannot silently drift.
@@ -295,33 +295,18 @@ fn accrue_span(
     while remaining > 0 {
         let chunk = core::cmp::min(remaining, MAX_COMPOUND_DELTA_MS);
 
-        let borrowed_original = scaled_to_original(env, borrowed, st.borrow_index);
-        let supplied_original = scaled_to_original(env, st.supplied, st.supply_index);
-        let util = utilization(env, borrowed_original, supplied_original);
-        let borrow_rate = calculate_borrow_rate(env, util, params);
-        let interest_factor = compound_interest(env, borrow_rate, chunk);
-
-        let new_borrow_index = update_borrow_index(env, st.borrow_index, interest_factor);
-        let (supplier_rewards, protocol_fee) =
-            calculate_supplier_rewards(env, params, borrowed, new_borrow_index, st.borrow_index);
-
-        let old_supply_index = st.supply_index;
-        st.supply_index = update_supply_index(env, st.supplied, old_supply_index, supplier_rewards);
-        let shortfall = supply_index_reward_shortfall(
+        let step = accrue_step(
             env,
+            params,
+            borrowed,
             st.supplied,
-            old_supply_index,
+            st.borrow_index,
             st.supply_index,
-            supplier_rewards,
+            chunk,
         );
-        st.borrow_index = new_borrow_index;
-
-        let protocol_reward = protocol_fee.checked_add(env, shortfall);
-        if protocol_reward != Ray::ZERO {
-            let fee_scaled =
-                protocol_fee_shares(env, protocol_reward, st.supply_index, st.supplied);
-            st.supplied = st.supplied.checked_add(env, fee_scaled);
-        }
+        st.borrow_index = step.borrow_index;
+        st.supply_index = step.supply_index;
+        st.supplied = st.supplied.checked_add(env, step.revenue_shares);
 
         remaining -= chunk;
     }
@@ -573,7 +558,6 @@ fuzz_target!(|i: In| {
         rate.raw()
     );
     if params.reserve_factor.raw() == 0 && util.raw() > 0 {
-
         let expected = rate.mul(&env, util);
         let diff = (deposit_rate.raw() - expected.raw()).abs();
         assert!(

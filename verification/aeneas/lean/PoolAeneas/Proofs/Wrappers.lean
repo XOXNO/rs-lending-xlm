@@ -2,7 +2,7 @@
 Specs of the typed fixed-point wrappers of `common/src/math/fp.rs` that the
 pool code reaches since #224 ("enforce typed fixed-point math boundaries"),
 when `fp_core` became private: `Bps::apply_to_ceil` (liquidation buffer),
-`Ray::try_div` (`rates::curve::utilization`), `Ray::mul_int`
+`Ray::try_mul` (`rates::simulate::market_value`, `guards::fits_entry_ceiling`), `Ray::mul_int`
 (`rates::compound::compound_interest`), and the `i128::from(u64)` model those
 callers use. `Ray::div_floor_saturating` (`protocol_fee_shares`,
 `calculate_scaled_cap`) is specified next to `Ray::div_floor` in
@@ -62,42 +62,34 @@ theorem bps_apply_to_ceil_spec (env : Env) (k amount : Std.I128)
   rw [bps_val] at h
   exact h
 
-/-- **`Ray::try_div` is exact half-up division, and total** (wrapper added in
-#224; `fp_core::try_mul_div_half_up(a, RAY, b)` mapped into `Ray`). Never
-aborts. `None` when `a < 0` or `b ≤ 0`; for `a ≥ 0`, `b > 0` it returns
-`Some(⌊a*RAY/b + 1/2⌋)` when that fits `i128` and `None` exactly when it
-does not (`HalfUpResult`). Reached through `rates::curve::utilization`. -/
-theorem ray_try_div_spec (env : Env) (a b : Std.I128) :
-    math.fp.Ray.try_div a env b ⦃ o =>
-      ((a.val < 0 ∨ b.val ≤ 0) → o = none) ∧
-      ((0 ≤ a.val ∧ 0 < b.val) → HalfUpResult (a.val * 10^27) b.val o) ⦄ := by
-  unfold math.fp.Ray.try_div
-  step with try_mul_div_half_up_spec env a constants.shared.RAY b as ⟨o, ho1, ho2⟩
-  rw [ray_val] at ho2
-  have h27 : (0 : Int) ≤ 10^27 := by norm_num
+/-- **`Ray::try_mul` is the checked half-up product, and total**
+(`fp_core::try_mul_div_half_up(a, b, RAY)` mapped into `Ray`). Never aborts.
+`None` for a negative operand; for `a ≥ 0`, `b ≥ 0` it returns
+`Some(⌊a*b/RAY + 1/2⌋)` when that fits `i128` and `None` exactly when it does
+not (`HalfUpResult`). Reached through `rates::simulate::market_value`
+(`accrue_step`) and `guards::fits_entry_ceiling`: an unrepresentable market
+total holds accrual, or fails the entry check, instead of aborting. -/
+theorem ray_try_mul_spec (env : Env) (a b : Std.I128) :
+    math.fp.Ray.try_mul a env b ⦃ o =>
+      ((a.val < 0 ∨ b.val < 0) → o = none) ∧
+      ((0 ≤ a.val ∧ 0 ≤ b.val) → HalfUpResult (a.val * b.val) (10^27) o) ⦄ := by
+  unfold math.fp.Ray.try_mul
+  step with try_mul_div_half_up_spec env a b constants.shared.RAY as ⟨o, h1, h2⟩
+  rw [ray_val] at h1 h2
+  have hR : (0 : Int) < 10^27 := by norm_num
   cases o with
   | none =>
     rw [core.option.Option.map_none, WP.spec_ok]
-    exact ⟨fun _ => rfl, fun ha hb => ho2 ha h27 hb⟩
+    exact ⟨fun _ => rfl, fun ha hb => h2 ha hb hR⟩
   | some v =>
-    simp only [core.option.Option.map_some, P.Insts.CoreOpsFunctionFnOnceTupleI128Ray,
-      P.Insts.CoreOpsFunctionFnOnceTupleI128Ray.call_once, math.fp.Ray.constructor]
-    have hn : ¬ (a.val < 0 ∨ b.val ≤ 0) := by
-      intro h
-      have h' : a.val < 0 ∨ (constants.shared.RAY).val < 0 ∨ b.val ≤ 0 := by
-        rcases h with h | h
-        · exact Or.inl h
-        · exact Or.inr (Or.inr h)
-      exact absurd (ho1 h') (by simp)
-    simp only [not_or, not_lt] at hn
-    have hv := ho2 hn.1 h27 (by omega)
-    have hb : ¬ b.val ≤ 0 := hn.2
-    have ha : ¬ a.val < 0 := by omega
-    simp only [ha, hb, false_or, IsEmpty.forall_iff, true_and]
-    simp
-    intro _ _
-    norm_num at hv
-    exact hv
+    rw [core.option.Option.map_some]
+    simp only [P.Insts.CoreOpsFunctionFnOnceTupleI128Ray.call_once, math.fp.Ray.constructor]
+    apply WP.spec_bind ((WP.spec_ok _).mpr (rfl : v = v))
+    rintro _ rfl
+    rw [WP.spec_ok]
+    refine ⟨fun h => ?_, fun ha hb => h2 ha hb hR⟩
+    have := h1 (by rcases h with h | h <;> simp [h])
+    simp at this
 
 /-- **`Ray::mul_int` is exact integer multiplication** (wrapper added in #224;
 `checked_mul`, panicking on overflow). When `a * m` fits `i128` it returns
@@ -140,5 +132,11 @@ theorem ray_mul_int_overflow (env : Env) (a m : Std.I128)
     exfalso; apply hov
     simp only [I128.min, I128.max, I128.numBits, IScalarTy.numBits] at hmul
     omega
+
+/-- `Ray::from(v)` for an `i128` wraps `v` unchanged. -/
+theorem ray_from_same (v : Std.I128) :
+    math.fp.Ray.from (core.convert.IntoFrom (core.convert.FromSame Std.I128)) v = ok v := by
+  simp [math.fp.Ray.from, core.convert.IntoFrom, core.convert.IntoFrom.into,
+    core.convert.FromSame, core.convert.FromSame.from]
 
 end PoolAeneas.Proofs

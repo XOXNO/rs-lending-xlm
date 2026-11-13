@@ -28,6 +28,26 @@ fn typed_divisions_preserve_rounding_and_overflow_policy() {
     }
     assert_eq!(Ray::ONE.try_div(&env, Ray::ZERO), None);
     assert_eq!(Ray::from(i128::MAX).try_div(&env, Ray::from(1)), None);
+    for (value, index) in [
+        (1, 3),
+        (i128::MAX, RAY),
+        (i128::MAX, RAY + 1),
+        (-3, 2),
+        (3, -2),
+    ] {
+        assert_eq!(
+            Ray::from(value)
+                .try_mul(&env, Ray::from(index))
+                .map(Ray::raw),
+            fp_core::try_mul_div_half_up(&env, value, index, RAY)
+        );
+    }
+    assert_eq!(
+        Ray::from(i128::MAX).try_mul(&env, Ray::ONE),
+        Some(Ray::from(i128::MAX))
+    );
+    assert_eq!(Ray::from(i128::MAX).try_mul(&env, Ray::from(RAY + 1)), None);
+    assert_eq!(Ray::from(-1i128).try_mul(&env, Ray::ONE), None);
     assert_eq!(
         Wad::from(i128::MAX)
             .mul_floor_saturating(&env, Wad::from(2 * WAD))
@@ -1411,6 +1431,13 @@ fn exact_ratio_and_fraction_wrappers_round_once_in_their_named_direction() {
             ray.try_div(&env, Ray::from(o)).map(Ray::raw),
             half_up_of(a, RAY, o),
             "Ray({a}).try_div({o})"
+        );
+        // `Ray::try_mul` is `Some` exactly when the half-up product fits, and
+        // then equals `Ray::mul`.
+        assert_eq!(
+            ray.try_mul(&env, Ray::from(o)).map(Ray::raw),
+            half_up_of(a, o, RAY),
+            "Ray({a}).try_mul({o})"
         );
         exact!(ceil_of(a, WAD, o), wad.div_ceil(&env, Wad::from(o)).raw());
         exact!(half_up_of(a, BPS, o), bps.div(&env, Bps::from(o)).raw());

@@ -45,6 +45,7 @@ pub mod codes {
     pub const MIN_BORROW_COLLATERAL_NOT_MET: u32 =
         CollateralError::MinBorrowCollateralNotMet as u32;
     pub const UTILIZATION_ABOVE_MAX: u32 = CollateralError::UtilizationAboveMax as u32;
+    pub const MARKET_CEILING_REACHED: u32 = CollateralError::MarketCeilingReached as u32;
     pub const MAX_BORROW_RATE_TOO_HIGH: u32 = CollateralError::MaxBorrowRateTooHigh as u32;
     pub const SELF_LIQUIDATION_NOT_ALLOWED: u32 = CollateralError::SelfLiquidationNotAllowed as u32;
     pub const INVALID_LIQUIDATION_CURVE: u32 = CollateralError::InvalidLiquidationCurve as u32;

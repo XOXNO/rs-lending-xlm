@@ -228,7 +228,7 @@ fn test_annual_borrow_rate_region3_uncapped_with_valid_params() {
 }
 
 #[test]
-fn test_utilization_saturates_when_ratio_overflows() {
+fn test_utilization_is_one_when_ratio_would_overflow() {
     let env = Env::default();
     let util = utilization(
         &env,
@@ -239,12 +239,35 @@ fn test_utilization_saturates_when_ratio_overflows() {
 }
 
 #[test]
-fn test_utilization_keeps_largest_representable_ratio() {
+fn test_utilization_is_one_when_borrowed_reaches_supplied() {
     let env = Env::default();
-    let ratio = 170_141_183_460 * RAY;
+    let supplied = Ray::from(7 * RAY);
+    // Equal totals, one raw unit above, and the largest ratio that used to fit.
+    for borrowed in [7 * RAY, 7 * RAY + 1, 170_141_183_460 * RAY, i128::MAX] {
+        assert_eq!(utilization(&env, Ray::from(borrowed), supplied), Ray::ONE);
+    }
     assert_eq!(
-        utilization(&env, Ray::from(ratio), Ray::ONE),
-        Ray::from(ratio)
+        utilization(&env, Ray::from(i128::MAX), Ray::from(1)),
+        Ray::ONE
+    );
+}
+
+#[test]
+fn test_utilization_divides_only_below_supplied() {
+    let env = Env::default();
+    // One raw unit below a small supply is a real ratio below one.
+    assert_eq!(
+        utilization(&env, Ray::from(2), Ray::from(3)).raw(),
+        666_666_666_666_666_666_666_666_667
+    );
+    // Against the largest supply the half-up ratio rounds to one, never above.
+    assert_eq!(
+        utilization(&env, Ray::from(i128::MAX - 1), Ray::from(i128::MAX)),
+        Ray::ONE
+    );
+    assert_eq!(
+        utilization(&env, Ray::ZERO, Ray::from(i128::MAX)),
+        Ray::ZERO
     );
 }
 
@@ -383,18 +406,22 @@ fn exact_utilization_and_deposit_rate_round_half_up() {
     let env = unmetered_env();
     let mut sampler = Sampler::new(32);
     for _ in 0..5_000 {
-        // Any non-negative pair: a ratio beyond `i128` reads as full utilization.
+        // Any non-negative pair: debt at or above supply reads as full
+        // utilization, and only a smaller debt is divided.
         let (borrowed, supplied) = (sampler.non_negative(), sampler.non_negative());
         let expected = if supplied == 0 {
             0
+        } else if borrowed >= supplied {
+            RAY
         } else {
-            half_up_of(borrowed, RAY, supplied).unwrap_or(RAY)
+            half_up_of(borrowed, RAY, supplied).expect("a ratio below one fits")
         };
+        let util = utilization(&env, Ray::from(borrowed), Ray::from(supplied)).raw();
         assert_eq!(
-            utilization(&env, Ray::from(borrowed), Ray::from(supplied)).raw(),
-            expected,
+            util, expected,
             "{borrowed} borrowed against {supplied} supplied"
         );
+        assert!((0..=RAY).contains(&util));
 
         let (used, rate) = (
             sampler.at_most(2 * RAY),

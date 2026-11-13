@@ -181,6 +181,35 @@ theorem ray_try_div_spec (env : Env) (a b : Std.I128) :
     have := h1 (by rcases h with h | h <;> simp [h])
     simp at this
 
+/-- **`Ray::try_mul` is the checked half-up product.** It never aborts. For a
+negative operand it returns `None`; for `a ≥ 0` and `b ≥ 0` it returns
+`Some q` with `q = half_up(a*b/RAY)` when that fits `i128`, and `None` exactly
+when it does not (`HalfUpResult`). A wrapper over
+`fp_core::try_mul_div_half_up`; `accrue_step` values the market totals with it
+(`market_value`), so an unrepresentable total holds accrual instead of
+aborting it. -/
+theorem ray_try_mul_spec (env : Env) (a b : Std.I128) :
+    math.fp.Ray.try_mul a env b ⦃ o =>
+      ((a.val < 0 ∨ b.val < 0) → o = none) ∧
+      ((0 ≤ a.val ∧ 0 ≤ b.val) → HalfUpResult (a.val * b.val) (10^27) o) ⦄ := by
+  unfold math.fp.Ray.try_mul
+  step with try_mul_div_half_up_spec env a b constants.production.shared.RAY as ⟨o, h1, h2⟩
+  rw [ray_val_hu] at h1 h2
+  have hR : (0 : Int) < 10^27 := by norm_num
+  cases o with
+  | none =>
+    rw [Aeneas.Std.core.option.Option.map_none, WP.spec_ok]
+    exact ⟨fun _ => rfl, fun ha hb => h2 ha hb hR⟩
+  | some v =>
+    rw [Aeneas.Std.core.option.Option.map_some]
+    simp only [P.Insts.CoreOpsFunctionFnOnceTupleI128Ray.call_once, math.fp.Ray.constructor]
+    apply WP.spec_bind ((WP.spec_ok _).mpr (rfl : v = v))
+    rintro _ rfl
+    rw [WP.spec_ok]
+    refine ⟨fun h => ?_, fun ha hb => h2 ha hb hR⟩
+    have := h1 (by rcases h with h | h <;> simp [h])
+    simp at this
+
 /-- Half-up of `x*y/d` with `0 ≤ y ≤ d` exists, is in `[0, x]`, and so fits. -/
 theorem halfUp_ratio_fits (x y d : Int) (hd : 0 < d) (hx : 0 ≤ x) (hxb : x < 2^127)
     (hy : 0 ≤ y) (hyd : y ≤ d) : ∃ q, IsHalfUp (x * y) d q ∧ q < 2^127 := by

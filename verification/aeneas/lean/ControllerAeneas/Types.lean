@@ -71,7 +71,7 @@ def math.fp_core.to_i128.closure := aeneas_soroban_shim.Env
 def math.fp_core.mul_div_floor.closure := Std.I128
 
 /-- [controller_aeneas::math::fp::Wad]
-    Source: 'src/../../../../common/src/math/fp.rs', lines 207:0-207:21
+    Source: 'src/../../../../common/src/math/fp.rs', lines 212:0-212:21
     Visibility: public -/
 @[reducible]
 def math.fp.Wad := Std.I128
@@ -112,7 +112,7 @@ def math.fp_core.rescale_ceil.closure := Unit
 def math.fp_core.mul_div_floor_saturating.closure := Std.I128
 
 /-- [controller_aeneas::math::fp::Bps]
-    Source: 'src/../../../../common/src/math/fp.rs', lines 345:0-345:21
+    Source: 'src/../../../../common/src/math/fp.rs', lines 350:0-350:21
     Visibility: public -/
 @[reducible]
 def math.fp.Bps := Std.I128

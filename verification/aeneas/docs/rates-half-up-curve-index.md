@@ -16,7 +16,7 @@ and conventions: [../README.md](../README.md), [../WRITING-PROOFS.md](../WRITING
   `i128` numerator; aborts exactly on `b ≤ 0`.
 * `fp_core::rescale_half_up` downscaling (including the branch where
   `10^(from - to)` overflows `i128` and the code returns 0).
-* Wrappers: `Ray::mul`, `Ray::div`, `Ray::try_div`, `Ray::to_asset`,
+* Wrappers: `Ray::mul`, `Ray::div`, `Ray::try_div`, `Ray::try_mul`, `Ray::to_asset`,
   `Bps::apply_to`, `Bps::apply_to_ray`, `Bps::flash_loan_fee_on`, and the
   half-up wrappers added by #224: `Bps::div`, `Bps::try_from_fraction`,
   `Bps::from_weighted_sum`, `Wad::try_value_of_token`, and `Ray::mul_ray_ratio`
@@ -84,6 +84,7 @@ on market creation and every parameter update
 | `ray_mul_spec` | `HalfUpWrappers.lean` | `math::fp::Ray::mul` | returns `hu(a·b, RAY)` | `a, b ≥ 0`, result fits | — |
 | `ray_div_spec` | `HalfUpWrappers.lean` | `math::fp::Ray::div` | returns `hu(a·RAY, b)` | `a ≥ 0`, `b > 0`, result fits | — |
 | `ray_try_div_spec` (new, #224) | `HalfUpWrappers.lean` | `math::fp::Ray::try_div` | never aborts; `None` if `a < 0` or `b ≤ 0`; otherwise `Some(hu(a·RAY, b))` when it fits, `None` exactly when it does not | none | — |
+| `ray_try_mul_spec` (new, S-04 fix) | `HalfUpWrappers.lean` | `math::fp::Ray::try_mul` | never aborts; `None` for a negative operand; otherwise `Some(hu(a·b, RAY))` when it fits, `None` exactly when it does not | none | INV-IDX-06 |
 | `ray_mul_ray_ratio_spec` (new, #225) | `TypedWrappers.lean` | `math::fp::Ray::mul_ray_ratio` | returns exactly `hu(x·n, d)` (one rounding; the ratio `n/d` is not quantized) | `x, n ≥ 0`, `d > 0`, result fits | — |
 | `ray_mul_ray_ratio_returns_iff` (new, #225) | `TypedWrappers.lean` | `math::fp::Ray::mul_ray_ratio` | returns **iff** `x ≥ 0 ∧ n ≥ 0 ∧ d > 0 ∧` the result fits; aborts otherwise | none | — |
 | `ray_mul_ray_ratio_frac_spec` (new, #225) | `TypedWrappers.lean` | `math::fp::Ray::mul_ray_ratio` | never aborts; returns `hu(x·n, d) ∈ [0, x]` | `x ≥ 0`, `0 ≤ n ≤ d`, `d > 0` | — |
@@ -94,8 +95,7 @@ on market creation and every parameter update
 | `bps_apply_to_spec` | `HalfUpWrappers.lean` | `math::fp::Bps::apply_to` | never aborts, returns `hu(amount·bps, BPS) ∈ [0, amount]` | `amount ≥ 0`, `0 ≤ bps ≤ BPS` | INV-IDX-05 |
 | `bps_apply_to_ray_spec` | `HalfUpWrappers.lean` | `math::fp::Bps::apply_to_ray` | same for a ray value | `v ≥ 0`, `0 ≤ bps ≤ BPS` | INV-IDX-05 |
 | `flash_loan_fee_on_spec` | `HalfUpWrappers.lean` | `math::fp::Bps::flash_loan_fee_on` | never aborts; `0 ≤ fee ≤ amount`; `fee ≥ 1` when `bps > 0`; `fee = hu(amount·bps, BPS)` unless that is 0 with `bps > 0`, then 1 | `amount ≥ 1`, `0 ≤ bps ≤ BPS` (`flashloan_fee ≤ MAX_FLASHLOAN_FEE_BPS = 500`, `verify`) | INV-FLASH-01 (the fee `F`) |
-| `utilization_spec` | `CurveBase.lean` | `rates::curve::utilization` | never aborts; `0` when `supplied = 0`; else `hu(b·RAY, s)` when it fits, `RAY` when it does not. Statement unchanged by #224; proof now goes through `ray_try_div_spec` | `b, s ≥ 0` (pool totals) | INV-ACCT-08 |
-| `utilization_le_ray` | `CurveBase.lean` | `rates::curve::utilization` | result in `[0, RAY]` | `0 ≤ b ≤ s` | INV-ACCT-08 |
+| `utilization_spec` (restated, S-03 fix) | `CurveBase.lean` | `rates::curve::utilization` | never aborts; the result is in `[0, RAY]`; `0` when `supplied = 0`; `RAY` when `borrowed ≥ supplied > 0` (by comparison, no division); `hu(b·RAY, s)` when `borrowed < supplied` | `b, s ≥ 0` (pool totals) | INV-ACCT-08 |
 | `slope_contribution_spec` (new, #225) | `Curve.lean` | `rates::curve::slope_contribution` | never aborts; returns `c = hu(slope·excess, range)` (`SegContrib`, one rounding) with `0 ≤ c ≤ slope` | `0 ≤ excess ≤ range`, `range > 0`, `slope ≥ 0` | — |
 | `calculate_annual_borrow_rate_spec` (restated, #225) | `Curve.lean` | `rates::curve::calculate_annual_borrow_rate` | never aborts; returns exactly the capped three-segment formula at `m = min(u, RAY)` (`AnnualRate`): `min(base + slopes below + hu(slope·excess, range), max)`, one half-up rounding per segment | `u ≥ 0`, `ValidRateModel p` | INV-IDX-01 ("validated rate parameters") |
 | `calculate_annual_borrow_rate_bounds` | `Curve.lean` | `rates::curve::calculate_annual_borrow_rate` | `base_borrow_rate ≤ r ≤ max_borrow_rate` (so `≤ 2·RAY`) | `u ≥ 0`, `ValidRateModel p` | INV-IDX-01 |
@@ -115,10 +115,9 @@ on market creation and every parameter update
 
 Why the remaining hypotheses hold in production:
 
-* `0 ≤ u` for the curve: `utilization` returns `0`, `RAY` or a half-up ratio
-  of non-negative totals (`utilization_spec`).
-* `0 ≤ u ≤ RAY` for `calculate_deposit_rate`: holds when borrowed ≤ supplied
-  (`utilization_le_ray`). See "Observations" for the other case.
+* `0 ≤ u ≤ RAY` for the curve and for `calculate_deposit_rate`: `utilization`
+  returns a value in `[0, RAY]` for every non-negative pair of totals
+  (`utilization_spec`).
 * Borrow index `0 ≤ old ≤ MAX` and factor `≤ 100·RAY`: indexes start at `RAY`
   and are only written by `update_borrow_index`, which keeps them `≤ MAX`
   (induction over this theorem). `compound_interest` (not extracted) bounds its
@@ -126,8 +125,10 @@ Why the remaining hypotheses hold in production:
   `common/src/rates/compound.rs`), so its factor is about `7.39·RAY`; the
   `100·RAY` bound is an assumption about that unextracted function.
 * Fit hypotheses on products (`update_supply_index`,
-  `calculate_supplier_rewards`): these are value-representability conditions;
-  INV-IDX-01 itself says debt-value overflow can still revert accrual.
+  `calculate_supplier_rewards`): these are value-representability conditions.
+  `accrue_step` establishes them itself, by capping interest at the market
+  value ceiling before it calls either function, so accrual as a whole needs
+  no such hypothesis (`accrue_step_spec` in [pool.md](pool.md), INV-IDX-06).
 
 ## Observations about the production code
 
@@ -143,12 +144,13 @@ Why the remaining hypotheses hold in production:
    `InterestRateModel::verify` and all `0 ≤ u ≤ u'`, `rate(u) ≤ rate(u')`; on
    that model the theorem gives `rate(mid - 1) ≤ rate(mid)`. The kinks are
    hit exactly (`calculate_annual_borrow_rate_at_kinks`).
-2. **`calculate_deposit_rate` can exceed the borrow rate when utilization is
-   above `RAY`.** `utilization` does not clamp (borrowed > supplied after bad
-   debt gives `u > RAY`), while the curve clamps but the deposit rate uses
-   `u` directly: `half_up(u·br/RAY)` then exceeds `br`. Only the
-   `contracts/pool/src/views.rs` deposit-rate view calls it; no accounting
-   path. The theorem therefore assumes `u ≤ RAY`.
+2. **Closed by the S-03 fix: `calculate_deposit_rate` could exceed the borrow
+   rate when utilization was above `RAY`.** `utilization` used to return the
+   unclamped ratio whenever it fit `i128` (borrowed > supplied after bad debt
+   gave `u > RAY`), and the deposit rate uses `u` directly. `utilization` now
+   returns `RAY` whenever `borrowed ≥ supplied` (`utilization_spec`), so the
+   hypothesis `u ≤ RAY` of `calculate_deposit_rate_spec` holds at its only
+   call site, the `contracts/pool/src/views.rs` deposit-rate view.
 3. **`update_supply_index` early exits return `old` unchanged.** The doc
    comment says the result is clamped to `[min(old, MAX), MAX]`; on the
    early-exit paths an `old > MAX` would be returned as is. Not reachable
@@ -195,6 +197,21 @@ What changed in the proofs:
 No previously proved property was lost and no theorem statement changed:
 the refactor did not change production behaviour on anything these proofs
 cover.
+
+## Changes for audit findings S-03 and S-04
+
+* `utilization` now compares before it divides: `supplied = 0` gives `0`,
+  `borrowed ≥ supplied` gives `RAY`, and only `borrowed < supplied` reaches
+  `Ray::div`, whose quotient is at most `RAY`. `utilization_spec` is restated
+  with the stronger conclusion (result in `[0, RAY]`, no overflow case). The
+  separate bound lemma that assumed `borrowed ≤ supplied` is removed: its
+  conclusion now holds without that hypothesis.
+* New `Ray::try_mul` wrapper (`ray_try_mul_spec`), used by `accrue_step` to
+  value the market totals without aborting.
+* `rates/simulate.rs` (`accrue_step`, with the new `market_value`,
+  `value_room` and `cap_borrow_index`) is in this extraction but proved in
+  the pool library, which extracts the same code: see
+  [pool.md](pool.md), `accrue_step_spec`.
 
 ## Changes after #225 (single-rounded slope contribution)
 

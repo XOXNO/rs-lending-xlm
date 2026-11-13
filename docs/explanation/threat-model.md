@@ -404,9 +404,17 @@ liquidation.
 
 ## Numeric and resource limits
 
-Finite RAY value capacity can be exhausted before the index ceiling. Synchronizing
-an overlarge book can then fail before an otherwise risk-reducing operation.
-Caps must account for plausible index growth as well as token balances.
+Finite RAY value capacity can be exhausted before the index ceiling. Accrual
+then holds interest at the market value ceiling instead of failing, so
+synchronizing an overlarge book does not block a risk-reducing operation
+([INV-IDX-06](../reference/invariants.md#inv-idx-06)). Borrowers of that
+market accrue less than the rate implies until exits bring it back under the
+ceiling, and the pool emits `MarketValueCeilingEvent`. Entries stop a factor 8
+earlier, at the entry ceiling
+([INV-ACCT-11](../reference/invariants.md#inv-acct-11)), which is also the
+admitted cap maximum. Caps must still account for plausible index growth as
+well as token balances: a market above the entry ceiling takes no new supply,
+borrow, strategy opening or flash loan.
 Accrual cadence changes utilization and subsequent rates; bounded chunks do not
 make cadence neutral or prove exact conservation after integer rounding.
 See [numeric limits](../reference/formulas.md#numeric-limits).
@@ -462,7 +470,7 @@ these rows do not assign severity or establish exploitability.
 | Tamper.3 | Non-standard tokens/donations; measured receipts and separate books do not neutralize arbitrary token semantics. |
 | Tamper.4 | Malicious router/venue; measured input/output bounds apply, while payload minimum output remains router-enforced. |
 | Tamper.5 | Callback reentry/intermediate state; guards and host rules protect reachable paths, not hypothetical EVM behavior. |
-| Tamper.6 | Accrual manipulation/extremes; bounded indexes and chunks coexist with cadence and value-overflow risks. |
+| Tamper.6 | Accrual manipulation/extremes; bounded indexes and chunks coexist with cadence effects. At the market value ceiling accrual holds interest instead of overflowing, which under-charges borrowers of that market ([INV-IDX-06](../reference/invariants.md#inv-idx-06)). |
 | Tamper.7 | Malicious upgrade; core upgrades are delayed, including price aggregator; standalone owners retain their own upgrade policy. |
 | Tamper.8 | Hostile Blend integration; allowlisting and measured settlement do not freeze an approved pool's code. |
 | Tamper.9 | False feed-nature label bypasses intended smoothing selection; nature is operator-asserted. |

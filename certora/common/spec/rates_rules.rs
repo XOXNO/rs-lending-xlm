@@ -65,9 +65,11 @@ fn utilization_zero_when_supplied_zero(e: Env, borrowed: i128) {
 
 /// Native half of `utilization_bounded_when_borrowed_lte_supplied`.
 ///
-/// `utilization` is `try_mul_div_half_up(borrowed, RAY, supplied)`, whose
-/// native branch condition is `borrowed * RAY + supplied / 2
-/// <= i128::MAX`, i.e. `borrowed <= (i128::MAX - supplied / 2) / RAY`.
+/// For `borrowed < supplied`, `utilization` is `borrowed.div(supplied)` =
+/// `mul_div_half_up(borrowed, RAY, supplied)`, whose native branch condition
+/// is `borrowed * RAY + supplied / 2 <= i128::MAX`, i.e.
+/// `borrowed <= (i128::MAX - supplied / 2) / RAY`. `borrowed == supplied`
+/// returns `RAY` by comparison, without dividing.
 ///
 /// This half runs on the inlined compiler-builtins limb code (`__multi3`,
 /// `__udivti3`). `docs/explanation/certora-sunbeam-prover-tuning.md` §9.7 names

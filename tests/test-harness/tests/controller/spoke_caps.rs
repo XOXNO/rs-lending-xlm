@@ -259,9 +259,9 @@ fn test_spoke_cap_at_asset_domain_ceiling_accepted() {
 
     let ceiling = common::validation::max_cap_for_decimals(7);
     assert_eq!(
-        ceiling, 1_701_411_834_604_692_317,
-        "i128::MAX / 10^(27 - 7) must stay the 7-decimal cap ceiling; the \
-         div_floor by the supply index saturates rather than overflowing"
+        ceiling, 212_676_479_324_336_539,
+        "MAX_MARKET_ENTRY_RAY / 10^(27 - 7) must stay the 7-decimal cap ceiling: \
+         the pool's entry ceiling in asset units"
     );
 
     assert!(

@@ -54,7 +54,6 @@ fn flash_receiver_wasm() -> &'static [u8] {
 
 #[derive(Debug, Arbitrary)]
 struct In {
-
     base_pct: u8,
     s1_pct: u8,
     s2_pct: u8,
@@ -405,7 +404,6 @@ fuzz_target!(|i: In| {
     let mut flash_receiver: Option<Address> = None;
 
     for (price_raw, dt_raw, op_kind) in i.ops.iter() {
-
         let dt_s: u64 = (*dt_raw as u64) % (100 * 86_400);
         cur_ts_s = cur_ts_s.saturating_add(dt_s);
         env.ledger().set_timestamp(cur_ts_s);
@@ -452,7 +450,6 @@ fuzz_target!(|i: In| {
                 }
             }
             1 => {
-
                 let reserves = pool.get_reserves(&market).max(1);
                 let amount = if op_kind & 1 == 0 {
                     amount_from_raw(*price_raw, 1_000_000, reserves.min(cap))
@@ -483,7 +480,6 @@ fuzz_target!(|i: In| {
                 }
             }
             2 => {
-
                 let supplied = amount_view(pool.try_get_supplied_amount(&market), cap);
                 let amount = if op_kind & 1 == 0 {
                     amount_from_raw(*price_raw, 1_000_000, supplied.min(cap))
@@ -514,7 +510,6 @@ fuzz_target!(|i: In| {
                 }
             }
             3 => {
-
                 let debt = amount_view(pool.try_get_borrowed_amount(&market), cap);
                 let amount = amount_from_raw(*price_raw, 1_000_000, debt.min(cap));
                 mint_to_pool(&env, &asset, &pool_addr, amount);
@@ -551,7 +546,8 @@ fuzz_target!(|i: In| {
                 }
             }
             4 => {
-                let result = flatten_contract_result(pool.try_update_indexes(&vec![&env, market.clone()]));
+                let result =
+                    flatten_contract_result(pool.try_update_indexes(&vec![&env, market.clone()]));
                 match result {
                     Ok(_) => {
                         let after = pool_state(&pool, &market);

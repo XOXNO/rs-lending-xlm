@@ -163,6 +163,8 @@ pub enum CollateralError {
 
     // Reserved: see the note on `GenericError::AssetNotSupported`.
     FullCloseRequired = 135,
+
+    MarketCeilingReached = 136,
 }
 
 /// Error codes for oracle configuration, price-feed validation, and

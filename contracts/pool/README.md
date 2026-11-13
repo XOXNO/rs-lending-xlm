@@ -70,13 +70,13 @@ error, not a contract code. Error numbers are from `common/src/errors.rs`.
 | `create_market(hub_id, params)` | — | Verifies params, writes state with both indexes at `RAY` | `AssetAlreadySupported` (2), `MarketParamsRaw::verify` |
 | `update_params(hub_asset, model)` | — | Accrues on the **old** curve, then writes the new model | `InterestRateModel::verify` |
 | `update_indexes(hub_assets)` | — | Accrues each market; writes only if time elapsed | — |
-| `supply(entries)` | in | Mints supply shares, credits cash | 14, `PoolInsolvent` (123), `SupplyRoundsToZeroShares` (51) |
-| `borrow(receiver, entries)` | out | Mints debt shares, debits cash, transfers | 14 (zero too), `InsufficientLiquidity` (112), `BorrowRoundsToZeroShares` (47), `UtilizationAboveMax` (127) |
+| `supply(entries)` | in | Mints supply shares, credits cash | 14, `PoolInsolvent` (123), `SupplyRoundsToZeroShares` (51), `MarketCeilingReached` (136) |
+| `borrow(receiver, entries)` | out | Mints debt shares, debits cash, transfers | 14 (zero too), `InsufficientLiquidity` (112), `BorrowRoundsToZeroShares` (47), `UtilizationAboveMax` (127), 136 |
 | `withdraw(receiver, is_liquidation, entries)` | out | Burns supply shares, keeps the liquidation fee, transfers the net | 14, `WithdrawRoundsToZeroShares` (49), `WithdrawLessThanFee` (115), 112, 127 (non-liquidation), 123, `InternalError` (34) |
 | `repay(payer, actions)` | in/out | Burns debt shares, credits the net, refunds overpayment | 14, `RepayRoundsToZeroShares` (52) |
 | `net_settle(entry)` | — | Offsets one user's supply against their own debt; one entry, not a batch | 14, `NetSettleRoundsToZeroShares` (50), 123, 34 |
 | `seize_positions(entries)` | — | Writes off bad debt, or moves a seized deposit to revenue | 14, 34 |
-| `flash_loan(hub_asset, initiator, receiver, amount, data)` | out/in | Pays out, calls `execute_flash_loan`, pulls back principal + fee; returns the fee | 14, `FlashloanNotEnabled` (401), 112, `InvalidFlashloanReceiver` (412), `InvalidFlashloanRepay` (402) |
+| `flash_loan(hub_asset, initiator, receiver, amount, data)` | out/in | Pays out, calls `execute_flash_loan`, pulls back principal + fee; returns the fee | 14, `FlashloanNotEnabled` (401), 112, `InvalidFlashloanReceiver` (412), `InvalidFlashloanRepay` (402), 136 |
 | `create_strategy(receiver, action, charge_fee)` | out | Mints debt, books the fee as revenue, sends `amount - fee` | 14, `StrategyFeeExceeds` (409), every `borrow` error |
 | `recapitalize(hub_asset, payer, amount)` | in/out | Credits cash up to the backing shortfall, refunds the excess | 14 |
 | `claim_revenue(hub_asset)` | out | Burns revenue shares, pays the owner | 127, 123, `OwnerNotSet` (32), 34 |
@@ -209,6 +209,15 @@ utilization → borrow rate (curve) → compound → borrow index
 
 `MAX_BORROW_INDEX_RAY` and `MAX_SUPPLY_INDEX_RAY` are `1e36`.
 
+**Accrual never overflows on a market value** (INV-IDX-06). Every leg accrues
+first, so an accrual that reverted would block repayments, withdrawals and
+liquidations. Each chunk therefore caps the borrow index so interest is at
+most the room the larger of total debt value and total supply value has below
+`MAX_MARKET_VALUE_RAY` (`i128::MAX - RAY`). At the ceiling a chunk accrues
+nothing, time still advances, and `global_sync` emits one
+`MarketValueCeilingEvent`. Market size is limited on entries instead: see
+`require_within_entry_ceiling` below.
+
 `compound_interest` (`common/src/rates/compound.rs`) is a fixed 9-term Taylor
 series, `1 + x + … + x⁸/8!`, with no early exit. At `x = 2` (a `2 × RAY`
 max rate untouched for a full year) it gives `7.387302` against
@@ -217,7 +226,7 @@ overestimate.
 
 ## Guards
 
-`guards.rs` holds four guards; `require_reserves` is on `Cache` in
+`guards.rs` holds six guards; `require_reserves` is on `Cache` in
 `cache/cash.rs`. `create_strategy` mints through `borrow::mint_debt`, so it
 runs every `borrow` guard.
 
@@ -226,7 +235,9 @@ runs every `borrow` guard.
 | `require_backed_market` | `supply` | everything else | 123 |
 | `require_reserves` | `borrow`, `create_strategy`, `withdraw`, `flash_loan`, `claim_revenue` | — | 112 |
 | `require_liquidation_buffer` | `borrow`, `create_strategy` | `withdraw`, `flash_loan` | 112 |
-| `require_utilization_below_max` | `borrow`, `create_strategy`, non-liquidation `withdraw`, `claim_revenue` | `net_settle`, `seize_positions`, liquidation | 127 |
+| `require_utilization_below_max` | `borrow`, `create_strategy` | zero supply shares, zero debt value | 127 |
+| `require_exit_utilization_below_max` | non-liquidation `withdraw`, `claim_revenue` | a 100% ceiling, `net_settle`, `seize_positions`, liquidation | 127 |
+| `require_within_entry_ceiling` | `supply`, `borrow`, `create_strategy` (after the mint and again after the fee), `flash_loan` (after the fee) | every exit | 136 |
 | `require_supply_for_debt` | `withdraw`, `net_settle`, `claim_revenue` | — | 123 |
 
 **Liquidation buffer.** `require_liquidation_buffer` keeps a flat
@@ -247,7 +258,17 @@ withdrawal raises utilization. Once accrual alone pushes utilization to the
 cap, no non-liquidation withdrawal passes. Repayment or liquidation frees it.
 This `1 - max_utilization` headroom is separate from the 2% buffer.
 
-`max_utilization >= RAY` turns the cap off for that market.
+`max_utilization >= RAY` turns the cap off for withdrawals and revenue claims
+only. A borrow or strategy opening is still checked: at a 100% ceiling its
+debt value after the mint cannot exceed the supply value. The check compares
+`ceil(debt value) <= floor(floor(supply value) * max_utilization / RAY)` and
+divides nothing, so dust supply cannot make it overflow.
+
+**Entry ceiling.** `require_within_entry_ceiling` keeps total supply and total
+debt, each as a share count and as a half-up value, at or below
+`MAX_MARKET_ENTRY_RAY` (an eighth of the value ceiling, about 21.27 billion
+whole tokens) after every entry. Interest can take a market above it; the
+market then takes no entry, and every exit still works.
 
 ## Per-entrypoint notes
 
@@ -313,7 +334,8 @@ start of each mutator. `TTL_THRESHOLD_SHARED` is 30 days, `TTL_BUMP_SHARED`
 
 **Events.** `PoolMarketStateBatchEvent` on state change,
 `PoolMarketParamsBatchEvent` on create and model change, `StrategyFeeEvent`
-only for a non-zero strategy fee. Read "Pool events" in
+only for a non-zero strategy fee, `MarketValueCeilingEvent` when an accrual
+held interest at the value ceiling. Read "Pool events" in
 [`docs/reference/events.md`](../../docs/reference/events.md) before you write a
 decoder: batch events carry single-value data, `PoolMarketStateEvent` rows are
 9-entry vectors in fixed order, and `PoolMarketParamsEvent` rows are maps.
