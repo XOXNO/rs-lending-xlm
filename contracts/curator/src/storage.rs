@@ -2,7 +2,7 @@
 
 use common::constants::{TTL_BUMP_SHARED, TTL_THRESHOLD_SHARED};
 use common::errors::GenericError;
-use soroban_sdk::{panic_with_error, Address, Env, IntoVal, TryFromVal, Val};
+use soroban_sdk::{panic_with_error, Address, BytesN, Env, IntoVal, TryFromVal, Val};
 
 use crate::events::{
     CapGrantEvent, HubRegistrarEvent, RegistrarAdminEvent, RolesEvent, SpokeRegistrarEvent,
@@ -220,4 +220,20 @@ pub(crate) fn remove_cap_grant(
         grant: None,
     }
     .publish(env);
+}
+
+/// Hub and spoke the queued operation `op_id` names, if this contract queued it.
+pub(crate) fn proposal(env: &Env, op_id: &BytesN<32>) -> Option<(Option<u32>, Option<u32>)> {
+    read(env, &DataKey::Proposal(op_id.clone()))
+}
+
+/// Records the hub and spoke a queued operation names, so their owners can cancel it.
+pub(crate) fn set_proposal(env: &Env, op_id: &BytesN<32>, hub: Option<u32>, spoke: Option<u32>) {
+    write(env, &DataKey::Proposal(op_id.clone()), &(hub, spoke));
+}
+
+pub(crate) fn remove_proposal(env: &Env, op_id: &BytesN<32>) {
+    env.storage()
+        .persistent()
+        .remove(&DataKey::Proposal(op_id.clone()));
 }

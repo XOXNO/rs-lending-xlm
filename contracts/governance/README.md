@@ -63,7 +63,7 @@ executor. A canceller reset uses the Recovery delay and cannot be cancelled.
 | `suspend_curator_registrar(caller, curator, registrar)` | `GUARDIAN` | Suspends a registrar on a curator that holds `CURATOR_ROLE`. Resuming is the owner-proposed sensitive `SuspendCuratorRegistrar` |
 | `deactivate_position_manager(caller, manager)`, `revoke_blend_pool(caller, pool)` | `GUARDIAN` | Withdraws a position manager or a Blend migration source; activation and approval stay timelocked |
 | `set_sanity_band(caller, key, min_wad, max_wad)` | `ORACLE` | Narrows an aggregator price band; a wider band reverts `SanityBandMustTighten` |
-| `revoke_role_immediate(account, role)` | owner | Strips `GUARDIAN` or `ORACLE` from `account` |
+| `revoke_role_immediate(account, role)` | owner | Strips `GUARDIAN`, `ORACLE` or `CURATOR` from `account` |
 
 ### Setup and ownership
 

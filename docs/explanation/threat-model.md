@@ -48,8 +48,8 @@ compiled tier floor are different actions.
 
 GUARDIAN can immediately pause, tighten listing flags, deactivate a
 position manager, and revoke a Blend pool. CURATOR_ROLE can immediately
-create an empty hub or spoke, register a market on the deployed pool, lower
-a listing's supply or borrow cap, and tighten listing flags. Every other
+create an empty hub or spoke, register a market on the deployed pool, and
+tighten listing flags. Every other
 listing change, new listings included, waits for the timelock. The constructor does not
 grant CURATOR_ROLE to the owner, and an ownership transfer does not move it.
 Governance is the curator registry's only owner: it opens registrars through
@@ -59,20 +59,31 @@ can. A registrar can halt its own listings at once; only a timelocked
 with `suspend_curator_registrar`; resuming is the owner-proposed sensitive
 `SuspendCuratorRegistrar`. A suspended registrar's curator calls revert, so it
 cannot halt a listing again after a relaxation, and its cap grants stop
-admitting listings. Its proposals already queued in governance are stopped by a
-governance CANCELLER or expire on their own. Sensitive
+admitting listings. Registrar checks run when an operation is queued and not
+at execution, so its proposals already queued in governance still execute
+unless cancelled: by a governance CANCELLER, or through the curator's
+`cancel_proposal` by the registrar that owns the hub or spoke the operation
+names. Otherwise they expire on their own. Sensitive
 owner-proposed operations move its hubs and spokes to another registrar or to
 none (`ReassignCuratorHub`, `ReassignCuratorSpoke`) and replace its admin
 (`SetCuratorRegistrarAdmin`). An admin change, forced or voluntary, voids the
 role bits and the cap grants that the registrar gave, so a replaced admin keeps
 no operator and no grantee. A grant is valid only while its grantor owns the
-hub. A hub owner limits a grantee at once: it revokes the grant and freezes the
-grantee's listing of its asset (`frozen` only; the spoke owner's pause and
-seizure flags stay as stored). Revoking CURATOR_ROLE stops the registry's immediate governance calls,
-not its PROPOSER authority or already queued operations. Suspension and
-cancellation remain separate incident actions.
+hub. A hub owner limits a grantee at once: it revokes the grant, cancels what
+the grantee queued for its asset, and freezes the grantee's listing of its
+asset (`frozen` only; the spoke owner's seizure flag stays as stored). Through
+the timelock it can also lower the caps of that listing, and nothing else on
+it. A spoke
+owner cannot pause a listing of another registrar's hub asset, because that
+would block repayment and liquidation of that hub's debt. The grant's borrow
+cap is the hub owner's whole loss budget in that spoke: the grantee chooses
+the collateral behind that borrowing and can halt its seizure at once. The
+owner revokes CURATOR_ROLE at once with `revoke_role_immediate`, which stops
+the registry's immediate governance calls, not its PROPOSER authority or
+already queued operations. Suspension and cancellation remain separate
+incident actions.
 ORACLE can immediately narrow sanity bands. The owner can revoke the
-guardian and oracle roles immediately and perform one-time deployment
+guardian, oracle and curator roles immediately and perform one-time deployment
 bootstrap.
 Reopening, global position-manager changes, and ordinary upgrades use delayed
 operations. Controller construction and upgrade pause the controller. Pool,
@@ -481,7 +492,7 @@ these rows do not assign severity or establish exploitability.
 | Info.2 | Liquidation competition and MEV; the bonus curve bounds terms, not ordering or liquidator profit. |
 | Info.3 | Visible pending governance changes allow anticipatory positioning; observability is intentional. |
 | Info.4 | Invalid quotes may contain prices; use validity flags or strict reads. |
-| DoS.1 | Price outage blocks valuation-dependent actions, including liquidation; fail-closed availability cost. Supply into a debt-free account needs no price. On an indebted account, a new collateral leg needs its price within the feed's staleness limit (a halted feed that is not yet stale still reads), and a supply into an existing leg prices every leg when the live listing favours liquidators over that leg's stored terms ([listing refresh gate](../reference/runbooks/liqvid-listing-params.md#10-existing-positions-keep-their-stamped-terms)). An indebted borrower can still add a dust leg of any listed collateral before an outage and so choose which feed outage shields the account. For an LP leg (Aquarius or Curve), liquidity providers can cause that outage by withdrawing pool value below `min_pool_value_wad`, so set the floor well below pool TVL. A Curve leg also fails when any one of its coins cannot be priced, when a coin's `decimals()` read fails or changes, or when an A ramp lowers pool value below the floor. The same leg blocks bad-debt cleanup and force-socialization. A dust debt leg of the outage asset shields the same way, and borrowing prices every leg, so it too must be opened while the feed is live. `repay` is permissionless and reads no price, so anyone can repay that leg during the outage and remove the shield before liquidating, unless the listing is paused. |
+| DoS.1 | Price outage blocks valuation-dependent actions, including liquidation; fail-closed availability cost. Supply into a debt-free account needs no price. On an indebted account, a new collateral leg needs its price within the feed's staleness limit (a halted feed that is not yet stale still reads), and a supply into an existing leg prices every leg when the live listing favours liquidators over that leg's stored terms ([listing refresh gate](../reference/runbooks/liqvid-listing-params.md#10-existing-positions-keep-their-stamped-terms)). An indebted borrower can still add a dust leg of any listed collateral before an outage and so choose which feed outage shields the account. For an LP leg (Aquarius or Curve), liquidity providers can cause that outage by withdrawing pool value below `min_pool_value_wad`, so set the floor well below pool TVL. A Curve leg also fails when any one of its coins cannot be priced, when a coin's `decimals()` read fails or changes, when the pool's executable changes from the pinned hash (an upgrade by the pool's admin, until governance reviews and re-pins it), or when an A ramp lowers pool value below the floor. The same leg blocks bad-debt cleanup and force-socialization. A dust debt leg of the outage asset shields the same way, and borrowing prices every leg, so it too must be opened while the feed is live. `repay` is permissionless and reads no price, so anyone can repay that leg during the outage and remove the shield before liquidating, unless the listing is paused. |
 | DoS.2 | Selected paused debt or no_seize collateral blocks liquidation; distinct flag policies matter. |
 | DoS.3 | False-alarm pause needs delayed reopening; emergency response is asymmetric. |
 | DoS.4 | Lost governance keys; proposer safeguards and owner-dependent canceller recovery do not restore a lost owner. |

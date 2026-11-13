@@ -1,6 +1,7 @@
 //! One event per registry write, published by the storage setter that makes
 //! the write. Forwarded calls are covered by controller and governance
-//! events; `ProposedEvent` names the registrar behind a queued operation.
+//! events; `ProposedEvent` names the registrar behind a queued operation and
+//! `CancelledEvent` the registrar that cancelled one.
 
 use soroban_sdk::{contractevent, Address, BytesN};
 
@@ -62,6 +63,13 @@ pub struct CapGrantEvent {
 #[contractevent(topics = ["curator", "proposed"])]
 #[derive(Clone, Debug)]
 pub struct ProposedEvent {
+    pub registrar: u32,
+    pub op_id: BytesN<32>,
+}
+
+#[contractevent(topics = ["curator", "cancelled"])]
+#[derive(Clone, Debug)]
+pub struct CancelledEvent {
     pub registrar: u32,
     pub op_id: BytesN<32>,
 }

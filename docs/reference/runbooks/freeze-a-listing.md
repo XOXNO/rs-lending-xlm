@@ -31,6 +31,15 @@ names flags the listing already holds reverts with `SpokeAssetFlagsUnchanged`
 and leaves the epoch alone; the `tightenAssetFlags` verb skips the call in that
 case. Other pending operations, such as `Unpause`, still execute as proposed.
 
+On a spoke that a curator registrar owns, the registrar can queue a relaxation
+at the current flags epoch after the freeze, and it lands once the delay has
+passed. Suspend the registrar first
+(`suspend_curator_registrar`), then freeze. Operations the registrar queued
+through the curator are not recorded in `configs/ops/`: find them from the
+curator's `["curator", "proposed"]` events and cancel each one. Setting a flag
+that is not yet set also advances the epoch and invalidates a pending
+relaxation.
+
 1. The verb prints every operation recorded in `configs/ops/<network>/` with its
    live state. `make <network> listOps` prints the same list. An operation
    proposed without a record there does not appear.

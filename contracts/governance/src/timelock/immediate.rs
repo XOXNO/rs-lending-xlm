@@ -121,13 +121,16 @@ pub(crate) fn revoke_blend_pool(env: &Env, caller: &Address, pool: &Address) {
 }
 
 /// Revokes `role` from `account` without going through the timelock. Only
-/// `GUARDIAN_ROLE` and `ORACLE_ROLE` can be revoked this way; panics with
-/// `GenericError::InvalidRole` for any other role. The role-revoked event names
+/// `GUARDIAN_ROLE`, `ORACLE_ROLE` and `CURATOR_ROLE` can be revoked this way;
+/// panics with `GenericError::InvalidRole` for any other role. Revoking
+/// `CURATOR_ROLE` stops a faulty curator contract's immediate calls at once. The role-revoked event names
 /// the owner, who calls this entrypoint, as the caller.
 pub(crate) fn revoke_role_immediate(env: &Env, account: &Address, role: &Symbol) {
     assert_with_error!(
         env,
-        role == &Symbol::new(env, GUARDIAN_ROLE) || role == &Symbol::new(env, ORACLE_ROLE),
+        role == &Symbol::new(env, GUARDIAN_ROLE)
+            || role == &Symbol::new(env, ORACLE_ROLE)
+            || role == &Symbol::new(env, CURATOR_ROLE),
         GenericError::InvalidRole
     );
     access::apply_revoke_role(env, account, role, &access::owner_or_panic(env));

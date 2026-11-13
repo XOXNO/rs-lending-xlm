@@ -2,7 +2,7 @@
 
 Use this reference to decode protocol events and interpret their amounts, shares and configuration snapshots. Match both the emitting contract and the ordered topic vector.
 
-The contracts define 36 custom event types: controller 21, pool 4, governance 2, curator 7, price aggregator 1 and DeFindex adapter 1. The position NFT, swap aggregator and XOXNO oracle define no custom events, but their inherited OpenZeppelin events remain observable. Subscribe to both controller and pool events to track account and market changes.
+The contracts define 37 custom event types: controller 21, pool 4, governance 2, curator 8, price aggregator 1 and DeFindex adapter 1. The position NFT, swap aggregator and XOXNO oracle define no custom events, but their inherited OpenZeppelin events remain observable. Subscribe to both controller and pool events to track account and market changes.
 
 ## Wire rules and units
 
@@ -73,6 +73,7 @@ Every registry write publishes one event from the storage setter that makes it, 
 | `SpokeRegistrarEvent`<br>`["curator", "spoke_registrar"]` | map: `spoke_id: u32, registrar: Option<u32>` | add_spoke, reassign_spoke; `None` unbinds the spoke. |
 | `CapGrantEvent`<br>`["curator", "cap_grant"]` | map: `grantor: u32, grantee: u32, hub_id: u32, spoke_id: u32, asset: Address, grant: Option<CapGrant>` | set_cap_grant (`Some`, the stored grant), revoke_cap_grant (`None`; `grantor` is the revoking hub owner). |
 | `ProposedEvent`<br>`["curator", "proposed"]` | map: `registrar: u32, op_id: BytesN<32>` | propose, after governance queued the operation. |
+| `CancelledEvent`<br>`["curator", "cancelled"]` | map: `registrar: u32, op_id: BytesN<32>` | cancel_proposal, after governance cancelled the operation; `registrar` owns the hub or spoke the operation names. |
 
 ### Price-aggregator events
 

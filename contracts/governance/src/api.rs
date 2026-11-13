@@ -191,8 +191,8 @@ impl GovernanceInterface for Governance {
     }
 
     /// Revokes `role` from `account` without going through the timelock.
-    /// Restricted to the owner; only the guardian and oracle roles can be
-    /// revoked this way.
+    /// Restricted to the owner; only the guardian, oracle and curator roles
+    /// can be revoked this way.
     #[only_owner]
     fn revoke_role_immediate(env: Env, account: Address, role: Symbol) {
         immediate::revoke_role_immediate(&env, &account, &role)

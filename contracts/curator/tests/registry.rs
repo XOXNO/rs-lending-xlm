@@ -1,11 +1,13 @@
 use common::constants::{RAY, TTL_BUMP_SHARED, TTL_THRESHOLD_SHARED};
-use common::types::{HubAssetKey, MarketParamsRaw};
+use common::types::{HubAssetKey, InterestRateModel, MarketParamsRaw};
 use curator::events::{
-    CapGrantEvent, HubRegistrarEvent, RegistrarAdminEvent, RolesEvent, SpokeRegistrarEvent,
-    SuspendedEvent,
+    CancelledEvent, CapGrantEvent, HubRegistrarEvent, RegistrarAdminEvent, RolesEvent,
+    SpokeRegistrarEvent, SuspendedEvent,
 };
 use curator::{CapGrant, Curator, CuratorClient, CuratorError, ROLE_MARKET, ROLE_SPOKE};
-use governance::op::{AdminOperation, RelaxSpokeAssetFlagsArgs, RoleArgs, SpokeAssetArgs};
+use governance::op::{
+    AdminOperation, RelaxSpokeAssetFlagsArgs, RoleArgs, SpokeAssetArgs, UpgradePoolParamsArgs,
+};
 use soroban_sdk::testutils::storage::Persistent as _;
 use soroban_sdk::testutils::{Address as _, Events as _, Ledger as _};
 use soroban_sdk::{contracttype, Address, BytesN, Env, Event as _, Symbol, TryFromVal};
@@ -18,7 +20,7 @@ fn setup(env: &Env) -> (Address, CuratorClient<'_>) {
     let controller_id = env.register(controller::Controller, (gov_id.clone(),));
     gov.set_controller(&controller_id);
     let curator_id = env.register(Curator, (gov_id,));
-    for role in ["CURATOR", "PROPOSER"] {
+    for role in ["CURATOR", "PROPOSER", "CANCELLER"] {
         gov.execute_immediate(
             &owner,
             &AdminOperation::GrantGovRole(RoleArgs {
@@ -910,4 +912,150 @@ fn a_voluntary_admin_handover_drops_roles_and_grants() {
         .curator
         .cap_grant(&p.second, &p.hub, &p.spoke, &p.asset)
         .is_none());
+}
+
+fn rate_change(env: &Env, hub: u32) -> AdminOperation {
+    let params = market_params(&Address::generate(env));
+    AdminOperation::UpgradeLiquidityPoolParams(UpgradePoolParamsArgs {
+        hub_asset: HubAssetKey {
+            hub_id: hub,
+            asset: params.asset_id.clone(),
+        },
+        params: InterestRateModel {
+            max_borrow_rate: params.max_borrow_rate,
+            base_borrow_rate: params.base_borrow_rate,
+            slope1: params.slope1,
+            slope2: params.slope2,
+            slope3: params.slope3,
+            mid_utilization: params.mid_utilization,
+            optimal_utilization: params.optimal_utilization,
+            max_utilization: params.max_utilization,
+            reserve_factor: params.reserve_factor,
+            is_flashloanable: params.is_flashloanable,
+            flashloan_fee: params.flashloan_fee,
+        },
+    })
+}
+
+/// A hub that moves to another registrar takes its queued operations with it:
+/// the new owner cancels them and the former owner no longer can.
+#[test]
+fn the_new_owner_of_a_hub_cancels_what_the_former_owner_queued() {
+    let env = Env::default();
+    let p = granted_pair(&env);
+    let salt = |byte: u8| BytesN::from_array(&env, &[byte; 32]);
+    let first_op = p
+        .curator
+        .propose(&p.admin, &p.first, &rate_change(&env, p.hub), &salt(1));
+    let second_op = p
+        .curator
+        .propose(&p.admin, &p.first, &rate_change(&env, p.hub), &salt(2));
+    let gov = gov(&env, &p.curator);
+    assert_ne!(gov.get_operation_ledger(&first_op), 0);
+
+    // The spoke owner has no claim on a hub-only operation.
+    assert_eq!(
+        p.curator
+            .try_cancel_proposal(&p.other, &p.second, &first_op),
+        Err(Ok(CuratorError::ProposalForeign.into()))
+    );
+
+    gov.execute_immediate(
+        &p.owner,
+        &AdminOperation::ReassignCuratorHub(p.curator.address.clone(), p.hub, Some(p.second)),
+    );
+    assert_eq!(
+        p.curator.try_cancel_proposal(&p.admin, &p.first, &first_op),
+        Err(Ok(CuratorError::ProposalForeign.into()))
+    );
+
+    p.curator.cancel_proposal(&p.other, &p.second, &first_op);
+    assert!(env.events().all().events().contains(
+        &CancelledEvent {
+            registrar: p.second,
+            op_id: first_op.clone(),
+        }
+        .to_xdr(&env, &p.curator.address)
+    ));
+    assert_eq!(gov.get_operation_ledger(&first_op), 0);
+    assert_ne!(gov.get_operation_ledger(&second_op), 0);
+
+    // The record is gone with the operation.
+    assert_eq!(
+        p.curator
+            .try_cancel_proposal(&p.other, &p.second, &first_op),
+        Err(Ok(CuratorError::ProposalUnknown.into()))
+    );
+}
+
+#[test]
+fn cancel_proposal_rejects_an_operation_the_curator_did_not_queue() {
+    let env = Env::default();
+    let p = granted_pair(&env);
+    assert_eq!(
+        p.curator
+            .try_cancel_proposal(&p.admin, &p.first, &BytesN::from_array(&env, &[9; 32])),
+        Err(Ok(CuratorError::ProposalUnknown.into()))
+    );
+}
+
+/// A pause on a foreign hub's asset blocks repayment and liquidation of that
+/// hub's debt, so a grantee cannot list it paused.
+#[test]
+fn a_grantee_cannot_list_a_foreign_hub_asset_paused() {
+    let env = Env::default();
+    let p = granted_pair(&env);
+    let AdminOperation::AddAssetToSpoke(mut args) = borrow_listing(p.hub, p.spoke, p.asset.clone())
+    else {
+        unreachable!()
+    };
+    args.paused = true;
+    assert_eq!(
+        p.curator.try_propose(
+            &p.other,
+            &p.second,
+            &AdminOperation::AddAssetToSpoke(args),
+            &BytesN::from_array(&env, &[7; 32]),
+        ),
+        Err(Ok(CuratorError::ForeignPause.into()))
+    );
+}
+
+/// A relaxation that carries no pause is not checked against the live
+/// listing: a grantee queues it for a foreign hub's asset under its grant.
+#[test]
+fn a_grantee_queues_a_relaxation_of_a_foreign_hub_asset_that_carries_no_pause() {
+    let env = Env::default();
+    let p = granted_pair(&env);
+    let op_id = p.curator.propose(
+        &p.other,
+        &p.second,
+        &relax(p.hub, p.spoke, p.asset.clone()),
+        &BytesN::from_array(&env, &[11; 32]),
+    );
+    assert_ne!(gov(&env, &p.curator).get_operation_ledger(&op_id), 0);
+}
+
+/// The pause rule is about another registrar's hub. A registrar that owns both
+/// the hub and the spoke queues a relaxation that pauses its own listing.
+#[test]
+fn the_owner_of_hub_and_spoke_queues_a_pause_through_a_relaxation() {
+    let env = Env::default();
+    let (owner, curator) = setup(&env);
+    let admin = Address::generate(&env);
+    let registrar = register(&env, &owner, &curator, &admin);
+    let hub = curator.create_hub(&admin, &registrar);
+    let spoke = curator.add_spoke(&admin, &registrar);
+    let AdminOperation::RelaxSpokeAssetFlags(mut args) = relax(hub, spoke, Address::generate(&env))
+    else {
+        unreachable!()
+    };
+    args.paused = true;
+    let op_id = curator.propose(
+        &admin,
+        &registrar,
+        &AdminOperation::RelaxSpokeAssetFlags(args),
+        &BytesN::from_array(&env, &[12; 32]),
+    );
+    assert_ne!(gov(&env, &curator).get_operation_ledger(&op_id), 0);
 }
