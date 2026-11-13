@@ -47,7 +47,12 @@ def check_gate():
                       txMaxSizeBytes=132096, txMaxContractEventsSizeBytes=16384, txMemoryLimit=41943040)
         (run / 'network-limits.json').write_text(json.dumps({n:dict(limits=limits,ledger=1,network=dict(passphrase=('Test SDF Network ; September 2015' if n=='testnet' else 'Public Global Stellar Network ; September 2015'),protocolVersion=28),version=dict(protocolVersion=28,version='28.0.0')) for n in ['testnet','mainnet']}))
         addresses={c:'C'+'A'*54+chr(66+i) for i,c in enumerate(gate.CONTRACTS)}
-        (run/'deployed-artifacts.jsonl').write_text(''.join(json.dumps(dict(address=a,artifact=c+'.wasm',sha256='a'*64))+'\n' for c,a in addresses.items()))
+        # Governance runs the short-timelock fixture, with its own hash.
+        def deployments(governance_artifact=gate.E2E_GOVERNANCE, governance_sha='b'*64, extra=()):
+            lines=[dict(address=a,artifact=governance_artifact if c=='governance' else c+'.wasm',
+                        sha256=governance_sha if c=='governance' else 'a'*64) for c,a in addresses.items()]
+            (run/'deployed-artifacts.jsonl').write_text(''.join(json.dumps(l)+'\n' for l in lines+list(extra)))
+        deployments()
         actions, cases, proofs = [], [], []
         for case in definitions:
             first = len(actions)+1
@@ -81,6 +86,12 @@ def check_gate():
             except (ValueError,OSError,KeyError,AssertionError): return
             raise AssertionError('false green')
         baseline()
+        assert gate.validate(run, expected_lane='agg-core') == len(required)
+        # The fixture must not be the candidate's bytes, and a lane runs one build of it.
+        deployments(governance_sha='a'*64); rejected()
+        deployments(governance_sha='not-a-hash'); rejected()
+        deployments(extra=[dict(address='C'+'A'*55,artifact=gate.E2E_GOVERNANCE,sha256='c'*64)]); rejected()
+        deployments()
         assert gate.validate(run, expected_lane='agg-core') == len(required)
         wrong=[r.copy() for r in proofs]
         for row in wrong: row[2]='C'+'Z'*55

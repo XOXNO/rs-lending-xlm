@@ -208,7 +208,7 @@ deploy_protocol() {
     verify_candidate_contract candidate_nft "$POSITION_NFT" position_nft || return 1
     verify_candidate_contract candidate_pa "$PRICE_AGGREGATOR" price_aggregator || return 1
     verify_candidate_contract candidate_aggregator "$OWNED_AGGREGATOR" aggregator || return 1
-    verify_candidate_contract candidate_governance "$GOVERNANCE" governance || return 1
+    verify_candidate_contract candidate_governance "$GOVERNANCE" governance "$GOVERNANCE_E2E_WASM" || return 1
     verify_candidate_contract candidate_governance_controller "$GOV_CONTROLLER" controller || return 1
 }
 

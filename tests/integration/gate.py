@@ -17,6 +17,9 @@ from artifacts import CONTRACTS, digest
 ACTION_FIELDS = 'seq phase label status fn hash instructions read_bytes write_bytes resource_fee note'.split()
 RESOURCE_FIELDS = 'instructions read_bytes write_bytes resource_fee'.split()
 GOOD = {'ok', 'read', 'xfail', 'sim-ok', 'retry', 'diagnostic'}
+# The governance build every lane deploys in place of the candidate: the
+# `short-timelock` feature lowers its sensitive delay floor to 12 ledgers.
+E2E_GOVERNANCE = 'governance_e2e.wasm'
 
 
 def rows(path, fields):
@@ -158,8 +161,20 @@ def validate(run, expected_lane=None):
     if len(evidence) != len(actions) or (run / 'active-case').exists():
         raise ValueError('incomplete action evidence or interrupted case')
     deployed={}
+    e2e_governance=set()
     for line in (run/'deployed-artifacts.jsonl').read_text().splitlines():
         item=json.loads(line); name=item['artifact']
+        if name == E2E_GOVERNANCE:
+            # Governance runs the short-timelock fixture, never the candidate:
+            # one build per run, and not the candidate's bytes.
+            if (not re.fullmatch(r'[0-9a-f]{64}',item['sha256']) or item['sha256']==candidate['artifacts']['governance.wasm']
+                    or not re.fullmatch(r'C[A-Z2-7]{55}',item['address'])):
+                raise ValueError('wrong deployed end-to-end governance identity')
+            e2e_governance.add(item['sha256'])
+            if len(e2e_governance) != 1:
+                raise ValueError('lane deployed more than one end-to-end governance build')
+            deployed.setdefault('governance',set()).add(item['address'])
+            continue
         if name not in candidate['artifacts']: continue
         if item['sha256']!=candidate['artifacts'][name] or not re.fullmatch(r'C[A-Z2-7]{55}',item['address']):
             raise ValueError('wrong deployed candidate identity')
