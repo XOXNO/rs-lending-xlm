@@ -329,7 +329,7 @@ flow_strategies() {
     leg_rdwc_close() {
         local hex
 
-        hex=$(agg_route_hex "$XLM_SAC" "$USDC_SAC" 4000000000 0.10) || return 1
+        hex=$(agg_route_hex "$XLM_SAC" "$USDC_SAC" 4000000000) || return 1
         strategy_inv rdwc_close "$CAROL" "$CONTROLLER" -- repay_debt_with_collateral \
             --caller "$CAROL_ADDR" --account_id "$rdwc_acct" \
             --collateral "$(hub_key "$PRIMARY_HUB_ID" "$XLM_SAC")" --collateral_amount 4000000000 \
@@ -342,7 +342,7 @@ flow_strategies() {
     local flash_xlm=5000000000 sacct=""
     leg_multiply_short() {
         local hex
-        hex=$(agg_route_hex "$XLM_SAC" "$USDC_SAC" "$flash_xlm" 0.10) || return 1
+        hex=$(agg_route_hex "$XLM_SAC" "$USDC_SAC" "$flash_xlm") || return 1
         sacct=$(strategy_inv multiply_short "$ALICE" "$CONTROLLER" -- multiply \
             --caller "$ALICE_ADDR" --account_id 0 --spoke_id "$PRIMARY_SPOKE_ID" \
             --collateral "$(hub_key "$PRIMARY_HUB_ID" "$USDC_SAC")" --debt_to_flash_loan "$flash_xlm" \
