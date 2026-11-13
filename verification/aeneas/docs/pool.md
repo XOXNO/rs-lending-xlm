@@ -411,9 +411,9 @@ returns, `indexOf c` the returned index pair. `k = 27 − decimals`.
 | `mint_debt_ok` | `ops::borrow::mint_debt` | `amount > 0`, `amount ≤ cash`, liquidation-buffer guard passed on the gross amount, minted `m = ⌈amount·10^k·RAY/bi⌉ > 0`, `m ≤ amount·10^k`, position `+= m`, cache `borrowed += m` only, the utilization guard (every ceiling, 100% included) and the entry-ceiling guard passed after | `PoolInv c`, `dec ≤ 18`, `amount·10^k < 2^127` | INV-ACCT-05/07/08/11 |
 | `borrow_accounting_spec` | `ops::borrow::accounting` | As `mint_debt_ok`, plus `actual_amount = amount`, committed cache = `c` with `borrowed += m`, `cash -= amount` only, `PoolInv`; the committed cache passes the entry-ceiling guard | as above | INV-ACCT-01/02/05/07/08/10/11 |
 | `repay_accounting_spec` | `ops::repay::accounting` | With `D = ⌈position·bi/(RAY·10^k)⌉`: `0 ≤ net ≤ amount`, `overpayment = amount − net`; full (`D ≤ amount`): new `= 0`, `net = D`; partial: `net = amount`, burn `= ⌊amount·10^k·RAY/bi⌋`; `amount > 0 ∧ position > 0 → new < position`, otherwise `new = position`; cache `borrowed -= burn`, `cash += net` only; `PoolInv` | `PoolInv c`, `dec ≤ 18`, `⌈position·bi/RAY⌉` fits | INV-ACCT-01/02/03/05/10, ADR-0003 |
-| `withhold_liquidation_fee_ok` | `withdraw::withhold_liquidation_fee` | No fee-bearing liquidation: `net = gross`, cache unchanged; otherwise `fee ≤ gross`, `net = gross − fee`, fee booked as `s ≥ 0` shares into `revenue` and `supplied` | `SharesInv`, `si > 0`, `fee ≥ 0`, `dec < 27`, `gross·10^k < 2^127` | INV-ACCT-01 |
+| `withhold_liquidation_fee_ok` | `withdraw::withhold_liquidation_fee` | No fee-bearing liquidation: `net = gross`, cache unchanged; otherwise `fee ≤ gross`, `net = gross − fee`, fee booked as `s ≥ 0` shares into `revenue` and `supplied`, worth at most the fee: `s·supply_index ≤ fee·10^k·RAY` | `SharesInv`, `si > 0`, `fee ≥ 0`, `dec < 27`, `gross·10^k < 2^127` | INV-ACCT-01 |
 | `gate_and_debit_ok` | `withdraw::gate_and_debit` | `0 ≤ net ≤ cash`; the exit utilization guard passed unless skipped; not `supplied = 0 ∧ borrowed ≠ 0`; cache `cash -= net` only | none | INV-ACCT-02/08/09 |
-| `withdraw_accounting_spec` | `ops::withdraw::accounting` | With `H` the half-up position value, `F` its floor value, `G` gross: `0 ≤ G ≤ F`, `G ≤ amount`, `0 ≤ new ≤ position`; full (`H ≤ amount`): `new = 0`, `G = F`; partial: `G = amount`, burn `= ⌈amount·10^k·RAY/si⌉`; `amount = 0 ∧ H > 0 → new = position`; `G > 0 → new < position`; `amount > 0 ∧ position > 0 → new < position`; `position = 0 → new = 0`; `net = G` or `G − fee` (fee-bearing liquidation), `0 ≤ net ≤ G`; cache `supplied := supplied − burn + s`, `revenue += s` (`s = 0` without fee), `cash -= net` only; `PoolInv`; not `supplied = 0 ∧ borrowed ≠ 0` after | `PoolInv c`, `dec ≤ 18`, `hu(position·si, RAY)` fits (the exact abort condition of `resolve_withdrawal`) | INV-ACCT-01/02/05/09/10, ADR-0003 |
+| `withdraw_accounting_spec` | `ops::withdraw::accounting` | With `H` the half-up position value, `F` its floor value, `G` gross: `0 ≤ G ≤ F`, `G ≤ amount`, `0 ≤ new ≤ position`; full (`H ≤ amount`): `new = 0`, `G = F`; partial: `G = amount`, burn `= ⌈amount·10^k·RAY/si⌉`; `amount = 0 ∧ H > 0 → new = position`; `G > 0 → new < position`; `amount > 0 ∧ position > 0 → new < position`; `position = 0 → new = 0`; `net = G` or `G − fee` (fee-bearing liquidation), `0 ≤ net ≤ G`; cache `supplied := supplied − burn + s`, `revenue += s` (`s = 0` without fee, and always `s ≤ burn`: the fee shares never exceed the shares burned), `cash -= net` only; `PoolInv`; not `supplied = 0 ∧ borrowed ≠ 0` after | `PoolInv c`, `dec ≤ 18`, `hu(position·si, RAY)` fits (the exact abort condition of `resolve_withdrawal`) | INV-ACCT-01/02/05/09/10, ADR-0003 |
 | `net_settle_apply_spec` | `ops::net_settle::apply` | `0 ≤ settled ≤ amount` (and `≤ F`, `≤ D` when positive); `0 ≤ ns ≤ ss`, `0 ≤ nd ≤ ds`; `settled > 0` burns both sides, `settled = 0` burns neither; full close only when exhausted; partial burns favour the protocol; cache `supplied -= ss − ns`, `borrowed -= ds − nd` only (no cash); `PoolInv`; not `supplied = 0 ∧ borrowed ≠ 0` | `PoolInv c`, `dec ≤ 18`, `⌊ss·si/RAY⌋`, `⌈ds·bi/RAY⌉` fit | INV-ACCT-01/02/05/09/10, ADR-0003 |
 | `seize_apply_spec` | `ops::seize::apply` | Position `≥ 0`; committed cache satisfies `PoolInv`, cash unchanged; deposit side: `revenue += p` only; borrow side: `borrowed -= p`, supply index written down (`≥ 10^24`, `≤ old`), nothing else | `PoolInv c`; borrow side: `hu(supplied·si, RAY)` fits | INV-ACCT-01/10, INV-IDX-03 |
 | `backing_shortfall_nonneg` | `guards::backing_shortfall` | Returned ⇒ `≥ 0` | none | INV-ACCT-04 |
@@ -443,6 +443,32 @@ controller reports as received (supply: `cash += amount`; repay: `cash +=
 net`, refund `= amount − net`; recapitalize: `cash += applied`, refund `=
 amount − applied`). The measurement of the receipt (balance before/after)
 is in the controller and the token, outside this model.
+
+### The market value ceiling as a stored-state invariant (`ValueCeiling.lean`)
+
+`ValueCeil c` (INV-IDX-06): the half-up value of total supply at the supply
+index and of total debt at the borrow index are both at most
+`MAX_MARKET_VALUE_RAY`. Every extracted leg keeps it, so no stored state
+reached through these legs has a market total above the ceiling. Each exit
+theorem takes the hypotheses of its leg theorem plus `ValueCeil c` on the
+synced cache; the entry theorems need no ceiling hypothesis.
+
+| Lean name | Rust function | Claim | Why | Invariants |
+|---|---|---|---|---|
+| `accrue_chunk_keeps_ceiling` | `interest::accrue_chunk` | Never aborts; `ChunkPost` and `ValueCeil` of the result | `accrue_step_spec` caps interest at the room below the ceiling (`accrue_step_within_ceiling`) | INV-IDX-06 |
+| `global_sync_keeps_ceiling` | `interest::global_sync` | Never aborts; `ValueCeil` of the result, **for any elapsed time** | chunk invariant | INV-IDX-06 |
+| `synced_market_keeps_ceiling` | `ops::synced_market` | Never aborts; `ValueCeil` of the synced cache every leg starts from | load + `global_sync` | INV-IDX-06 |
+| `supply_keeps_ceiling`, `borrow_keeps_ceiling`, `strategy_keeps_ceiling` | `ops::supply::apply`, `ops::borrow::accounting`, `ops::strategy::accounting` | `ValueCeil` of the committed cache, with no ceiling hypothesis | the committed cache passes the entry-ceiling guard, and `MAX_MARKET_ENTRY_RAY ≤ MAX_MARKET_VALUE_RAY` (`ValueCeil.of_entry_guard`) | INV-ACCT-11 |
+| `repay_keeps_ceiling` | `ops::repay::accounting` | `ValueCeil` of the committed cache | debt shares only fall | INV-IDX-06 |
+| `withdraw_keeps_ceiling` | `ops::withdraw::accounting` | `ValueCeil` of the committed cache, with or without a liquidation fee | fee shares minted `≤` supply shares burned | INV-IDX-06 |
+| `net_settle_keeps_ceiling` | `ops::net_settle::apply` | `ValueCeil` of the committed cache | supply and debt shares only fall | INV-IDX-06 |
+| `seize_keeps_ceiling` | `ops::seize::apply` | `ValueCeil` of the committed cache, both sides | deposit side reclassifies shares; borrow side burns debt and lowers the supply index | INV-IDX-06, INV-IDX-03 |
+| `recapitalize_keeps_ceiling` | `ops::recapitalize::accounting` | `ValueCeil` of the committed cache | only cash changes | INV-IDX-06 |
+| `revenue_keeps_ceiling` | `ops::revenue::accounting` | `ValueCeil` of the committed cache | revenue and supply shares only fall | INV-IDX-06 |
+| `ValueWithin.mono`, `ValueWithin.of_entryFits`, `ValueCeil.of_le`, `ValueCeil.of_entry_guard` | | A smaller product has a smaller half-up value; the entry ceiling is below the value ceiling | | |
+
+Not covered by these: the flash-loan fee (below), and market creation, which
+writes zero totals.
 
 ### Certora summaries in their own terms (`Summaries.lean`)
 
@@ -586,19 +612,17 @@ and do not appear.
 
 ## Not covered
 
-* **That entries keep the value ceiling as a stored-state invariant.**
-  `accrue_step_within_ceiling` shows accrual never takes a total across
-  `MAX_MARKET_VALUE_RAY`, and the supply, borrow and strategy theorems show
-  the committed cache passes the entry-ceiling guard. That the other legs
-  (withdraw with a liquidation fee, seize, repay, net settlement, revenue
-  claim) never raise a market value is argued in
-  `docs/reference/invariants.md` (INV-ACCT-11, INV-IDX-06) but is not a Lean
-  theorem: `PoolInv` does not carry the ceiling. Non-abort of accrual does
-  not depend on it (`accrue_step_spec` has no value hypothesis); the exit
-  legs' own conversions still assume their values fit `i128`, as before.
-* **The flash-loan entry check.** `ops::flash::finalize`, which calls
-  `require_within_entry_ceiling` after booking the fee, is not extracted
-  (events); the guard itself is specified.
+* **The flash-loan fee and the value ceiling.** `ops::flash::finalize`, which
+  books the fee and then calls `require_within_entry_ceiling`, is not
+  extracted (events). It is the one leg for which `ValueCeil` is not proved
+  preserved; the guard it calls is specified
+  (`require_within_entry_ceiling_spec`), and passing it implies `ValueCeil`
+  (`ValueCeil.of_entry_guard`).
+* **Discharging the exit legs' fit hypotheses from the ceiling.** The exit
+  theorems still assume that the position value they convert fits `i128`.
+  `ValueCeil` bounds the market totals, and a position is at most its
+  market's total only by INV-ACCT-10, which is the controller's invariant and
+  outside this model.
 * **Which accruals publish the ceiling event.** The `value_capped` flag is
   carried through the loop but no theorem relates it to the interest held.
 * **`compound_interest` accuracy.** Only the bounds `RAY + x ≤ f ≤ 21·RAY`
@@ -657,6 +681,11 @@ proofs changed with them.
 * The supply, borrow and strategy theorems gained the conclusion that the
   committed cache passes the entry-ceiling guard; `gate_and_debit_ok` and
   `revenue_accounting_spec` name the exit utilization guard.
+* `ValueCeiling.lean`: the value ceiling is a stored-state invariant of every
+  extracted leg (`ValueCeil`, 16 theorems). For it,
+  `withhold_liquidation_fee_ok` and `withdraw_accounting_spec` gained one
+  conclusion each: the liquidation-fee shares are worth at most the fee, and
+  never exceed the supply shares burned.
 * One trusted-base addition: `events.emit_market_value_ceiling` returns `()`.
 
 No previously proved property was lost. `ray_from_same` moved from

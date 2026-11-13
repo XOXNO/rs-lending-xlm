@@ -587,8 +587,12 @@ theorem withhold_liquidation_fee_ok (env : Env) (c : market_cache.Cache) (g fee 
     (¬ (isl = true ∧ fee.val ≠ 0) → net = g ∧ c' = c) ∧
     (isl = true ∧ fee.val ≠ 0 → fee.val ≤ g.val ∧ net.val = g.val - fee.val) ∧
     SharesInv c' ∧ ∃ s : Int, 0 ≤ s ∧ (¬ (isl = true ∧ fee.val ≠ 0) → s = 0) ∧
+      s * c.supply_index.val ≤ fee.val * 10^(27 - c.params.asset_decimals.val) * 10^27 ∧
       c'.revenue.val = c.revenue.val + s ∧ c'.supplied.val = c.supplied.val + s ∧
       c' = { c with revenue := c'.revenue, supplied := c'.supplied } := by
+  have hzb : (0 : Int) * c.supply_index.val ≤
+      fee.val * 10^(27 - c.params.asset_decimals.val) * 10^27 := by
+    rw [zero_mul]; exact mul_nonneg (mul_nonneg hfee (by positivity)) (by norm_num)
   unfold ops.withdraw.withhold_liquidation_fee at h
   obtain ⟨_, ha, h⟩ := bind_eq_ok h
   have ha := massert_ok ha
@@ -596,14 +600,14 @@ theorem withhold_liquidation_fee_ok (env : Env) (c : market_cache.Cache) (g fee 
   | false =>
     simp only [Bool.false_eq_true, ↓reduceIte, ok.injEq, Prod.mk.injEq] at h
     obtain ⟨rfl, rfl⟩ := h
-    exact ⟨fun _ => ⟨rfl, rfl⟩, fun h => by simp at h, hsh, 0, le_refl _, fun _ => rfl,
+    exact ⟨fun _ => ⟨rfl, rfl⟩, fun h => by simp at h, hsh, 0, le_refl _, fun _ => rfl, hzb,
       by simp, by simp, rfl⟩
   | true =>
     by_cases hf0 : fee = 0#i128
     · simp only [hf0, ↓reduceIte, ok.injEq, Prod.mk.injEq] at h
       obtain ⟨rfl, rfl⟩ := h
       have hv : fee.val = 0 := by simp [hf0]
-      exact ⟨fun _ => ⟨rfl, rfl⟩, fun h => absurd hv h.2, hsh, 0, le_refl _, fun _ => rfl,
+      exact ⟨fun _ => ⟨rfl, rfl⟩, fun h => absurd hv h.2, hsh, 0, le_refl _, fun _ => rfl, hzb,
         by simp, by simp, rfl⟩
     · have hv : fee.val ≠ 0 := fun he => hf0 (by apply IScalar.eq_of_val_eq; simpa using he)
       simp only [hf0, ↓reduceIte] at h
@@ -631,9 +635,19 @@ theorem withhold_liquidation_fee_ok (env : Env) (c : market_cache.Cache) (g fee 
       have hfrne : fr.val ≠ 0 := by
         rw [hfrv]; exact mul_ne_zero hv (by positivity)
       obtain ⟨hsh1, _, hne⟩ := hrev
-      obtain ⟨s, hs0, _, hr1, hs1, hce⟩ := hne hfrne
+      obtain ⟨s, hs0, hsq, hr1, hs1, hce⟩ := hne hfrne
+      -- the fee shares are worth at most the fee: `s ≤ ⌊fee·RAY/si⌋`
+      have hq := isFloor_ediv (fr.val * 10^27) c.supply_index.val hsi
+      have hsle : s ≤ fr.val * 10^27 / c.supply_index.val := by
+        rw [hsq _ hq]; exact le_trans (min_le_left _ _) (min_le_right _ _)
+      have hfl : fr.val * 10^27 / c.supply_index.val * c.supply_index.val ≤ fr.val * 10^27 :=
+        Int.ediv_mul_le _ (by omega)
+      have hsb : s * c.supply_index.val ≤
+          fee.val * 10^(27 - c.params.asset_decimals.val) * 10^27 := by
+        rw [← hfrv]
+        exact le_trans (Int.mul_le_mul_of_nonneg_right hsle (by omega)) hfl
       exact ⟨fun h => absurd ⟨rfl, hv⟩ h, fun _ => ⟨hle, hnv⟩, hsh1, s, hs0,
-        fun h => absurd ⟨rfl, hv⟩ h, hr1, hs1, hce⟩
+        fun h => absurd ⟨rfl, hv⟩ h, hsb, hr1, hs1, hce⟩
 
 /-- **`withdraw::gate_and_debit`.** Whenever it returns `c'`: `0 ≤ net ≤
 cash` (`require_reserves`, `debit_cash`), the exit utilization guard passed
@@ -719,6 +733,7 @@ theorem withdraw_accounting_spec (env : Env) (isl : Bool) (entry : types.pool.Po
     r.snapshot = snapOf r.cache ∧ PoolInv r.cache ∧
     ¬ (r.cache.supplied.val = 0 ∧ r.cache.borrowed.val ≠ 0) ∧
     (∃ s : Int, 0 ≤ s ∧ (¬ (isl = true ∧ entry.protocol_fee.val ≠ 0) → s = 0) ∧
+      s ≤ pos - new ∧
       r.cache.supplied.val = c.supplied.val - (pos - new) + s ∧
       r.cache.revenue.val = c.revenue.val + s) ∧
     r.cache.cash.val = c.cash.val - r.net_transfer.val ∧
@@ -797,7 +812,7 @@ theorem withdraw_accounting_spec (env : Env) (isl : Bool) (entry : types.pool.Po
           F0 * 10^(27 - c.params.asset_decimals.val) :=
         mul_le_mul_of_nonneg_right hgF (by positivity)
       omega) nt c2 hwh
-  obtain ⟨hwn, hwf, hsh2, s, hs0, hsz, hrev2, hsup2, hc2e⟩ := hwh'
+  obtain ⟨hwn, hwf, hsh2, s, hs0, hsz, hsb, hrev2, hsup2, hc2e⟩ := hwh'
   have hfin : ∃ skip c3, ops.withdraw.gate_and_debit env c2 nt skip = ok c3 ∧
       r = { cache := c3, snapshot := snapOf c3, net_transfer := nt,
             mutation := ({ position := { scaled_amount := rem }, market_index := indexOf c3, actual_amount := gr, asset_decimals := c3.params.asset_decimals } : types.pool.PoolPositionMutation) } := by
@@ -828,6 +843,27 @@ theorem withdraw_accounting_spec (env : Env) (isl : Bool) (entry : types.pool.Po
     by_cases hz : isl = true ∧ entry.protocol_fee.val ≠ 0
     · have := (hwf hz).2; omega
     · rw [hfe hz]
+  -- the fee shares are worth at most the fee, the fee is at most the gross
+  -- amount, and the burned shares are worth at least the gross amount
+  have hsbu : s ≤ bu.val := by
+    by_cases hz : isl = true ∧ entry.protocol_fee.val ≠ 0
+    · have hfg := (hwf hz).1
+      rw [show c1.supply_index = c.supply_index by rw [hc1e], hpar1] at hsb
+      have hfee_le : entry.protocol_fee.val * 10^(27 - c.params.asset_decimals.val) * 10^27 ≤
+          gr.val * 10^(27 - c.params.asset_decimals.val) * 10^27 :=
+        mul_le_mul_of_nonneg_right (mul_le_mul_of_nonneg_right hfg (le_of_lt hk)) (by norm_num)
+      have hgb : gr.val * 10^(27 - c.params.asset_decimals.val) * 10^27 ≤
+          bu.val * c.supply_index.val := by
+        by_cases hle : H0 ≤ entry.action.amount.val
+        · obtain ⟨hbe, hge⟩ := hfull hle
+          have hFc := hF0; unfold IsFloor at hFc; rw [if_pos (by positivity)] at hFc
+          have e : gr.val * 10^(27 - c.params.asset_decimals.val) * 10^27 =
+              F0 * (10^27 * 10^(27 - c.params.asset_decimals.val)) := by rw [hge]; ring
+          rw [e, hbe]; exact hFc.1
+        · obtain ⟨hge, _, hc, _⟩ := hpart (by omega)
+          rw [hge]; exact hc
+      exact le_of_mul_le_mul_right (le_trans hsb (le_trans hfee_le hgb)) hinv.si_pos
+    · rw [hsz hz]; exact hb0
   have hceil0 : ∀ q' : Int, IsCeil (0 * 10^(27 - c.params.asset_decimals.val) * 10^27)
       c.supply_index.val q' → q' = 0 := by
     intro q' hq'
@@ -835,8 +871,8 @@ theorem withdraw_accounting_spec (env : Env) (isl : Bool) (entry : types.pool.Po
     exact IsCeil.unique (by have := hinv.si_pos; omega) hq'
       (by unfold IsCeil; rw [if_pos hinv.si_pos]; constructor <;> nlinarith [hinv.si_pos])
   refine ⟨hamt, hpos, hfee, hg0, hga, by rw [hremv]; omega, by rw [hremv]; omega, ?_, ?_, ?_,
-    ?_, ?_, ?_, hnt0, hntG, hidx, by simp [hpar3], by simp, ?_, ?_, ⟨s, hs0, hsz, ?_, ?_⟩,
-    ?_, hc3full⟩
+    ?_, ?_, ?_, hnt0, hntG, hidx, by simp [hpar3], by simp, ?_, ?_,
+    ⟨s, hs0, hsz, by rw [hremv]; omega, ?_, ?_⟩, ?_, hc3full⟩
   · intro rr H F hrr hH hF
     have e1 : rr = r0 := IsHalfUp.unique (by norm_num) hrr hr0
     subst e1
