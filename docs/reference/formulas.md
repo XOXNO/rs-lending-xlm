@@ -158,6 +158,9 @@ slope3 / (RAY - optimal)`, exactly and without division
 (`slope1 * (optimal - mid) <= slope2 * mid`, and the same at optimal). Equal
 steepness is allowed, so a straight line through a kink passes. Slopes must
 also be non-negative, at most the max rate, and `slope1` at least the base rate.
+Together these imply `base + slope1 + slope2 < max`, so the segment above
+optimal always has room below the cap: a positive `slope3` leaves it, and
+`slope3 = 0` forces `slope1 = slope2 = 0`, where `max > base` does.
 
 Accrual uses the per-millisecond rate `per_ms`. Pool borrow and deposit rate
 views return annual RAY fractions from stored indexes, without first accruing

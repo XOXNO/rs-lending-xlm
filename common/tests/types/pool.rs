@@ -698,3 +698,99 @@ fn test_steepness_comparison_is_exact_across_magnitudes() {
         "both outcomes covered: {both:?}"
     );
 }
+
+#[test]
+fn test_rate_model_verify_accepts_example_two_from_the_cap_up() {
+    // slopes 13/5/60% with mid 70% and optimal 80% reach 79% at full
+    // utilization; any max from there up to the 200% bound is accepted.
+    let env = Env::default();
+    pct_model(1, [13, 5, 60], 79, 70, 80).verify(&env);
+    pct_model(1, [13, 5, 60], 200, 70, 80).verify(&env);
+}
+
+#[test]
+#[should_panic(expected = "#129")]
+fn test_rate_model_verify_rejects_example_two_one_raw_unit_under_the_cap() {
+    let env = Env::default();
+    let mut m = pct_model(1, [13, 5, 60], 79, 70, 80);
+    m.max_borrow_rate -= 1;
+    m.verify(&env);
+}
+
+#[test]
+#[should_panic(expected = "#129")]
+fn test_rate_model_verify_rejects_a_flat_top_segment_after_a_rising_one() {
+    // Audit I-08 recommendation 1 asks for `base + slope1 + slope2 < max`, so
+    // the top segment has room. With `slope3 = 0` the steepness rule leaves
+    // only `slope1 = slope2 = 0`; any rise before optimal is rejected.
+    let env = Env::default();
+    pct_model(0, [2, 4, 0], 6, 20, 60).verify(&env);
+}
+
+/// Every model `verify` admits leaves the top segment room under the cap:
+/// `base + slope1 + slope2 < max` (audit I-08 recommendation 1). Random
+/// models are pre-filtered with the same rules, so `verify` never panics here.
+#[test]
+fn test_rate_model_verify_admits_only_curves_whose_top_segment_has_room() {
+    let env = Env::default();
+    env.cost_estimate().budget().reset_unlimited();
+    let mut seed: u64 = 0x1801_2026_1308_0001;
+    let mut draw = |bound: i128| -> i128 {
+        let mut word = || {
+            seed = seed
+                .wrapping_mul(6_364_136_223_846_793_005)
+                .wrapping_add(1_442_695_040_888_963_407);
+            u128::from(seed >> 16)
+        };
+        let wide = (word() << 96) ^ (word() << 48) ^ word();
+        (wide % (bound.max(1) as u128)) as i128
+    };
+    let (mut admitted, mut flat, mut at_cap) = (0, 0, 0);
+    while admitted < 400 {
+        let mid = 1 + draw(RAY - 2);
+        let optimal = mid + 1 + draw(RAY - 1 - mid);
+        if optimal >= RAY {
+            continue;
+        }
+        // A flat curve needs `base = 0`: `slope1 >= base` still holds.
+        let (base, s1, s2, s3) = if draw(5) == 0 {
+            (0, 0, 0, 0)
+        } else {
+            let base = draw(20 * PCT);
+            (base, base + draw(60 * PCT), draw(60 * PCT), draw(150 * PCT))
+        };
+        let sum = base + s1 + s2 + s3;
+        let max = if draw(3) == 0 {
+            sum
+        } else {
+            sum + draw(20 * PCT)
+        };
+        if max <= base || max > MAX_BORROW_RATE_RAY {
+            continue;
+        }
+        let (w1, w2, w3) = (
+            Ray::from(mid),
+            Ray::from(optimal - mid),
+            Ray::from(RAY - optimal),
+        );
+        if !steepness_does_not_fall(&env, s1, w1, s2, w2)
+            || !steepness_does_not_fall(&env, s2, w2, s3, w3)
+        {
+            continue;
+        }
+        let mut m = pct_model(0, [0, 0, 0], 1, 1, 2);
+        m.base_borrow_rate = base;
+        m.slope1 = s1;
+        m.slope2 = s2;
+        m.slope3 = s3;
+        m.max_borrow_rate = max;
+        m.mid_utilization = mid;
+        m.optimal_utilization = optimal;
+        m.verify(&env);
+        assert!(base + s1 + s2 < max, "no room for the top segment: {m:?}");
+        admitted += 1;
+        flat += i32::from(s3 == 0);
+        at_cap += i32::from(max == sum);
+    }
+    assert!(flat > 20 && at_cap > 50, "flat={flat} at_cap={at_cap}");
+}
