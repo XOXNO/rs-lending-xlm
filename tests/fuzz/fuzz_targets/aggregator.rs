@@ -99,8 +99,18 @@ fuzz_target!(|i: In| {
 
     let pa = in_range(i.price_a, PRICE_HI);
     let pb = in_range(i.price_b, PRICE_HI);
-    mock.set_price_data(&String::from_str(&env, "A"), &pa, &ts_ms(i.age_a), &ts_ms(i.age_a));
-    mock.set_price_data(&String::from_str(&env, "B"), &pb, &ts_ms(i.age_b), &ts_ms(i.age_b));
+    mock.set_price_data(
+        &String::from_str(&env, "A"),
+        &pa,
+        &ts_ms(i.age_a),
+        &ts_ms(i.age_a),
+    );
+    mock.set_price_data(
+        &String::from_str(&env, "B"),
+        &pb,
+        &ts_ms(i.age_b),
+        &ts_ms(i.age_b),
+    );
 
     let min = in_range(i.min_sanity, PRICE_HI);
     let max = in_range(i.max_sanity, PRICE_HI);
@@ -109,12 +119,22 @@ fuzz_target!(|i: In| {
     let key1 = PriceKey::Token(Address::generate(&env));
     agg.seed_oracle(&key1, &config(&env, &adapter, ids_fwd, &i, min, max));
 
-    let q1 = agg.quotes(&vec![&env, key1.clone()]).get(key1.clone()).unwrap();
+    let q1 = agg
+        .quotes(&vec![&env, key1.clone()])
+        .get(key1.clone())
+        .unwrap();
     let r1 = try_price(&env, &agg, &key1);
-    assert_eq!(q1.valid, r1.is_some(), "quote.valid must match price resolvability");
+    assert_eq!(
+        q1.valid,
+        r1.is_some(),
+        "quote.valid must match price resolvability"
+    );
 
     if let Some(f1) = &r1 {
-        assert_eq!(f1.price_wad, q1.final_wad, "usable price != quote.final_wad");
+        assert_eq!(
+            f1.price_wad, q1.final_wad,
+            "usable price != quote.final_wad"
+        );
         assert!(
             min <= f1.price_wad && f1.price_wad <= max,
             "resolved price {} outside sanity band [{}, {}]",
@@ -136,7 +156,10 @@ fuzz_target!(|i: In| {
     if i.dual {
         let key2 = PriceKey::Token(Address::generate(&env));
         agg.seed_oracle(&key2, &config(&env, &adapter, &["B", "A"], &i, min, max));
-        let q2 = agg.quotes(&vec![&env, key2.clone()]).get(key2.clone()).unwrap();
+        let q2 = agg
+            .quotes(&vec![&env, key2.clone()])
+            .get(key2.clone())
+            .unwrap();
         assert_eq!(q1.valid, q2.valid, "source order changed usability");
         let r2 = try_price(&env, &agg, &key2);
         assert_eq!(

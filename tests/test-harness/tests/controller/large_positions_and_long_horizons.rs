@@ -2,22 +2,29 @@
 //! curves, years of accrual at several utilizations. Every path must clear,
 //! the borrow index must track an `e^(r t)` reference within the Taylor bound,
 //! accrued interest must be fully assigned, and the exit must pay back what
-//! the book says. The last test drives the one cliff the domain has: the ray
-//! value of a whale position overflows `i128` long before the index cap.
+//! the book says. The last test drives the one limit the domain has: the ray
+//! value of a whale market reaches the value ceiling long before the index
+//! cap. Accrual holds interest there, and every exit keeps working (audit
+//! finding S-04).
 //!
-//! Cells are chosen under that cliff. Utilization is value-based and debt
+//! Cells are chosen under that ceiling. Utilization is value-based and debt
 //! compounds faster than supply, so an untouched market drifts upward: on the
 //! XLM curve a book left at 50 percent utilization crosses the optimal point
 //! after about ten years and runs away (the reference puts it at x8650 after
 //! twenty). Every cell asserts the reference projection stays under the
-//! ceiling, so a bad cell fails with a message rather than a host trap.
+//! ceiling, so a bad cell fails with a message instead of comparing a held
+//! index against an unheld reference.
 
+use common::constants::{MAX_MARKET_ENTRY_RAY, MAX_MARKET_VALUE_RAY};
 use common::math::fp::Ray;
 use common::validation::max_cap_for_decimals;
 use controller::constants::{MAX_BORROW_INDEX_RAY, RAY};
+use soroban_sdk::testutils::Events as _;
+use soroban_sdk::vec;
+use soroban_sdk::xdr::{ContractEventBody, ScVal};
 use test_harness::{
-    assert_contract_error, errors, hub_asset, usd, LendingTest, MarketParamsPreset, MarketPreset,
-    ALICE, BOB, DEFAULT_ASSET_CONFIG, HARNESS_SPOKE,
+    assert_contract_error, errors, hub_asset, map_try_ok_value, usd, LendingTest,
+    MarketParamsPreset, MarketPreset, ALICE, BOB, DEFAULT_ASSET_CONFIG, HARNESS_SPOKE, LIQUIDATOR,
 };
 
 const YEAR_SECS: u64 = 31_556_926;
@@ -312,50 +319,147 @@ fn one_billion_at_three_decimals_accrues_and_exits() {
     }
 }
 
-/// The cliff. A billion whole tokens is `1e36` raw ray; the value ceiling is
-/// `i128::MAX`, 170 times that. At the XLM curve's steep segment the index
-/// grows past 170x in a few years, and the next accrual panics inside
-/// `scaled_to_original`. Every verb accrues first, so the market freezes:
-/// no repay, no withdraw, no liquidation. The index cap never engages.
+/// Number of `MarketValueCeilingEvent`s the last invocation published.
+fn value_ceiling_events(t: &LendingTest) -> usize {
+    t.env
+        .events()
+        .all()
+        .events()
+        .iter()
+        .filter(|event| {
+            let ContractEventBody::V0(body) = &event.body;
+            matches!(
+                (body.topics.first(), body.topics.get(1)),
+                (Some(ScVal::Symbol(a)), Some(ScVal::Symbol(b)))
+                    if a.0.to_utf8_string().as_deref() == Ok("market")
+                        && b.0.to_utf8_string().as_deref() == Ok("value_ceiling")
+            )
+        })
+        .count()
+}
+
+/// Audit finding S-04, inverted. The audit supplied a market to the admitted
+/// cap and let interest run: a market value passed `i128`, the next accrual
+/// panicked with `MathOverflow`, and because every verb accrues first the
+/// market froze. No repay, no withdraw, no liquidation, until a pool upgrade.
+///
+/// The same market now reaches the value ceiling and stays live. Accrual
+/// holds interest there and says so in an event; repayment, withdrawal and
+/// liquidation all go through; only new entries are refused, until exits take
+/// the market back under the entry ceiling. The index cap never engages.
 #[test]
-fn a_whale_market_at_sustained_high_utilization_hits_the_ray_value_ceiling_before_the_index_cap() {
+fn a_market_supplied_at_the_admitted_cap_stays_live_when_interest_reaches_the_value_ceiling() {
+    // Collateral at a thousand dollars, so cover for the debt fits under the
+    // collateral market's own cap.
+    let mut collateral = col();
+    collateral.price_wad = usd(1_000);
     let mut t = LendingTest::new()
         .with_market(big("BIG18", 18, xlm_curve()))
-        .with_market(col())
+        .with_market(collateral)
         .with_max_utilization_disabled_all_markets()
         .build();
     lift_caps(&t, "BIG18", 18);
     lift_caps(&t, "COL", 7);
-    let principal = BILLION * 10i128.pow(18);
-    t.supply_raw(BOB, "BIG18", principal);
-    let debt = principal / 100 * 98;
-    t.supply_raw(ALICE, "COL", BILLION * 10_000_000 * 3);
-    t.borrow_raw(ALICE, "BIG18", debt);
-
-    let mut years = 0u32;
-    let failure = loop {
-        years += 1;
-        assert!(
-            years <= 40,
-            "no cliff within 40 years; the bound in docs/reference/formulas.md is wrong"
-        );
-        t.advance_time(YEAR_SECS);
-        if let Err(e) = t.try_update_indexes_for(&["BIG18"]) {
-            break e;
-        }
-    };
-    let failed: Result<(), soroban_sdk::Error> = Err(failure);
-    assert_contract_error(failed, errors::MATH_OVERFLOW);
-    let last = book(&t, "BIG18");
-    assert!(
-        last.borrow_index < MAX_BORROW_INDEX_RAY,
-        "the index cap did not engage before the value overflow"
+    let unit = 10i128.pow(18);
+    let cap = max_cap_for_decimals(18);
+    assert_eq!(
+        cap / unit,
+        21_267_647_932,
+        "about 21.27 billion whole tokens"
     );
-    // The market is frozen: exits and repayments accrue first and hit the same panic.
-    assert_contract_error(t.try_withdraw_raw(BOB, "BIG18", 1), errors::MATH_OVERFLOW);
-    assert_contract_error(t.try_repay(ALICE, "BIG18", 1.0), errors::MATH_OVERFLOW);
+
+    t.supply_raw(BOB, "BIG18", cap);
+    let debt = cap / 100 * 90;
+    t.supply_raw(ALICE, "COL", 40_000_000 * 10_000_000);
+    t.borrow_raw(ALICE, "BIG18", debt);
+    assert!(t.health_factor(ALICE) > 1.0);
+
+    // Six years at 90 percent utilization and rising on the XLM curve. Every
+    // accrual returns.
+    let mut held_after = None;
+    for year in 1..=6u32 {
+        t.advance_time(YEAR_SECS);
+        t.update_indexes_for(&["BIG18"]);
+        if held_after.is_none() && value_ceiling_events(&t) == 1 {
+            held_after = Some(year);
+        }
+    }
+    let held_after = held_after.expect("six years must reach the value ceiling");
+    let held = book(&t, "BIG18");
+    let env = &t.env;
+    let value = |scaled: i128, index: i128| Ray::from(scaled).mul(env, Ray::from(index)).raw();
+    let debt_value = value(held.borrowed, held.borrow_index);
+    let supply_value = value(held.supplied, held.supply_index);
+    assert!(debt_value <= MAX_MARKET_VALUE_RAY && supply_value <= MAX_MARKET_VALUE_RAY);
+    assert!(
+        supply_value > MAX_MARKET_VALUE_RAY / 100 * 99,
+        "the market sits at the ceiling: {supply_value}"
+    );
+    assert!(supply_value > 7 * MAX_MARKET_ENTRY_RAY);
+    assert!(
+        held.borrow_index < MAX_BORROW_INDEX_RAY,
+        "the index cap did not engage before the value ceiling"
+    );
+
+    // One more year: time advances, the event repeats, nothing accrues.
+    t.advance_time(YEAR_SECS);
+    t.update_indexes_for(&["BIG18"]);
+    assert_eq!(value_ceiling_events(&t), 1);
+    let later = book(&t, "BIG18");
+    assert_eq!(later.borrow_index, held.borrow_index);
+    assert_eq!(later.supply_index, held.supply_index);
+    assert_eq!(later.supplied, held.supplied);
+
+    // Repayment.
+    let owed_before = t.borrow_balance_raw(ALICE, "BIG18");
+    t.repay_raw(ALICE, "BIG18", 1_000_000 * unit);
+    assert_eq!(
+        t.borrow_balance_raw(ALICE, "BIG18"),
+        owed_before - 1_000_000 * unit
+    );
+
+    // Withdrawal.
+    let wallet_before = t.token_balance_raw(BOB, "BIG18");
+    t.withdraw_raw(BOB, "BIG18", 1_000_000 * unit);
+    assert_eq!(
+        t.token_balance_raw(BOB, "BIG18"),
+        wallet_before + 1_000_000 * unit
+    );
+
+    // Liquidation: the debt grew eightfold against fixed collateral.
+    t.assert_liquidatable(ALICE);
+    let debt_before = t.borrow_balance_raw(ALICE, "BIG18");
+    let collateral_before = t.supply_balance_raw(ALICE, "COL");
+    t.liquidate(LIQUIDATOR, ALICE, "BIG18", 1_000_000.0);
+    assert!(t.borrow_balance_raw(ALICE, "BIG18") < debt_before);
+    assert!(t.supply_balance_raw(ALICE, "COL") < collateral_before);
+    assert!(t.token_balance_raw(LIQUIDATOR, "COL") > 0);
+
+    // Entries are refused while a total is above the entry ceiling.
+    let bob = t.get_or_create_user(BOB);
+    t.resolve_market("BIG18").token_admin.mint(&bob, &unit);
+    let bob_account = t.account_id(BOB);
+    let one_more = vec![&t.env, (hub_asset(t.resolve_asset("BIG18")), unit)];
+    assert_contract_error(
+        map_try_ok_value(
+            t.ctrl_client()
+                .try_supply(&bob, &bob_account, &HARNESS_SPOKE, &one_more),
+        ),
+        errors::MARKET_CEILING_REACHED,
+    );
+
+    // Full exit: the borrower repays everything, the supplier leaves whole.
+    let owed = t.borrow_balance_raw(ALICE, "BIG18") + unit;
+    t.repay_raw(ALICE, "BIG18", owed);
+    assert_eq!(t.borrow_balance_raw(ALICE, "BIG18"), 0);
+    let claimed = t.supply_balance_raw(BOB, "BIG18");
+    let wallet_before = t.token_balance_raw(BOB, "BIG18");
+    t.withdraw_all(BOB, "BIG18");
+    let paid = t.token_balance_raw(BOB, "BIG18") - wallet_before;
+    assert!(paid > cap, "the supplier exits with principal and interest");
+    assert!(paid <= claimed, "exit above the book value");
     std::println!(
-        "ray-value cliff reached after {years} years at 98 percent utilization on the XLM curve; last index x{:.1}",
-        last.borrow_index as f64 / RAY as f64
+        "value ceiling reached after {held_after} years at 90 percent utilization on the XLM curve; index held at x{:.2}",
+        held.borrow_index as f64 / RAY as f64
     );
 }

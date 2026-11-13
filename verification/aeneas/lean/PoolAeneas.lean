@@ -35,6 +35,8 @@ import PoolAeneas.Proofs.GlobalSync
 import PoolAeneas.Proofs.Legs
 import PoolAeneas.Proofs.Legs2
 import PoolAeneas.Proofs.Summaries
+-- The market value ceiling as a stored-state invariant of every leg.
+import PoolAeneas.Proofs.ValueCeiling
 import Audit
 
 -- Fails the build on any `sorry`, `native_decide` or added axiom in this

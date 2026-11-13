@@ -171,7 +171,6 @@ fn supply_amount(asset: &str, size: u8) -> f64 {
 }
 
 fn borrow_amount(asset: &str, size: u8) -> f64 {
-
     if size.is_multiple_of(17) || size == 1 {
         return 1e-7;
     }
@@ -280,7 +279,6 @@ fuzz_target!(|data: &[u8]| {
     assert_pool_accounting(&t, &ASSETS);
 
     for op in ops {
-
         if let Op::Liquidate { debtor, mode, .. } = op {
             if mode & 1 == 1 {
                 stress_debtor_prices(&mut t, pick_user(debtor));
@@ -447,11 +445,7 @@ fn dispatch(t: &mut stellar_fuzz::LendingTest, op: &Op) -> (bool, Vec<(&'static 
             let upper = 10_000 + tol;
             let lower = 10_000 * 10_000 / upper;
 
-            let max_dev = (10_000 - lower)
-                .min(tol)
-                .min(100)
-                .saturating_sub(2)
-                .max(0);
+            let max_dev = (10_000 - lower).min(tol).min(100).saturating_sub(2).max(0);
             let dev = if max_dev == 0 {
                 0
             } else {
@@ -490,7 +484,6 @@ fn dispatch(t: &mut stellar_fuzz::LendingTest, op: &Op) -> (bool, Vec<(&'static 
             (ok, vec![])
         }
         Op::CleanBadDebt => {
-
             t.set_price("USDC", default_spot("USDC"));
             t.set_price("ETH", default_spot("ETH"));
             t.supply(BAD_DEBTOR, "USDC", 20.0);

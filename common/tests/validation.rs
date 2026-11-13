@@ -284,11 +284,11 @@ fn cap_domain_accepts_zero_and_reasonable() {
 fn cap_domain_accepts_ceiling_across_listable_decimals() {
     let env = Env::default();
 
-    assert_eq!(max_cap_for_decimals(3), 170_141_183_460_469);
-    assert_eq!(max_cap_for_decimals(7), 1_701_411_834_604_692_317);
+    assert_eq!(max_cap_for_decimals(3), 21_267_647_932_433);
+    assert_eq!(max_cap_for_decimals(7), 212_676_479_324_336_539);
     assert_eq!(
         max_cap_for_decimals(18),
-        170_141_183_460_469_231_731_687_303_715
+        21_267_647_932_433_653_966_460_912_964
     );
 
     require_cap_within_asset_domain(&env, max_cap_for_decimals(3), 3);
@@ -344,13 +344,23 @@ fn cap_domain_rejects_i128_max_at_max_listable_decimals() {
     require_cap_within_asset_domain(&env, i128::MAX, 18);
 }
 
-/// The cap ceiling and the balance ceiling are the same number: both are the
-/// largest amount `Ray::from_asset` can upscale without overflowing `i128`.
+/// The cap ceiling is the pool's entry ceiling in asset units: the largest
+/// amount whose RAY form is at most `MAX_MARKET_ENTRY_RAY`, so a market
+/// supplied at the admitted cap keeps `MARKET_ENTRY_HEADROOM` of room for
+/// interest below `MAX_MARKET_VALUE_RAY`.
 /// See `docs/reference/formulas.md#numeric-limits`
 #[test]
-fn cap_ceiling_is_exactly_the_largest_representable_balance() {
+fn cap_ceiling_is_exactly_the_market_entry_ceiling() {
     let env = Env::default();
+    use crate::constants::{MARKET_ENTRY_HEADROOM, MAX_MARKET_ENTRY_RAY, MAX_MARKET_VALUE_RAY};
     use crate::math::fp::Ray;
+
+    assert_eq!(MAX_MARKET_VALUE_RAY, i128::MAX - crate::constants::RAY);
+    assert_eq!(
+        MAX_MARKET_ENTRY_RAY,
+        MAX_MARKET_VALUE_RAY / MARKET_ENTRY_HEADROOM
+    );
+    assert_eq!(MARKET_ENTRY_HEADROOM, 8);
 
     for decimals in crate::constants::MIN_ASSET_DECIMALS..=crate::constants::MAX_ASSET_DECIMALS {
         let ceiling = max_cap_for_decimals(decimals);
@@ -362,24 +372,24 @@ fn cap_ceiling_is_exactly_the_largest_representable_balance() {
 
         let unit_in_ray = 10i128.pow(RAY_DECIMALS - decimals);
         assert!(
-            ceiling.checked_mul(unit_in_ray).is_some(),
-            "ceiling must not overflow at {decimals} decimals",
+            ceiling * unit_in_ray <= MAX_MARKET_ENTRY_RAY,
+            "ceiling must fit the entry ceiling at {decimals} decimals",
         );
         assert!(
-            (ceiling + 1).checked_mul(unit_in_ray).is_none(),
+            (ceiling + 1) * unit_in_ray > MAX_MARKET_ENTRY_RAY,
             "ceiling is not tight at {decimals} decimals",
         );
     }
 }
 
 /// Expressed in whole tokens the ceiling does not depend on decimals at all:
-/// i128::MAX / RAY = 170_141_183_460.469…
+/// MAX_MARKET_ENTRY_RAY / RAY = 21_267_647_932.433…
 #[test]
 fn cap_ceiling_is_a_constant_whole_token_count() {
     for decimals in crate::constants::MIN_ASSET_DECIMALS..=crate::constants::MAX_ASSET_DECIMALS {
         assert_eq!(
             max_cap_for_decimals(decimals) / 10i128.pow(decimals),
-            170_141_183_460,
+            21_267_647_932,
         );
     }
 }
@@ -389,7 +399,10 @@ fn cap_ceiling_is_a_constant_whole_token_count() {
 /// `AssetDecimalsTooHigh`.
 #[test]
 fn cap_ceiling_collapses_to_zero_above_ray_decimals() {
-    assert_eq!(max_cap_for_decimals(RAY_DECIMALS), i128::MAX);
+    assert_eq!(
+        max_cap_for_decimals(RAY_DECIMALS),
+        crate::constants::MAX_MARKET_ENTRY_RAY
+    );
     assert_eq!(max_cap_for_decimals(RAY_DECIMALS + 1), 0);
 }
 

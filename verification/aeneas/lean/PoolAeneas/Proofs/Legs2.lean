@@ -362,7 +362,10 @@ events).** Whenever it returns `r` on a market synced to `c` with
 * the committed cache is `c` with `borrowed += minted`, `revenue` and
   `supplied` both `+= s` (`s ≥ 0` protocol-fee shares, `0` for a zero fee;
   INV-ACCT-01 booking, INV-ACCT-10) and `cash -= amount − fee` (the fee
-  stays in cash, INV-ACCT-02); `PoolInv` holds.
+  stays in cash, INV-ACCT-02); `PoolInv` holds;
+* the committed cache passes the entry-ceiling guard (INV-ACCT-11): the leg
+  checks it after the debt mint and again after the fee shares raise total
+  supply.
 
 Hypotheses: `PoolInv c`, `ParamsOk c` (`decimals ≤ 18`, `flashloan_fee ≤
 500`), `amount·10^k < 2^127`. -/
@@ -387,7 +390,8 @@ theorem strategy_accounting_spec (env : Env) (action : types.pool.PoolAction) (c
         r.cache.revenue.val = c.revenue.val + s ∧ r.cache.supplied.val = c.supplied.val + s) ∧
       r.cache.cash.val = c.cash.val - (action.amount.val - r.fee.val) ∧
       r.cache = { c with borrowed := r.cache.borrowed, revenue := r.cache.revenue,
-                         supplied := r.cache.supplied, cash := r.cache.cash } := by
+                         supplied := r.cache.supplied, cash := r.cache.cash } ∧
+      (∃ u, guards.require_within_entry_ceiling env r.cache = ok u) := by
   obtain ⟨hdec, hbps⟩ := hpar
   unfold ops.strategy.accounting at h
   obtain ⟨_, h1, h⟩ := bind_eq_ok h
@@ -403,6 +407,7 @@ theorem strategy_accounting_spec (env : Env) (action : types.pool.PoolAction) (c
   simp only [market_cache.Cache.impl.params, bind_ok] at h
   obtain ⟨pf, hpf, h⟩ := bind_eq_ok h
   obtain ⟨c2, hc2, h⟩ := bind_eq_ok h
+  obtain ⟨uc, hceil, h⟩ := bind_eq_ok h
   obtain ⟨o, ho, h⟩ := bind_eq_ok h
   obtain ⟨snd, hsnd, h⟩ := bind_eq_ok h
   obtain ⟨c3, hc3, h⟩ := bind_eq_ok h
@@ -443,8 +448,13 @@ theorem strategy_accounting_spec (env : Env) (action : types.pool.PoolAction) (c
   have hrev3 : c3.revenue = c2.revenue := by rw [hc3e]
   have hsup3 : c3.supplied = c2.supplied := by rw [hc3e]
   have hbor3 : c3.borrowed = c1.borrowed := by rw [hc3e, hc2e]
+  have hceil3 : guards.require_within_entry_ceiling env c3 = ok uc := by
+    rw [require_within_entry_ceiling_congr env c2 c3 (by rw [hc3e]) (by rw [hc3e]) (by rw [hc3e])
+      (by rw [hc3e])]
+    exact hceil
   refine ⟨hpos', hpos, hbuf, hf0, hfle, hfz, minted, hmc, hm0, hp1, trivial, hsndv, hidx,
-    by simp [hpar3], ?_, by rw [hbor3, hbor1], ⟨s, hs0, hsz, ?_, ?_⟩, ?_, hc3full⟩
+    by simp [hpar3], ?_, by rw [hbor3, hbor1], ⟨s, hs0, hsz, ?_, ?_⟩, ?_, hc3full,
+    ⟨uc, hceil3⟩⟩
   · refine ⟨⟨?_, ?_, ?_⟩, hcash30, ?_, ?_, ?_, ?_⟩
     · rw [hrev3]; exact hsh2.1
     · rw [hrev3, hsup3]; exact hsh2.2.1
@@ -470,7 +480,9 @@ payout burns a ceiling share, a positive payout burns at least one share:
 INV-ACCT-06 — so `claim_revenue_summary`'s `amount ≥ 0` holds); the
 utilization guard passed on `c1` (INV-ACCT-08); the committed cache is
 `c1` with `cash -= amt` (INV-ACCT-02), `PoolInv` holds and not `supplied =
-0 ∧ borrowed ≠ 0` (INV-ACCT-09). Hypotheses: `PoolInv c`, `decimals ≤ 27`,
+0 ∧ borrowed ≠ 0` (INV-ACCT-09). The utilization guard is the exit form
+(`require_exit_utilization_below_max_spec`: no check at a 100% ceiling).
+Hypotheses: `PoolInv c`, `decimals ≤ 27`,
 `revenue·supply_index < 2^127·RAY`. -/
 theorem revenue_accounting_spec (env : Env) (k : types.pool.HubAssetKey)
     (c : market_cache.Cache) (hsync : ops.synced_market env k = ok c) (hinv : PoolInv c)
@@ -481,7 +493,7 @@ theorem revenue_accounting_spec (env : Env) (k : types.pool.HubAssetKey)
       IsFloor (c.revenue.val * c.supply_index.val) (10^27 * 10^(27 - c.params.asset_decimals.val)) T ∧
       ClaimResult c T r.mutation.actual_amount.val c1 ∧
       0 ≤ r.mutation.actual_amount.val ∧ r.mutation.actual_amount.val ≤ c.cash.val ∧
-      (∃ u, guards.require_utilization_below_max env c1 = ok u) ∧
+      (∃ u, guards.require_exit_utilization_below_max env c1 = ok u) ∧
       r.cache.cash.val = c1.cash.val - r.mutation.actual_amount.val ∧
       r.cache = { c1 with cash := r.cache.cash } ∧ PoolInv r.cache ∧
       ¬ (r.cache.supplied.val = 0 ∧ r.cache.borrowed.val ≠ 0) := by
@@ -548,22 +560,32 @@ theorem load_ok (env : Env) (k : types.pool.HubAssetKey) (st : types.pool.PoolSt
   subst h
   exact ⟨rfl, rfl, rfl, rfl, rfl, rfl, rfl⟩
 
-/-- **`ops::synced_market` preserves the stored-state invariant (one
-accrual chunk).** If the market loads to `c0` with `PoolInv c0`, in the
-accrual domain (`AccrualDomain c0`) and with at most one year elapsed, then
-`synced_market` returns (does not abort) a cache `c` with `PoolInv c`, the
-same cash and params, and indexes no lower than before (INV-IDX-01/02).
-Together with the leg theorems (each leg's committed cache satisfies
-`PoolInv`), the stored-state invariant is inductive over every leg. -/
+/-- The stored-state invariant with a validated rate model is the accrual
+domain: no bound on the market values is needed. -/
+theorem AccrualDomain.of_poolInv {c : market_cache.Cache} (hinv : PoolInv c)
+    (hp : RatesProofs.ValidRateModel c.params) : AccrualDomain c :=
+  ⟨hp, hinv.shares, by have := hinv.bi_lo; omega, hinv.bi_hi, hinv.si_pos, hinv.si_hi⟩
+
+/-- **`ops::synced_market` never aborts and preserves the stored-state
+invariant, for any elapsed time (INV-IDX-06; audit finding S-04).** If the
+market loads to `c0` with `PoolInv c0` and a validated rate model
+(`InterestRateModel::verify`), then `synced_market` returns (does not abort) a
+cache `c` with `PoolInv c`, the same cash and params, and indexes no lower
+than before (INV-IDX-01/02), whatever the elapsed time and however large the
+market values: accrual holds interest at `MAX_MARKET_VALUE_RAY` instead of
+overflowing. Every leg starts with this call, so withdrawals, repayments and
+liquidations cannot be blocked by accrual. Together with the leg theorems
+(each leg's committed cache satisfies `PoolInv`), the stored-state invariant
+is inductive over every leg. -/
 theorem synced_market_spec (env : Env) (k : types.pool.HubAssetKey) (c0 : market_cache.Cache)
-    (hload : market_cache.Cache.load env k = ok c0) (hinv : PoolInv c0) (hD : AccrualDomain c0)
-    (he : c0.current_timestamp.val - c0.last_timestamp.val ≤ 31556926000) :
+    (hload : market_cache.Cache.load env k = ok c0) (hinv : PoolInv c0)
+    (hp : RatesProofs.ValidRateModel c0.params) :
     ops.synced_market env k ⦃ c => PoolInv c ∧ c.cash = c0.cash ∧ c.params = c0.params ∧
       c0.borrow_index.val ≤ c.borrow_index.val ∧ c0.supply_index.val ≤ c.supply_index.val ⦄ := by
   unfold ops.synced_market
   rw [hload, bind_ok]
-  apply WP.spec_mono (global_sync_one_chunk_spec env c0 hD he)
-  rintro c (⟨_, rfl⟩ | ⟨_, _, x, hx, rfl⟩)
+  apply WP.spec_mono (global_sync_spec env c0 (AccrualDomain.of_poolInv hinv hp))
+  rintro c (⟨_, rfl⟩ | ⟨_, _, x, hx, _, rfl⟩)
   · exact ⟨hinv, rfl, rfl, le_refl _, le_refl _⟩
   · obtain ⟨hsh, hb1, hb2, hs1, hs2, sh, _, _, _, hxe⟩ := hx
     have hcash : x.cash = c0.cash := by rw [hxe]

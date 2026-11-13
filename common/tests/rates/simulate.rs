@@ -1,8 +1,10 @@
 use super::*;
 use crate::constants::{
-    MAX_BORROW_INDEX_RAY, MAX_SUPPLY_INDEX_RAY, MILLISECONDS_PER_YEAR, RAY, SUPPLY_INDEX_FLOOR_RAW,
+    MAX_BORROW_INDEX_RAY, MAX_MARKET_ENTRY_RAY, MAX_MARKET_VALUE_RAY, MAX_SUPPLY_INDEX_RAY,
+    MILLISECONDS_PER_YEAR, RAY, SUPPLY_INDEX_FLOOR_RAW,
 };
 use crate::math::test_support::{half_up_of, Sampler};
+use crate::rates::scaling::scaled_to_original;
 use crate::rates::test_support::*;
 use crate::types::PoolStateRaw;
 use soroban_sdk::Env;
@@ -452,6 +454,349 @@ mod accrue_step_boundaries {
         assert!(
             extra <= 2 * one_ms_of_growth + 2,
             "the second chunk is one millisecond long: got {extra}, one ms is {one_ms_of_growth}"
+        );
+    }
+}
+
+// --- accrue_step at the market value ceiling (audit finding S-04) ----------
+
+mod accrue_step_value_ceiling {
+    use super::*;
+    use crate::math::fp::Ray;
+    use crate::math::test_support::contract_error_code;
+
+    /// Half-up value of `scaled` shares at `index`, or `None` past `i128`.
+    fn value(scaled: i128, index: i128) -> Option<i128> {
+        half_up_of(scaled, index, RAY)
+    }
+
+    fn step(
+        env: &Env,
+        params: &MarketParams,
+        borrowed: i128,
+        supplied: i128,
+        borrow_index: i128,
+        supply_index: i128,
+        delta_ms: u64,
+    ) -> AccrualStep {
+        accrue_step(
+            env,
+            params,
+            Ray::from(borrowed),
+            Ray::from(supplied),
+            Ray::from(borrow_index),
+            Ray::from(supply_index),
+            delta_ms,
+        )
+    }
+
+    #[test]
+    fn a_step_with_room_to_spare_is_not_capped() {
+        let env = Env::default();
+        let params = make_test_params(&env);
+        let out = step(
+            &env,
+            &params,
+            60 * RAY,
+            100 * RAY,
+            RAY,
+            RAY,
+            MILLISECONDS_PER_YEAR,
+        );
+        assert!(!out.value_capped);
+        assert!(out.borrow_index.raw() > RAY);
+        assert!(out.supply_index.raw() > RAY);
+    }
+
+    /// The audit's S-04 state: a market whose value is near `i128::MAX`. One
+    /// year of interest would take the debt value past it; the step used to
+    /// panic with `MathOverflow` and now holds the growth at the ceiling.
+    #[test]
+    fn a_step_that_would_cross_the_ceiling_is_held_at_it() {
+        let env = Env::default();
+        let params = make_test_params(&env);
+        let room = 10 * RAY;
+        let supplied = MAX_MARKET_VALUE_RAY - room;
+        let borrowed = supplied / 10 * 9;
+        let out = step(
+            &env,
+            &params,
+            borrowed,
+            supplied,
+            RAY,
+            RAY,
+            MILLISECONDS_PER_YEAR,
+        );
+        assert!(out.value_capped, "the rate implies far more than the room");
+        let (bi, si, revenue) = (
+            out.borrow_index.raw(),
+            out.supply_index.raw(),
+            out.revenue_shares.raw(),
+        );
+        assert!(bi > RAY, "the room that was left is still accrued");
+        let interest = value(borrowed, bi).unwrap() - borrowed;
+        assert!(interest > 0 && interest <= room, "interest {interest}");
+        // Almost all of the room is used: the index growth rounds down by
+        // less than one raw unit per share of debt.
+        assert!(room - interest <= borrowed / RAY + 1);
+        assert!(value(borrowed, bi).unwrap() <= MAX_MARKET_VALUE_RAY);
+        assert!(value(supplied + revenue, si).unwrap() <= MAX_MARKET_VALUE_RAY);
+        assert!(si >= RAY && revenue >= 0);
+    }
+
+    #[test]
+    fn a_step_at_the_ceiling_accrues_nothing() {
+        let env = Env::default();
+        let params = make_test_params(&env);
+        for (borrowed, supplied) in [
+            (MAX_MARKET_VALUE_RAY / 2, MAX_MARKET_VALUE_RAY),
+            (MAX_MARKET_VALUE_RAY, MAX_MARKET_VALUE_RAY),
+            // Past the ceiling, but still representable.
+            (MAX_MARKET_VALUE_RAY / 2, i128::MAX),
+        ] {
+            let out = step(
+                &env,
+                &params,
+                borrowed,
+                supplied,
+                RAY,
+                RAY,
+                MILLISECONDS_PER_YEAR,
+            );
+            assert!(out.value_capped);
+            assert_eq!(out.borrow_index.raw(), RAY);
+            assert_eq!(out.supply_index.raw(), RAY);
+            assert_eq!(out.revenue_shares, Ray::ZERO);
+        }
+    }
+
+    #[test]
+    fn a_step_at_the_ceiling_without_debt_reports_no_cap() {
+        let env = Env::default();
+        let params = make_test_params(&env);
+        let out = step(
+            &env,
+            &params,
+            0,
+            MAX_MARKET_VALUE_RAY,
+            RAY,
+            RAY,
+            MILLISECONDS_PER_YEAR,
+        );
+        assert!(!out.value_capped, "there is no interest to hold");
+        assert_eq!(out.supply_index.raw(), RAY);
+        assert_eq!(out.revenue_shares, Ray::ZERO);
+    }
+
+    /// A total whose value does not fit `i128` at all holds the step instead
+    /// of aborting it.
+    #[test]
+    fn a_step_with_an_unrepresentable_total_is_held() {
+        let env = Env::default();
+        let params = make_test_params(&env);
+        for (borrowed, supplied, borrow_index, supply_index) in [
+            (i128::MAX / 2, i128::MAX / 2, 4 * RAY, RAY),
+            (RAY, i128::MAX / 2, RAY, 4 * RAY),
+            (
+                i128::MAX,
+                i128::MAX,
+                MAX_BORROW_INDEX_RAY,
+                MAX_SUPPLY_INDEX_RAY,
+            ),
+        ] {
+            assert!(
+                value(borrowed, borrow_index).is_none() || value(supplied, supply_index).is_none()
+            );
+            let out = step(
+                &env,
+                &params,
+                borrowed,
+                supplied,
+                borrow_index,
+                supply_index,
+                MILLISECONDS_PER_YEAR,
+            );
+            assert!(out.value_capped);
+            assert_eq!(out.borrow_index.raw(), borrow_index);
+            assert_eq!(out.supply_index.raw(), supply_index);
+            assert_eq!(out.revenue_shares, Ray::ZERO);
+        }
+        let no_debt = step(
+            &env,
+            &params,
+            0,
+            i128::MAX / 2,
+            RAY,
+            4 * RAY,
+            MILLISECONDS_PER_YEAR,
+        );
+        assert!(!no_debt.value_capped);
+    }
+
+    #[test]
+    fn a_negative_total_or_index_still_panics() {
+        let env = Env::default();
+        let params = make_test_params(&env);
+        for (borrowed, supplied, borrow_index, supply_index) in [
+            (-1, RAY, RAY, RAY),
+            (RAY, -1, RAY, RAY),
+            (RAY, RAY, -1, RAY),
+            (RAY, RAY, RAY, -1),
+        ] {
+            let code = contract_error_code(|| {
+                let _ = step(
+                    &env,
+                    &params,
+                    borrowed,
+                    supplied,
+                    borrow_index,
+                    supply_index,
+                    1,
+                );
+            });
+            assert_eq!(code, Some(crate::errors::GenericError::MathOverflow as u32));
+        }
+    }
+
+    /// Any non-negative totals and any stored indexes: the step returns, keeps
+    /// both indexes monotone, and never takes a total across the ceiling.
+    #[test]
+    fn no_state_overflows_and_no_step_crosses_the_ceiling() {
+        let env = unmetered_env();
+        let mut sampler = Sampler::new(2_604);
+        for round in 0..4_000 {
+            let params = sample_params(&env, &mut sampler);
+            let borrow_index = RAY + sampler.at_most(MAX_BORROW_INDEX_RAY - RAY);
+            let supply_index = sample_index(&mut sampler);
+            // A third of the cases sit near the ceiling, the rest anywhere.
+            let (borrowed, supplied) = match round % 3 {
+                0 => {
+                    let near = |index: i128, sampler: &mut Sampler| {
+                        let at_ceiling = Ray::from(MAX_MARKET_VALUE_RAY)
+                            .div_floor_saturating(&env, Ray::from(index))
+                            .raw();
+                        at_ceiling - sampler.at_most(at_ceiling / 4)
+                    };
+                    (
+                        near(borrow_index, &mut sampler),
+                        near(supply_index, &mut sampler),
+                    )
+                }
+                _ => (sampler.non_negative(), sampler.non_negative()),
+            };
+            let delta_ms = sampler.at_most(i128::from(MAX_COMPOUND_DELTA_MS)) as u64;
+            let case = (borrowed, supplied, borrow_index, supply_index, delta_ms);
+
+            let out = step(
+                &env,
+                &params,
+                borrowed,
+                supplied,
+                borrow_index,
+                supply_index,
+                delta_ms,
+            );
+            let (bi, si, revenue) = (
+                out.borrow_index.raw(),
+                out.supply_index.raw(),
+                out.revenue_shares.raw(),
+            );
+            assert!(
+                (borrow_index..=MAX_BORROW_INDEX_RAY).contains(&bi),
+                "{case:?}"
+            );
+            assert!(
+                (supply_index..=MAX_SUPPLY_INDEX_RAY).contains(&si),
+                "{case:?}"
+            );
+            assert!(
+                revenue >= 0 && supplied.checked_add(revenue).is_some(),
+                "{case:?}"
+            );
+
+            let (Some(debt), Some(supply)) =
+                (value(borrowed, borrow_index), value(supplied, supply_index))
+            else {
+                assert_eq!(
+                    (bi, si, revenue),
+                    (borrow_index, supply_index, 0),
+                    "{case:?}"
+                );
+                continue;
+            };
+            if debt.max(supply) >= MAX_MARKET_VALUE_RAY {
+                // Without debt the borrow index still moves; it prices nothing.
+                assert!(borrowed == 0 || bi == borrow_index, "{case:?}");
+                assert_eq!((si, revenue), (supply_index, 0), "{case:?}");
+                continue;
+            }
+            let new_debt = value(borrowed, bi).expect("debt value fits");
+            let new_supply = value(supplied + revenue, si).expect("supply value fits");
+            assert!(
+                new_debt <= MAX_MARKET_VALUE_RAY,
+                "{case:?}: debt {new_debt}"
+            );
+            assert!(
+                new_supply <= MAX_MARKET_VALUE_RAY,
+                "{case:?}: supply {new_supply}"
+            );
+            assert!(new_supply - supply <= new_debt - debt, "{case:?}");
+        }
+    }
+
+    /// A market at the entry ceiling accrues a full year at the 200% maximum
+    /// rate without reaching the value ceiling: the headroom factor is 8 and
+    /// one year at that rate multiplies debt by less than `e^2`.
+    #[test]
+    fn the_entry_headroom_covers_a_year_at_the_maximum_rate() {
+        let env = Env::default();
+        let mut raw = make_test_params_raw(&env);
+        raw.max_borrow_rate = 2 * RAY;
+        raw.slope3 = 2 * RAY - raw.base_borrow_rate - raw.slope1 - raw.slope2;
+        raw.verify(&env);
+        let params = MarketParams::from(&raw);
+        let out = step(
+            &env,
+            &params,
+            MAX_MARKET_ENTRY_RAY,
+            MAX_MARKET_ENTRY_RAY,
+            RAY,
+            RAY,
+            MILLISECONDS_PER_YEAR,
+        );
+        assert!(!out.value_capped);
+        let debt = value(MAX_MARKET_ENTRY_RAY, out.borrow_index.raw()).unwrap();
+        assert!(debt > 7 * MAX_MARKET_ENTRY_RAY && debt < MAX_MARKET_VALUE_RAY);
+    }
+
+    /// Fifty years on a market at the entry ceiling: the simulator returns,
+    /// and the debt value it implies stops at the ceiling.
+    #[test]
+    fn the_simulator_never_overflows_on_a_market_at_the_entry_ceiling() {
+        let env = unmetered_env();
+        let sync = sample_sync(
+            &env,
+            PoolStateRaw {
+                supplied: MAX_MARKET_ENTRY_RAY,
+                borrowed: MAX_MARKET_ENTRY_RAY / 10 * 9,
+                revenue: 0,
+                borrow_index: RAY,
+                supply_index: RAY,
+                last_timestamp: 0,
+                cash: 0,
+            },
+        );
+        let after = simulate_update_indexes(&env, 50 * MILLISECONDS_PER_YEAR, &sync);
+        let debt = value(MAX_MARKET_ENTRY_RAY / 10 * 9, after.borrow_index.raw()).unwrap();
+        assert!(debt <= MAX_MARKET_VALUE_RAY);
+        assert!(
+            debt > MAX_MARKET_VALUE_RAY / 10 * 9,
+            "fifty years must reach the ceiling: {debt}"
+        );
+        let later = simulate_update_indexes(&env, 60 * MILLISECONDS_PER_YEAR, &sync);
+        assert_eq!(
+            later.borrow_index, after.borrow_index,
+            "interest has stopped"
         );
     }
 }

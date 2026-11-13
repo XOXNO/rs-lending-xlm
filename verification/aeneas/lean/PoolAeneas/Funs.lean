@@ -95,31 +95,52 @@ impl_def aeneas_pool_shim.I256.Insts.CoreCmpPartialOrdI256 :
 def constants.shared.RAY : Std.I128 := 1000000000000000000000000000#i128
 
 /-- [pool_aeneas::constants::pool::SUPPLY_INDEX_FLOOR_RAW]
-    Source: 'src/../../../../common/src/constants/pool.rs', lines 9:0-9:53
+    Source: 'src/../../../../common/src/constants/pool.rs', lines 10:0-10:53
     Visibility: public -/
 @[global_simps, irreducible]
 def constants.pool.SUPPLY_INDEX_FLOOR_RAW : Result Std.I128 :=
   constants.shared.RAY / 1000#i128
 
 /-- [pool_aeneas::constants::pool::LIQUIDATION_BUFFER_BPS]
-    Source: 'src/../../../../common/src/constants/pool.rs', lines 16:0-16:45
+    Source: 'src/../../../../common/src/constants/pool.rs', lines 17:0-17:45
     Visibility: public -/
 @[global_simps, irreducible]
 def constants.pool.LIQUIDATION_BUFFER_BPS : Std.I128 := 200#i128
 
 /-- [pool_aeneas::constants::pool::MAX_BORROW_INDEX_RAY]
-    Source: 'src/../../../../common/src/constants/pool.rs', lines 19:0-19:89
+    Source: 'src/../../../../common/src/constants/pool.rs', lines 20:0-20:89
     Visibility: public -/
 @[global_simps, irreducible]
 def constants.pool.MAX_BORROW_INDEX_RAY : Std.I128 :=
   1000000000000000000000000000000000000#i128
 
 /-- [pool_aeneas::constants::pool::MAX_SUPPLY_INDEX_RAY]
-    Source: 'src/../../../../common/src/constants/pool.rs', lines 23:0-23:60
+    Source: 'src/../../../../common/src/constants/pool.rs', lines 24:0-24:60
     Visibility: public -/
 @[global_simps, irreducible]
 def constants.pool.MAX_SUPPLY_INDEX_RAY : Std.I128 :=
   constants.pool.MAX_BORROW_INDEX_RAY
+
+/-- [pool_aeneas::constants::pool::MAX_MARKET_VALUE_RAY]
+    Source: 'src/../../../../common/src/constants/pool.rs', lines 33:0-33:55
+    Visibility: public -/
+@[global_simps, irreducible]
+def constants.pool.MAX_MARKET_VALUE_RAY : Result Std.I128 :=
+  core.num.I128.MAX - constants.shared.RAY
+
+/-- [pool_aeneas::constants::pool::MARKET_ENTRY_HEADROOM]
+    Source: 'src/../../../../common/src/constants/pool.rs', lines 38:0-38:42
+    Visibility: public -/
+@[global_simps, irreducible]
+def constants.pool.MARKET_ENTRY_HEADROOM : Std.I128 := 8#i128
+
+/-- [pool_aeneas::constants::pool::MAX_MARKET_ENTRY_RAY]
+    Source: 'src/../../../../common/src/constants/pool.rs', lines 46:0-46:84
+    Visibility: public -/
+@[global_simps, irreducible]
+def constants.pool.MAX_MARKET_ENTRY_RAY : Result Std.I128 := do
+  let i ← constants.pool.MAX_MARKET_VALUE_RAY
+  i / constants.pool.MARKET_ENTRY_HEADROOM
 
 /-- [pool_aeneas::constants::shared::BPS]
     Source: 'src/../../../../common/src/constants/shared.rs', lines 11:0-11:29
@@ -442,17 +463,27 @@ def math.fp.Ray.mul
   let i ← math.fp_core.mul_div_half_up env self other constants.shared.RAY
   ok i
 
-/-- [pool_aeneas::math::fp::{pool_aeneas::math::fp::Ray}::try_div]:
-    Source: 'src/../../../../common/src/math/fp.rs', lines 65:4-67:5
+/-- [pool_aeneas::math::fp::{pool_aeneas::math::fp::Ray}::try_mul]:
+    Source: 'src/../../../../common/src/math/fp.rs', lines 60:4-62:5
     Visibility: public -/
-def math.fp.Ray.try_div
+def math.fp.Ray.try_mul
   (self : math.fp.Ray) (env : aeneas_pool_shim.Env) (other : math.fp.Ray) :
   Result (Option math.fp.Ray)
   := do
   let o ←
-    math.fp_core.try_mul_div_half_up env self constants.shared.RAY other
+    math.fp_core.try_mul_div_half_up env self other constants.shared.RAY
   core.option.Option.map P.Insts.CoreOpsFunctionFnOnceTupleI128Ray o
     (math.fp.Ray.constructor)
+
+/-- [pool_aeneas::math::fp::{pool_aeneas::math::fp::Ray}::div]:
+    Source: 'src/../../../../common/src/math/fp.rs', lines 65:4-67:5
+    Visibility: public -/
+def math.fp.Ray.div
+  (self : math.fp.Ray) (env : aeneas_pool_shim.Env) (other : math.fp.Ray) :
+  Result math.fp.Ray
+  := do
+  let i ← math.fp_core.mul_div_half_up env self constants.shared.RAY other
+  ok i
 
 /-- [pool_aeneas::math::fp_core::to_i128::{impl core::ops::function::FnOnce<(), i128> for pool_aeneas::math::fp_core::to_i128::{closure}<'_0, '_1>}::call_once]:
     Source: 'src/../../../../common/src/math/fp_core.rs', lines 302:24-302:77 -/
@@ -590,7 +621,7 @@ def math.fp_core.mul_div_floor
   | some quotient => ok quotient
 
 /-- [pool_aeneas::math::fp::{pool_aeneas::math::fp::Ray}::div_floor]:
-    Source: 'src/../../../../common/src/math/fp.rs', lines 70:4-72:5
+    Source: 'src/../../../../common/src/math/fp.rs', lines 75:4-77:5
     Visibility: public -/
 def math.fp.Ray.div_floor
   (self : math.fp.Ray) (env : aeneas_pool_shim.Env) (other : math.fp.Ray) :
@@ -648,7 +679,7 @@ def math.fp_core.mul_div_floor_saturating
   | some quotient => ok quotient
 
 /-- [pool_aeneas::math::fp::{pool_aeneas::math::fp::Ray}::div_floor_saturating]:
-    Source: 'src/../../../../common/src/math/fp.rs', lines 75:4-77:5
+    Source: 'src/../../../../common/src/math/fp.rs', lines 80:4-82:5
     Visibility: public -/
 def math.fp.Ray.div_floor_saturating
   (self : math.fp.Ray) (env : aeneas_pool_shim.Env) (other : math.fp.Ray) :
@@ -659,13 +690,13 @@ def math.fp.Ray.div_floor_saturating
   ok i
 
 /-- [pool_aeneas::math::fp::{pool_aeneas::math::fp::Ray}::mul_int::{impl core::ops::function::FnOnce<(), i128> for pool_aeneas::math::fp::{pool_aeneas::math::fp::Ray}::mul_int::{closure}<'_0, '_1>}::call_once]:
-    Source: 'src/../../../../common/src/math/fp.rs', lines 84:28-84:81 -/
+    Source: 'src/../../../../common/src/math/fp.rs', lines 89:28-89:81 -/
 def math.fp.Ray.mul_int.closure.Insts.CoreOpsFunctionFnOnceTupleI128.call_once
   (c : math.fp.Ray.mul_int.closure) (_ : Unit) : Result Std.I128 := do
   fail panic
 
 /-- Trait implementation: [pool_aeneas::math::fp::{pool_aeneas::math::fp::Ray}::mul_int::{impl core::ops::function::FnOnce<(), i128> for pool_aeneas::math::fp::{pool_aeneas::math::fp::Ray}::mul_int::{closure}<'_0, '_1>}]
-    Source: 'src/../../../../common/src/math/fp.rs', lines 84:28-84:81 -/
+    Source: 'src/../../../../common/src/math/fp.rs', lines 89:28-89:81 -/
 @[reducible]
 def math.fp.Ray.mul_int.closure.Insts.CoreOpsFunctionFnOnceTupleI128 :
   core.ops.function.FnOnce math.fp.Ray.mul_int.closure Unit Std.I128 := {
@@ -674,7 +705,7 @@ def math.fp.Ray.mul_int.closure.Insts.CoreOpsFunctionFnOnceTupleI128 :
 }
 
 /-- [pool_aeneas::math::fp::{pool_aeneas::math::fp::Ray}::mul_int]:
-    Source: 'src/../../../../common/src/math/fp.rs', lines 80:4-85:5
+    Source: 'src/../../../../common/src/math/fp.rs', lines 85:4-90:5
     Visibility: public -/
 def math.fp.Ray.mul_int
   (self : math.fp.Ray) (env : aeneas_pool_shim.Env) (multiplier : Std.I128) :
@@ -687,7 +718,7 @@ def math.fp.Ray.mul_int
   ok i
 
 /-- [pool_aeneas::math::fp::{pool_aeneas::math::fp::Ray}::mul_ray_ratio]:
-    Source: 'src/../../../../common/src/math/fp.rs', lines 88:4-95:5
+    Source: 'src/../../../../common/src/math/fp.rs', lines 93:4-100:5
     Visibility: public -/
 def math.fp.Ray.mul_ray_ratio
   (self : math.fp.Ray) (env : aeneas_pool_shim.Env) (numerator : math.fp.Ray)
@@ -793,7 +824,7 @@ def math.fp_core.mul_div_ceil
   | some quotient => ok quotient
 
 /-- [pool_aeneas::math::fp::{pool_aeneas::math::fp::Ray}::div_ceil]:
-    Source: 'src/../../../../common/src/math/fp.rs', lines 108:4-110:5
+    Source: 'src/../../../../common/src/math/fp.rs', lines 113:4-115:5
     Visibility: public -/
 def math.fp.Ray.div_ceil
   (self : math.fp.Ray) (env : aeneas_pool_shim.Env) (other : math.fp.Ray) :
@@ -825,7 +856,7 @@ def math.fp_core.div_by_int_half_up
     else ok quotient
 
 /-- [pool_aeneas::math::fp::{pool_aeneas::math::fp::Ray}::div_by_int]:
-    Source: 'src/../../../../common/src/math/fp.rs', lines 113:4-115:5
+    Source: 'src/../../../../common/src/math/fp.rs', lines 118:4-120:5
     Visibility: public -/
 def math.fp.Ray.div_by_int
   (self : math.fp.Ray) (env : aeneas_pool_shim.Env) (n : Std.I128) :
@@ -835,7 +866,7 @@ def math.fp.Ray.div_by_int
   ok i
 
 /-- [pool_aeneas::math::fp::{pool_aeneas::math::fp::Ray}::mul_floor]:
-    Source: 'src/../../../../common/src/math/fp.rs', lines 118:4-120:5
+    Source: 'src/../../../../common/src/math/fp.rs', lines 123:4-125:5
     Visibility: public -/
 def math.fp.Ray.mul_floor
   (self : math.fp.Ray) (env : aeneas_pool_shim.Env) (other : math.fp.Ray) :
@@ -845,7 +876,7 @@ def math.fp.Ray.mul_floor
   ok i
 
 /-- [pool_aeneas::math::fp::{pool_aeneas::math::fp::Ray}::mul_ceil]:
-    Source: 'src/../../../../common/src/math/fp.rs', lines 123:4-125:5
+    Source: 'src/../../../../common/src/math/fp.rs', lines 128:4-130:5
     Visibility: public -/
 def math.fp.Ray.mul_ceil
   (self : math.fp.Ray) (env : aeneas_pool_shim.Env) (other : math.fp.Ray) :
@@ -855,7 +886,7 @@ def math.fp.Ray.mul_ceil
   ok i
 
 /-- [pool_aeneas::math::fp::{pool_aeneas::math::fp::Ray}::mul_ratio_ceil]:
-    Source: 'src/../../../../common/src/math/fp.rs', lines 128:4-130:5
+    Source: 'src/../../../../common/src/math/fp.rs', lines 133:4-135:5
     Visibility: public -/
 def math.fp.Ray.mul_ratio_ceil
   (self : math.fp.Ray) (env : aeneas_pool_shim.Env) (numerator : Std.I128)
@@ -1027,7 +1058,7 @@ def math.fp_core.rescale_half_up
     env a from_decimals to_decimals env
 
 /-- [pool_aeneas::math::fp::{pool_aeneas::math::fp::Ray}::to_asset]:
-    Source: 'src/../../../../common/src/math/fp.rs', lines 163:4-165:5
+    Source: 'src/../../../../common/src/math/fp.rs', lines 168:4-170:5
     Visibility: public -/
 def math.fp.Ray.to_asset
   (self : math.fp.Ray) (env : aeneas_pool_shim.Env) (asset_decimals : Std.U32)
@@ -1125,7 +1156,7 @@ def math.fp_core.rescale_floor
     env a from_decimals to_decimals ()
 
 /-- [pool_aeneas::math::fp::{pool_aeneas::math::fp::Ray}::to_asset_floor]:
-    Source: 'src/../../../../common/src/math/fp.rs', lines 168:4-170:5
+    Source: 'src/../../../../common/src/math/fp.rs', lines 173:4-175:5
     Visibility: public -/
 def math.fp.Ray.to_asset_floor
   (self : math.fp.Ray) (env : aeneas_pool_shim.Env) (asset_decimals : Std.U32)
@@ -1231,7 +1262,7 @@ def math.fp_core.rescale_ceil
     env a from_decimals to_decimals ()
 
 /-- [pool_aeneas::math::fp::{pool_aeneas::math::fp::Ray}::to_asset_ceil]:
-    Source: 'src/../../../../common/src/math/fp.rs', lines 173:4-175:5
+    Source: 'src/../../../../common/src/math/fp.rs', lines 178:4-180:5
     Visibility: public -/
 def math.fp.Ray.to_asset_ceil
   (self : math.fp.Ray) (env : aeneas_pool_shim.Env) (asset_decimals : Std.U32)
@@ -1242,7 +1273,7 @@ def math.fp.Ray.to_asset_ceil
     asset_decimals
 
 /-- [pool_aeneas::math::fp::{pool_aeneas::math::fp::Ray}::from_asset]:
-    Source: 'src/../../../../common/src/math/fp.rs', lines 183:4-190:5
+    Source: 'src/../../../../common/src/math/fp.rs', lines 188:4-195:5
     Visibility: public -/
 def math.fp.Ray.from_asset
   (env : aeneas_pool_shim.Env) (amount : Std.I128) (asset_decimals : Std.U32) :
@@ -1254,7 +1285,7 @@ def math.fp.Ray.from_asset
   ok i
 
 /-- [pool_aeneas::math::fp::{pool_aeneas::math::fp::Ray}::checked_sub]:
-    Source: 'src/../../../../common/src/math/fp.rs', lines 194:4-196:5
+    Source: 'src/../../../../common/src/math/fp.rs', lines 199:4-201:5
     Visibility: public -/
 def math.fp.Ray.checked_sub
   (self : math.fp.Ray) (env : aeneas_pool_shim.Env) (rhs : math.fp.Ray) :
@@ -1264,7 +1295,7 @@ def math.fp.Ray.checked_sub
   ok i
 
 /-- [pool_aeneas::math::fp::{pool_aeneas::math::fp::Ray}::checked_add]:
-    Source: 'src/../../../../common/src/math/fp.rs', lines 199:4-201:5
+    Source: 'src/../../../../common/src/math/fp.rs', lines 204:4-206:5
     Visibility: public -/
 def math.fp.Ray.checked_add
   (self : math.fp.Ray) (env : aeneas_pool_shim.Env) (rhs : math.fp.Ray) :
@@ -1274,7 +1305,7 @@ def math.fp.Ray.checked_add
   ok i
 
 /-- [pool_aeneas::math::fp::{pool_aeneas::math::fp::Bps}::from]:
-    Source: 'src/../../../../common/src/math/fp.rs', lines 353:4-355:5
+    Source: 'src/../../../../common/src/math/fp.rs', lines 358:4-360:5
     Visibility: public -/
 def math.fp.Bps.from
   {T0 : Type _} (coreconvertIntoT0I128Inst : core.convert.Into T0 Std.I128)
@@ -1285,13 +1316,13 @@ def math.fp.Bps.from
   ok i
 
 /-- [pool_aeneas::math::fp::{pool_aeneas::math::fp::Bps}::raw]:
-    Source: 'src/../../../../common/src/math/fp.rs', lines 359:4-361:5
+    Source: 'src/../../../../common/src/math/fp.rs', lines 364:4-366:5
     Visibility: public -/
 def math.fp.Bps.raw (self : math.fp.Bps) : Result Std.I128 := do
   ok self
 
 /-- [pool_aeneas::math::fp::{pool_aeneas::math::fp::Bps}::apply_to]:
-    Source: 'src/../../../../common/src/math/fp.rs', lines 394:4-396:5
+    Source: 'src/../../../../common/src/math/fp.rs', lines 399:4-401:5
     Visibility: public -/
 def math.fp.Bps.apply_to
   (self : math.fp.Bps) (env : aeneas_pool_shim.Env) (amount : Std.I128) :
@@ -1300,7 +1331,7 @@ def math.fp.Bps.apply_to
   math.fp_core.mul_div_half_up env amount self constants.shared.BPS
 
 /-- [pool_aeneas::math::fp::{pool_aeneas::math::fp::Bps}::apply_to_ceil]:
-    Source: 'src/../../../../common/src/math/fp.rs', lines 399:4-401:5
+    Source: 'src/../../../../common/src/math/fp.rs', lines 404:4-406:5
     Visibility: public -/
 def math.fp.Bps.apply_to_ceil
   (self : math.fp.Bps) (env : aeneas_pool_shim.Env) (amount : Std.I128) :
@@ -1309,7 +1340,7 @@ def math.fp.Bps.apply_to_ceil
   math.fp_core.mul_div_ceil env amount self constants.shared.BPS
 
 /-- [pool_aeneas::math::fp::{pool_aeneas::math::fp::Bps}::flash_loan_fee_on]:
-    Source: 'src/../../../../common/src/math/fp.rs', lines 410:4-417:5
+    Source: 'src/../../../../common/src/math/fp.rs', lines 415:4-422:5
     Visibility: public -/
 def math.fp.Bps.flash_loan_fee_on
   (self : math.fp.Bps) (env : aeneas_pool_shim.Env) (amount : Std.I128) :
@@ -1324,7 +1355,7 @@ def math.fp.Bps.flash_loan_fee_on
   else ok fee_amount
 
 /-- [pool_aeneas::math::fp::{pool_aeneas::math::fp::Bps}::apply_to_ray]:
-    Source: 'src/../../../../common/src/math/fp.rs', lines 434:4-436:5
+    Source: 'src/../../../../common/src/math/fp.rs', lines 439:4-441:5
     Visibility: public -/
 def math.fp.Bps.apply_to_ray
   (self : math.fp.Bps) (env : aeneas_pool_shim.Env) (value : math.fp.Ray) :
@@ -1481,7 +1512,7 @@ def rates.curve.calculate_borrow_rate
   math.fp.Ray.div_by_int r env i
 
 /-- [pool_aeneas::rates::curve::utilization]:
-    Source: 'src/../../../../common/src/rates/curve.rs', lines 118:0-126:1
+    Source: 'src/../../../../common/src/rates/curve.rs', lines 121:0-132:1
     Visibility: public -/
 def rates.curve.utilization
   (env : aeneas_pool_shim.Env) (borrowed : math.fp.Ray)
@@ -1500,8 +1531,12 @@ def rates.curve.utilization
       core.cmp.PartialOrd.lt.trait_default
         math.fp.Ray.Insts.CoreCmpPartialOrdRay supplied math.fp.Ray.ZERO
     massert (¬ b2)
-    let o ← math.fp.Ray.try_div borrowed env supplied
-    ok (core.option.Option.unwrap_or o math.fp.Ray.ONE)
+    let b3 ←
+      core.cmp.PartialOrd.ge.trait_default
+        math.fp.Ray.Insts.CoreCmpPartialOrdRay borrowed supplied
+    if b3
+    then ok math.fp.Ray.ONE
+    else math.fp.Ray.div borrowed env supplied
 
 /-- [pool_aeneas::rates::index::update_borrow_index]:
     Source: 'src/../../../../common/src/rates/index.rs', lines 12:0-18:1
@@ -1814,8 +1849,70 @@ def rates.scaling.resolve_repay
         borrow_index
     ok (r, 0#i128)
 
+/-- [pool_aeneas::rates::simulate::cap_borrow_index]:
+    Source: 'src/../../../../common/src/rates/simulate.rs', lines 154:0-163:1 -/
+def rates.simulate.cap_borrow_index
+  (env : aeneas_pool_shim.Env) (borrowed : math.fp.Ray)
+  (old_index : math.fp.Ray) (grown_index : math.fp.Ray) (room : math.fp.Ray) :
+  Result math.fp.Ray
+  := do
+  let b ← math.fp.Ray.Insts.CoreCmpPartialEqRay.eq borrowed math.fp.Ray.ZERO
+  if b
+  then ok grown_index
+  else
+    let b1 ←
+      core.cmp.PartialOrd.le.trait_default
+        math.fp.Ray.Insts.CoreCmpPartialOrdRay grown_index old_index
+    if b1
+    then ok grown_index
+    else
+      let max_growth ← math.fp.Ray.div_floor_saturating room env borrowed
+      let r ← math.fp.Ray.checked_sub grown_index env old_index
+      let b2 ←
+        core.cmp.PartialOrd.le.trait_default
+          math.fp.Ray.Insts.CoreCmpPartialOrdRay r max_growth
+      if b2
+      then ok grown_index
+      else math.fp.Ray.checked_add old_index env max_growth
+
+/-- [pool_aeneas::rates::simulate::value_room]:
+    Source: 'src/../../../../common/src/rates/simulate.rs', lines 139:0-146:1 -/
+def rates.simulate.value_room
+  (env : aeneas_pool_shim.Env) (debt_value : math.fp.Ray)
+  (supply_value : math.fp.Ray) :
+  Result math.fp.Ray
+  := do
+  let i ← constants.pool.MAX_MARKET_VALUE_RAY
+  let ceiling ←
+    math.fp.Ray.from (core.convert.IntoFrom (core.convert.FromSame Std.I128)) i
+  let top ←
+    core.cmp.Ord.max.trait_default math.fp.Ray.Insts.CoreCmpOrd debt_value
+      supply_value
+  let b ←
+    core.cmp.PartialOrd.ge.trait_default math.fp.Ray.Insts.CoreCmpPartialOrdRay
+      top ceiling
+  if b
+  then ok math.fp.Ray.ZERO
+  else math.fp.Ray.checked_sub ceiling env top
+
+/-- [pool_aeneas::rates::simulate::market_value]:
+    Source: 'src/../../../../common/src/rates/simulate.rs', lines 129:0-134:1 -/
+def rates.simulate.market_value
+  (env : aeneas_pool_shim.Env) (scaled : math.fp.Ray) (index : math.fp.Ray) :
+  Result (Option math.fp.Ray)
+  := do
+  let b ←
+    core.cmp.PartialOrd.lt.trait_default math.fp.Ray.Insts.CoreCmpPartialOrdRay
+      scaled math.fp.Ray.ZERO
+  massert (¬ b)
+  let b1 ←
+    core.cmp.PartialOrd.lt.trait_default math.fp.Ray.Insts.CoreCmpPartialOrdRay
+      index math.fp.Ray.ZERO
+  massert (¬ b1)
+  math.fp.Ray.try_mul scaled env index
+
 /-- [pool_aeneas::rates::simulate::accrue_step]:
-    Source: 'src/../../../../common/src/rates/simulate.rs', lines 51:0-94:1
+    Source: 'src/../../../../common/src/rates/simulate.rs', lines 66:0-122:1
     Visibility: public -/
 def rates.simulate.accrue_step
   (env : aeneas_pool_shim.Env) (params : types.pool.MarketParams)
@@ -1824,46 +1921,77 @@ def rates.simulate.accrue_step
   (delta_ms : Std.U64) :
   Result rates.simulate.AccrualStep
   := do
-  let borrowed_original ←
-    rates.scaling.scaled_to_original env borrowed borrow_index
-  let supplied_original ←
-    rates.scaling.scaled_to_original env supplied supply_index
-  let util ← rates.curve.utilization env borrowed_original supplied_original
-  let borrow_rate ← rates.curve.calculate_borrow_rate env util params
-  let interest_factor ←
-    rates.compound.compound_interest env borrow_rate delta_ms
-  let new_borrow_index ←
-    rates.index.update_borrow_index env borrow_index interest_factor
-  let (supplier_rewards, protocol_fee) ←
-    rates.index.calculate_supplier_rewards env params borrowed new_borrow_index
-      borrow_index
-  let new_supply_index ←
-    rates.index.update_supply_index env supplied supply_index supplier_rewards
-  let supplier_shortfall ←
-    rates.index.supply_index_reward_shortfall env supplied supply_index
-      new_supply_index supplier_rewards
-  let protocol_reward ←
-    math.fp.Ray.checked_add protocol_fee env supplier_shortfall
-  let b ←
-    math.fp.Ray.Insts.CoreCmpPartialEqRay.eq protocol_reward math.fp.Ray.ZERO
-  if b
-  then
+  let o ← rates.simulate.market_value env borrowed borrow_index
+  let o1 ← rates.simulate.market_value env supplied supply_index
+  match o with
+  | none =>
+    let b ←
+      core.cmp.PartialEq.ne.trait_default math.fp.Ray.Insts.CoreCmpPartialEqRay
+        borrowed math.fp.Ray.ZERO
     ok
       {
-        borrow_index := new_borrow_index,
-        supply_index := new_supply_index,
-        revenue_shares := math.fp.Ray.ZERO
+        borrow_index,
+        supply_index,
+        revenue_shares := math.fp.Ray.ZERO,
+        value_capped := b
       }
-  else
-    let revenue_shares ←
-      rates.index.protocol_fee_shares env protocol_reward new_supply_index
-        supplied
-    ok
-      {
-        borrow_index := new_borrow_index,
-        supply_index := new_supply_index,
-        revenue_shares
-      }
+  | some borrowed_original =>
+    match o1 with
+    | none =>
+      let b ←
+        core.cmp.PartialEq.ne.trait_default
+          math.fp.Ray.Insts.CoreCmpPartialEqRay borrowed math.fp.Ray.ZERO
+      ok
+        {
+          borrow_index,
+          supply_index,
+          revenue_shares := math.fp.Ray.ZERO,
+          value_capped := b
+        }
+    | some supplied_original =>
+      let room ←
+        rates.simulate.value_room env borrowed_original supplied_original
+      let util ←
+        rates.curve.utilization env borrowed_original supplied_original
+      let borrow_rate ← rates.curve.calculate_borrow_rate env util params
+      let interest_factor ←
+        rates.compound.compound_interest env borrow_rate delta_ms
+      let grown_borrow_index ←
+        rates.index.update_borrow_index env borrow_index interest_factor
+      let new_borrow_index ←
+        rates.simulate.cap_borrow_index env borrowed borrow_index
+          grown_borrow_index room
+      let (supplier_rewards, protocol_fee) ←
+        rates.index.calculate_supplier_rewards env params borrowed
+          new_borrow_index borrow_index
+      let new_supply_index ←
+        rates.index.update_supply_index env supplied supply_index
+          supplier_rewards
+      let supplier_shortfall ←
+        rates.index.supply_index_reward_shortfall env supplied supply_index
+          new_supply_index supplier_rewards
+      let protocol_reward ←
+        math.fp.Ray.checked_add protocol_fee env supplier_shortfall
+      let b ←
+        math.fp.Ray.Insts.CoreCmpPartialEqRay.eq protocol_reward
+          math.fp.Ray.ZERO
+      let revenue_shares ←
+        if b
+        then ok math.fp.Ray.ZERO
+        else
+          rates.index.protocol_fee_shares env protocol_reward new_supply_index
+            supplied
+      let b1 ←
+        core.cmp.PartialEq.ne.trait_default
+          math.fp.Ray.Insts.CoreCmpPartialEqRay new_borrow_index
+          grown_borrow_index
+      ok
+        {
+          borrow_index := new_borrow_index,
+          supply_index := new_supply_index,
+          revenue_shares,
+          value_capped := b1
+        }
 
 /-- [pool_aeneas::ttl::renew_instance]:
     Source: 'src/../../../../common/src/ttl.rs', lines 11:0-15:1
@@ -2136,6 +2264,12 @@ def market_cache.Cache.impl.env
   (self : market_cache.Cache) : Result aeneas_pool_shim.Env := do
   ok self.env
 
+/-- [pool_aeneas::market_cache::{pool_aeneas::market_cache::Cache}::hub_asset]:
+    Source: 'src/../../../../contracts/pool/src/cache/mod.rs', lines 94:4-96:5 -/
+def market_cache.Cache.impl.hub_asset
+  (self : market_cache.Cache) : Result types.pool.HubAssetKey := do
+  ok self.hub_asset
+
 /-- [pool_aeneas::market_cache::{pool_aeneas::market_cache::Cache}::params]:
     Source: 'src/../../../../contracts/pool/src/cache/mod.rs', lines 99:4-101:5 -/
 def market_cache.Cache.impl.params
@@ -2251,34 +2385,34 @@ def market_cache.report.Cache.strategy_mutation
     }
 
 /-- [pool_aeneas::market_cache::scale::{pool_aeneas::market_cache::Cache}::calculate_scaled_supply]:
-    Source: 'src/../../../../contracts/pool/src/cache/scale.rs', lines 30:4-37:5 -/
+    Source: 'src/../../../../contracts/pool/src/cache/scale.rs', lines 31:4-38:5 -/
 def market_cache.scale.Cache.calculate_scaled_supply
   (self : market_cache.Cache) (amount : Std.I128) : Result math.fp.Ray := do
   rates.scaling.calculate_scaled_supply self.env amount
     self.params.asset_decimals self.supply_index
 
 /-- [pool_aeneas::market_cache::scale::{pool_aeneas::market_cache::Cache}::calculate_scaled_borrow]:
-    Source: 'src/../../../../contracts/pool/src/cache/scale.rs', lines 40:4-47:5 -/
+    Source: 'src/../../../../contracts/pool/src/cache/scale.rs', lines 41:4-48:5 -/
 def market_cache.scale.Cache.calculate_scaled_borrow
   (self : market_cache.Cache) (amount : Std.I128) : Result math.fp.Ray := do
   rates.scaling.calculate_scaled_borrow self.env amount
     self.params.asset_decimals self.borrow_index
 
 /-- [pool_aeneas::market_cache::scale::{pool_aeneas::market_cache::Cache}::unscale_supply_floor]:
-    Source: 'src/../../../../contracts/pool/src/cache/scale.rs', lines 60:4-67:5 -/
+    Source: 'src/../../../../contracts/pool/src/cache/scale.rs', lines 61:4-68:5 -/
 def market_cache.scale.Cache.unscale_supply_floor
   (self : market_cache.Cache) (scaled : math.fp.Ray) : Result Std.I128 := do
   rates.scaling.unscale_supply_floor self.env scaled self.supply_index
     self.params.asset_decimals
 
 /-- [pool_aeneas::market_cache::scale::{pool_aeneas::market_cache::Cache}::unscale_borrow_ceil_ray]:
-    Source: 'src/../../../../contracts/pool/src/cache/scale.rs', lines 80:4-82:5 -/
+    Source: 'src/../../../../contracts/pool/src/cache/scale.rs', lines 81:4-83:5 -/
 def market_cache.scale.Cache.unscale_borrow_ceil_ray
   (self : market_cache.Cache) (scaled : math.fp.Ray) : Result math.fp.Ray := do
   math.fp.Ray.mul_ceil scaled self.env self.borrow_index
 
 /-- [pool_aeneas::market_cache::scale::{pool_aeneas::market_cache::Cache}::resolve_withdrawal]:
-    Source: 'src/../../../../contracts/pool/src/cache/scale.rs', lines 87:4-95:5 -/
+    Source: 'src/../../../../contracts/pool/src/cache/scale.rs', lines 88:4-96:5 -/
 def market_cache.scale.Cache.resolve_withdrawal
   (self : market_cache.Cache) (amount : Std.I128) (pos_scaled : math.fp.Ray) :
   Result (math.fp.Ray × Std.I128)
@@ -2287,7 +2421,7 @@ def market_cache.scale.Cache.resolve_withdrawal
     self.params.asset_decimals
 
 /-- [pool_aeneas::market_cache::scale::{pool_aeneas::market_cache::Cache}::resolve_repay]:
-    Source: 'src/../../../../contracts/pool/src/cache/scale.rs', lines 101:4-109:5 -/
+    Source: 'src/../../../../contracts/pool/src/cache/scale.rs', lines 102:4-110:5 -/
 def market_cache.scale.Cache.resolve_repay
   (self : market_cache.Cache) (amount : Std.I128) (pos_scaled : math.fp.Ray) :
   Result (math.fp.Ray × Std.I128)
@@ -2296,7 +2430,7 @@ def market_cache.scale.Cache.resolve_repay
     self.params.asset_decimals
 
 /-- [pool_aeneas::market_cache::scale::{pool_aeneas::market_cache::Cache}::resolve_net_settle]:
-    Source: 'src/../../../../contracts/pool/src/cache/scale.rs', lines 115:4-130:5 -/
+    Source: 'src/../../../../contracts/pool/src/cache/scale.rs', lines 116:4-131:5 -/
 def market_cache.scale.Cache.resolve_net_settle
   (self : market_cache.Cache) (amount : Std.I128) (supply_scaled : math.fp.Ray)
   (debt_scaled : math.fp.Ray) :
@@ -2395,7 +2529,7 @@ def market_cache.shares.Cache.burn_claimable_revenue
     ok (amount, { self with supplied := r1, revenue := r })
 
 /-- [pool_aeneas::guards::require_utilization_below_max]:
-    Source: 'src/../../../../contracts/pool/src/guards.rs', lines 18:0-33:1 -/
+    Source: 'src/../../../../contracts/pool/src/guards.rs', lines 20:0-36:1 -/
 def guards.require_utilization_below_max
   (env : aeneas_pool_shim.Env) (cache : market_cache.Cache) : Result Unit := do
   let r ← market_cache.Cache.impl.supplied cache
@@ -2403,36 +2537,72 @@ def guards.require_utilization_below_max
   if b
   then ok ()
   else
-    let mp ← market_cache.Cache.impl.params cache
+    let r1 ← market_cache.Cache.impl.borrowed cache
+    let r2 ← market_cache.Cache.impl.borrow_index cache
+    let borrowed ← math.fp.Ray.mul_ceil r1 env r2
     let b1 ←
-      core.cmp.PartialOrd.ge.trait_default
-        math.fp.Ray.Insts.CoreCmpPartialOrdRay mp.max_utilization
-        math.fp.Ray.ONE
+      math.fp.Ray.Insts.CoreCmpPartialEqRay.eq borrowed math.fp.Ray.ZERO
     if b1
     then ok ()
     else
-      let r1 ← market_cache.Cache.impl.borrowed cache
-      let r2 ← market_cache.Cache.impl.borrow_index cache
-      let borrowed ← math.fp.Ray.mul_ceil r1 env r2
+      let r3 ← market_cache.Cache.impl.supply_index cache
+      let supplied ← math.fp.Ray.mul_floor r env r3
+      let mp ← market_cache.Cache.impl.params cache
+      let allowed ← math.fp.Ray.mul_floor supplied env mp.max_utilization
       let b2 ←
-        math.fp.Ray.Insts.CoreCmpPartialEqRay.eq borrowed math.fp.Ray.ZERO
-      if b2
-      then ok ()
-      else
-        let r3 ← market_cache.Cache.impl.supply_index cache
-        let supplied ← math.fp.Ray.mul_floor r env r3
-        let b3 ←
-          core.cmp.PartialOrd.gt.trait_default
-            math.fp.Ray.Insts.CoreCmpPartialOrdRay supplied math.fp.Ray.ZERO
-        massert b3
-        let r4 ← math.fp.Ray.div_ceil borrowed env supplied
-        let b4 ←
-          core.cmp.PartialOrd.le.trait_default
-            math.fp.Ray.Insts.CoreCmpPartialOrdRay r4 mp.max_utilization
-        massert b4
+        core.cmp.PartialOrd.le.trait_default
+          math.fp.Ray.Insts.CoreCmpPartialOrdRay borrowed allowed
+      massert b2
+
+/-- [pool_aeneas::guards::require_exit_utilization_below_max]:
+    Source: 'src/../../../../contracts/pool/src/guards.rs', lines 44:0-49:1 -/
+def guards.require_exit_utilization_below_max
+  (env : aeneas_pool_shim.Env) (cache : market_cache.Cache) : Result Unit := do
+  let mp ← market_cache.Cache.impl.params cache
+  let b ←
+    core.cmp.PartialOrd.ge.trait_default math.fp.Ray.Insts.CoreCmpPartialOrdRay
+      mp.max_utilization math.fp.Ray.ONE
+  if b
+  then ok ()
+  else guards.require_utilization_below_max env cache
+
+/-- [pool_aeneas::guards::fits_entry_ceiling]:
+    Source: 'src/../../../../contracts/pool/src/guards.rs', lines 69:0-78:1 -/
+def guards.fits_entry_ceiling
+  (env : aeneas_pool_shim.Env) (scaled : math.fp.Ray) (index : math.fp.Ray) :
+  Result Bool
+  := do
+  let i ← constants.pool.MAX_MARKET_ENTRY_RAY
+  let ceiling ←
+    math.fp.Ray.from (core.convert.IntoFrom (core.convert.FromSame Std.I128)) i
+  let b ←
+    core.cmp.PartialOrd.gt.trait_default math.fp.Ray.Insts.CoreCmpPartialOrdRay
+      scaled ceiling
+  if b
+  then ok false
+  else
+    let o ← math.fp.Ray.try_mul scaled env index
+    match o with
+    | none => ok false
+    | some value =>
+      core.cmp.PartialOrd.le.trait_default
+        math.fp.Ray.Insts.CoreCmpPartialOrdRay value ceiling
+
+/-- [pool_aeneas::guards::require_within_entry_ceiling]:
+    Source: 'src/../../../../contracts/pool/src/guards.rs', lines 58:0-65:1 -/
+def guards.require_within_entry_ceiling
+  (env : aeneas_pool_shim.Env) (cache : market_cache.Cache) : Result Unit := do
+  let r ← market_cache.Cache.impl.supplied cache
+  let r1 ← market_cache.Cache.impl.supply_index cache
+  let b ← guards.fits_entry_ceiling env r r1
+  massert b
+  let r2 ← market_cache.Cache.impl.borrowed cache
+  let r3 ← market_cache.Cache.impl.borrow_index cache
+  let b1 ← guards.fits_entry_ceiling env r2 r3
+  massert b1
 
 /-- [pool_aeneas::guards::require_liquidation_buffer]:
-    Source: 'src/../../../../contracts/pool/src/guards.rs', lines 38:0-46:1 -/
+    Source: 'src/../../../../contracts/pool/src/guards.rs', lines 83:0-91:1 -/
 def guards.require_liquidation_buffer
   (env : aeneas_pool_shim.Env) (cache : market_cache.Cache) (draw : Std.I128) :
   Result Unit
@@ -2448,7 +2618,7 @@ def guards.require_liquidation_buffer
   massert (i1 >= reserved)
 
 /-- [pool_aeneas::guards::backing_shortfall]:
-    Source: 'src/../../../../contracts/pool/src/guards.rs', lines 63:0-74:1 -/
+    Source: 'src/../../../../contracts/pool/src/guards.rs', lines 108:0-119:1 -/
 def guards.backing_shortfall
   (cache : market_cache.Cache) : Result Std.I128 := do
   let env ← market_cache.Cache.impl.env cache
@@ -2471,14 +2641,14 @@ def guards.backing_shortfall
     ok (core.cmp.impls.OrdI128.max i1 0#i128)
 
 /-- [pool_aeneas::guards::require_backed_market]:
-    Source: 'src/../../../../contracts/pool/src/guards.rs', lines 51:0-57:1 -/
+    Source: 'src/../../../../contracts/pool/src/guards.rs', lines 96:0-102:1 -/
 def guards.require_backed_market
   (env : aeneas_pool_shim.Env) (cache : market_cache.Cache) : Result Unit := do
   let i ← guards.backing_shortfall cache
   massert (i = 0#i128)
 
 /-- [pool_aeneas::guards::require_supply_for_debt]:
-    Source: 'src/../../../../contracts/pool/src/guards.rs', lines 77:0-81:1 -/
+    Source: 'src/../../../../contracts/pool/src/guards.rs', lines 122:0-126:1 -/
 def guards.require_supply_for_debt
   (env : aeneas_pool_shim.Env) (cache : market_cache.Cache) : Result Unit := do
   let r ← market_cache.Cache.impl.supplied cache
@@ -2493,11 +2663,11 @@ def guards.require_supply_for_debt
   else ok ()
 
 /-- [pool_aeneas::interest::accrue_chunk]:
-    Source: 'src/../../../../contracts/pool/src/interest.rs', lines 39:0-53:1 -/
+    Source: 'src/../../../../contracts/pool/src/interest.rs', lines 51:0-66:1 -/
 def interest.accrue_chunk
   (env : aeneas_pool_shim.Env) (cache : market_cache.Cache)
   (delta_ms : Std.U64) :
-  Result market_cache.Cache
+  Result (Bool × market_cache.Cache)
   := do
   let mp ← market_cache.Cache.impl.params cache
   let r ← market_cache.Cache.impl.borrowed cache
@@ -2509,46 +2679,52 @@ def interest.accrue_chunk
     market_cache.report.Cache.set_borrow_index cache step.borrow_index
   let cache2 ←
     market_cache.report.Cache.set_supply_index cache1 step.supply_index
-  market_cache.shares.Cache.accrue_revenue cache2 step.revenue_shares
+  let cache3 ←
+    market_cache.shares.Cache.accrue_revenue cache2 step.revenue_shares
+  ok (step.value_capped, cache3)
 
 /-- [pool_aeneas::interest::global_sync]: loop body 0:
-    Source: 'src/../../../../contracts/pool/src/interest.rs', lines 26:4-30:5 -/
+    Source: 'src/../../../../contracts/pool/src/interest.rs', lines 32:4-38:5 -/
 @[rust_loop_body]
 def interest.global_sync_loop.body
   (env : aeneas_pool_shim.Env) (remaining : Std.U64)
-  (cache : market_cache.Cache) :
-  Result (ControlFlow (Std.U64 × market_cache.Cache) market_cache.Cache)
+  (cache : market_cache.Cache) (value_capped : Bool) :
+  Result (ControlFlow (Std.U64 × market_cache.Cache × Bool)
+    (market_cache.Cache × Bool))
   := do
   let o ←
     core.num.nonzero.NonZero.new
       U64.Insts.CoreNumNonzeroZeroablePrimitiveNonZeroU64Inner remaining
   match o with
-  | none => ok (done cache)
+  | none => ok (done (cache, value_capped))
   | some nonzero =>
     let i ←
       core.num.nonzero.NonZero.get
         U64.Insts.CoreNumNonzeroZeroablePrimitiveNonZeroU64Inner nonzero
     let chunk ←
       lift (core.cmp.impls.OrdU64.min i rates.compound.MAX_COMPOUND_DELTA_MS)
-    let cache1 ← interest.accrue_chunk env cache chunk
+    let (b, cache1) ← interest.accrue_chunk env cache chunk
+    let value_capped1 ← if b
+                          then ok true
+                          else ok value_capped
     let remaining1 ← lift (core.num.U64.saturating_sub remaining chunk)
-    ok (cont (remaining1, cache1))
+    ok (cont (remaining1, cache1, value_capped1))
 
 /-- [pool_aeneas::interest::global_sync]: loop 0:
-    Source: 'src/../../../../contracts/pool/src/interest.rs', lines 26:4-30:5 -/
+    Source: 'src/../../../../contracts/pool/src/interest.rs', lines 32:4-38:5 -/
 @[rust_loop]
 def interest.global_sync_loop
   (remaining : Std.U64) (env : aeneas_pool_shim.Env)
-  (cache : market_cache.Cache) :
-  Result market_cache.Cache
+  (cache : market_cache.Cache) (value_capped : Bool) :
+  Result (market_cache.Cache × Bool)
   := do
   loop
-    (fun (remaining1, cache1) => interest.global_sync_loop.body env remaining1
-      cache1)
-    (remaining, cache)
+    (fun (remaining1, cache1, value_capped1) => interest.global_sync_loop.body
+      env remaining1 cache1 value_capped1)
+    (remaining, cache, value_capped)
 
 /-- [pool_aeneas::interest::global_sync]:
-    Source: 'src/../../../../contracts/pool/src/interest.rs', lines 20:0-33:1 -/
+    Source: 'src/../../../../contracts/pool/src/interest.rs', lines 25:0-44:1 -/
 def interest.global_sync
   (env : aeneas_pool_shim.Env) (cache : market_cache.Cache) :
   Result market_cache.Cache
@@ -2557,12 +2733,19 @@ def interest.global_sync
   if b
   then
     let remaining ← market_cache.Cache.elapsed_ms cache
-    let cache1 ← interest.global_sync_loop remaining env cache
-    market_cache.Cache.mark_accrued cache1
+    let (cache1, value_capped) ←
+      interest.global_sync_loop remaining env cache false
+    let cache2 ← market_cache.Cache.mark_accrued cache1
+    if value_capped
+    then
+      let hak ← market_cache.Cache.impl.hub_asset cache2
+      events.emit_market_value_ceiling env hak
+      ok cache2
+    else ok cache2
   else ok cache
 
 /-- [pool_aeneas::interest::add_protocol_revenue]:
-    Source: 'src/../../../../contracts/pool/src/interest.rs', lines 59:0-66:1 -/
+    Source: 'src/../../../../contracts/pool/src/interest.rs', lines 72:0-79:1 -/
 def interest.add_protocol_revenue
   (cache : market_cache.Cache) (fee : math.fp.Ray) :
   Result market_cache.Cache
@@ -2578,7 +2761,7 @@ def interest.add_protocol_revenue
     market_cache.shares.Cache.accrue_revenue cache fee_scaled
 
 /-- [pool_aeneas::interest::apply_bad_debt_to_supply_index]:
-    Source: 'src/../../../../contracts/pool/src/interest.rs', lines 73:0-89:1 -/
+    Source: 'src/../../../../contracts/pool/src/interest.rs', lines 86:0-102:1 -/
 def interest.apply_bad_debt_to_supply_index
   (cache : market_cache.Cache) (bad_debt : math.fp.Ray) :
   Result market_cache.Cache
@@ -2633,7 +2816,7 @@ def ops.load_leg
   ok (cache, r)
 
 /-- [pool_aeneas::ops::borrow::mint_debt]:
-    Source: 'src/../../../../contracts/pool/src/ops/borrow.rs', lines 63:0-79:1 -/
+    Source: 'src/../../../../contracts/pool/src/ops/borrow.rs', lines 65:0-82:1 -/
 def ops.borrow.mint_debt
   (env : aeneas_pool_shim.Env) (cache : market_cache.Cache)
   (position : math.fp.Ray) (amount : Std.I128) :
@@ -2647,6 +2830,7 @@ def ops.borrow.mint_debt
   massert (i > 0#i128)
   let position1 ← math.fp.Ray.checked_add position env minted
   let cache1 ← market_cache.shares.Cache.mint_debt cache minted
+  guards.require_within_entry_ceiling env cache1
   guards.require_utilization_below_max env cache1
   ok (cache1, position1)
 
@@ -2753,6 +2937,18 @@ def ops.flash.book_fee
   let protocol_fee ← math.fp.Ray.from_asset e fee mp.asset_decimals
   let cache1 ← interest.add_protocol_revenue cache protocol_fee
   market_cache.cash.Cache.credit_cash cache1 fee
+
+/-- [pool_aeneas::ops::flash::finalize]:
+    Source: 'src/../../../../contracts/pool/src/ops/flash.rs', lines 135:0-139:1 -/
+def ops.flash.finalize
+  (env : aeneas_pool_shim.Env) (cache : market_cache.Cache) (fee : Std.I128) :
+  Result market_cache.Cache
+  := do
+  let cache1 ← ops.flash.book_fee cache fee
+  guards.require_within_entry_ceiling env cache1
+  let mss ← market_cache.Cache.commit cache1
+  events.emit_market_state env mss
+  ok cache1
 
 /-- [pool_aeneas::ops::renewed_market]:
     Source: 'src/../../../../contracts/pool/src/ops/mod.rs', lines 38:0-41:1 -/
@@ -2894,7 +3090,7 @@ def ops.revenue.accounting
   let cache ← ops.renewed_market env hub_asset
   let (net_transfer, cache1) ←
     market_cache.shares.Cache.burn_claimable_revenue cache
-  guards.require_utilization_below_max env cache1
+  guards.require_exit_utilization_below_max env cache1
   guards.require_supply_for_debt env cache1
   let cache2 ← market_cache.cash.Cache.debit_cash cache1 net_transfer
   let _ ← market_cache.Cache.commit cache2
@@ -2924,7 +3120,7 @@ def ops.seize.apply
   market_cache.Cache.commit cache1
 
 /-- [pool_aeneas::ops::strategy::compute_fee]:
-    Source: 'src/../../../../contracts/pool/src/ops/strategy.rs', lines 95:0-102:1 -/
+    Source: 'src/../../../../contracts/pool/src/ops/strategy.rs', lines 97:0-104:1 -/
 def ops.strategy.compute_fee
   (env : aeneas_pool_shim.Env) (cache : market_cache.Cache) (amount : Std.I128)
   (charge_fee : Bool) :
@@ -2943,14 +3139,14 @@ def ops.strategy.compute_fee
   else ok 0#i128
 
 /-- [pool_aeneas::ops::strategy::accounting::{impl core::ops::function::FnOnce<(), i128> for pool_aeneas::ops::strategy::accounting::{closure}<'_0, '_1>}::call_once]:
-    Source: 'src/../../../../contracts/pool/src/ops/strategy.rs', lines 78:24-78:77 -/
+    Source: 'src/../../../../contracts/pool/src/ops/strategy.rs', lines 80:24-80:77 -/
 def
   ops.strategy.accounting.closure.Insts.CoreOpsFunctionFnOnceTupleI128.call_once
   (c : ops.strategy.accounting.closure) (_ : Unit) : Result Std.I128 := do
   fail panic
 
 /-- Trait implementation: [pool_aeneas::ops::strategy::accounting::{impl core::ops::function::FnOnce<(), i128> for pool_aeneas::ops::strategy::accounting::{closure}<'_0, '_1>}]
-    Source: 'src/../../../../contracts/pool/src/ops/strategy.rs', lines 78:24-78:77 -/
+    Source: 'src/../../../../contracts/pool/src/ops/strategy.rs', lines 80:24-80:77 -/
 @[reducible]
 def ops.strategy.accounting.closure.Insts.CoreOpsFunctionFnOnceTupleI128 :
   core.ops.function.FnOnce ops.strategy.accounting.closure Unit Std.I128 := {
@@ -2959,7 +3155,7 @@ def ops.strategy.accounting.closure.Insts.CoreOpsFunctionFnOnceTupleI128 :
 }
 
 /-- [pool_aeneas::ops::strategy::accounting]:
-    Source: 'src/../../../../contracts/pool/src/ops/strategy.rs', lines 58:0-89:1 -/
+    Source: 'src/../../../../contracts/pool/src/ops/strategy.rs', lines 58:0-91:1 -/
 def ops.strategy.accounting
   (env : aeneas_pool_shim.Env) (action : types.pool.PoolAction)
   (charge_fee : Bool) :
@@ -2977,6 +3173,7 @@ def ops.strategy.accounting
   let mp ← market_cache.Cache.impl.params cache1
   let protocol_fee ← math.fp.Ray.from_asset env fee mp.asset_decimals
   let cache2 ← interest.add_protocol_revenue cache1 protocol_fee
+  guards.require_within_entry_ceiling env cache2
   let o ← lift (I128.checked_sub action.amount fee)
   let amount_to_send ←
     core.option.Option.unwrap_or_else
@@ -2990,7 +3187,7 @@ def ops.strategy.accounting
   ok { cache := cache3, mutation, fee }
 
 /-- [pool_aeneas::ops::supply::apply]:
-    Source: 'src/../../../../contracts/pool/src/ops/supply.rs', lines 19:0-42:1 -/
+    Source: 'src/../../../../contracts/pool/src/ops/supply.rs', lines 21:0-45:1 -/
 def ops.supply.apply
   (env : aeneas_pool_shim.Env) (entry : types.pool.PoolSupplyEntry) :
   Result (types.pool.PoolPositionMutation × types.pool.MarketStateSnapshot)
@@ -3006,6 +3203,7 @@ def ops.supply.apply
        massert (i > 0#i128)
   let position1 ← math.fp.Ray.checked_add position env minted
   let cache1 ← market_cache.shares.Cache.mint_supply cache minted
+  guards.require_within_entry_ceiling env cache1
   let cache2 ← market_cache.cash.Cache.credit_cash cache1 entry.action.amount
   let snapshot ← market_cache.Cache.commit cache2
   let ppm ←
@@ -3068,7 +3266,7 @@ def ops.withdraw.gate_and_debit
   market_cache.cash.Cache.require_reserves cache net_transfer
   if skip_utilization_check
   then ok ()
-  else guards.require_utilization_below_max env cache
+  else guards.require_exit_utilization_below_max env cache
   guards.require_supply_for_debt env cache
   market_cache.cash.Cache.debit_cash cache net_transfer
 

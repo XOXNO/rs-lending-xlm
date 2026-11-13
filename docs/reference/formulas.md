@@ -98,8 +98,19 @@ at most that shortfall, refunds excess and mints no shares.
 Borrow draws must retain a 200 BPS liquidation buffer, rounded up from the
 floored supplied token value. Borrow, user withdrawal and revenue claims
 enforce the configured utilization ceiling; liquidation withdrawal skips it.
-That gate divides ceiled debt value by floored supply value and rounds the
-ratio up; debt against a zero floored supply value fails it.
+The gate compares and divides nothing:
+
+```rust
+let allowed = floor(floor(supply_value_ray) * max_utilization_ray / RAY);
+let passes = ceil(debt_value_ray) <= allowed;
+```
+
+Debt value rounds up and the allowed side rounds down, so rounding cannot
+admit utilization above the ceiling; debt against a zero floored supply value
+fails it. Zero supplied shares and zero debt value skip the gate. A debt mint
+(borrow or strategy opening) is checked at every ceiling: at 100% it requires
+debt value at most supply value. A withdrawal or revenue claim skips a 100%
+ceiling, because cash already bounds it.
 Withdrawal, net settlement and revenue claims reject zero total supply with
 outstanding debt. These checks apply at their respective boundaries; they do
 not establish full backing after every mutation.
@@ -121,15 +132,19 @@ cannot burn zero shares.
 
 ### Utilization and annual rates
 
-Utilization divides half-up-valued debt by half-up-valued total supply:
+Utilization is half-up-valued debt over half-up-valued total supply, capped
+at one RAY:
 
 ```rust
-let utilization_ray = half_up(debt_value_ray * RAY / supply_value_ray);
+let utilization_ray = if supply_value_ray == 0 { 0 }
+    else if debt_value_ray >= supply_value_ray { RAY }
+    else { half_up(debt_value_ray * RAY / supply_value_ray) };
 ```
 
-Zero supplied value gives zero utilization. A ratio that does not fit `i128`
-gives one RAY, so dust supply against residual debt cannot stop accrual. Rate
-selection caps utilization at one RAY. The annual borrow curve has three joined
+Only a debt value below the supply value is divided, so the quotient cannot
+overflow and the result is always in `[0, RAY]`: dust supply against residual
+debt cannot stop accrual. Rate selection also caps utilization at one RAY.
+The annual borrow curve has three joined
 linear regions: base plus slope1 up to mid utilization, slope2 up to optimal,
 then slope3 up to full utilization. Each slope contribution is one half-up
 multiply-divide, `slope * excess / width`, so each region ends exactly on its
@@ -149,7 +164,8 @@ let deposit_apr_ray = half_up(rate_x_util * (BPS - reserve_factor_bps) / BPS);
 ```
 
 Deposit APR has two rounding steps and is not an exact realized supplier return.
-It is zero at zero utilization or an out-of-range reserve factor.
+It is zero at zero utilization or an out-of-range reserve factor, and never
+above the borrow APR, since utilization is at most one RAY.
 
 ### Compounding and interest allocation
 
@@ -169,6 +185,23 @@ index change join the protocol reward. Revenue shares are floor-converted at
 the new supply index and capped by remaining total-supply share headroom. This
 last floor and cap can leave reward value unrepresented by revenue shares.
 Exact conservation of booked supplier and revenue value is not guaranteed.
+
+Accrual does not overflow on a market value. Each chunk measures the room the
+larger of total debt value and total supply value (both half-up) has below the
+value ceiling, and caps the borrow index so borrower interest is at most that
+room:
+
+```rust
+let room = max(0, MAX_MARKET_VALUE_RAY - max(debt_value_ray, supply_value_ray));
+let new_borrow_index = min(grown_borrow_index,
+    old_borrow_index + floor(room * RAY / debt_shares));
+```
+
+`MAX_MARKET_VALUE_RAY` is `i128::MAX - RAY`. Interest raises both totals by
+the same amount, so neither crosses the ceiling. With no room, or with a total
+whose value does not fit `i128`, the chunk changes no index and books no
+revenue; time still advances. Borrowers then accrue less than the rate
+implies, and the pool emits `MarketValueCeilingEvent`.
 
 ### Accrual cadence
 
@@ -639,10 +672,12 @@ missing usage rows and zero exit deltas are no-ops. Cap→scaled conversion
 saturates at `i128::MAX` (`calculate_scaled_cap`), so the entry check fails
 open instead of trapping. A saturated scaled cap does not enforce the
 configured asset-unit limit. An admitted cap saturates only at an index below
-one RAY. Only a bad-debt write-down moves the supply index below one RAY; at
-its floor (`RAY / 1000`), a supply cap above 1/1000 of the admitted maximum
-saturates. The borrow index never falls below one RAY, so an admitted borrow
-cap cannot saturate. Position conversion still rejects overflow.
+an eighth of one RAY. Only a bad-debt write-down moves the supply index below
+one RAY; at its floor (`RAY / 1000`), a supply cap above about 1/125 of the
+admitted maximum saturates. The pool's entry ceiling still bounds such a
+market's share count. The borrow index never falls below one RAY, so an
+admitted borrow cap cannot saturate. Position conversion still rejects
+overflow.
 
 Flash-loan and charged strategy fees are half-up BPS of principal, with a
 minimum of one base unit for a positive rate. Flash position has no origination
@@ -655,14 +690,29 @@ fee; see [its settlement invariant](invariants.md#inv-strat-04).
 | Supply-index floor 10^24 | At most 1,000 times the shares minted at index one for the same deposit |
 | Borrow APR maximum 2 RAY | 200% annual rate; not a bound on balance growth alone |
 | Token-to-RAY input maximum `i128::MAX / 10^(27-d)` | About 170.14 billion whole tokens, before other limits |
-| Deposit conversion at the supply-index floor | About 170.14 million whole tokens before scaled-share overflow |
+| Market value ceiling `i128::MAX - RAY` | About 170.14 billion whole tokens of total supply value or total debt value. Accrual holds interest there |
+| Market entry ceiling `(i128::MAX - RAY) / 8` | About 21.27 billion whole tokens of total supply or total debt, as a value and as a share count. Also the admitted cap maximum |
+| Supply at the supply-index floor | About 21.27 million whole tokens before the share count passes the entry ceiling |
 
-The token-to-RAY maximum is also the admitted cap maximum. Accrued position
-values and market totals must independently fit the RAY domain; valid caps and
-bounded indexes do not guarantee that future accrual fits. Value overflow can
-occur before the index ceiling and block repayment/withdrawal because those
-operations accrue first. At the borrow-index ceiling, further accrual produces
-no borrower interest. No dedicated ceiling alarm is emitted.
+The admitted cap maximum is the market entry ceiling in asset units,
+`MAX_MARKET_ENTRY_RAY / 10^(27-d)`, a factor 8 below the value ceiling. One
+year at the 200% APR maximum multiplies debt by less than `e^2 < 8`, so a
+market filled to the admitted cap accrues for at least a year before interest
+is held; at 20% APR, about ten years.
+
+Supply, borrow, strategy openings and flash loans check the entry ceiling on
+the market's totals after they raise one: total supply and total debt, each as
+a share count and as a half-up value. Above it they fail with
+`MarketCeilingReached` (136). The share count is checked because a supply
+index at its floor mints 1,000 shares per unit of value. Exits never check
+it. A market that interest has taken above the entry ceiling takes no new
+entry until exits bring it back under; it keeps accruing, repaying,
+withdrawing and liquidating.
+
+Accrual does not revert on a market value: at the value ceiling, as at the
+borrow-index ceiling, further accrual produces no borrower interest, and the
+value ceiling emits `MarketValueCeilingEvent`
+([INV-IDX-06](invariants.md#inv-idx-06)).
 
 These are arithmetic limits, not recommended market sizes or deployment proofs.
 

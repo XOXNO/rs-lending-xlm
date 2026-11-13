@@ -54,8 +54,8 @@ theorem range_contains_eq (lo hi x : Std.I128) :
   by_cases h : lo.val ≤ x.val <;> simp [h]
 
 /-- **`calculate_deposit_rate` never exceeds the borrow rate it is derived
-from, and never aborts.** For a utilization in `[0, RAY]` (`utilization_le_ray`:
-holds when borrowed ≤ supplied; the curve clamps the same way) and a
+from, and never aborts.** For a utilization in `[0, RAY]` (`utilization_spec`:
+holds for every non-negative pair of totals; the curve clamps the same way) and a
 non-negative borrow rate (`calculate_borrow_rate`/`calculate_annual_borrow_rate`
 return rates `≥ base_borrow_rate ≥ 0`), the deposit rate `d` satisfies
 `0 ≤ d ≤ borrow_rate`. It is 0 when utilization is 0 or the reserve factor is

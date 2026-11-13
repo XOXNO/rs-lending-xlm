@@ -81,12 +81,12 @@ def math.fp_core.mul_div_floor.closure := Std.I128
 def math.fp_core.mul_div_floor_saturating.closure := Std.I128
 
 /-- [oracle_aeneas::math::fp::{oracle_aeneas::math::fp::Ray}::mul_int::{closure}]
-    Source: 'src/../../../../common/src/math/fp.rs', lines 84:28-84:81 -/
+    Source: 'src/../../../../common/src/math/fp.rs', lines 89:28-89:81 -/
 @[reducible]
 def math.fp.Ray.mul_int.closure := aeneas_oracle_shim.Env
 
 /-- [oracle_aeneas::math::fp::Wad]
-    Source: 'src/../../../../common/src/math/fp.rs', lines 207:0-207:21
+    Source: 'src/../../../../common/src/math/fp.rs', lines 212:0-212:21
     Visibility: public -/
 @[reducible]
 def math.fp.Wad := Std.I128
@@ -122,7 +122,7 @@ def math.fp_core.rescale_floor.closure := Unit
 def math.fp_core.rescale_ceil.closure := Unit
 
 /-- [oracle_aeneas::math::fp::Bps]
-    Source: 'src/../../../../common/src/math/fp.rs', lines 345:0-345:21
+    Source: 'src/../../../../common/src/math/fp.rs', lines 350:0-350:21
     Visibility: public -/
 @[reducible]
 def math.fp.Bps := Std.I128

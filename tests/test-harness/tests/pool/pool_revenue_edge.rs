@@ -2,8 +2,13 @@ use test_harness::{assert_contract_error, errors, hub_asset, LendingTest, ALICE,
 
 #[test]
 fn test_claim_revenue_else_branch_when_reserves_fully_drained() {
+    // USDC starts with no seeded cash: BOB drains the reserves by borrowing,
+    // and a debt mint cannot take debt value above supply value.
+    let mut usdc = test_harness::usdc_preset();
+    usdc.initial_liquidity = 0.0;
     let mut t = LendingTest::new()
-        .standard_two_asset()
+        .with_market(usdc)
+        .with_market(test_harness::eth_preset())
         .with_dust_disabled_all_markets()
         .with_max_utilization_disabled_all_markets()
         .build();

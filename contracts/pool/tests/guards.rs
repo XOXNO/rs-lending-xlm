@@ -4,7 +4,9 @@ use super::*;
 use crate::cache::Cache;
 use crate::test_support::{hub, init_ledger};
 use crate::{LiquidityPool, LiquidityPoolClient};
-use common::constants::{BPS, LIQUIDATION_BUFFER_BPS, RAY, SUPPLY_INDEX_FLOOR_RAW};
+use common::constants::{
+    BPS, LIQUIDATION_BUFFER_BPS, MAX_MARKET_ENTRY_RAY, RAY, SUPPLY_INDEX_FLOOR_RAW,
+};
 use common::math::reference::mul_div_ceil;
 use common::types::{MarketParamsRaw, PoolStateRaw};
 use soroban_sdk::testutils::Address as _;
@@ -87,14 +89,204 @@ fn test_require_utilization_below_max_early_returns_when_supplied_zero() {
     });
 }
 
+/// A 100% ceiling still binds a debt mint: debt value may not exceed supply
+/// value (audit finding S-03).
 #[test]
-fn test_require_utilization_below_max_early_returns_when_max_util_ge_one() {
+#[should_panic(expected = "Error(Contract, #127)")]
+fn test_require_utilization_below_max_rejects_debt_above_supply_at_a_full_cap() {
     let t = TestSetup::new();
     t.as_contract(|| {
         let mut params = t.params.clone();
         params.max_utilization = RAY;
-        let cache = cache_with(&t.env, &params, 10 * RAY, 11 * RAY, 0);
+        let cache = cache_with(&t.env, &params, 10 * RAY, 10 * RAY + 1, 0);
         require_utilization_below_max(&t.env, &cache);
+    });
+}
+
+#[test]
+fn test_require_utilization_below_max_admits_debt_equal_to_supply_at_a_full_cap() {
+    let t = TestSetup::new();
+    t.as_contract(|| {
+        let mut params = t.params.clone();
+        params.max_utilization = RAY;
+        let cache = cache_with(&t.env, &params, 10 * RAY, 10 * RAY, 0);
+        require_utilization_below_max(&t.env, &cache);
+    });
+}
+
+/// The audit's S-03 state: sub-unit dust supply against whole tokens of debt,
+/// at a full cap. The old gate skipped a full cap; the comparison refuses it.
+#[test]
+#[should_panic(expected = "Error(Contract, #127)")]
+fn test_require_utilization_below_max_rejects_debt_against_dust_supply_at_a_full_cap() {
+    let t = TestSetup::new();
+    t.as_contract(|| {
+        let mut params = t.params.clone();
+        params.max_utilization = RAY;
+        let cache = cache_with(&t.env, &params, 7_674, 1_000_000_000 * RAY, 0);
+        require_utilization_below_max(&t.env, &cache);
+    });
+}
+
+/// The same state below a full cap. The old gate divided debt by supply here
+/// and overflowed with `MathOverflow`; the comparison gives the typed error.
+#[test]
+#[should_panic(expected = "Error(Contract, #127)")]
+fn test_require_utilization_below_max_rejects_debt_against_dust_supply_without_overflow() {
+    let t = TestSetup::new();
+    t.as_contract(|| {
+        let cache = cache_with(&t.env, &t.params, 7_674, 1_000_000_000 * RAY, 0);
+        require_utilization_below_max(&t.env, &cache);
+    });
+}
+
+/// The exit gate skips a full cap: an exit is bounded by cash, and the
+/// comparison would only fail on rounding dust.
+#[test]
+fn test_require_exit_utilization_below_max_skips_a_full_cap() {
+    let t = TestSetup::new();
+    t.as_contract(|| {
+        let mut params = t.params.clone();
+        params.max_utilization = RAY;
+        let cache = cache_with(&t.env, &params, 10 * RAY, 10 * RAY + 1, 0);
+        require_exit_utilization_below_max(&t.env, &cache);
+    });
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #127)")]
+fn test_require_exit_utilization_below_max_enforces_a_cap_below_full() {
+    let t = TestSetup::new();
+    t.as_contract(|| {
+        let cache = cache_with(&t.env, &t.params, 10 * RAY, 95 * RAY / 10 + 1, 0);
+        require_exit_utilization_below_max(&t.env, &cache);
+    });
+}
+
+#[test]
+fn test_require_exit_utilization_below_max_admits_exactly_the_cap() {
+    let t = TestSetup::new();
+    t.as_contract(|| {
+        let cache = cache_with(&t.env, &t.params, 10 * RAY, 95 * RAY / 10, 0);
+        require_exit_utilization_below_max(&t.env, &cache);
+    });
+}
+
+/// The allowed debt value rounds down: 7 raw units of supply at a 95% cap
+/// allow `floor(6.65) = 6` units of debt.
+#[test]
+fn test_require_utilization_below_max_admits_the_floored_allowance() {
+    let t = TestSetup::new();
+    t.as_contract(|| {
+        let cache = cache_with(&t.env, &t.params, 7, 6, 0);
+        require_utilization_below_max(&t.env, &cache);
+    });
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #127)")]
+fn test_require_utilization_below_max_rejects_one_unit_above_the_floored_allowance() {
+    let t = TestSetup::new();
+    t.as_contract(|| {
+        let cache = cache_with(&t.env, &t.params, 7, 7, 0);
+        require_utilization_below_max(&t.env, &cache);
+    });
+}
+
+fn cache_at_index(
+    t: &TestSetup,
+    supplied: i128,
+    supply_index: i128,
+    borrowed: i128,
+    borrow_index: i128,
+) -> Cache {
+    Cache::from_parts(
+        &t.env,
+        hub(&t.params.asset_id),
+        &t.params,
+        &PoolStateRaw {
+            supplied,
+            borrowed,
+            revenue: 0,
+            borrow_index,
+            supply_index,
+            last_timestamp: 0,
+            cash: 0,
+        },
+        1_000_000,
+    )
+}
+
+#[test]
+fn test_require_within_entry_ceiling_admits_both_totals_at_the_ceiling() {
+    let t = TestSetup::new();
+    t.as_contract(|| {
+        let cache = cache_at_index(&t, MAX_MARKET_ENTRY_RAY, RAY, MAX_MARKET_ENTRY_RAY, RAY);
+        require_within_entry_ceiling(&t.env, &cache);
+    });
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #136)")]
+fn test_require_within_entry_ceiling_rejects_supply_value_one_unit_above() {
+    let t = TestSetup::new();
+    t.as_contract(|| {
+        let cache = cache_at_index(&t, MAX_MARKET_ENTRY_RAY + 1, RAY, 0, RAY);
+        require_within_entry_ceiling(&t.env, &cache);
+    });
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #136)")]
+fn test_require_within_entry_ceiling_rejects_debt_value_one_unit_above() {
+    let t = TestSetup::new();
+    t.as_contract(|| {
+        let cache = cache_at_index(&t, 0, RAY, MAX_MARKET_ENTRY_RAY + 1, RAY);
+        require_within_entry_ceiling(&t.env, &cache);
+    });
+}
+
+/// Shares under the ceiling whose value at a grown index is over it.
+#[test]
+#[should_panic(expected = "Error(Contract, #136)")]
+fn test_require_within_entry_ceiling_rejects_a_value_grown_past_the_ceiling() {
+    let t = TestSetup::new();
+    t.as_contract(|| {
+        let cache = cache_at_index(&t, MAX_MARKET_ENTRY_RAY / 2 + 1, 2 * RAY, 0, RAY);
+        require_within_entry_ceiling(&t.env, &cache);
+    });
+}
+
+/// At the supply-index floor a value far below the ceiling carries a share
+/// count 1,000 times larger; the share count is what the guard rejects.
+#[test]
+#[should_panic(expected = "Error(Contract, #136)")]
+fn test_require_within_entry_ceiling_rejects_a_share_count_above_at_the_index_floor() {
+    let t = TestSetup::new();
+    t.as_contract(|| {
+        let cache = cache_at_index(&t, MAX_MARKET_ENTRY_RAY + 1, SUPPLY_INDEX_FLOOR_RAW, 0, RAY);
+        require_within_entry_ceiling(&t.env, &cache);
+    });
+}
+
+#[test]
+fn test_require_within_entry_ceiling_admits_the_share_ceiling_at_the_index_floor() {
+    let t = TestSetup::new();
+    t.as_contract(|| {
+        let cache = cache_at_index(&t, MAX_MARKET_ENTRY_RAY, SUPPLY_INDEX_FLOOR_RAW, 0, RAY);
+        require_within_entry_ceiling(&t.env, &cache);
+    });
+}
+
+/// A value that does not fit `i128` fails the guard with the typed error
+/// instead of overflowing.
+#[test]
+#[should_panic(expected = "Error(Contract, #136)")]
+fn test_require_within_entry_ceiling_rejects_an_unrepresentable_value() {
+    let t = TestSetup::new();
+    t.as_contract(|| {
+        let cache = cache_at_index(&t, MAX_MARKET_ENTRY_RAY, 1_000_000 * RAY, 0, RAY);
+        require_within_entry_ceiling(&t.env, &cache);
     });
 }
 

@@ -2,8 +2,8 @@
 //! `validate_*` function panics with a specific error code when its check fails.
 
 use crate::constants::{
-    BPS, MAX_LIQUIDATION_TARGET_HF_WAD, MAX_REASONABLE_PRICE_WAD, MAX_TOLERANCE,
-    MIN_SANITY_BAND_BPS, MIN_TOLERANCE, RAY_DECIMALS, WAD,
+    BPS, MAX_LIQUIDATION_TARGET_HF_WAD, MAX_MARKET_ENTRY_RAY, MAX_REASONABLE_PRICE_WAD,
+    MAX_TOLERANCE, MIN_SANITY_BAND_BPS, MIN_TOLERANCE, RAY_DECIMALS, WAD,
 };
 use crate::errors::{CollateralError, FlashLoanError, GenericError, OracleError};
 use crate::math::fp::{Bps, Wad};
@@ -38,13 +38,14 @@ pub fn require_non_empty_payments<T>(env: &Env, payments: &Vec<T>) {
     assert_with_error!(env, !payments.is_empty(), GenericError::InvalidPayments);
 }
 
-/// Returns the largest cap, in asset base units, whose ray-scaled form still
-/// fits in `i128`.
+/// Returns the largest cap, in asset base units, that a market can reach:
+/// `MAX_MARKET_ENTRY_RAY`, the ceiling the pool enforces on entries
+/// (INV-ACCT-11), converted to asset units and rounded down.
 ///
 /// Returns 0 when `asset_decimals > RAY_DECIMALS`, since the ray form is not
 /// representable in that case. Enforced by
-/// [`require_cap_within_asset_domain`], so stored caps can never overflow the
-/// asset→ray rescale.
+/// [`require_cap_within_asset_domain`], so a stored cap never overflows the
+/// asset→ray rescale and leaves the pool's headroom for interest.
 pub fn max_cap_for_decimals(asset_decimals: u32) -> i128 {
     let Some(exp) = RAY_DECIMALS.checked_sub(asset_decimals) else {
         return 0;
@@ -52,7 +53,7 @@ pub fn max_cap_for_decimals(asset_decimals: u32) -> i128 {
     let upscale = 10i128
         .checked_pow(exp)
         .expect("10^(RAY_DECIMALS - asset_decimals) fits i128 for asset_decimals <= RAY_DECIMALS");
-    i128::MAX / upscale
+    MAX_MARKET_ENTRY_RAY / upscale
 }
 
 /// Panics with `CollateralError::AssetDecimalsTooHigh` if `asset_decimals`

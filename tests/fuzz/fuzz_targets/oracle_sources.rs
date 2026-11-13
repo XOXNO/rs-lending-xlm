@@ -949,7 +949,8 @@ fuzz_target!(|i: In| {
         "set_oracle admitted a corrupt Curve pool"
     );
     if admitted {
-        let q = quote(&env, &agg, &key).expect("an admitted oracle must quote without a host error");
+        let q =
+            quote(&env, &agg, &key).expect("an admitted oracle must quote without a host error");
         if cfg.has_lp_source() {
             assert!(
                 q.valid,

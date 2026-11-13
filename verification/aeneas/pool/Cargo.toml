@@ -38,6 +38,9 @@ start_from = [
   "crate::interest::apply_bad_debt_to_supply_index",
   "crate::ops::flash::terms",
   "crate::ops::flash::book_fee",
+  # The successful-path tail of a flash loan: books the fee, checks the entry
+  # ceiling, commits. The market-state event it emits is opaque (docs/pool.md).
+  "crate::ops::flash::finalize",
   # The whole share-conversion module, so the copied RatesAeneas scaling
   # proofs (FloorCeilRescale, FloorCeilScaling) find every function they name.
   "crate::rates::scaling",

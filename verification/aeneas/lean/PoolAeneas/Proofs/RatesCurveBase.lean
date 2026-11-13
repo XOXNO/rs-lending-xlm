@@ -1,4 +1,4 @@
--- Copied from RatesAeneas/Proofs/CurveBase.lean (2026-11-12 snapshot) for the pool
+-- Copied from RatesAeneas/Proofs/CurveBase.lean (2026-11-13 snapshot) for the pool
 -- extraction (global_sync / accrue_step proofs), with `RatesAeneas`/`rates_aeneas`/
 -- `aeneas_soroban_shim` renamed to `PoolAeneas`/`pool_aeneas`/`aeneas_pool_shim`,
 -- `constants.production.` to `constants.`, and the theorem namespace
@@ -42,6 +42,16 @@ theorem ray_gt_eq (a b : math.fp.Ray) :
     core.cmp.PartialOrd.gt_body, math.fp.Ray.Insts.CoreCmpPartialOrdRay,
     math.fp.Ray.Insts.CoreCmpPartialOrdRay.partial_cmp, math.fp.Ray.Insts.CoreCmpOrd.cmp,
     compare_gt_iff_gt]
+
+/-- `>=` on `Ray` through the derived `PartialOrd`: integer comparison. -/
+theorem ray_ge_eq (a b : math.fp.Ray) :
+    core.cmp.PartialOrd.ge.trait_default math.fp.Ray.Insts.CoreCmpPartialOrdRay a b
+      = ok (decide (rv b ≤ rv a)) := by
+  simp [core.cmp.PartialOrd.ge.trait_default, core.cmp.PartialOrd.ge.default,
+    core.cmp.PartialOrd.ge_body, math.fp.Ray.Insts.CoreCmpPartialOrdRay,
+    math.fp.Ray.Insts.CoreCmpPartialOrdRay.partial_cmp, math.fp.Ray.Insts.CoreCmpOrd.cmp,
+    compare_gt_iff_gt]
+  by_cases h1 : rv b < rv a <;> by_cases h2 : rv a = rv b <;> simp [h1, h2] <;> omega
 
 /-- `==` on `Ray` through the derived `PartialEq`: integer equality. -/
 theorem ray_eq_eq (a b : math.fp.Ray) :
@@ -122,55 +132,50 @@ theorem ray_mul_frac_spec (env : Env) (a b : math.fp.Ray)
 
 /-! ## `rates::curve::utilization` -/
 
-/-- **`utilization` is the half-up ratio, capped at `RAY` on overflow.**
-For `supplied = 0` it returns 0. For `supplied > 0` and `borrowed ≥ 0` it
-returns `half_up(borrowed * RAY / supplied)` when that fits `i128`, and
-`RAY` otherwise. It never aborts on these inputs. Production feeds pool
-totals (`borrowed`, `supplied` are sums of non-negative scaled amounts times
-indexes), so these hypotheses hold. -/
+/-- **`utilization` is total and returns a value in `[0, RAY]`.** For
+non-negative `borrowed` and `supplied` it never aborts, and:
+
+* `supplied = 0` gives 0;
+* `borrowed ≥ supplied > 0` gives `RAY`, by comparison, with no division;
+* `borrowed < supplied` gives `half_up(borrowed * RAY / supplied)`, which is at
+  most `RAY`, so the division cannot overflow.
+
+Production feeds pool totals (`borrowed`, `supplied` are sums of non-negative
+scaled amounts times indexes), so the hypotheses hold. This closes the
+remaining part of audit finding S-03: no quotient above `RAY` and no overflow
+fallback. -/
 theorem utilization_spec (env : Env) (b s : math.fp.Ray) (hb : 0 ≤ rv b) (hs : 0 ≤ rv s) :
     rates.curve.utilization env b s ⦃ u =>
+      0 ≤ rv u ∧ rv u ≤ 10^27 ∧
       (rv s = 0 → rv u = 0) ∧
-      (0 < rv s → (IsHalfUp (rv b * 10^27) (rv s) (rv u) ∨
-        (rv u = 10^27 ∧ ∀ q, IsHalfUp (rv b * 10^27) (rv s) q → ¬ q < 2^127))) ⦄ := by
+      (0 < rv s → rv s ≤ rv b → rv u = 10^27) ∧
+      (rv b < rv s → IsHalfUp (rv b * 10^27) (rv s) (rv u)) ⦄ := by
   unfold rates.curve.utilization
-  simp only [ray_eq_eq, ray_lt_eq, bind_ok, ray_zero_val_hu]
+  simp only [ray_eq_eq, ray_lt_eq, ray_ge_eq, bind_ok, ray_zero_val_hu]
   by_cases hs0 : rv s = 0
   · simp only [hs0, decide_true, ↓reduceIte, WP.spec_ok]
-    refine ⟨fun _ => ray_zero_val_hu, fun h => absurd h (by omega)⟩
+    rw [ray_zero_val_hu]
+    exact ⟨le_refl _, by norm_num, fun _ => rfl, fun h => absurd h (by omega), fun h => by omega⟩
   · have hb' : ¬ rv b < 0 := by omega
     have hs' : ¬ rv s < 0 := by omega
     simp only [hs0, hb', hs', decide_false, Bool.false_eq_true, ↓reduceIte, massert,
-      not_false_eq_true, bind_ok, math.fp.Ray.raw]
-    step with ray_try_div_spec env b s as ⟨o, _, ho⟩
-    have hres := ho hb (by omega)
-    cases o with
-    | none =>
-      rw [Aeneas.Std.core.option.Option.unwrap_or_none]
-      exact ⟨fun h => by simp_all, fun _ => Or.inr ⟨ray_one_val, hres⟩⟩
-    | some v =>
-      rw [Aeneas.Std.core.option.Option.unwrap_or_some]
-      simp only [HalfUpResult] at hres
-      exact ⟨fun h => by simp_all, fun _ => Or.inl hres⟩
-
-/-- **Utilization is at most `RAY` when borrowed ≤ supplied** (and in
-`[0, RAY]` in general for non-negative inputs with `borrowed ≤ supplied`).
-Production: a pool's borrowed total never exceeds its supplied total except
-transiently (bad debt), and the curve clamps anyway. -/
-theorem utilization_le_ray (env : Env) (b s : math.fp.Ray) (hb : 0 ≤ rv b) (hbs : rv b ≤ rv s) :
-    rates.curve.utilization env b s ⦃ u => 0 ≤ rv u ∧ rv u ≤ 10^27 ⦄ := by
-  apply WP.spec_mono (utilization_spec env b s hb (by omega))
-  rintro u ⟨h0, h1⟩
-  by_cases hs : rv s = 0
-  · rw [h0 hs]; norm_num
-  · rcases h1 (by omega) with h | ⟨_, h⟩
-    · rw [mul_comm] at h
-      exact IsHalfUp.le_of_ratio_le_one (by omega) (by norm_num) hb hbs h
-    · exfalso
-      obtain ⟨q, hq⟩ := IsHalfUp.exists (rv b * 10^27) (rv s) (by omega)
-      apply h q hq
-      rw [mul_comm] at hq
-      have := (IsHalfUp.le_of_ratio_le_one (by omega) (by norm_num) hb hbs hq).2
-      omega
+      not_false_eq_true, bind_ok]
+    by_cases hge : rv s ≤ rv b
+    · simp only [hge, decide_true, ↓reduceIte, WP.spec_ok]
+      rw [ray_one_val]
+      exact ⟨by norm_num, le_refl _, fun h => by first | exact h.elim | exact absurd h hs0,
+        fun _ _ => rfl, fun h => by first | exact h.elim | omega⟩
+    · simp only [hge, decide_false, Bool.false_eq_true, ↓reduceIte]
+      have hsp : 0 < rv s := by omega
+      have hfit := halfUp_ratio_fits (10^27) (rv b) (rv s) hsp (by norm_num) (by norm_num) hb
+        (by omega)
+      rw [mul_comm] at hfit
+      apply WP.spec_mono (ray_div_spec env b s hb hsp hfit)
+      intro u hu
+      have hu' := hu
+      rw [mul_comm] at hu'
+      have hbound := IsHalfUp.le_of_ratio_le_one hsp (by norm_num) hb (by omega) hu'
+      exact ⟨hbound.1, hbound.2, fun h => by first | exact h.elim | exact absurd h hs0,
+        fun _ h => by first | exact h.elim | omega, fun _ => hu⟩
 
 end PoolAeneas.RatesProofs

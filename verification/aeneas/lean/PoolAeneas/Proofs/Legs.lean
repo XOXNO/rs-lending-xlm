@@ -173,7 +173,9 @@ theorem PoolInv.of_eq {c c' : market_cache.Cache} (h : PoolInv c)
   and the indexes are unchanged (INV-ACCT-10: the account's shares and the
   pool's non-revenue supply move by the same `minted`; INV-ACCT-02/03: cash
   is credited exactly the amount the controller reports as received), and
-  `PoolInv c'` holds.
+  `PoolInv c'` holds;
+* the committed cache passes the entry-ceiling guard (INV-ACCT-11; its exact
+  condition is `require_within_entry_ceiling_spec`).
 
 Hypotheses: `PoolInv c`, `decimals ≤ 18`; `amount·10^k` and its share
 floor fit `i128` (otherwise the conversion aborts). -/
@@ -197,7 +199,8 @@ theorem supply_apply_spec (env : Env) (entry : types.pool.PoolSupplyEntry)
       r.2 = snapOf c' ∧ PoolInv c' ∧
       c'.supplied.val = c.supplied.val + minted ∧
       c'.cash.val = c.cash.val + entry.action.amount.val ∧
-      c' = { c with supplied := c'.supplied, cash := c'.cash } := by
+      c' = { c with supplied := c'.supplied, cash := c'.cash } ∧
+      (∃ u, guards.require_within_entry_ceiling env c' = ok u) := by
   unfold ops.supply.apply at h
   obtain ⟨⟨c0, p0⟩, hl, h⟩ := bind_eq_ok h
   obtain ⟨hamt, hpos, hs0, rfl⟩ := load_leg_ok env _ _ _ hl
@@ -207,6 +210,7 @@ theorem supply_apply_spec (env : Env) (entry : types.pool.PoolSupplyEntry)
   obtain ⟨_, hif, h⟩ := bind_eq_ok h
   obtain ⟨p1, hp1, h⟩ := bind_eq_ok h
   obtain ⟨c1, hc1, h⟩ := bind_eq_ok h
+  obtain ⟨uc, hceil, h⟩ := bind_eq_ok h
   obtain ⟨c2, hc2, h⟩ := bind_eq_ok h
   rw [commit_eq, bind_ok, position_mutation_eq, bind_ok, ok.injEq] at h
   subst h
@@ -246,8 +250,12 @@ theorem supply_apply_spec (env : Env) (entry : types.pool.PoolSupplyEntry)
     rw [hc2e, hc1e]
   have hpar : c2.params = c.params := by rw [hc2e, hc1e]
   have hidx : indexOf c2 = indexOf c := by unfold indexOf; rw [hc2e, hc1e]
+  have hceil2 : guards.require_within_entry_ceiling env c2 = ok uc := by
+    rw [require_within_entry_ceiling_congr env c1 c2 (by rw [hc2e]) (by rw [hc2e]) (by rw [hc2e])
+      (by rw [hc2e])]
+    exact hceil
   refine ⟨hamt, hpos, m.val, c2, hmv, hm0, hmpos, hmz, hp1v, rfl, hidx, by simp [hpar], rfl,
-    ?_, ?_, hcash2', hc2full⟩
+    ?_, ?_, hcash2', hc2full, ⟨uc, hceil2⟩⟩
   · have hs2 : SharesInv c2 := by rw [hc2e]; exact hsh1
     refine hinv.of_eq hs2 (by rw [hcash2']; have := hinv.cash; omega) ?_ ?_ <;>
       rw [hc2full]
@@ -275,7 +283,10 @@ borrow_index⌉ > 0` debt shares (ceiling, ADR-0003: the recorded debt is
 never below the borrowed value; `BorrowRoundsToZeroShares`, INV-ACCT-05),
 `p1 = position + minted`, `c1` is `c` with `borrowed += minted` only, and
 the utilization guard passed on `c1` (INV-ACCT-08,
-`require_utilization_below_max_spec`). Hypotheses: `PoolInv c`,
+`require_utilization_below_max_spec`: at every ceiling, 100% included, so the
+debt value after the mint is at most the supply value), as did the
+entry-ceiling guard (INV-ACCT-11, `require_within_entry_ceiling_spec`).
+Hypotheses: `PoolInv c`,
 `decimals ≤ 18`, `amount·10^k < 2^127`. -/
 theorem mint_debt_ok (env : Env) (c : market_cache.Cache) (pos amount : Std.I128)
     (hinv : PoolInv c) (hdec : c.params.asset_decimals.val ≤ 18)
@@ -291,7 +302,8 @@ theorem mint_debt_ok (env : Env) (c : market_cache.Cache) (pos amount : Std.I128
       p1.val = pos.val + minted ∧
       SharesInv c1 ∧ c1.borrowed.val = c.borrowed.val + minted ∧
       c1 = { c with borrowed := c1.borrowed } ∧
-      (∃ u, guards.require_utilization_below_max env c1 = ok u) := by
+      (∃ u, guards.require_utilization_below_max env c1 = ok u) ∧
+      (∃ u, guards.require_within_entry_ceiling env c1 = ok u) := by
   unfold ops.borrow.mint_debt at h
   obtain ⟨u1, h1, h⟩ := bind_eq_ok h
   obtain ⟨u2, h2, h⟩ := bind_eq_ok h
@@ -301,6 +313,7 @@ theorem mint_debt_ok (env : Env) (c : market_cache.Cache) (pos amount : Std.I128
   obtain ⟨u4, h4, h⟩ := bind_eq_ok h
   obtain ⟨q1, hq1, h⟩ := bind_eq_ok h
   obtain ⟨c2, hc2, h⟩ := bind_eq_ok h
+  obtain ⟨u6, h6, h⟩ := bind_eq_ok h
   obtain ⟨u5, h5, h⟩ := bind_eq_ok h
   simp only [ok.injEq, Prod.mk.injEq] at h
   obtain ⟨rfl, rfl⟩ := h
@@ -321,7 +334,7 @@ theorem mint_debt_ok (env : Env) (c : market_cache.Cache) (pos amount : Std.I128
   have hmq : m.val = q := IsCeil.unique (by have := hinv.bi_pos; omega) hmv hq
   obtain ⟨hsh, hbor, hce⟩ := mint_debt_preserves c c2 m hinv.shares (by omega) hc2
   exact ⟨hpos, hres, ⟨u3, h3⟩, m.val, hmv, hmpos, by omega, ray_checked_add_eq_ok _ _ _ _ hq1,
-    hsh, hbor, hce, ⟨u5, h5⟩⟩
+    hsh, hbor, hce, ⟨u5, h5⟩, ⟨u6, h6⟩⟩
 
 /-- **`ops::borrow::accounting` (the borrow leg, before the token transfer).**
 Whenever it returns `r` on a market synced to `c` with `PoolInv c`:
@@ -334,7 +347,8 @@ r.cache`) is `c` with `borrowed += minted` and `cash -= amount` only
 (INV-ACCT-10: account debt and pool debt move by the same `minted`;
 INV-ACCT-02: cash debited exactly the amount `apply` transfers out), and
 `PoolInv r.cache` holds. The liquidation-buffer and utilization guards
-passed (INV-ACCT-07/08). Hypotheses: `PoolInv c`, `decimals ≤ 18`,
+passed (INV-ACCT-07/08), and the committed cache passes the entry-ceiling
+guard (INV-ACCT-11). Hypotheses: `PoolInv c`, `decimals ≤ 18`,
 `amount·10^k < 2^127`. -/
 theorem borrow_accounting_spec (env : Env) (entry : types.pool.PoolBorrowEntry)
     (c : market_cache.Cache) (hsync : ops.synced_market env entry.action.hub_asset = ok c)
@@ -355,7 +369,8 @@ theorem borrow_accounting_spec (env : Env) (entry : types.pool.PoolBorrowEntry)
       r.cache.cash.val = c.cash.val - entry.action.amount.val ∧
       r.cache = { c with borrowed := r.cache.borrowed, cash := r.cache.cash } ∧
       (∃ u, guards.require_utilization_below_max env { c with borrowed := r.cache.borrowed }
-        = ok u) := by
+        = ok u) ∧
+      (∃ u, guards.require_within_entry_ceiling env r.cache = ok u) := by
   unfold ops.borrow.accounting at h
   obtain ⟨⟨c0, p0⟩, hl, h⟩ := bind_eq_ok h
   obtain ⟨hamt, hpos, hs0, rfl⟩ := load_leg_ok env _ _ _ hl
@@ -364,7 +379,7 @@ theorem borrow_accounting_spec (env : Env) (entry : types.pool.PoolBorrowEntry)
   obtain ⟨c2, hc2, h⟩ := bind_eq_ok h
   rw [commit_eq, bind_ok, position_mutation_eq, bind_ok, ok.injEq] at h
   subst h
-  obtain ⟨hpos', hres, hbuf, minted, hmc, hm0, _, hp1, hsh1, hbor1, hc1e, hutil⟩ :=
+  obtain ⟨hpos', hres, hbuf, minted, hmc, hm0, _, hp1, hsh1, hbor1, hc1e, hutil, ⟨uc, hceil⟩⟩ :=
     mint_debt_ok env c _ _ hinv hdec hA c1 p1 hmd
   obtain ⟨hcash2, _, hc2e⟩ := (debit_cash_spec c1 _).2 c2 hc2
   have hpar : c2.params = c.params := by rw [hc2e, hc1e]
@@ -372,8 +387,13 @@ theorem borrow_accounting_spec (env : Env) (entry : types.pool.PoolBorrowEntry)
   have hbor2 : c2.borrowed = c1.borrowed := by rw [hc2e]
   have hc2full : c2 = { c with borrowed := c2.borrowed, cash := c2.cash } := by
     rw [hbor2, hc2e, hc1e]
+  have hceil2 : guards.require_within_entry_ceiling env c2 = ok uc := by
+    rw [require_within_entry_ceiling_congr env c1 c2 (by rw [hc2e]) (by rw [hc2e]) (by rw [hc2e])
+      (by rw [hc2e])]
+    exact hceil
   refine ⟨hpos', hpos, hres, hbuf, minted, hmc, hm0, hp1, rfl, hidx, by simp [hpar], rfl,
-    ?_, by rw [hbor2]; exact hbor1, by rw [hcash2, hc1e], hc2full, by rw [hbor2, ← hc1e]; exact hutil⟩
+    ?_, by rw [hbor2]; exact hbor1, by rw [hcash2, hc1e], hc2full,
+    by rw [hbor2, ← hc1e]; exact hutil, ⟨uc, hceil2⟩⟩
   have hs2 : SharesInv c2 := by rw [hc2e]; exact hsh1
   refine hinv.of_eq hs2 (by rw [hcash2, hc1e]; simp; omega) ?_ ?_ <;> rw [hc2full]
 
@@ -567,8 +587,12 @@ theorem withhold_liquidation_fee_ok (env : Env) (c : market_cache.Cache) (g fee 
     (¬ (isl = true ∧ fee.val ≠ 0) → net = g ∧ c' = c) ∧
     (isl = true ∧ fee.val ≠ 0 → fee.val ≤ g.val ∧ net.val = g.val - fee.val) ∧
     SharesInv c' ∧ ∃ s : Int, 0 ≤ s ∧ (¬ (isl = true ∧ fee.val ≠ 0) → s = 0) ∧
+      s * c.supply_index.val ≤ fee.val * 10^(27 - c.params.asset_decimals.val) * 10^27 ∧
       c'.revenue.val = c.revenue.val + s ∧ c'.supplied.val = c.supplied.val + s ∧
       c' = { c with revenue := c'.revenue, supplied := c'.supplied } := by
+  have hzb : (0 : Int) * c.supply_index.val ≤
+      fee.val * 10^(27 - c.params.asset_decimals.val) * 10^27 := by
+    rw [zero_mul]; exact mul_nonneg (mul_nonneg hfee (by positivity)) (by norm_num)
   unfold ops.withdraw.withhold_liquidation_fee at h
   obtain ⟨_, ha, h⟩ := bind_eq_ok h
   have ha := massert_ok ha
@@ -576,14 +600,14 @@ theorem withhold_liquidation_fee_ok (env : Env) (c : market_cache.Cache) (g fee 
   | false =>
     simp only [Bool.false_eq_true, ↓reduceIte, ok.injEq, Prod.mk.injEq] at h
     obtain ⟨rfl, rfl⟩ := h
-    exact ⟨fun _ => ⟨rfl, rfl⟩, fun h => by simp at h, hsh, 0, le_refl _, fun _ => rfl,
+    exact ⟨fun _ => ⟨rfl, rfl⟩, fun h => by simp at h, hsh, 0, le_refl _, fun _ => rfl, hzb,
       by simp, by simp, rfl⟩
   | true =>
     by_cases hf0 : fee = 0#i128
     · simp only [hf0, ↓reduceIte, ok.injEq, Prod.mk.injEq] at h
       obtain ⟨rfl, rfl⟩ := h
       have hv : fee.val = 0 := by simp [hf0]
-      exact ⟨fun _ => ⟨rfl, rfl⟩, fun h => absurd hv h.2, hsh, 0, le_refl _, fun _ => rfl,
+      exact ⟨fun _ => ⟨rfl, rfl⟩, fun h => absurd hv h.2, hsh, 0, le_refl _, fun _ => rfl, hzb,
         by simp, by simp, rfl⟩
     · have hv : fee.val ≠ 0 := fun he => hf0 (by apply IScalar.eq_of_val_eq; simpa using he)
       simp only [hf0, ↓reduceIte] at h
@@ -611,19 +635,30 @@ theorem withhold_liquidation_fee_ok (env : Env) (c : market_cache.Cache) (g fee 
       have hfrne : fr.val ≠ 0 := by
         rw [hfrv]; exact mul_ne_zero hv (by positivity)
       obtain ⟨hsh1, _, hne⟩ := hrev
-      obtain ⟨s, hs0, _, hr1, hs1, hce⟩ := hne hfrne
+      obtain ⟨s, hs0, hsq, hr1, hs1, hce⟩ := hne hfrne
+      -- the fee shares are worth at most the fee: `s ≤ ⌊fee·RAY/si⌋`
+      have hq := isFloor_ediv (fr.val * 10^27) c.supply_index.val hsi
+      have hsle : s ≤ fr.val * 10^27 / c.supply_index.val := by
+        rw [hsq _ hq]; exact le_trans (min_le_left _ _) (min_le_right _ _)
+      have hfl : fr.val * 10^27 / c.supply_index.val * c.supply_index.val ≤ fr.val * 10^27 :=
+        Int.ediv_mul_le _ (by omega)
+      have hsb : s * c.supply_index.val ≤
+          fee.val * 10^(27 - c.params.asset_decimals.val) * 10^27 := by
+        rw [← hfrv]
+        exact le_trans (Int.mul_le_mul_of_nonneg_right hsle (by omega)) hfl
       exact ⟨fun h => absurd ⟨rfl, hv⟩ h, fun _ => ⟨hle, hnv⟩, hsh1, s, hs0,
-        fun h => absurd ⟨rfl, hv⟩ h, hr1, hs1, hce⟩
+        fun h => absurd ⟨rfl, hv⟩ h, hsb, hr1, hs1, hce⟩
 
 /-- **`withdraw::gate_and_debit`.** Whenever it returns `c'`: `0 ≤ net ≤
-cash` (`require_reserves`, `debit_cash`), the utilization guard passed
-unless skipped (INV-ACCT-08), `require_supply_for_debt` passed, i.e. not
-`supplied = 0 ∧ borrowed ≠ 0` (INV-ACCT-09), and `c'` is `c` with
-`cash -= net` only. -/
+cash` (`require_reserves`, `debit_cash`), the exit utilization guard passed
+unless skipped (INV-ACCT-08; `require_exit_utilization_below_max_spec`: it is
+the full guard below a 100% ceiling and no check at 100%),
+`require_supply_for_debt` passed, i.e. not `supplied = 0 ∧ borrowed ≠ 0`
+(INV-ACCT-09), and `c'` is `c` with `cash -= net` only. -/
 theorem gate_and_debit_ok (env : Env) (c : market_cache.Cache) (net : Std.I128) (skip : Bool)
     (c' : market_cache.Cache) (h : ops.withdraw.gate_and_debit env c net skip = ok c') :
     0 ≤ net.val ∧ net.val ≤ c.cash.val ∧
-    (skip = false → ∃ u, guards.require_utilization_below_max env c = ok u) ∧
+    (skip = false → ∃ u, guards.require_exit_utilization_below_max env c = ok u) ∧
     ¬ (c.supplied.val = 0 ∧ c.borrowed.val ≠ 0) ∧
     c'.cash.val = c.cash.val - net.val ∧ c' = { c with cash := c'.cash } := by
   unfold ops.withdraw.gate_and_debit at h
@@ -698,6 +733,7 @@ theorem withdraw_accounting_spec (env : Env) (isl : Bool) (entry : types.pool.Po
     r.snapshot = snapOf r.cache ∧ PoolInv r.cache ∧
     ¬ (r.cache.supplied.val = 0 ∧ r.cache.borrowed.val ≠ 0) ∧
     (∃ s : Int, 0 ≤ s ∧ (¬ (isl = true ∧ entry.protocol_fee.val ≠ 0) → s = 0) ∧
+      s ≤ pos - new ∧
       r.cache.supplied.val = c.supplied.val - (pos - new) + s ∧
       r.cache.revenue.val = c.revenue.val + s) ∧
     r.cache.cash.val = c.cash.val - r.net_transfer.val ∧
@@ -776,7 +812,7 @@ theorem withdraw_accounting_spec (env : Env) (isl : Bool) (entry : types.pool.Po
           F0 * 10^(27 - c.params.asset_decimals.val) :=
         mul_le_mul_of_nonneg_right hgF (by positivity)
       omega) nt c2 hwh
-  obtain ⟨hwn, hwf, hsh2, s, hs0, hsz, hrev2, hsup2, hc2e⟩ := hwh'
+  obtain ⟨hwn, hwf, hsh2, s, hs0, hsz, hsb, hrev2, hsup2, hc2e⟩ := hwh'
   have hfin : ∃ skip c3, ops.withdraw.gate_and_debit env c2 nt skip = ok c3 ∧
       r = { cache := c3, snapshot := snapOf c3, net_transfer := nt,
             mutation := ({ position := { scaled_amount := rem }, market_index := indexOf c3, actual_amount := gr, asset_decimals := c3.params.asset_decimals } : types.pool.PoolPositionMutation) } := by
@@ -807,6 +843,27 @@ theorem withdraw_accounting_spec (env : Env) (isl : Bool) (entry : types.pool.Po
     by_cases hz : isl = true ∧ entry.protocol_fee.val ≠ 0
     · have := (hwf hz).2; omega
     · rw [hfe hz]
+  -- the fee shares are worth at most the fee, the fee is at most the gross
+  -- amount, and the burned shares are worth at least the gross amount
+  have hsbu : s ≤ bu.val := by
+    by_cases hz : isl = true ∧ entry.protocol_fee.val ≠ 0
+    · have hfg := (hwf hz).1
+      rw [show c1.supply_index = c.supply_index by rw [hc1e], hpar1] at hsb
+      have hfee_le : entry.protocol_fee.val * 10^(27 - c.params.asset_decimals.val) * 10^27 ≤
+          gr.val * 10^(27 - c.params.asset_decimals.val) * 10^27 :=
+        mul_le_mul_of_nonneg_right (mul_le_mul_of_nonneg_right hfg (le_of_lt hk)) (by norm_num)
+      have hgb : gr.val * 10^(27 - c.params.asset_decimals.val) * 10^27 ≤
+          bu.val * c.supply_index.val := by
+        by_cases hle : H0 ≤ entry.action.amount.val
+        · obtain ⟨hbe, hge⟩ := hfull hle
+          have hFc := hF0; unfold IsFloor at hFc; rw [if_pos (by positivity)] at hFc
+          have e : gr.val * 10^(27 - c.params.asset_decimals.val) * 10^27 =
+              F0 * (10^27 * 10^(27 - c.params.asset_decimals.val)) := by rw [hge]; ring
+          rw [e, hbe]; exact hFc.1
+        · obtain ⟨hge, _, hc, _⟩ := hpart (by omega)
+          rw [hge]; exact hc
+      exact le_of_mul_le_mul_right (le_trans hsb (le_trans hfee_le hgb)) hinv.si_pos
+    · rw [hsz hz]; exact hb0
   have hceil0 : ∀ q' : Int, IsCeil (0 * 10^(27 - c.params.asset_decimals.val) * 10^27)
       c.supply_index.val q' → q' = 0 := by
     intro q' hq'
@@ -814,8 +871,8 @@ theorem withdraw_accounting_spec (env : Env) (isl : Bool) (entry : types.pool.Po
     exact IsCeil.unique (by have := hinv.si_pos; omega) hq'
       (by unfold IsCeil; rw [if_pos hinv.si_pos]; constructor <;> nlinarith [hinv.si_pos])
   refine ⟨hamt, hpos, hfee, hg0, hga, by rw [hremv]; omega, by rw [hremv]; omega, ?_, ?_, ?_,
-    ?_, ?_, ?_, hnt0, hntG, hidx, by simp [hpar3], by simp, ?_, ?_, ⟨s, hs0, hsz, ?_, ?_⟩,
-    ?_, hc3full⟩
+    ?_, ?_, ?_, hnt0, hntG, hidx, by simp [hpar3], by simp, ?_, ?_,
+    ⟨s, hs0, hsz, by rw [hremv]; omega, ?_, ?_⟩, ?_, hc3full⟩
   · intro rr H F hrr hH hF
     have e1 : rr = r0 := IsHalfUp.unique (by norm_num) hrr hr0
     subst e1

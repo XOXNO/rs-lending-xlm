@@ -50,7 +50,7 @@ SDK `try_` calls distinguish contract errors from host, authorization, storage, 
 | 54 `PositionNftAlreadyDeployed` | A position-NFT contract address is already recorded. | Use the recorded deployment. |
 | 55 `DivisionByZero` | A fixed-point multiply-divide received a zero denominator. Distinct from `MathOverflow`, which the same operations raise when the result does not fit `i128`. | Report it; a zero index or denominator is an internal inconsistency. |
 
-### Collateral and market errors (100–135)
+### Collateral and market errors (100–136)
 
 | Code / variant | Condition | Response |
 | --- | --- | --- |
@@ -74,7 +74,7 @@ SDK `try_` calls distinguish contract errors from host, authorization, storage, 
 | 122 `CannotCloseWithRemainingDebt` | `repay_debt_with_collateral` sets `close_position` while borrow positions remain open. | Repay all debt before closing. |
 | 123 `PoolInsolvent` | Supplier claims exceed cash plus outstanding debt, or supply is zero while debt remains. | Recapitalize or clean bad debt first. |
 | 126 `MinBorrowCollateralNotMet` | LTV-weighted collateral is below the configured USD floor, or a collateral leg below 3 decimals holds under 2 whole units, while the account still has debt. | Supply more collateral or repay in full. |
-| 127 `UtilizationAboveMax` | Utilization after the operation exceeds the market's `max_utilization`. | Reduce the borrow or withdrawal size. |
+| 127 `UtilizationAboveMax` | Utilization after the operation exceeds the market's `max_utilization`. A borrow or strategy opening is also refused at a 100% ceiling when it would take debt value above supply value. | Reduce the borrow or withdrawal size. |
 | 128 `BaseRateNegative` | The base borrow rate is negative. | Use a non-negative base rate. |
 | 129 `SlopeNonMonotonic` | Parameters violate base <= slope1 <= slope2 <= slope3 <= max, or the rate at full utilization (base + slope1 + slope2 + slope3) exceeds max. Slopes remain additive increments in pricing. | Fix the stored parameter ordering, or raise max to at least the full-utilization rate. |
 | 130 `MaxRateBelowBase` | The max borrow rate is not strictly above the base rate. | Raise the max above the base rate. |
@@ -82,6 +82,7 @@ SDK `try_` calls distinguish contract errors from host, authorization, storage, 
 | 132 `AssetDecimalsTooHigh` | Market decimals exceed 18, or a cap-rescale helper is given decimals above 27. | Use the supported market decimal domain. |
 | 133 `SelfLiquidationNotAllowed` | Credit receiver id equals the liquidated account id. | Choose another receiver; owner self-liquidation is otherwise allowed. |
 | 134 `InvalidLiquidationCurve` | The target HF is outside (1 WAD, `MAX_LIQUIDATION_TARGET_HF_WAD`], the max-bonus HF is outside (0, target HF), or the bonus factor is outside (0, BPS]. | Fix the curve bounds in the proposal. |
+| 136 `MarketCeilingReached` | A supply, borrow, strategy opening or flash loan would leave the market's total supply or total debt above the pool's entry ceiling (`MAX_MARKET_ENTRY_RAY`, about 21.27 billion whole tokens), as a share count or as a value. | Reduce the amount, or wait for repayments and withdrawals to bring the market back under the ceiling. Exits are never refused by it. |
 
 ### Oracle errors (201–237)
 

@@ -218,12 +218,12 @@ fn test_utilization_zero_supply() {
     let env = Env::default();
     assert_eq!(utilization(&env, Ray::from(50 * RAY), Ray::ZERO), Ray::ZERO);
 }
+/// Debt above supply reads as full utilization, never above it.
 #[test]
-fn test_utilization_over_one() {
+fn test_utilization_is_capped_at_one() {
     let env = Env::default();
     let util = utilization(&env, Ray::from(150 * RAY), Ray::from(100 * RAY));
-    let expected = RAY * 3 / 2;
-    assert!((util.raw() - expected).abs() <= 1);
+    assert_eq!(util, Ray::ONE);
 }
 #[test]
 fn test_supply_index_update_zero_rewards() {

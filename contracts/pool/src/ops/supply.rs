@@ -2,7 +2,8 @@
 //!
 //! The controller transfers the underlying into the pool before this call.
 //! Rejects a market with a backing shortfall, so suppliers do not enter an
-//! insolvent book (INV-ACCT-04).
+//! insolvent book (INV-ACCT-04), and a total above the entry ceiling
+//! (INV-ACCT-11).
 
 use common::errors::GenericError;
 use common::types::{MarketStateSnapshot, PoolPositionMutation, PoolSupplyEntry};
@@ -13,7 +14,8 @@ use crate::{guards, ops};
 
 /// Accrues interest, mints scaled supply shares, credits cash, and commits the
 /// market state. A zero amount mints no shares; a positive amount that rounds
-/// to zero shares panics with `SupplyRoundsToZeroShares`. Returns
+/// to zero shares panics with `SupplyRoundsToZeroShares`, and a mint that
+/// takes a market total above the entry ceiling with `MarketCeilingReached`. Returns
 /// the position mutation (updated scaled supply and indexes) and the market
 /// snapshot.
 pub(crate) fn apply(
@@ -34,6 +36,7 @@ pub(crate) fn apply(
 
     position = position.checked_add(env, minted);
     cache.mint_supply(minted);
+    guards::require_within_entry_ceiling(env, &cache);
 
     cache.credit_cash(amount);
 

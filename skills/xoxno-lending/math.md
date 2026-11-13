@@ -115,7 +115,9 @@ fields. The share formulas above apply to raw contract positions.
 ```text
 supply_value_ray = half_up(total_supplied_shares × supply_index / RAY)
 debt_value_ray   = half_up(total_borrowed_shares × borrow_index / RAY)
-utilization_ray  = supply_value_ray == 0 ? 0 : half_up(debt_value_ray × RAY / supply_value_ray)
+utilization_ray  = supply_value_ray == 0 ? 0
+                 : debt_value_ray ≥ supply_value_ray ? RAY
+                 : half_up(debt_value_ray × RAY / supply_value_ray)      // always in [0, RAY]
 ```
 
 Use `get_utilisation` for the stored market ratio. To reproduce the
@@ -128,14 +130,17 @@ Example: 10,000,000 USDC supplied value, 6,500,000 USDC borrowed value → `util
 After borrowing, user withdrawal, or revenue claim, the pool checks:
 
 ```text
-ceil(ceil(debt_value_ray) × RAY / floor(supply_value_ray)) ≤ max_utilization
+ceil(debt_value_ray) ≤ floor(floor(supply_value_ray) × max_utilization / RAY)
 ```
 
-The guard permits zero debt or zero supplied shares. It also permits
-`max_utilization ≥ RAY`. Positive debt against a supply value that floors to
-zero fails. Other failures raise `UtilizationAboveMax`.
-Liquidation withdrawals skip this guard. Source:
-`contracts/pool/src/guards.rs::require_utilization_below_max`.
+The guard permits zero debt or zero supplied shares. Positive debt against a
+supply value that floors to zero fails. Failures raise `UtilizationAboveMax`.
+A borrow or strategy opening is checked at every ceiling: with
+`max_utilization = RAY` its debt value cannot exceed the supply value. A user
+withdrawal or revenue claim skips the guard when `max_utilization ≥ RAY`.
+Liquidation withdrawals always skip it. Source:
+`contracts/pool/src/guards.rs::require_utilization_below_max` and
+`require_exit_utilization_below_max`.
 
 ## Borrow-rate curve
 
@@ -227,6 +232,8 @@ per_ms     = half_up(annual_borrow_rate_ray / 31_556_926_000)          // calcul
 x          = per_ms × delta_ms                                           // RAY exponent, must fit i128
 factor     = 1 + x + x²/2! + … + x⁸/8!   (each power half-up, each term half-up ÷ k!)   // eighth-order approximation
 borrow_index' = min(half_up(borrow_index × factor / RAY), 10^36)         // update_borrow_index, monotone
+room       = max(0, MAX_MARKET_VALUE_RAY − max(debt_value_ray, supply_value_ray))   // i128::MAX − RAY
+borrow_index' = min(borrow_index', borrow_index + floor(room × RAY / borrowed))     // cap_borrow_index: interest ≤ room
 interest   = half_up(borrowed × borrow_index' / RAY) − half_up(borrowed × borrow_index / RAY)
 fee        = half_up(interest × reserve_factor / BPS);  rewards = interest − fee
 supply_index' = clamp(floor((half_up(supplied × supply_index / RAY) + rewards) × RAY / supplied), supply_index, 10^36)
@@ -237,6 +244,7 @@ revenue_shares = min(floor((fee + shortfall) × RAY / supply_index'), i128::MAX 
 Monotonicity:
 
 - Borrow index only grows (capped at `MAX_BORROW_INDEX_RAY`; at the cap no further interest accrues).
+- Accrual never reverts on a market value. When total debt value or total supply value reaches `MAX_MARKET_VALUE_RAY`, interest stops for that market and the pool emits `MarketValueCeilingEvent`; repayments, withdrawals and liquidations keep working.
 - Supply index never decreases from accrual, but **bad-debt socialization lowers it** (see below), floored at `SUPPLY_INDEX_FLOOR_RAW = 10^24`. A supply index below an earlier reading means a bad-debt write-down on that market, not an accrual bug.
 - Revenue shares are part of `supplied`; the supply index applies to them like any supplier.
 
@@ -525,7 +533,7 @@ usage + new_shares ≤ cap_scaled   else SpokeSupplyCapReached | SpokeBorrowCapR
 headroom_tokens = floor(floor((cap_scaled − usage) × index / RAY) / 10^(27−d))
 ```
 
-Exits subtract usage without checking caps. Cap conversion saturates at `i128::MAX`; the admitted cap maximum is `i128::MAX / 10^(27−d)` (`max_cap_for_decimals`).
+Exits subtract usage without checking caps. Cap conversion saturates at `i128::MAX`; the admitted cap maximum is `MAX_MARKET_ENTRY_RAY / 10^(27−d)` (`max_cap_for_decimals`), about 21.27 billion whole tokens. The pool enforces the same ceiling on a market's total supply and total debt after every supply, borrow, strategy opening and flash loan (`MarketCeilingReached`, 136).
 
 Example: USDC `supply_cap = 50_000_000_000_000` (5,000,000 USDC), usage 4,000,000 USDC of shares, index 1.083:
 

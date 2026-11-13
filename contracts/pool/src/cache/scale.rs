@@ -13,7 +13,8 @@ use common::rates::{
 use super::Cache;
 
 impl Cache {
-    /// Utilization = total borrowed value / total supplied value (RAY).
+    /// Utilization = total borrowed value / total supplied value (RAY),
+    /// capped at one RAY.
     ///
     /// Returns zero when there is no supply.
     pub(crate) fn calculate_utilization(&self) -> Ray {

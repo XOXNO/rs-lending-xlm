@@ -73,7 +73,7 @@ fn supply_at_the_domain_ceiling_succeeds_and_one_unit_more_is_rejected() {
             .ctrl_client()
             .try_supply(&alice, &id, &HARNESS_SPOKE, &leg(&t, "A", 1));
         // Pins the typed error and shows that the book did not move.
-        assert_contract_error(map_try_ok_value(result), errors::MATH_OVERFLOW);
+        assert_contract_error(map_try_ok_value(result), errors::MARKET_CEILING_REACHED);
         assert_eq!(
             t.supply_balance_raw(ALICE, "A"),
             cap,

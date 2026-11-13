@@ -249,15 +249,20 @@ fn supply_index_floor_costs_three_decades_of_deposit_headroom() {
     let floor = Ray::from(SUPPLY_INDEX_FLOOR_RAW);
     let decimals = 7u32;
 
-    // At index 1.0 the ceiling is the balance ceiling itself.
+    // At index 1.0 the ceiling is the market entry ceiling itself.
     let ceiling = max_cap_for_decimals(decimals);
-    assert!(calculate_scaled_supply(&env, ceiling, decimals, Ray::ONE).raw() > 0);
+    assert_eq!(
+        calculate_scaled_supply(&env, ceiling, decimals, Ray::ONE).raw(),
+        ceiling * 10i128.pow(27 - decimals)
+    );
 
-    // At the floor the scaled form is 1_000x larger, so the largest deposit a
-    // written-down market can still take is the ceiling divided by 1_000.
+    // At the floor the scaled form is 1_000x larger. The pool bounds the share
+    // count by the same ceiling, so the largest deposit a written-down market
+    // can still take is the ceiling divided by 1_000.
     let at_floor_ceiling = ceiling / 1_000;
-    assert!(calculate_scaled_supply(&env, at_floor_ceiling, decimals, floor).raw() > 0);
-    assert_eq!(at_floor_ceiling / 10i128.pow(decimals), 170_141_183);
+    let at_floor = calculate_scaled_supply(&env, at_floor_ceiling, decimals, floor).raw();
+    assert!(at_floor > 0 && at_floor <= crate::constants::MAX_MARKET_ENTRY_RAY);
+    assert_eq!(at_floor_ceiling / 10i128.pow(decimals), 21_267_647);
 }
 
 #[test]

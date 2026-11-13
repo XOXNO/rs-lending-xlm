@@ -126,15 +126,17 @@ impl LiquidityPoolInterface for LiquidityPool {
     }
 
     /// Accrues, mints scaled supply shares and credits cash per entry. The
-    /// controller transfers the tokens in before this call. Owner-only.
+    /// controller transfers the tokens in before this call. Rejects a market
+    /// total above the entry ceiling. Owner-only.
     #[only_owner]
     fn supply(env: Env, entries: Vec<PoolSupplyEntry>) -> Vec<PoolPositionMutation> {
         ops::run_batch(&env, entries, true, ops::supply::apply)
     }
 
     /// Batch-borrows assets and transfers them to `receiver`: accrues
-    /// interest, mints scaled debt, debits cash, and enforces max
-    /// utilization after each mint. Restricted to the owner; returns one
+    /// interest, mints scaled debt, debits cash, and enforces the entry
+    /// ceiling and max utilization after each mint (at a 100% ceiling, debt
+    /// value at most supply value). Restricted to the owner; returns one
     /// [`PoolPositionMutation`] per entry.
     #[only_owner]
     fn borrow(
@@ -253,7 +255,8 @@ impl LiquidityPoolInterface for LiquidityPool {
         ops::revenue::apply(&env, hub_asset)
     }
 
-    /// Current utilization ratio for a market (RAY fixed-point raw value).
+    /// Current utilization ratio for a market (RAY fixed-point raw value),
+    /// at most one RAY.
     ///
     /// Computed from stored indexes without forcing a state write.
     fn get_utilisation(env: Env, hub_asset: HubAssetKey) -> i128 {

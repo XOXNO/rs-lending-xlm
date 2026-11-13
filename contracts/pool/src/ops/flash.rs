@@ -19,7 +19,7 @@ use soroban_sdk::{
 };
 
 use crate::cache::Cache;
-use crate::{events, interest, ops};
+use crate::{events, guards, interest, ops};
 
 /// Precomputed fee and expected pool balances for a flash loan.
 pub(crate) struct FlashTerms {
@@ -130,8 +130,11 @@ pub(crate) fn book_fee(cache: &mut Cache, fee: i128) {
 /// Successful-path tail of [`apply`]: books the fee, commits the market, and emits market state.
 ///
 /// Called only after token balance checks confirm principal+fee returned.
+/// Panics with `MarketCeilingReached` if the fee shares leave a market total
+/// above the entry ceiling (INV-ACCT-11).
 pub(crate) fn finalize(env: &Env, cache: &mut Cache, fee: i128) {
     book_fee(cache, fee);
+    guards::require_within_entry_ceiling(env, cache);
     events::emit_market_state(env, cache.commit());
 }
 

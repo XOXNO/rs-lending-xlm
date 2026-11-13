@@ -1,4 +1,4 @@
--- Copied from RatesAeneas/Proofs/HalfUpWrappers.lean (2026-11-12 snapshot) for the pool
+-- Copied from RatesAeneas/Proofs/HalfUpWrappers.lean (2026-11-13 snapshot) for the pool
 -- extraction (global_sync / accrue_step proofs), with `RatesAeneas`/`rates_aeneas`/
 -- `aeneas_soroban_shim` renamed to `PoolAeneas`/`pool_aeneas`/`aeneas_pool_shim`,
 -- `constants.production.` to `constants.`, and the theorem namespace
@@ -144,36 +144,28 @@ theorem ray_mul_spec (env : Env) (a b : math.fp.Ray)
   step with h as ⟨q, hq⟩
   exact hq
 
--- `ray_div_spec` is omitted: since #225 the curve no longer calls `Ray::div`, so
--- the pool extraction does not contain it (RatesAeneas still proves it).
+/-- **`Ray::div` is the half-up quotient.** For a non-negative ray `a` and a
+positive ray `b` whose half-up quotient `a*RAY/b` fits `i128`, `Ray::div`
+returns exactly it. -/
+theorem ray_div_spec (env : Env) (a b : math.fp.Ray)
+    (ha : 0 ≤ IScalar.val (ty := .I128) a) (hb : 0 < IScalar.val (ty := .I128) b)
+    (hfit : ∃ q : Int, IsHalfUp (IScalar.val (ty := .I128) a * 10^27)
+      (IScalar.val (ty := .I128) b) q ∧ q < 2^127) :
+    math.fp.Ray.div a env b ⦃ q =>
+      IsHalfUp (IScalar.val (ty := .I128) a * 10^27) (IScalar.val (ty := .I128) b)
+        (IScalar.val (ty := .I128) q) ⦄ := by
+  unfold math.fp.Ray.div
+  have h := mul_div_half_up_spec env a constants.shared.RAY b ha
+    (by rw [ray_val_hu]; norm_num) hb (by rw [ray_val_hu]; exact hfit)
+  rw [ray_val_hu] at h
+  step with h as ⟨q, hq⟩
+  exact hq
 
-/-- **`Ray::try_div` is the checked half-up quotient.** It never aborts. For
-`a < 0` or `b ≤ 0` it returns `None`; for `a ≥ 0` and `b > 0` it returns
-`Some q` with `q = half_up(a*RAY/b)` when that fits `i128`, and `None` exactly
-when it does not (`HalfUpResult`). Wrapper added by #224 (typed fixed-point
-boundary) over `fp_core::try_mul_div_half_up`; `utilization` calls it. -/
-theorem ray_try_div_spec (env : Env) (a b : Std.I128) :
-    math.fp.Ray.try_div a env b ⦃ o =>
-      ((a.val < 0 ∨ b.val ≤ 0) → o = none) ∧
-      ((0 ≤ a.val ∧ 0 < b.val) → HalfUpResult (a.val * 10^27) b.val o) ⦄ := by
-  unfold math.fp.Ray.try_div
-  step with try_mul_div_half_up_spec env a constants.shared.RAY b as ⟨o, h1, h2⟩
-  rw [ray_val_hu] at h1 h2
-  have hR : (0 : Int) ≤ 10^27 := by norm_num
-  have hR' : ¬ ((10 : Int)^27 < 0) := by norm_num
-  cases o with
-  | none =>
-    rw [Aeneas.Std.core.option.Option.map_none, WP.spec_ok]
-    exact ⟨fun _ => rfl, fun ha hb => h2 ha hR hb⟩
-  | some v =>
-    rw [Aeneas.Std.core.option.Option.map_some]
-    simp only [P.Insts.CoreOpsFunctionFnOnceTupleI128Ray.call_once, math.fp.Ray.constructor]
-    apply WP.spec_bind ((WP.spec_ok _).mpr (rfl : v = v))
-    rintro _ rfl
-    rw [WP.spec_ok]
-    refine ⟨fun h => ?_, fun ha hb => h2 ha hR hb⟩
-    have := h1 (by rcases h with h | h <;> simp [h])
-    simp at this
+-- `ray_try_div_spec` and `ray_try_mul_spec` are omitted. `utilization` no longer
+-- calls `Ray::try_div` (it divides only below `supplied`, with `Ray::div`), so
+-- the pool extraction does not contain it; RatesAeneas still proves it. The
+-- pool's `Ray::try_mul` spec is `PoolAeneas.Proofs.ray_try_mul_spec`
+-- (`Wrappers.lean`).
 
 /-- Half-up of `x*y/d` with `0 ≤ y ≤ d` exists, is in `[0, x]`, and so fits. -/
 theorem halfUp_ratio_fits (x y d : Int) (hd : 0 < d) (hx : 0 ≤ x) (hxb : x < 2^127)
