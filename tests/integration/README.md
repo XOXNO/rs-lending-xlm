@@ -8,6 +8,16 @@ files. A passing smoke or a mapped ABI is not release acceptance.
 Builds use `stellar contract build --optimize --out-dir` and consume that
 optimized output. Cargo's target WASM remains raw. Production artifacts are
 optimized once, then stripped; fixtures retain their separate output directory.
+
+Governance is the one contract a live run does not take from the candidate set.
+The candidate `governance.wasm` holds every sensitive operation for 120960
+ledgers (about seven days), which no run can wait out. `make integration-wasm`
+also builds `fixtures/governance_e2e.wasm` with the governance `short-timelock`
+feature, which lowers that floor to 12 ledgers, and every lane deploys it. The
+governance upgrade proof is a same-hash upgrade of that build. The candidate
+`governance.wasm` is covered by the native tests only. The fixture carries a
+`timelock` contract-meta stamp; `artifacts.py check` fails on a candidate
+governance that carries it, so it cannot be deployed or published by mistake.
 Removing the old second optimization pass changes some artifact hashes, so
 earlier live proofs do not certify the new build outputs.
 

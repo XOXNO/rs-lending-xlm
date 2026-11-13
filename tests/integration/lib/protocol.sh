@@ -170,7 +170,8 @@ deploy_protocol() {
 
     if [ -z "${GOVERNANCE:-}" ]; then
         local out_f="$LOG_DIR/deploy_governance.out" err_f="$LOG_DIR/deploy_governance.err"
-        run_deploy "$out_f" "$err_f" -- stellar contract deploy --wasm "$WASM_DIR/governance.wasm" \
+        [ -f "$GOVERNANCE_E2E_WASM" ] || die deploy_governance "$GOVERNANCE_E2E_WASM missing (run make integration-wasm)"
+        run_deploy "$out_f" "$err_f" -- stellar contract deploy --wasm "$GOVERNANCE_E2E_WASM" \
             --source "$ADMIN" "${NET_ARGS[@]}" \
             -- --admin "$ADMIN_ADDR" --min_delay "$INTEG_MIN_DELAY"
         local gov txh

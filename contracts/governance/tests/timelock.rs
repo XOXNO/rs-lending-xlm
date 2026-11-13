@@ -873,3 +873,15 @@ fn upgrade_price_aggregator_executes_against_the_aggregator() {
 
     assert_eq!(gov.get_operation_state(&id), OperationState::Unset);
 }
+
+/// Every deployable build holds sensitive operations for about seven days.
+/// Only the end-to-end build, with `short-timelock`, lowers the floor.
+#[test]
+fn the_sensitive_floor_is_seven_days_unless_the_build_is_for_end_to_end_runs() {
+    let expected = if cfg!(feature = "short-timelock") {
+        12
+    } else {
+        120_960
+    };
+    assert_eq!(TIMELOCK_SENSITIVE_MIN_DELAY_LEDGERS, expected);
+}

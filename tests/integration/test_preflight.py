@@ -46,7 +46,13 @@ out.mkdir(parents=True, exist_ok=True)
 raw = Path(os.environ['CARGO_TARGET_DIR']) / 'wasm32v1-none/release'
 raw.mkdir(parents=True, exist_ok=True)
 (raw / (pkg + '.wasm')).write_bytes(b'UNOPTIMIZED')
-(out / (pkg + '.wasm')).write_bytes(b'\\0asm\\1\\0\\0\\0\\0\\x0f\\x0econtractspecv0')
+module = b'\\0asm\\1\\0\\0\\0\\0\\x0f\\x0econtractspecv0'
+if 'short-timelock' in args:
+    # The end-to-end governance build: its own target directory and a meta stamp.
+    assert args[args.index('--features') + 1] == 'short-timelock' and pkg == 'governance'
+    assert os.environ['CARGO_TARGET_DIR'].endswith('custom target/e2e-short-timelock')
+    module += b'\\0\\x28\\x0econtractmetav0e2e-short-sensitive-delay'
+(out / (pkg + '.wasm')).write_bytes(module)
 ''')
             stellar.chmod(0o755)
             git = binaries / 'git'
@@ -71,8 +77,14 @@ raw.mkdir(parents=True, exist_ok=True)
             self.assertTrue((base / 'custom target/wasm32v1-none/release/curator.wasm').is_file())
             self.assertEqual(before, {p.name: p.read_bytes() for p in candidates.iterdir()})
             fixtures = base / 'artifacts/wasm/fixtures'
-            self.assertEqual(len(list(fixtures.glob('*.wasm'))), 6)
-            self.assertTrue(all(p.read_bytes() == b'\0asm\1\0\0\0\0\x0f\x0econtractspecv0' for p in fixtures.glob('*.wasm')))
+            self.assertEqual(len(list(fixtures.glob('*.wasm'))), 7)
+            short = fixtures / 'governance_e2e.wasm'
+            self.assertIn(b'e2e-short-sensitive-delay', short.read_bytes())
+            self.assertTrue(all(p.read_bytes() == b'\0asm\1\0\0\0\0\x0f\x0econtractspecv0'
+                                for p in fixtures.glob('*.wasm') if p != short))
+            # The deployable governance build is not replaced by the short one.
+            self.assertFalse((base / 'custom target/wasm32v1-none/release/governance_e2e.wasm').exists())
+            self.assertNotIn(b'e2e-short-sensitive-delay', (candidates / 'governance.wasm').read_bytes())
 
             mocks = {'mock_reflector': 'mock_oracle', 'mock_redstone': 'mock_redstone'}
             default_release = base / 'target/wasm32v1-none/release'

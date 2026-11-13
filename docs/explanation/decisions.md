@@ -282,6 +282,12 @@ collateral. Its origination-fee treatment differs from multiply.
 
 Feature gates separate testing and verification helpers from deployment code.
 Release-WASM checks inspect forbidden exports for the artifacts and build inputs
-they cover. Formal results also depend on their harness and external-call
+they cover. One gate changes behavior instead of adding an entrypoint: the
+governance `short-timelock` feature lowers the sensitive delay floor from 120960
+to 12 ledgers for the end-to-end build. Live runs deploy that build from the
+fixtures directory, so the released governance Wasm is the one candidate the
+network run does not execute; native tests cover it. The build stamps a
+`timelock` contract-meta entry, and the candidate check fails on a governance
+candidate that carries it. Formal results also depend on their harness and external-call
 assumptions. The [proof guide](certora-sunbeam-prover-tuning.md) explains how to
 interpret that evidence.

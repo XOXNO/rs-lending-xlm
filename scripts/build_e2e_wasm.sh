@@ -32,6 +32,19 @@ fixtures)
     for pkg in mock-oracle mock-redstone flash-loan-receiver flash-position-receiver script-runner production-fixture; do
         stellar contract build --locked --package "$pkg" --optimize --out-dir "$out"
     done
+    # Governance for live-network runs: the `short-timelock` feature lowers the
+    # sensitive delay floor from about 7 days to 12 ledgers. It builds in its
+    # own target directory so it never replaces Cargo's deployable
+    # governance.wasm, and it is never a release candidate.
+    short_marker=e2e-short-sensitive-delay
+    short_target="${CARGO_TARGET_DIR:-target}/e2e-short-timelock"
+    CARGO_TARGET_DIR="$short_target" stellar contract build --locked \
+        --package governance --features short-timelock --optimize \
+        --out-dir "$short_target/optimized"
+    python3 scripts/strip_spec_docs.py \
+        "$short_target/optimized/governance.wasm" "$out/governance_e2e.wasm"
+    grep -aq "$short_marker" "$out/governance_e2e.wasm" \
+        || { echo "governance_e2e.wasm lacks the $short_marker stamp" >&2; exit 1; }
     ;;
 *) echo "unknown build mode: $mode" >&2; exit 2;;
 esac

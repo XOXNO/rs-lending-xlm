@@ -57,7 +57,9 @@ prod_upgrade_hash() {
         upgradePoolHash) echo "$POOL_HASH";;
         upgradePositionNftHash) echo "$NFT_HASH";;
         upgradePriceAggregatorHash) echo "$PA_HASH";;
-        upgradeGovernanceHash) jq -er '.artifacts["governance.wasm"]' "$RUN_DIR/candidate.json";;
+        # Same-hash upgrade of the deployed short-timelock build; the candidate
+        # governance.wasm would hold every later sensitive operation for 7 days.
+        upgradeGovernanceHash) sha256sum "$GOVERNANCE_E2E_WASM" | cut -c1-64 | grep -E '^[0-9a-f]{64}$';;
         *) return 1;;
     esac
 }

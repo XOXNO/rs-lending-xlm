@@ -47,6 +47,11 @@ EURC_SAC="${EURC_SAC:-CCUUDM434BMZMYWYDITHFXHDMIVTGGD6T2I5UKNX5BSLXLW7HVR4MCGZ}"
 FIXTURE_WASM_DIR="${FIXTURE_WASM_DIR:-$REPO_ROOT/artifacts/wasm/fixtures}"
 CURVE_FIXTURE_DIR="${CURVE_FIXTURE_DIR:-$REPO_ROOT/contracts/swap-aggregator/tests/fixtures/curve}"
 WASM_DIR="${WASM_DIR:-$REPO_ROOT/artifacts/wasm/deploy}"
+# Governance built with `short-timelock`: a 12-ledger sensitive delay floor in
+# place of the candidate's 7 days, so a live run can execute sensitive
+# operations. Every run deploys this build; the candidate governance.wasm is
+# covered by the native tests only.
+GOVERNANCE_E2E_WASM="${GOVERNANCE_E2E_WASM:-$FIXTURE_WASM_DIR/governance_e2e.wasm}"
 
 RUN_TS="${RUN_TS:?set RUN_TS=<unique-run-name> (e.g. \$(date +%Y%m%d-%H%M%S))}"
 [[ "$RUN_TS" =~ ^[A-Za-z0-9_-]+$ ]] || { echo "invalid RUN_TS" >&2; exit 1; }

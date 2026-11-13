@@ -1,4 +1,5 @@
 """Fault injection for risk snapshots, NFT enumeration and route headers."""
+import hashlib
 import csv
 import json
 import re
@@ -335,7 +336,7 @@ else:
         self.assertIn('conflicting prices',next(a['note'] for a in actions if a['label']=='prod_seed_dedupe'))
     UPGRADES=['upgradeControllerHash','upgradePoolHash','upgradePositionNftHash','upgradePriceAggregatorHash','upgradeGovernanceHash']
     UPGRADE_MOCKS=r"""RUN_DIR="$1"; LOG="$1/calls"; INTEG_DIR=integ; REPO_ROOT=repo; POSITION_NFT=NFT; CONTROLLER=CTRL
-CTRL_HASH=hc; POOL_HASH=hp; NFT_HASH=hn; PA_HASH=ha; echo '{"artifacts":{"governance.wasm":"hg"}}' > "$RUN_DIR/candidate.json"
+CTRL_HASH=hc; POOL_HASH=hp; NFT_HASH=hn; PA_HASH=ha; GOVERNANCE_E2E_WASM="$RUN_DIR/governance_e2e.wasm"; printf short > "$GOVERNANCE_E2E_WASM"
 python3() { if [ "$1" = -c ]; then command python3 "$@"; else echo "$2" >> "$LOG"; [ "${FULL_FAIL:-}" != 1 ]; fi; }
 record() { echo "record $1 $2" >> "$LOG"; }
 inv() { echo "inv $1" >> "$LOG"; }
@@ -357,7 +358,7 @@ assert_view_eq_at() { echo "assert $2 $3 $6" >> "$LOG"; }
 """
 
     def test_upgrade_case_full_config_and_order(self):
-        hashes=dict(zip(self.UPGRADES,['hc','hp','hn','ha','hg']))
+        hashes=dict(zip(self.UPGRADES,['hc','hp','hn','ha',hashlib.sha256(b'short').hexdigest()]))
         with tempfile.TemporaryDirectory() as d:
             result=shell('flows/production.sh',self.UPGRADE_MOCKS+'flow_production_upgrade',d)
             calls=(Path(d)/'calls').read_text().splitlines()

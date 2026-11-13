@@ -17,6 +17,12 @@ DISTRIBUTION_FILES = ({f'{c}.wasm' for c in CONTRACTS}
     | {'sdk-manifest.json', 'candidate.json'})
 
 
+# Contract meta value that the governance `short-timelock` feature stamps into
+# its Wasm. That build lowers the sensitive delay floor to 12 ledgers for live
+# end-to-end runs and must never be deployed or published.
+SHORT_TIMELOCK_STAMP = b'e2e-short-sensitive-delay'
+
+
 def digest(path):
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
@@ -26,6 +32,8 @@ def check(directory):
     assert set(manifest['artifacts']) == {f'{c}.wasm' for c in CONTRACTS}, 'candidate set mismatch'
     for name, expected in manifest['artifacts'].items():
         assert digest(directory / name) == expected, f'candidate hash mismatch: {name}'
+    assert SHORT_TIMELOCK_STAMP not in (directory / 'governance.wasm').read_bytes(), \
+        'candidate governance.wasm is the short-timelock end-to-end build'
     assert manifest['source_sha'] == subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip(), 'candidate source SHA mismatch'
     return manifest
 
