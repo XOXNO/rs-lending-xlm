@@ -162,7 +162,11 @@ for tag in ['', 'v1.2.3']:
     for expression in refs[1:]:
         ref = resolve(expression,context)
         assert moved_refs.get(ref,ref) == built_sha, 'queued job followed a moved ref'
-publish = workflow.split('  publish:',1)[1]
+def job(name):
+    # A job's text ends at the next line at job indentation: the next job, or
+    # a comment above it. Jobs that follow `name` are not part of it.
+    return re.split(r'^  \S', workflow.split(f'  {name}:',1)[1], maxsplit=1, flags=re.M)[0]
+publish = job('publish')
 assert 'needs: [build, testnet-e2e]' in publish
 assert publish.index('release_gate.py verify') < publish.index('gh release upload')
 assert "if: github.event_name != 'workflow_dispatch' || !inputs.dry_run" in publish
@@ -181,7 +185,12 @@ assert 'continue-on-error:' not in e2e
 assert 'if:' not in e2e.split('      - name: Run parallel testnet e2e',1)[1].split('      - name:',1)[0]
 
 def step(section, name):
-    return section.split(f'      - name: {name}\n',1)[1].split('      - name:',1)[0]
+    # A step's text ends at the next step, or at the first line indented less
+    # than a step's own keys: the end of its job.
+    body = section.split(f'      - name: {name}\n',1)[1].split('      - name:',1)[0]
+    body = re.split(r'^ {0,7}\S', body, maxsplit=1, flags=re.M)[0]
+    assert all(line.startswith('        ') for line in body.splitlines() if line.strip()), name
+    return body
 def run_step(body, gh_out, env=None):
     script = textwrap.dedent(body.split('        run: |\n',1)[1])
     with tempfile.TemporaryDirectory() as directory:
@@ -211,6 +220,12 @@ for draft, allowed, created in [('',True,True),('true',True,False),('false',Fals
     assert (code == 0) == allowed, f'existing release draft={draft!r}'
     assert ('release create' in calls) == created
     assert ('release upload' in calls) == allowed
+# Registry publication mutates public state too: it waits for the GitHub
+# release and never runs on a dry run, and mainnet waits for testnet.
+registry_testnet = job('registry-publish-testnet')
+assert 'needs: publish' in registry_testnet
+assert "if: github.event_name != 'workflow_dispatch' || !inputs.dry_run" in registry_testnet
+assert 'needs: registry-publish-testnet' in job('registry-publish-mainnet')
 print('Release commit and published-release guards passed')
 assert workflow.index('sdk_manifest.py dist') < workflow.index('artifacts.py distribution-create dist') < workflow.index('name: Upload artifact')
 assert 'collect tests/integration/runs "$RUN_TS" artifacts/wasm/deploy' in workflow
