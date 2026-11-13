@@ -42,7 +42,8 @@ stored under its governance operation id with the hub and the spoke it names.
 the same as a guardian write.
 
 A spoke owner cannot pause a listing of a hub asset that another registrar
-owns, through `tighten_flags` or through a listing or edit (`ForeignPause`). A
+owns, through `tighten_flags` or through a listing, an edit or a relaxation
+(`ForeignPause`). A
 pause blocks repayment and liquidation of that hub's debt, and its owner could
 not lift it. Freezing and halting seizure stay available.
 

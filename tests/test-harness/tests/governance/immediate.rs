@@ -638,6 +638,61 @@ fn curator_spoke_owner_freezes_a_foreign_hub_listing_but_cannot_pause_it() {
     assert!(after.frozen && !after.paused && !after.no_seize);
 }
 
+/// A timelocked relaxation writes all three flags, so it could add the pause
+/// that `tighten_flags` refuses. The spoke owner may relax a foreign hub's
+/// listing and may carry a pause that is already set, but cannot queue a new
+/// one.
+#[test]
+fn curator_spoke_owner_cannot_queue_a_pause_on_a_foreign_hub_listing() {
+    let t = LendingTest::new().with_market(usdc_preset()).build();
+    let env = &t.env;
+    let g = granted_listing(&t);
+    let key = hub_asset(t.resolve_asset("USDC"));
+    let relax = |paused: bool, salt: u8| -> Vec<Val> {
+        let op = AdminOperation::RelaxSpokeAssetFlags(RelaxSpokeAssetFlagsArgs {
+            spoke_id: HARNESS_SPOKE,
+            hub_asset: key.clone(),
+            expected_epoch: t
+                .ctrl_client()
+                .get_spoke_asset_flags_epoch(&HARNESS_SPOKE, &key),
+            paused,
+            frozen: false,
+            no_seize: false,
+        });
+        vec![
+            env,
+            g.spoke_admin.into_val(env),
+            g.spoke_owner.into_val(env),
+            op.into_val(env),
+            BytesN::from_array(env, &[salt; 32]).into_val(env),
+        ]
+    };
+    let gov = t.gov_client();
+
+    // The listing is not paused: a relaxation that pauses it is refused.
+    assert_contract_error(
+        try_curator_call(&t, &g.curator, "propose", relax(true, 1)),
+        errors::FOREIGN_PAUSE,
+    );
+    // The same relaxation without the pause is queued.
+    let unpaused: BytesN<32> = curator_call(&t, &g.curator, "propose", relax(false, 2));
+    assert_ne!(gov.get_operation_ledger(&unpaused), 0);
+
+    // The guardian pauses the listing. The spoke owner may then relax the
+    // other flags and leave that pause in place.
+    t.gov_iface_client().set_spoke_asset_flags(
+        &t.admin(),
+        &HARNESS_SPOKE,
+        &key,
+        &true,
+        &false,
+        &false,
+    );
+    assert!(t.ctrl_client().get_spoke_asset(&HARNESS_SPOKE, &key).paused);
+    let kept: BytesN<32> = curator_call(&t, &g.curator, "propose", relax(true, 3));
+    assert_ne!(gov.get_operation_ledger(&kept), 0);
+}
+
 /// Grant checks run only when an operation is queued. A hub owner that revokes
 /// a grant cancels what the grantee queued under it, so the edit never lands.
 #[test]

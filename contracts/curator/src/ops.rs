@@ -234,6 +234,14 @@ pub(crate) fn propose(
                     &args.hub_asset.asset,
                 );
             }
+            // The controller writes all three flags of a relaxation, so it can
+            // add a pause. A listing of another registrar's hub asset may keep
+            // its pause but not gain one, as in `tighten_flags`.
+            if args.paused && owned_by_another(env, args.hub_asset.hub_id, registrar) {
+                let current = ControllerClient::new(env, &governance_client(env).controller())
+                    .get_spoke_asset(&args.spoke_id, &args.hub_asset);
+                assert_with_error!(env, current.paused, CuratorError::ForeignPause);
+            }
             (Some(args.hub_asset.hub_id), Some(args.spoke_id))
         }
         _ => panic_with_error!(env, CuratorError::Unsupported),

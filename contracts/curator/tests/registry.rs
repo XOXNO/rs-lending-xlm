@@ -1020,3 +1020,42 @@ fn a_grantee_cannot_list_a_foreign_hub_asset_paused() {
         Err(Ok(CuratorError::ForeignPause.into()))
     );
 }
+
+/// A relaxation that carries no pause is not checked against the live
+/// listing: a grantee queues it for a foreign hub's asset under its grant.
+#[test]
+fn a_grantee_queues_a_relaxation_of_a_foreign_hub_asset_that_carries_no_pause() {
+    let env = Env::default();
+    let p = granted_pair(&env);
+    let op_id = p.curator.propose(
+        &p.other,
+        &p.second,
+        &relax(p.hub, p.spoke, p.asset.clone()),
+        &BytesN::from_array(&env, &[11; 32]),
+    );
+    assert_ne!(gov(&env, &p.curator).get_operation_ledger(&op_id), 0);
+}
+
+/// The pause rule is about another registrar's hub. A registrar that owns both
+/// the hub and the spoke queues a relaxation that pauses its own listing.
+#[test]
+fn the_owner_of_hub_and_spoke_queues_a_pause_through_a_relaxation() {
+    let env = Env::default();
+    let (owner, curator) = setup(&env);
+    let admin = Address::generate(&env);
+    let registrar = register(&env, &owner, &curator, &admin);
+    let hub = curator.create_hub(&admin, &registrar);
+    let spoke = curator.add_spoke(&admin, &registrar);
+    let AdminOperation::RelaxSpokeAssetFlags(mut args) = relax(hub, spoke, Address::generate(&env))
+    else {
+        unreachable!()
+    };
+    args.paused = true;
+    let op_id = curator.propose(
+        &admin,
+        &registrar,
+        &AdminOperation::RelaxSpokeAssetFlags(args),
+        &BytesN::from_array(&env, &[12; 32]),
+    );
+    assert_ne!(gov(&env, &curator).get_operation_ledger(&op_id), 0);
+}
