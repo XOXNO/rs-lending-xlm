@@ -8,7 +8,7 @@ use controller_interface::ControllerClient;
 use governance_interface::{AdminOperation, GovernanceClient};
 use soroban_sdk::{assert_with_error, panic_with_error, Address, BytesN, ContractExecutable, Env};
 
-use crate::events::ProposedEvent;
+use crate::events::{CancelledEvent, ProposedEvent};
 use crate::storage;
 use crate::{auth, CapGrant, CuratorError, ROLE_FLAGS, ROLE_MARKET, ROLE_SPOKE};
 
@@ -114,8 +114,12 @@ pub(crate) fn create_market(
     governance_client(env).create_liquidity_pool(&me(env), &hub_id, params)
 }
 
-/// The spoke owner tightens any flag. The owner of the listed hub may only
-/// freeze a listing of its asset in another registrar's spoke.
+/// The spoke owner tightens any flag on a listing of its own hub's asset or of
+/// a hub no registrar owns. On a listing of another registrar's hub asset it
+/// may freeze or halt seizure but not pause: a pause blocks repayment and
+/// liquidation of that hub's debt, and the hub owner could not lift it. The
+/// owner of the listed hub may only freeze a listing of its asset in another
+/// registrar's spoke.
 pub(crate) fn tighten_flags(
     env: &Env,
     caller: &Address,
@@ -128,6 +132,11 @@ pub(crate) fn tighten_flags(
 ) {
     auth::require_role(env, caller, registrar, ROLE_FLAGS);
     let (paused, no_seize) = if storage::spoke_registrar(env, spoke_id) == Some(registrar) {
+        if paused && owned_by_another(env, hub_asset.hub_id, registrar) {
+            let current = ControllerClient::new(env, &governance_client(env).controller())
+                .get_spoke_asset(&spoke_id, hub_asset);
+            assert_with_error!(env, current.paused, CuratorError::ForeignPause);
+        }
         (paused, no_seize)
     } else {
         auth::require_hub(env, hub_asset.hub_id, registrar);
@@ -193,15 +202,25 @@ pub(crate) fn propose(
     op: AdminOperation,
     salt: BytesN<32>,
 ) -> BytesN<32> {
-    match &op {
+    let (hub, spoke) = match &op {
         AdminOperation::AddAssetToSpoke(args) | AdminOperation::EditAssetInSpoke(args) => {
             auth::require_role(env, caller, registrar, ROLE_MARKET);
-            auth::require_spoke(env, args.spoke_id, registrar);
-            require_grant(env, registrar, args);
+            let listed = matches!(op, AdminOperation::EditAssetInSpoke(_));
+            if listed && storage::spoke_registrar(env, args.spoke_id) != Some(registrar) {
+                // The owner of the listed hub may lower the caps of its asset
+                // in a spoke it does not own.
+                auth::require_hub(env, args.hub_id, registrar);
+                require_cap_lowering(env, args);
+            } else {
+                auth::require_spoke(env, args.spoke_id, registrar);
+                require_grant(env, registrar, args, listed);
+            }
+            (Some(args.hub_id), Some(args.spoke_id))
         }
         AdminOperation::UpgradeLiquidityPoolParams(args) => {
             auth::require_role(env, caller, registrar, ROLE_MARKET);
             auth::require_hub(env, args.hub_asset.hub_id, registrar);
+            (Some(args.hub_asset.hub_id), None)
         }
         AdminOperation::RelaxSpokeAssetFlags(args) => {
             auth::require_role(env, caller, registrar, ROLE_FLAGS);
@@ -215,16 +234,70 @@ pub(crate) fn propose(
                     &args.hub_asset.asset,
                 );
             }
+            (Some(args.hub_asset.hub_id), Some(args.spoke_id))
         }
         _ => panic_with_error!(env, CuratorError::Unsupported),
-    }
+    };
     let op_id = governance_client(env).propose(&me(env), &op, &salt);
+    storage::set_proposal(env, &op_id, hub, spoke);
     ProposedEvent {
         registrar,
         op_id: op_id.clone(),
     }
     .publish(env);
     op_id
+}
+
+/// Cancels a queued operation on behalf of the registrar that now owns the hub
+/// or the spoke it names. Checks made when the operation was queued do not run
+/// again at execution, so this is how a later revocation, reassignment or
+/// admin change reaches an operation that is still pending.
+pub(crate) fn cancel_proposal(env: &Env, caller: &Address, registrar: u32, op_id: &BytesN<32>) {
+    auth::require_role(env, caller, registrar, ROLE_MARKET | ROLE_FLAGS);
+    let (hub, spoke) = storage::proposal(env, op_id)
+        .unwrap_or_else(|| panic_with_error!(env, CuratorError::ProposalUnknown));
+    let owns_hub = hub.is_some_and(|id| storage::hub_registrar(env, id) == Some(registrar));
+    let owns_spoke = spoke.is_some_and(|id| storage::spoke_registrar(env, id) == Some(registrar));
+    assert_with_error!(env, owns_hub || owns_spoke, CuratorError::ProposalForeign);
+    governance_client(env).cancel(&me(env), op_id);
+    storage::remove_proposal(env, op_id);
+    CancelledEvent {
+        registrar,
+        op_id: op_id.clone(),
+    }
+    .publish(env);
+}
+
+/// Requires `args` to keep the live listing as it is except for a supply cap
+/// or a borrow cap that is no higher than the stored one. Flags, risk
+/// parameters, and collateral and borrow permissions must match the listing.
+fn require_cap_lowering(env: &Env, args: &SpokeAssetArgs) {
+    let current = ControllerClient::new(env, &governance_client(env).controller()).get_spoke_asset(
+        &args.spoke_id,
+        &HubAssetKey {
+            hub_id: args.hub_id,
+            asset: args.asset.clone(),
+        },
+    );
+    let unchanged = args.can_collateral == current.is_collateralizable
+        && args.can_borrow == current.is_borrowable
+        && args.paused == current.paused
+        && args.frozen == current.frozen
+        && args.no_seize == current.no_seize
+        && args.ltv == current.loan_to_value
+        && args.threshold == current.liquidation_threshold
+        && args.bonus == current.liquidation_bonus
+        && args.liquidation_fees == current.liquidation_fees;
+    assert_with_error!(
+        env,
+        unchanged && args.supply_cap <= current.supply_cap && args.borrow_cap <= current.borrow_cap,
+        CuratorError::NotCapLowering
+    );
+}
+
+/// Whether a registrar other than `registrar` owns `hub_id`.
+fn owned_by_another(env: &Env, hub_id: u32, registrar: u32) -> bool {
+    storage::hub_registrar(env, hub_id).is_some_and(|owner| owner != registrar)
 }
 
 fn assign_hub(env: &Env, hub_id: u32, registrar: u32) {
@@ -245,10 +318,26 @@ fn assign_spoke(env: &Env, spoke_id: u32, registrar: u32) {
     storage::set_spoke_registrar(env, spoke_id, Some(registrar));
 }
 
-/// Own hub passes. A foreign hub must fit the cap its registrar stored for this spoke.
-fn require_grant(env: &Env, registrar: u32, args: &SpokeAssetArgs) {
+/// Own hub passes. A foreign hub must fit the cap its registrar stored for this
+/// spoke, and a listing of another registrar's hub asset may not gain a pause:
+/// a new listing (`listed` false) must be unpaused, and an edit may carry
+/// `paused` only if it is already set.
+fn require_grant(env: &Env, registrar: u32, args: &SpokeAssetArgs, listed: bool) {
     if storage::hub_registrar(env, args.hub_id) == Some(registrar) {
         return;
+    }
+    if args.paused && owned_by_another(env, args.hub_id, registrar) {
+        let already = listed
+            && ControllerClient::new(env, &governance_client(env).controller())
+                .get_spoke_asset(
+                    &args.spoke_id,
+                    &HubAssetKey {
+                        hub_id: args.hub_id,
+                        asset: args.asset.clone(),
+                    },
+                )
+                .paused;
+        assert_with_error!(env, already, CuratorError::ForeignPause);
     }
     let grant = live_grant(env, registrar, args.hub_id, args.spoke_id, &args.asset);
     let within = args.supply_cap <= grant.supply_cap

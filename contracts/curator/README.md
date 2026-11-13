@@ -32,12 +32,19 @@ registrar proposals.
 | `create_hub`, `add_spoke` | `ROLE_SPOKE` | Immediate |
 | `create_market` on an owned hub | `ROLE_MARKET` | Immediate |
 | `tighten_flags` on an owned spoke, or `frozen` on a listing of an owned hub asset in any spoke | `ROLE_FLAGS` | Immediate, tightening only |
-| `propose`: new listing, listing edit, rate change, flag relaxation | `ROLE_MARKET` or `ROLE_FLAGS` | Governance timelock |
+| `propose`: new listing, listing edit, rate change, flag relaxation; a cap-lowering edit of an owned hub asset in any spoke | `ROLE_MARKET` or `ROLE_FLAGS` | Governance timelock |
+| `cancel_proposal` on a queued operation that names an owned hub or spoke | `ROLE_MARKET` or `ROLE_FLAGS` | Immediate |
 
 `propose` accepts only `AddAssetToSpoke`, `EditAssetInSpoke`,
 `UpgradeLiquidityPoolParams`, and `RelaxSpokeAssetFlags`. Each proposal is
-recorded with its registrar and hub. `tighten_flags` that sets no new flag
-reverts with `SpokeAssetFlagsUnchanged`, the same as a guardian write.
+stored under its governance operation id with the hub and the spoke it names.
+`tighten_flags` that sets no new flag reverts with `SpokeAssetFlagsUnchanged`,
+the same as a guardian write.
+
+A spoke owner cannot pause a listing of a hub asset that another registrar
+owns, through `tighten_flags` or through a listing or edit (`ForeignPause`). A
+pause blocks repayment and liquidation of that hub's debt, and its owner could
+not lift it. Freezing and halting seizure stay available.
 
 ## Cap grants
 
@@ -55,11 +62,31 @@ grantee immediately:
   open; the listing's `paused` and `no_seize` are left as the spoke owner set
   them.
 
-Cap changes go through the timelocked `EditAssetInSpoke`; a relaxation of any
-flag goes through the timelocked `RelaxSpokeAssetFlags`. Grants and suspension
-are checked when proposing. A proposal already queued in governance is stopped
-only by a governance `CANCELLER`, or by letting it expire; the curator keeps no
-record of queued proposals.
+- `cancel_proposal` cancels a listing, edit, or flag relaxation the grantee
+  queued for the asset. Revoke first, then cancel what is pending.
+
+The grant's `borrow_cap` is the hub owner's whole loss budget in that spoke.
+The LTV, threshold, bonus, and fee maxima bound only the granted asset used as
+collateral. The grantee chooses the collateral that backs borrowing of the
+asset, and can halt seizure of that collateral at once.
+
+Cap changes go through the timelocked `EditAssetInSpoke`. The spoke owner
+queues any edit that fits its grant. The hub owner queues an edit of a listing
+of its asset in a spoke it does not own only to lower the supply cap or the
+borrow cap: every other field must equal the live listing (`NotCapLowering`).
+Lower the grant first, so the grantee cannot queue the caps back up. The edit
+carries the listing as read when it was queued, so it writes back the risk
+parameters of that moment if the grantee changes them before it executes. A
+relaxation of any flag goes through the timelocked `RelaxSpokeAssetFlags`.
+
+Grants, ownership, and suspension are checked when proposing and not again at
+execution. Anyone can execute a queued operation once its delay has passed and
+until it expires. `cancel_proposal` is how a later change reaches it: the
+registrar that now owns the hub or the spoke the operation names cancels it.
+This needs the curator to hold the governance `CANCELLER` role; the curator
+can cancel only operations it queued. A governance `CANCELLER` can cancel any
+of them. An operation of a suspended registrar that names only its own hub and
+spoke has no other registrar to cancel it, so a governance `CANCELLER` must.
 
 ## Governance control
 
@@ -71,7 +98,7 @@ record of queued proposals.
 | Move a hub or spoke | Owner | `ReassignCuratorHub`, `ReassignCuratorSpoke`, sensitive |
 | Replace a registrar admin | Owner | `SetCuratorRegistrarAdmin`, sensitive |
 | Upgrade this contract | Owner | `UpgradeCurator`, sensitive |
-| Stop immediate governance forwarding | Owner | Timelocked revocation of this contract's `CURATOR` role; queued operations remain |
+| Stop immediate governance forwarding | Owner | `revoke_role_immediate(curator, CURATOR)`, immediate; queued operations remain |
 
 A suspended registrar's calls revert with `RegistrarSuspended`, so it cannot
 halt a listing again after governance relaxes it. Revoking only `CURATOR` does
@@ -81,8 +108,9 @@ their pending operations explicitly when containing an incident.
 ## Events
 
 Every registry write publishes one `["curator", ...]` event from the storage
-setter that makes it, and `propose` publishes `ProposedEvent` with the
-registrar and the governance op id. See [events](../../docs/reference/events.md#curator-events).
+setter that makes it. `propose` publishes `ProposedEvent` and
+`cancel_proposal` publishes `CancelledEvent`, each with the registrar and the
+governance op id. See [events](../../docs/reference/events.md#curator-events).
 
 ## Operations
 
@@ -94,7 +122,7 @@ make testnet deployCurator
 make testnet grantGovRole <curator> CURATOR
 ```
 
-Grant `PROPOSER` the same way. Execute both grants after their timelocks, then
+Grant `PROPOSER` and `CANCELLER` the same way. Execute both grants after their timelocks, then
 open the first registrar:
 
 ```bash

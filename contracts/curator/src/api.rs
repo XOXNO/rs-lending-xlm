@@ -186,4 +186,13 @@ impl Curator {
     ) -> BytesN<32> {
         ops::propose(&env, &caller, registrar, op, salt)
     }
+
+    /// Cancels an operation this contract queued. The caller's registrar must
+    /// own the hub or the spoke that operation names, so a hub owner can stop
+    /// a listing queued under a grant it has since revoked, and a new owner can
+    /// stop what the previous owner queued. This contract must hold the
+    /// governance `CANCELLER` role.
+    pub fn cancel_proposal(env: Env, caller: Address, registrar: u32, op_id: BytesN<32>) {
+        ops::cancel_proposal(&env, &caller, registrar, &op_id)
+    }
 }

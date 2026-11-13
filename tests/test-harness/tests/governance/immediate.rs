@@ -1,5 +1,5 @@
 use governance::op::{AdminOperation, RelaxSpokeAssetFlagsArgs, RoleArgs, SpokeAssetArgs};
-use soroban_sdk::testutils::{Address as _, Events as _};
+use soroban_sdk::testutils::{Address as _, Events as _, Ledger as _};
 use soroban_sdk::xdr::{ContractEventBody, ScVal};
 use soroban_sdk::{map, vec, Address, BytesN, IntoVal, Map, Symbol, TryFromVal, Val, Vec};
 use test_harness::{
@@ -527,6 +527,272 @@ fn curator_hub_owner_freezes_a_grantee_listing_but_cannot_pause_it() {
     assert!(after.frozen && !after.paused && !after.no_seize);
     assert_eq!(after.supply_cap, before.supply_cap);
     assert!(read_grant().is_some());
+}
+
+/// A curator, the registrar that owns the harness hub, and the registrar that
+/// owns the harness spoke and holds a grant for USDC covering the live listing.
+struct GrantedListing {
+    curator: Address,
+    hub_admin: Address,
+    hub_owner: u32,
+    spoke_admin: Address,
+    spoke_owner: u32,
+}
+
+fn granted_listing(t: &LendingTest) -> GrantedListing {
+    let env = &t.env;
+    let curator = register_curator(t);
+    t.gov_client().execute_immediate(
+        &t.admin,
+        &AdminOperation::GrantGovRole(RoleArgs {
+            account: curator.clone(),
+            role: Symbol::new(env, "CANCELLER"),
+        }),
+    );
+    let (hub_admin, spoke_admin) = (Address::generate(env), Address::generate(env));
+    let hub_owner = open_registrar(t, &curator, &hub_admin);
+    let spoke_owner = open_registrar(t, &curator, &spoke_admin);
+    t.gov_client().execute_immediate(
+        &t.admin,
+        &AdminOperation::ReassignCuratorHub(curator.clone(), HARNESS_HUB, Some(hub_owner)),
+    );
+    t.gov_client().execute_immediate(
+        &t.admin,
+        &AdminOperation::ReassignCuratorSpoke(curator.clone(), HARNESS_SPOKE, Some(spoke_owner)),
+    );
+    let usdc = t.resolve_asset("USDC");
+    let listing = t
+        .ctrl_client()
+        .get_spoke_asset(&HARNESS_SPOKE, &hub_asset(usdc.clone()));
+    let grant: Map<Symbol, Val> = map![
+        env,
+        (
+            Symbol::new(env, "supply_cap"),
+            listing.supply_cap.into_val(env)
+        ),
+        (
+            Symbol::new(env, "borrow_cap"),
+            listing.borrow_cap.into_val(env)
+        ),
+        (Symbol::new(env, "can_collateral"), true.into_val(env)),
+        (Symbol::new(env, "can_borrow"), true.into_val(env)),
+        (Symbol::new(env, "ltv"), 10_000u32.into_val(env)),
+        (Symbol::new(env, "threshold"), 10_000u32.into_val(env)),
+        (Symbol::new(env, "bonus"), 10_000u32.into_val(env)),
+        (
+            Symbol::new(env, "liquidation_fees"),
+            10_000u32.into_val(env)
+        ),
+    ];
+    curator_call::<()>(
+        t,
+        &curator,
+        "set_cap_grant",
+        vec![
+            env,
+            hub_admin.into_val(env),
+            hub_owner.into_val(env),
+            spoke_owner.into_val(env),
+            HARNESS_HUB.into_val(env),
+            HARNESS_SPOKE.into_val(env),
+            usdc.into_val(env),
+            grant.into_val(env),
+        ],
+    );
+    GrantedListing {
+        curator,
+        hub_admin,
+        hub_owner,
+        spoke_admin,
+        spoke_owner,
+    }
+}
+
+/// A pause blocks repayment and liquidation of the listed hub's debt and the
+/// hub owner cannot lift it, so the spoke owner may freeze a foreign hub's
+/// listing but not pause it.
+#[test]
+fn curator_spoke_owner_freezes_a_foreign_hub_listing_but_cannot_pause_it() {
+    let t = LendingTest::new().with_market(usdc_preset()).build();
+    let env = &t.env;
+    let g = granted_listing(&t);
+    let key = hub_asset(t.resolve_asset("USDC"));
+    let flags = |paused: bool, frozen: bool| -> Vec<Val> {
+        vec![
+            env,
+            g.spoke_admin.into_val(env),
+            g.spoke_owner.into_val(env),
+            HARNESS_SPOKE.into_val(env),
+            key.into_val(env),
+            paused.into_val(env),
+            frozen.into_val(env),
+            false.into_val(env),
+        ]
+    };
+    assert_contract_error(
+        try_curator_call(&t, &g.curator, "tighten_flags", flags(true, false)),
+        errors::FOREIGN_PAUSE,
+    );
+    curator_call::<()>(&t, &g.curator, "tighten_flags", flags(false, true));
+    let after = t.ctrl_client().get_spoke_asset(&HARNESS_SPOKE, &key);
+    assert!(after.frozen && !after.paused && !after.no_seize);
+}
+
+/// Grant checks run only when an operation is queued. A hub owner that revokes
+/// a grant cancels what the grantee queued under it, so the edit never lands.
+#[test]
+fn curator_hub_owner_cancels_an_edit_queued_under_a_grant_it_revoked() {
+    let t = LendingTest::new().with_market(usdc_preset()).build();
+    let env = &t.env;
+    let g = granted_listing(&t);
+    let usdc = t.resolve_asset("USDC");
+    let listing = t
+        .ctrl_client()
+        .get_spoke_asset(&HARNESS_SPOKE, &hub_asset(usdc.clone()));
+    let edit = AdminOperation::EditAssetInSpoke(SpokeAssetArgs {
+        hub_id: HARNESS_HUB,
+        asset: usdc.clone(),
+        spoke_id: HARNESS_SPOKE,
+        can_collateral: listing.is_collateralizable,
+        can_borrow: listing.is_borrowable,
+        paused: false,
+        frozen: false,
+        no_seize: false,
+        ltv: 5_000,
+        threshold: 8_000,
+        bonus: 500,
+        liquidation_fees: listing.liquidation_fees,
+        supply_cap: listing.supply_cap,
+        borrow_cap: listing.borrow_cap,
+    });
+    let op_id: BytesN<32> = curator_call(
+        &t,
+        &g.curator,
+        "propose",
+        vec![
+            env,
+            g.spoke_admin.into_val(env),
+            g.spoke_owner.into_val(env),
+            edit.into_val(env),
+            BytesN::from_array(env, &[4; 32]).into_val(env),
+        ],
+    );
+    let gov = t.gov_client();
+    assert_ne!(gov.get_operation_ledger(&op_id), 0);
+
+    curator_call::<()>(
+        &t,
+        &g.curator,
+        "revoke_cap_grant",
+        vec![
+            env,
+            g.hub_admin.into_val(env),
+            g.hub_owner.into_val(env),
+            g.spoke_owner.into_val(env),
+            HARNESS_HUB.into_val(env),
+            HARNESS_SPOKE.into_val(env),
+            usdc.into_val(env),
+        ],
+    );
+    // The revocation alone leaves the operation queued.
+    assert_ne!(gov.get_operation_ledger(&op_id), 0);
+
+    curator_call::<()>(
+        &t,
+        &g.curator,
+        "cancel_proposal",
+        vec![
+            env,
+            g.hub_admin.into_val(env),
+            g.hub_owner.into_val(env),
+            op_id.into_val(env),
+        ],
+    );
+    assert_eq!(gov.get_operation_ledger(&op_id), 0);
+    let after = t
+        .ctrl_client()
+        .get_spoke_asset(&HARNESS_SPOKE, &hub_asset(usdc));
+    assert_eq!(after.loan_to_value, listing.loan_to_value);
+}
+
+/// The owner of the listed hub lowers the caps of its asset in a grantee's
+/// spoke through the timelock, and can change nothing else on that listing.
+#[test]
+fn curator_hub_owner_lowers_the_caps_of_a_grantee_listing() {
+    let t = LendingTest::new().with_market(usdc_preset()).build();
+    let env = &t.env;
+    let g = granted_listing(&t);
+    let usdc = t.resolve_asset("USDC");
+    let key = hub_asset(usdc.clone());
+    let listing = t.ctrl_client().get_spoke_asset(&HARNESS_SPOKE, &key);
+    let edit = |supply_cap: i128, borrow_cap: i128, ltv: u32| SpokeAssetArgs {
+        hub_id: HARNESS_HUB,
+        asset: usdc.clone(),
+        spoke_id: HARNESS_SPOKE,
+        can_collateral: listing.is_collateralizable,
+        can_borrow: listing.is_borrowable,
+        paused: listing.paused,
+        frozen: listing.frozen,
+        no_seize: listing.no_seize,
+        ltv,
+        threshold: listing.liquidation_threshold,
+        bonus: listing.liquidation_bonus,
+        liquidation_fees: listing.liquidation_fees,
+        supply_cap,
+        borrow_cap,
+    };
+    let propose = |args: &SpokeAssetArgs, salt: u8| -> Vec<Val> {
+        vec![
+            env,
+            g.hub_admin.into_val(env),
+            g.hub_owner.into_val(env),
+            AdminOperation::EditAssetInSpoke(args.clone()).into_val(env),
+            BytesN::from_array(env, &[salt; 32]).into_val(env),
+        ]
+    };
+
+    // A higher cap or a changed risk parameter is not a cap lowering.
+    let raised = edit(
+        listing.supply_cap + 1,
+        listing.borrow_cap,
+        listing.loan_to_value,
+    );
+    assert_contract_error(
+        try_curator_call(&t, &g.curator, "propose", propose(&raised, 1)),
+        errors::NOT_CAP_LOWERING,
+    );
+    let retuned = edit(
+        listing.supply_cap,
+        listing.borrow_cap,
+        listing.loan_to_value - 1,
+    );
+    assert_contract_error(
+        try_curator_call(&t, &g.curator, "propose", propose(&retuned, 2)),
+        errors::NOT_CAP_LOWERING,
+    );
+
+    let lowered = edit(
+        listing.supply_cap / 2,
+        listing.borrow_cap / 4,
+        listing.loan_to_value,
+    );
+    let op_id: BytesN<32> = curator_call(&t, &g.curator, "propose", propose(&lowered, 3));
+    let gov = t.gov_client();
+    assert_ne!(gov.get_operation_ledger(&op_id), 0);
+
+    let delay = gov.get_min_delay();
+    t.env.ledger().with_mut(|l| l.sequence_number += delay);
+    gov.execute(
+        &t.controller,
+        &Symbol::new(env, "edit_asset_in_spoke"),
+        &vec![env, lowered.into_val(env)],
+        &BytesN::from_array(env, &[0; 32]),
+        &BytesN::from_array(env, &[3; 32]),
+    );
+    let after = t.ctrl_client().get_spoke_asset(&HARNESS_SPOKE, &key);
+    assert_eq!(after.supply_cap, listing.supply_cap / 2);
+    assert_eq!(after.borrow_cap, listing.borrow_cap / 4);
+    assert_eq!(after.loan_to_value, listing.loan_to_value);
 }
 
 #[test]

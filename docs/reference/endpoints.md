@@ -222,7 +222,7 @@ Constructor `(admin: Address, min_delay: u32)` initializes the owner, access-con
 | `suspend_curator_registrar(caller: Address, curator: Address, registrar: u32)` | GUARDIAN_ROLE; immediate, suspension only. `curator` must hold CURATOR_ROLE |
 | `deactivate_position_manager(caller: Address, manager: Address)` | GUARDIAN_ROLE; immediate, deactivation only |
 | `revoke_blend_pool(caller: Address, pool: Address)` | GUARDIAN_ROLE; immediate, revocation only |
-| `revoke_role_immediate(account: Address, role: Symbol)` | Owner; only guardian/oracle roles |
+| `revoke_role_immediate(account: Address, role: Symbol)` | Owner; only guardian/oracle/curator roles |
 | `execute_self(op: AdminOperation, salt: BytesN<32>)` | Ready scheduled self-operation; permissionless |
 | `propose_canceller_reset(new_cancellers: Vec<Address>, salt: BytesN<32>) -> BytesN<32>` | Owner; schedule uncancellable recovery |
 | `execute_canceller_reset(new_cancellers: Vec<Address>, salt: BytesN<32>)` | Ready recovery; permissionless |

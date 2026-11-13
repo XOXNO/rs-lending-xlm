@@ -844,6 +844,20 @@ fn curator_create_hub_and_add_spoke_forward_and_return_controller_ids() {
 }
 
 #[test]
+fn revoke_role_immediate_strips_the_curator_role() {
+    use crate::access::CURATOR_ROLE;
+    let env = Env::default();
+    env.mock_all_auths();
+    let (admin, _, gov) = register_governance(&env);
+    let curator = Address::generate(&env);
+    grant_incident_role(&env, &admin, &gov, &curator, CURATOR_ROLE);
+    assert!(gov.has_role(&curator, &Symbol::new(&env, CURATOR_ROLE)));
+
+    gov.revoke_role_immediate(&curator, &Symbol::new(&env, CURATOR_ROLE));
+    assert!(!gov.has_role(&curator, &Symbol::new(&env, CURATOR_ROLE)));
+}
+
+#[test]
 fn revoke_role_immediate_strips_only_the_named_incident_role() {
     use crate::access::{GUARDIAN_ROLE, ORACLE_ROLE};
     let env = Env::default();
