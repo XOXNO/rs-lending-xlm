@@ -1,5 +1,10 @@
+# Every E2E quote tolerates 50% slippage (the API takes a fraction). The
+# routes run on live testnet venues whose prices move between the quote, the
+# simulation and the ledger that includes the transaction; a tight minimum
+# output made signed swaps fail with SlippageExceeded for reasons unrelated to
+# the contracts under test. AGGREGATOR_SLIPPAGE overrides the default.
 agg_route_hex() {
-    local from="$1" to="$2" amount_in="$3" slippage="${4:-0.05}"
+    local from="$1" to="$2" amount_in="$3" slippage="${4:-${AGGREGATOR_SLIPPAGE:-0.5}}"
     local max_hops="${AGGREGATOR_MAX_HOPS:-2}"
     local quote_f min_ledger="${AGGREGATOR_MIN_LEDGER:-0}"
     [[ "$min_ledger" =~ ^[0-9]+$ ]] || { _assert_fail quote_ledger 'invalid minimum quote ledger'; return 1; }

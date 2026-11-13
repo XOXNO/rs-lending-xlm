@@ -494,13 +494,20 @@ flow_flash_position_matrix() {
     fp_run xfail flash_position_borrow_cap 'Error\(Contract, #312\)' || true
     fp_restore_usdc_listing || return 1
 
+    # A 0.03% utilization cap, so the next flash position trips the gate. The
+    # cap must be at or above optimal_utilization, which puts both breakpoints
+    # near zero. InterestRateModel::verify refuses a curve whose steepness per
+    # unit of utilization falls from one segment to the next, so the first two
+    # segments rise by 10^23 each over their 10^23-wide spans (steepness 1)
+    # and the last by 1.5 RAY over the rest (steepness about 1.5). slope1 may
+    # not be below base_borrow_rate, hence a base of 0.
     inv fp_usdc_util_cap "$ADMIN" "$CONTROLLER" -- upgrade_liquidity_pool_params \
         --hub_asset "$(hub_key "$PRIMARY_HUB_ID" "$USDC_SAC")" \
         --params "$(jq -nc '{
             max_borrow_rate: "2000000000000000000000000000",
-            base_borrow_rate: "10000000000000000000000000",
-            slope1: "40000000000000000000000000",
-            slope2: "100000000000000000000000000",
+            base_borrow_rate: "0",
+            slope1: "100000000000000000000000",
+            slope2: "100000000000000000000000",
             slope3: "1500000000000000000000000000",
             mid_utilization: "100000000000000000000000",
             optimal_utilization: "200000000000000000000000",
@@ -776,9 +783,9 @@ flow_flash_position_gaps() {
         --hub_asset "$(hub_key "$PRIMARY_HUB_ID" "$USDC_SAC")" \
         --params "$(jq -nc '{
             max_borrow_rate: "2000000000000000000000000000",
-            base_borrow_rate: "10000000000000000000000000",
-            slope1: "40000000000000000000000000",
-            slope2: "100000000000000000000000000",
+            base_borrow_rate: "0",
+            slope1: "100000000000000000000000",
+            slope2: "100000000000000000000000",
             slope3: "1500000000000000000000000000",
             mid_utilization: "100000000000000000000000",
             optimal_utilization: "200000000000000000000000",
