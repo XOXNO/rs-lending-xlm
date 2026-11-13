@@ -490,7 +490,7 @@ flow_flash_position_matrix() {
         --hub_asset "$(hub_key "$PRIMARY_HUB_ID" "$USDC_SAC")") || return 1
     inv fp_usdc_borrow_cap "$ADMIN" "$CONTROLLER" -- edit_asset_in_spoke \
         --input "$(spoke_args "$PRIMARY_HUB_ID" "$USDC_SAC" "$PRIMARY_SPOKE_ID" true true 7500 8000 500 \
-            1000000000000000000 "$borrowed")" >/dev/null
+            "" "$borrowed")" >/dev/null
     fp_run xfail flash_position_borrow_cap 'Error\(Contract, #312\)' || true
     fp_restore_usdc_listing || return 1
 
@@ -768,7 +768,7 @@ flow_flash_position_gaps() {
         --hub_asset "$(hub_key "$PRIMARY_HUB_ID" "$USDC_SAC")") || return 1
     inv fp_usdc_borrow_cap_gaps "$ADMIN" "$CONTROLLER" -- edit_asset_in_spoke \
         --input "$(spoke_args "$PRIMARY_HUB_ID" "$USDC_SAC" "$PRIMARY_SPOKE_ID" true true 7500 8000 500 \
-            1000000000000000000 "$borrowed")" >/dev/null
+            "" "$borrowed")" >/dev/null
     fp_xfail_pair flash_position_borrow_cap_gap 'Error\(Contract, #312\)'
     fp_restore_usdc_listing || return 1
 
