@@ -412,7 +412,20 @@ TEST_FEATURES ?= price-aggregator/testing
 
 # Whole workspace: tests/test-harness plus the test suites of every contract and
 # of common. `-p test-harness` does not run those suites.
-test:
+# The harness benches replace native contracts with the WASM in $(DEPLOY_DIR).
+# A copy older than the sources fails them with unrelated contract errors, so
+# stop before the run instead.
+_deploy-artifacts-fresh:
+	@ref="$(DEPLOY_DIR)/controller.wasm"; \
+	if [ ! -f "$$ref" ] \
+		|| [ Cargo.lock -nt "$$ref" ] \
+		|| [ -n "$$(find contracts common interfaces -path '*/src/*' -name '*.rs' -newer "$$ref" -print -quit)" ]; then \
+		echo "Deploy artifacts in $(DEPLOY_DIR) are missing or older than the sources."; \
+		echo "The harness benches load them. Run 'make deploy-artifacts' first."; \
+		exit 1; \
+	fi
+
+test: _deploy-artifacts-fresh
 	cargo test --workspace --features $(TEST_FEATURES) -- $(TEST_THREAD_FLAG)
 
 
