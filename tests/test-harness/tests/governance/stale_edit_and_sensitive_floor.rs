@@ -14,8 +14,8 @@ use test_harness::{
     HARNESS_SPOKE,
 };
 
-/// Copy of `governance::TIMELOCK_SENSITIVE_MIN_DELAY_LEDGERS`.
-const SENSITIVE_FLOOR: u32 = 12;
+/// The sensitive delay floor of the build under test.
+const SENSITIVE_FLOOR: u32 = governance::TIMELOCK_SENSITIVE_MIN_DELAY_LEDGERS;
 
 fn salt(env: &Env, byte: u8) -> BytesN<32> {
     BytesN::<32>::from_array(env, &[byte; 32])

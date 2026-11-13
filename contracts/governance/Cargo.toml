@@ -20,6 +20,11 @@ price-aggregator-interface = { path = "../../interfaces/price-aggregator" }
 
 [features]
 testing = []
+# End-to-end build only: lowers the sensitive timelock floor to 12 ledgers and
+# stamps the Wasm with a `timelock` meta entry. Never enable it for a deploy or
+# release artifact; `tests/integration/artifacts.py` rejects a candidate that
+# carries the stamp.
+short-timelock = []
 
 [dev-dependencies]
 soroban-sdk = { workspace = true, features = ["testutils"] }

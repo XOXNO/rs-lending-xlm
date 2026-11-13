@@ -10,11 +10,16 @@ pub const TIMELOCK_MIN_DELAY_LEDGERS: u32 = 34_560;
 /// delay through a governance-executed delay-update operation.
 pub const TIMELOCK_MAX_DELAY_LEDGERS: u32 = 241_920;
 
-// Audit-period value. The target value is 120_960 (about 7 days), set through
-// a governance-executed `UpgradeGov`.
-/// Floor, in ledgers, applied to the delay for sensitive-tier operations:
-/// the configured minimum delay is raised to at least this value for that
-/// tier.
+/// Floor, in ledgers (about 7 days), applied to the delay for sensitive-tier
+/// operations: the configured minimum delay is raised to at least this value
+/// for that tier.
+///
+/// The `short-timelock` feature lowers it to 12 ledgers (about one minute)
+/// for the end-to-end build only, so a live network run can execute sensitive
+/// operations. No deploy or release artifact enables that feature.
+#[cfg(not(feature = "short-timelock"))]
+pub const TIMELOCK_SENSITIVE_MIN_DELAY_LEDGERS: u32 = 120_960;
+#[cfg(feature = "short-timelock")]
 pub const TIMELOCK_SENSITIVE_MIN_DELAY_LEDGERS: u32 = 12;
 
 /// Number of ledgers past an operation's ready ledger during which it

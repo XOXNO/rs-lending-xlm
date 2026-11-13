@@ -8,7 +8,8 @@ from controlled import collect as collect_controlled
 import tempfile, textwrap
 from release_gate import LANES, verify
 import release_gate
-from artifacts import CONTRACTS, DISTRIBUTION_FILES, distribution
+from artifacts import CONTRACTS, DISTRIBUTION_FILES, SHORT_TIMELOCK_STAMP, distribution
+from artifacts import check as check_candidate
 
 candidate = {'source_sha': 'candidate', 'artifacts': {'controller.wasm': 'a'*64}}
 proof = {'status': 'pass', 'lanes': {l:1 for l in LANES}, 'candidate': candidate, 'controlled': {'candidate':candidate,'status':'pass','manifest_sha256':hashlib.sha256(MANIFEST.read_bytes()).hexdigest(),'log_sha256':'c'*64,'cases':json.loads(MANIFEST.read_text())}}
@@ -28,6 +29,28 @@ for mutation in ('failure', 'partial', 'empty', 'different_sha', 'different_hash
         continue
     raise AssertionError(f'publication incorrectly allowed: {mutation}')
 print('Release guard dry run passed: failures and artifact substitution block publication')
+
+# The short-timelock governance build serves live end-to-end runs only. A
+# candidate set that carries its stamp must fail before deployment or upload.
+with tempfile.TemporaryDirectory() as directory:
+    root=Path(directory)
+    for c in CONTRACTS:
+        (root/f'{c}.wasm').write_bytes(b'module '+c.encode())
+    def stamp_manifest():
+        (root/'candidate.json').write_text(json.dumps({
+            'source_sha':subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip(),
+            'artifacts':{f'{c}.wasm':hashlib.sha256((root/f'{c}.wasm').read_bytes()).hexdigest() for c in CONTRACTS}}))
+    stamp_manifest()
+    check_candidate(root)
+    (root/'governance.wasm').write_bytes(b'module governance '+SHORT_TIMELOCK_STAMP)
+    stamp_manifest()
+    try:
+        check_candidate(root)
+    except AssertionError as error:
+        assert 'short-timelock' in str(error), error
+    else:
+        raise AssertionError('short-timelock governance accepted as a candidate')
+print('Candidate guard passed: the short-timelock governance build is refused')
 
 # The CLI must bind every uploaded byte, not only the production code. Fake
 # module bytes suffice here: this regression tests packaging, not execution.

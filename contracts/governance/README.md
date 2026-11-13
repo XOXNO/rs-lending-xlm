@@ -15,6 +15,11 @@ are in its rustdoc.
 
 ## Timelock model
 
+- Sensitive operations wait at least 120960 ledgers (about seven days), a
+  floor compiled into the contract; the configured minimum delay applies when it
+  is longer. The `short-timelock` Cargo feature lowers the floor to 12 ledgers
+  for the end-to-end build only. No deploy or release artifact enables it, and
+  the build is stamped so the candidate check refuses it.
 - `propose` stores an `AdminOperation` in `OperationLedger` with the ledger at
   which it becomes ready. `RevokeGovRole` also writes a `RoleRevocationTarget`
   sidecar and a canceller reset writes a `RecoveryOp` sidecar. Execute and

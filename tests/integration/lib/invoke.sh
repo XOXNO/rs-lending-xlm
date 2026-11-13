@@ -564,10 +564,13 @@ with open(path,'a') as f:
 PYDEPLOY
 }
 
+# Verifies that contract `id` runs the candidate `name.wasm`. A fourth argument
+# names another file to verify against: governance runs the short-timelock
+# fixture, not the candidate.
 verify_candidate_contract() {
-    local label="$1" id="$2" name="$3" proof="$LOG_DIR/$1.contract-id"
+    local label="$1" id="$2" name="$3" wasm="${4:-$WASM_DIR/$3.wasm}" proof="$LOG_DIR/$1.contract-id"
     printf '%s\n' "$id" > "$proof"
-    verify_deployed_wasm "$proof" --wasm "$WASM_DIR/$name.wasm" \
-        || { _assert_fail "$label" "unable to verify deployed $name against candidate"; return 1; }
-    record "$label" ok assert "" "" "" "" "" "$id matches $name.wasm"
+    verify_deployed_wasm "$proof" --wasm "$wasm" \
+        || { _assert_fail "$label" "unable to verify deployed $name against $(basename "$wasm")"; return 1; }
+    record "$label" ok assert "" "" "" "" "" "$id matches $(basename "$wasm")"
 }

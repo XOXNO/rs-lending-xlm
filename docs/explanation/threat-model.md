@@ -38,13 +38,19 @@ operation tier:
 | Tier | Effective delay |
 |---|---|
 | Standard | Configured minimum |
-| Sensitive | `max(minimum, 12)` |
+| Sensitive | `max(minimum, 120960)` |
 | Recovery | `max(minimum, 518400)` |
 
 The repository's [network configuration](../../configs/networks.json) sets the
 minimum to 12 ledgers on testnet and mainnet. Verify the deployed minimum and
 its review window before funding. Raising the configured minimum and changing a
-compiled tier floor are different actions.
+compiled tier floor are different actions. The sensitive floor of about seven
+days is compiled into every deployable governance build, so a deployment that
+still runs an earlier build keeps that build's floor until an `UpgradeGov`
+replaces it. The end-to-end suite deploys a governance build with the
+`short-timelock` feature, which lowers the floor to 12 ledgers so a live run
+can execute sensitive operations; that build carries a `timelock` meta stamp,
+and the candidate check refuses it for deployment and publication.
 
 GUARDIAN can immediately pause, tighten listing flags, deactivate a
 position manager, and revoke a Blend pool. CURATOR_ROLE can immediately

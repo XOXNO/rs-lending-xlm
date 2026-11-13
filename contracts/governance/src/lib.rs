@@ -32,6 +32,9 @@ pub use stellar_governance::timelock::OperationState;
 
 contractmeta!(key = "name", val = "Lending Governance");
 contractmeta!(key = "binver", val = env!("CARGO_PKG_VERSION"));
+// Marks the end-to-end build so artifact checks can refuse it for deployment.
+#[cfg(feature = "short-timelock")]
+contractmeta!(key = "timelock", val = "e2e-short-sensitive-delay");
 contractmeta!(
     key = "repo",
     val = "https://github.com/xoxno/rs-lending-xlm"
