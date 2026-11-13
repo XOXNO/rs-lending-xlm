@@ -2,7 +2,7 @@ use super::*;
 use common::oracle::providers::curve::{CurvePool, CurvePoolInfo, CurvePoolScales};
 use common::types::{
     AssetOracle, FeedNature, FeedSource, IndependencePolicy, MultiFeedRef, OracleTolerance,
-    PriceFeedRaw, PriceSource, ProviderRef, MAX_CURVE_COINS,
+    PriceFeedRaw, PriceSource, ProviderRef, ScaledSource, MAX_CURVE_COINS, MAX_RESOLUTION_DEPTH,
 };
 use soroban_sdk::{
     contract, contractimpl, contracttype,
@@ -11,7 +11,7 @@ use soroban_sdk::{
 };
 
 use crate::test_support::register_redstone_feed;
-use crate::{PriceAggregator, PriceAggregatorClient};
+use crate::{registry, PriceAggregator, PriceAggregatorClient};
 
 #[path = "../../../swap-aggregator/tests/fixtures/curve/factory.rs"]
 mod curve_fixture;
@@ -425,4 +425,119 @@ fn third_coin_controls_freshness() {
     assert_eq!(f.price().timestamp, now - 200);
     prices.set_price_data(&usd, &WAD, &((now - 901) * 1_000), &(now * 1_000));
     assert_eq!(f.read_error(), OracleError::PriceFeedStale);
+}
+
+/// A token that reports the decimals it was built with. A Stellar asset
+/// contract always reports 7.
+#[contract]
+struct DecimalsToken;
+
+#[contractimpl]
+impl DecimalsToken {
+    pub fn __constructor(env: Env, decimals: u32) {
+        env.storage()
+            .instance()
+            .set(&Symbol::new(&env, "decimals"), &decimals);
+    }
+
+    pub fn decimals(env: Env) -> u32 {
+        env.storage()
+            .instance()
+            .get(&Symbol::new(&env, "decimals"))
+            .unwrap()
+    }
+}
+
+/// A two-coin mock pool whose second coin is a token with `decimals` decimals.
+/// The pool reports the same decimals and the matching fixed rate, so the live
+/// token binding and the rate check both hold and only the 18-decimal bound can
+/// refuse the pool. The coin is priced by the fixture's feed; the pool binding
+/// does not read that oracle.
+fn fixture_with_coin_decimals(decimals: u32) -> Fixture {
+    let mut f = Fixture::new(2, false);
+    let coin = f.env.register(DecimalsToken, (decimals,));
+    PriceAggregatorClient::new(&f.env, &f.aggregator).set_oracle(
+        &PriceKey::Token(coin.clone()),
+        &feed_oracle(&f.env, &f.feed),
+    );
+    f.source.coins.set(1, coin);
+    let pool = MockPoolClient::new(&f.env, &f.source.pool);
+    let mut state = pool.state();
+    state.info.coins = f.source.coins.clone();
+    state.info.coin_decimals.set(1, decimals);
+    state.info.rates.set(1, 10i128.pow(36 - decimals));
+    pool.set_state(&state);
+    f
+}
+
+#[test]
+fn a_coin_with_exactly_18_decimals_is_accepted() {
+    let f = fixture_with_coin_decimals(18);
+    f.register();
+    assert_eq!(f.price().price_wad, WAD + 1);
+}
+
+#[test]
+fn a_coin_with_more_than_18_decimals_is_refused_at_configuration_and_on_every_read() {
+    let f = fixture_with_coin_decimals(19);
+    assert_eq!(f.read_error(), OracleError::UnsupportedCurvePool);
+    assert_eq!(
+        PriceAggregatorClient::new(&f.env, &f.aggregator).try_set_oracle(&f.key(), &f.oracle()),
+        Err(Ok(Error::from_contract_error(
+            OracleError::UnsupportedCurvePool as u32
+        )))
+    );
+}
+
+/// Stores an oracle that scales `quote` by a factor of exactly one and returns
+/// its key. It writes straight to the registry: `set_oracle` would refuse the
+/// over-deep chain on its structural depth check, before the engine resolves a
+/// price.
+fn scaled_onto(f: &Fixture, quote: PriceKey) -> PriceKey {
+    let key = PriceKey::Token(Address::generate(&f.env));
+    let mut oracle = feed_oracle(&f.env, &f.feed);
+    let PriceSource::Feed(factor) = oracle.sources.get_unchecked(0) else {
+        panic!("feed_oracle has one feed source");
+    };
+    oracle.sources = vec![
+        &f.env,
+        PriceSource::Scaled(ScaledSource {
+            factor,
+            quote,
+            min_factor_wad: WAD,
+            max_factor_wad: WAD,
+        }),
+    ];
+    f.env.as_contract(&f.aggregator, || {
+        registry::store_oracle(&f.env, &key, &oracle);
+    });
+    key
+}
+
+/// Every scaled level and the Curve LP itself add one level of depth. With
+/// `MAX_RESOLUTION_DEPTH - 1` scaled levels above the LP its coins sit exactly
+/// at the cap and the chain prices. One more level pushes the coins past the
+/// cap, and the read fails on the depth limit.
+#[test]
+fn a_scaled_chain_over_a_curve_lp_is_refused_once_its_coins_pass_the_depth_cap() {
+    let f = Fixture::new(2, false);
+    f.register();
+    let mut at_the_cap = f.key();
+    for _ in 1..MAX_RESOLUTION_DEPTH {
+        at_the_cap = scaled_onto(&f, at_the_cap);
+    }
+    let past_the_cap = scaled_onto(&f, at_the_cap.clone());
+
+    f.env.as_contract(&f.aggregator, || {
+        assert_eq!(
+            engine::resolve_nested(&mut Session::new(&f.env), &at_the_cap, 0)
+                .unwrap()
+                .price_wad,
+            WAD + 1
+        );
+        assert_eq!(
+            engine::resolve_nested(&mut Session::new(&f.env), &past_the_cap, 0).unwrap_err(),
+            OracleError::OracleDepthExceeded
+        );
+    });
 }

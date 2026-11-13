@@ -1,7 +1,8 @@
 //! Coverage for the dependency-graph half of `admin.rs`: the cascade that
 //! revalidates composed oracles when a key they are built on changes, the
-//! cycle guard that keeps that walk from recursing forever, and the LP
-//! source-count rule.
+//! cycle guard that keeps that walk from recursing forever, the LP
+//! source-count rule, and the sanity-band cap on two sources that trust the
+//! same contracts.
 use super::*;
 
 use crate::registry;
@@ -234,6 +235,79 @@ fn an_lp_source_may_not_share_its_oracle_with_a_second_source() {
         // so it has to be the sole source on its oracle.
         let key = PriceKey::Token(Address::generate(&env));
         validate_asset_oracle(&env, &key, &oracle_of(&env, sources));
+    });
+}
+
+/// A ratio read from `ratio_from`, scaled onto a base price read from
+/// `base_from`. The source trusts both contracts, in that order.
+fn ratio_over_base(env: &Env, ratio_from: &Address, base_from: &Address) -> PriceSource {
+    let base = PriceKey::Token(Address::generate(env));
+    registry::store_oracle(
+        env,
+        &base,
+        &oracle_of(
+            env,
+            one(
+                env,
+                PriceSource::Feed(feed(env, base_from, "BASE", CEILING)),
+            ),
+        ),
+    );
+    scaled_onto(env, ratio_from, base)
+}
+
+/// A two-source oracle that declares `shared` and carries a 50..150 band. That
+/// is 5000 bps, five times the single-source cap of 1000 bps.
+fn wide_band_pair(
+    env: &Env,
+    first: PriceSource,
+    second: PriceSource,
+    shared: Vec<Address>,
+) -> AssetOracle {
+    let mut sources = one(env, first);
+    sources.push_back(second);
+    AssetOracle {
+        independence: IndependencePolicy::AllowShared(shared),
+        min_sanity_price_wad: 50 * WAD,
+        max_sanity_price_wad: 150 * WAD,
+        ..oracle_of(env, sources)
+    }
+}
+
+/// Two sources that trust the same contracts give one opinion, so the oracle
+/// keeps the single-source band cap. The first source trusts `[a, b]` and the
+/// second `[b, a]`: the comparison must not depend on the order.
+#[test]
+#[should_panic(expected = "Error(Contract, #226)")]
+fn two_sources_trusting_the_same_contracts_in_another_order_keep_the_single_source_band_cap() {
+    let env = Env::default();
+    let [a, b] = [0; 2].map(|_| Address::generate(&env));
+    in_contract(&env, || {
+        let oracle = wide_band_pair(
+            &env,
+            ratio_over_base(&env, &a, &b),
+            ratio_over_base(&env, &b, &a),
+            Vec::from_array(&env, [a.clone(), b.clone()]),
+        );
+        validate_asset_oracle(&env, &PriceKey::Token(Address::generate(&env)), &oracle);
+    });
+}
+
+/// The same pair and the same band, except that the second source reads its
+/// base from a third contract. The trust sets now differ, so the wide band is
+/// accepted.
+#[test]
+fn two_sources_trusting_different_contracts_are_exempt_from_the_single_source_band_cap() {
+    let env = Env::default();
+    let [a, b, c] = [0; 3].map(|_| Address::generate(&env));
+    in_contract(&env, || {
+        let oracle = wide_band_pair(
+            &env,
+            ratio_over_base(&env, &a, &b),
+            ratio_over_base(&env, &b, &c),
+            Vec::from_array(&env, [b.clone()]),
+        );
+        validate_asset_oracle(&env, &PriceKey::Token(Address::generate(&env)), &oracle);
     });
 }
 
