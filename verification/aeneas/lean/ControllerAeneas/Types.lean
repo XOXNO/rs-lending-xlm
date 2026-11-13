@@ -458,7 +458,7 @@ def positions.liquidation.math.calculate_repayment_amounts.closure :=
   aeneas_soroban_shim.Env
 
 /-- [controller_aeneas::risk::totals::DebtValue]
-    Source: 'src/risk/totals.rs', lines 227:0-232:1 -/
+    Source: 'src/risk/totals.rs', lines 228:0-233:1 -/
 @[discriminant isize]
 inductive risk.totals.DebtValue where
 | HalfUp : risk.totals.DebtValue

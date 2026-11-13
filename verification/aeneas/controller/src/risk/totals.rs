@@ -191,7 +191,8 @@ fn calculate_account_risk_totals_body(
         );
 
         total_collateral = total_collateral.checked_add(env, value);
-        // A gated threshold can stay below refreshed LTV; clamp the borrow limit to it.
+        // A refresh keeps LTV below the stored threshold; a tuple stored
+        // without that clamp may not, so cap the borrow limit at the threshold.
         let effective_ltv = position.loan_to_value.min(position.liquidation_threshold);
         ltv_collateral =
             ltv_collateral.checked_add(env, effective_ltv.apply_to_wad_floor(env, gate_value));

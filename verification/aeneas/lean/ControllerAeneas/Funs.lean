@@ -4397,7 +4397,7 @@ def storage.iter_debt_positions
     out1
 
 /-- [controller_aeneas::risk::totals::{controller_aeneas::risk::totals::DebtValue}::apply]:
-    Source: 'src/risk/totals.rs', lines 235:4-240:5 -/
+    Source: 'src/risk/totals.rs', lines 236:4-241:5 -/
 def risk.totals.DebtValue.apply
   (self : risk.totals.DebtValue) (env : aeneas_soroban_shim.Env)
   (scaled : math.fp.Ray) (index : math.fp.Ray) (price : math.fp.Wad) :
@@ -4533,7 +4533,7 @@ def risk.totals.calculate_ltv_collateral_wad
     math.fp.Wad.ZERO
 
 /-- [controller_aeneas::risk::totals::calculate_account_risk_totals_body]: loop body 0:
-    Source: 'src/risk/totals.rs', lines 176:4-204:5 -/
+    Source: 'src/risk/totals.rs', lines 176:4-205:5 -/
 @[rust_loop_body]
 def risk.totals.calculate_account_risk_totals_body_loop.body
   (env : aeneas_soroban_shim.Env)
@@ -4578,7 +4578,7 @@ def risk.totals.calculate_account_risk_totals_body_loop.body
       weighted_collateral1))
 
 /-- [controller_aeneas::risk::totals::calculate_account_risk_totals_body]: loop 0:
-    Source: 'src/risk/totals.rs', lines 176:4-204:5 -/
+    Source: 'src/risk/totals.rs', lines 176:4-205:5 -/
 @[rust_loop]
 def risk.totals.calculate_account_risk_totals_body_loop
   (iter : aeneas_soroban_shim.VecIter (types.HubAssetKey ×
@@ -4595,7 +4595,7 @@ def risk.totals.calculate_account_risk_totals_body_loop
     (iter, cache, total_collateral, ltv_collateral, weighted_collateral)
 
 /-- [controller_aeneas::risk::totals::calculate_account_risk_totals_body]:
-    Source: 'src/risk/totals.rs', lines 162:0-221:1 -/
+    Source: 'src/risk/totals.rs', lines 162:0-222:1 -/
 def risk.totals.calculate_account_risk_totals_body
   (env : aeneas_soroban_shim.Env) (cache : context.Context)
   (supply_positions : aeneas_soroban_shim.Map types.HubAssetKey
