@@ -29,14 +29,9 @@ pub(crate) fn propose_canceller_reset(
 /// Executes a previously scheduled canceller-set reset to `new_cancellers` once
 /// its delay has elapsed and it has not expired, replacing the canceller set and
 /// clearing the operation's scheduled state.
-pub(crate) fn execute_canceller_reset(
-    env: &Env,
-    executor: Option<Address>,
-    new_cancellers: &Vec<Address>,
-    salt: BytesN<32>,
-) {
+pub(crate) fn execute_canceller_reset(env: &Env, new_cancellers: &Vec<Address>, salt: BytesN<32>) {
     let operation = canceller_reset_operation(env, new_cancellers, salt);
-    let operation_id = prepare_execute(env, executor.as_ref(), &operation);
+    let operation_id = prepare_execute(env, &operation);
     set_execute_operation(env, &operation);
     access::apply_canceller_reset(env, new_cancellers);
     finish_execute(env, &operation_id);

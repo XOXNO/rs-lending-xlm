@@ -34,7 +34,7 @@ SDK `try_` calls distinguish contract errors from host, authorization, storage, 
 | 38 `SpotOnlyNotProductionSafe` | Both available source paths contain an unsmoothed market leg, or the only source does. | Configure a permitted smoothed or fundamental source composition. |
 | 39 `InvalidTimelockDelay` | Constructor delay is zero; a delay update is zero, above `TIMELOCK_MAX_DELAY_LEDGERS`, or below both the current minimum and `TIMELOCK_MIN_DELAY_LEDGERS`. | Use a nonzero constructor delay and an allowed update. |
 | 40 `TimelockOperationExpired` | The scheduled operation's grace period has already elapsed. | Propose the operation again. |
-| 41 `InvalidRole` | The role symbol is not a known governance role, a non-owner grant would combine executor and canceller, the role is not held on revoke, or an immediate revoke names a role other than guardian or oracle. | Use a valid role assignment. |
+| 41 `InvalidRole` | The role symbol is not a known governance role, the role is not held on revoke, or an immediate revoke names a role other than guardian or oracle. | Use a valid role assignment. |
 | 42 `BlendPoolNotApproved` | The target Blend pool is not on the controller's approved list. | Ask governance to approve the pool. |
 | 43 `HubNotActive` | The hub id does not exist or has been deactivated. | Use an active hub. |
 | 44 `NotAuthorized` | NFT owner/delegate authorization fails, including a third-party supply to a market the account does not hold; a delegate grant names an inactive manager; a revocation targets the owner or its proposer; or a non-owner proposes an owner-only operation. | Use eligible authority and an allowed governance target. |

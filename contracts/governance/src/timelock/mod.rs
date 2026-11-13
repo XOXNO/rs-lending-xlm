@@ -22,7 +22,6 @@ use stellar_governance::timelock::{
     TimelockStorageKey,
 };
 
-use crate::access::EXECUTOR_ROLE;
 use crate::op::{resolve_op, AdminOperation};
 use crate::{constants, storage};
 
@@ -73,15 +72,6 @@ pub(crate) fn validate_delay_update(env: &Env, new_delay: u32) {
 pub(crate) fn apply_update_delay(env: &Env, new_delay: u32) {
     validate_delay_update(env, new_delay);
     set_min_delay(env, new_delay);
-}
-
-/// When `Some(exec)`, requires `exec` auth + `EXECUTOR_ROLE`. When `None`,
-/// performs no auth or role check (anyone may drive execution of a ready op).
-pub(crate) fn authorize_executor(env: &Env, executor: Option<&Address>) {
-    if let Some(exec) = executor {
-        exec.require_auth();
-        access_control::ensure_role(env, &Symbol::new(env, EXECUTOR_ROLE), exec);
-    }
 }
 
 /// Panics with `GenericError::TimelockOperationExpired` if `operation_id`'s
@@ -179,12 +169,11 @@ fn begin_immediate(env: &Env, caller: &Address, role: &str) {
     access_control::ensure_role(env, &Symbol::new(env, role), caller);
 }
 
-/// Renews the governance instance's storage TTL, authorizes `executor` if
-/// present, computes `operation`'s id, and checks that the operation has not
-/// expired. Returns the operation id.
-fn prepare_execute(env: &Env, executor: Option<&Address>, operation: &Operation) -> BytesN<32> {
+/// Renews the governance instance's storage TTL, computes `operation`'s id,
+/// and checks that the operation has not expired. Returns the operation id.
+/// It authorizes no caller: execution of a ready operation is permissionless.
+fn prepare_execute(env: &Env, operation: &Operation) -> BytesN<32> {
     renew_instance(env);
-    authorize_executor(env, executor);
     let operation_id = hash_operation(env, operation);
     require_operation_not_expired(env, &operation_id);
     operation_id

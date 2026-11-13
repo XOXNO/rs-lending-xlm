@@ -201,9 +201,13 @@ PROD_OP_TAG="$2" prod_ops setupAll >/dev/null'''
         salt='ab'*32; op='cd'*32
         propose={'function_name':'propose','contract_address':'GOV','args':[{'address':'ADMIN'},{'vec':[]},{'bytes':salt}]}
         def execute(s_,target='CTRL',fn='set_price_aggregator'):
-            return {'function_name':'execute','contract_address':'GOV','args':[{'address':'ADMIN'},{'address':target},{'symbol':fn},{'vec':[]},{'bytes':'00'*32},{'bytes':s_}]}
+            return {'function_name':'execute','contract_address':'GOV','args':[{'address':target},{'symbol':fn},{'vec':[]},{'bytes':'00'*32},{'bytes':s_}]}
+        # `execute` takes no executor: a receipt with the removed leading
+        # argument does not bind the recorded target and function.
+        legacy=execute(salt); legacy['args']=['void',*legacy['args']]
         for case,exec_call,record_salt,ok in [('good',execute(salt),salt,True),('salt',execute('ee'*32),salt,False),
-                                              ('target',execute(salt,target='OTHER'),salt,False),('record',execute(salt),'ff'*32,False)]:
+                                              ('target',execute(salt,target='OTHER'),salt,False),('record',execute(salt),'ff'*32,False),
+                                              ('legacy',legacy,salt,False)]:
             with tempfile.TemporaryDirectory() as d:
                 root=Path(d);(root/'configs').mkdir();(root/'logs').mkdir();(root/'ops/testnet').mkdir(parents=True)
                 (root/'inv.1').write_text(json.dumps(propose));(root/'inv.2').write_text(json.dumps(exec_call))
@@ -451,7 +455,7 @@ serial_snapshot() {
         --argjson uri "$(view "${label}_uri" "$POSITION_NFT" -- token_uri --token_id "$acct")" \
         --argjson total "$(view "${label}_total" "$POSITION_NFT" -- total_supply)" \
         '{name:$name,symbol:$symbol,uri:$uri,total:$total}') || return 1
-    for role in PROPOSER EXECUTOR CANCELLER GUARDIAN ORACLE; do
+    for role in PROPOSER CANCELLER GUARDIAN ORACLE; do
         held=$(view "${label}_role_$role" "$GOVERNANCE" -- has_role --account "$ADMIN_ADDR" --role "$role") || return 1
         roles=$(jq -nc --argjson roles "$roles" --arg role "$role" --argjson held "$held" '$roles+[{role:$role,held:$held}]') || return 1
     done
@@ -488,11 +492,11 @@ for m in $MARKETS; do td_residue_job "${m%%:*}" "${m##*:}"; done
             rows = self.rows(root)
         self.assertEqual(grouped, serial)
         snapshot = json.loads(grouped)
-        self.assertEqual([r['role'] for r in snapshot['roles']], ['PROPOSER', 'EXECUTOR', 'CANCELLER', 'GUARDIAN', 'ORACLE'])
+        self.assertEqual([r['role'] for r in snapshot['roles']], ['PROPOSER', 'CANCELLER', 'GUARDIAN', 'ORACLE'])
         self.assertEqual(snapshot['nft']['name'], 'name-CNFT')
         self.assertEqual(len({snapshot['wallet'], snapshot['pool'], snapshot['controller_cash']}), 3)
         floor = next(i for i, r in enumerate(rows) if r[2] == 'prod_snap_ledger_floor')
-        self.assertEqual(floor, 18)
+        self.assertEqual(floor, 17)
         self.assertEqual([r[2:] for r in rows[floor+1:]], [r[2:] for r in rows[:floor]])
 
     def test_teardown_trustline_reads_share_the_simulation_slots(self):

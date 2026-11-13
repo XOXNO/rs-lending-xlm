@@ -219,18 +219,19 @@ class GuardPatternTest(unittest.TestCase):
         )
 
     def test_execute_operation_readiness_is_timelock_evidence(self):
+        # Execution authorizes no caller and checks no role (audit finding
+        # I-02), so the timelock primitive is the only evidence the classifier
+        # can find on these three entrypoints.
         path = os.path.join("contracts", "governance", "src", "timelock", "mod.rs")
-        guard = "exec.require_auth();"
-        role = "access_control::ensure_role(env, &Symbol::new(env, EXECUTOR_ROLE), exec);"
-        sources = []
-        for rel, text in ac.rust_sources():
-            if rel == path:
-                self.assertIn(guard, text)
-                self.assertIn(role, text)
-                text = text.replace(guard, " " * len(guard)).replace(role, " " * len(role))
-            sources.append((rel, text))
-        eps = by_key(classified(sources=sources))
-        self.assertEqual(eps["governance::execute"]["category"], "role-timelock")
+        texts = [text for rel, text in ac.rust_sources() if rel == path]
+        self.assertEqual(len(texts), 1)
+        self.assertNotIn("EXECUTOR", texts[0])
+        prepare = texts[0].split("fn prepare_execute(", 1)[1].split("\n}\n", 1)[0]
+        self.assertNotIn("require_auth", prepare)
+        self.assertNotIn("ensure_role", prepare)
+        eps = by_key(classified())
+        for name in ("execute", "execute_self", "execute_canceller_reset"):
+            self.assertEqual(eps[f"governance::{name}"]["category"], "role-timelock")
 
 
 class DeclarationFileTest(unittest.TestCase):

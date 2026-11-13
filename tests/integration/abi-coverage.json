@@ -1132,7 +1132,7 @@
     "contract": "governance",
     "method": "has_role",
     "case": "flow_governance",
-    "label": "gov_has_role_admin_executor",
+    "label": "gov_has_role_admin_proposer",
     "root_contract": "governance",
     "root_method": "has_role",
     "execution": "direct-call",

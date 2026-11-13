@@ -1,7 +1,7 @@
 //! Role definitions and access-control state transitions for the governance
 //! contract: the default operational roles, owner/admin transfer
-//! synchronization, executor/canceller separation enforcement, role
-//! grant/revoke application, and the contract constructor.
+//! synchronization, role grant/revoke application, and the contract
+//! constructor.
 
 use common::errors::GenericError;
 use common::ttl::renew_instance;
@@ -20,8 +20,6 @@ use crate::{timelock, Governance, GovernanceArgs, GovernanceClient};
 pub(crate) const ORACLE_ROLE: &str = "ORACLE";
 /// Role that may call `propose`.
 pub(crate) const PROPOSER_ROLE: &str = "PROPOSER";
-/// Role that a named `executor` must hold to execute a ready operation.
-pub(crate) const EXECUTOR_ROLE: &str = "EXECUTOR";
 /// Role that may call `cancel`.
 pub(crate) const CANCELLER_ROLE: &str = "CANCELLER";
 
@@ -33,13 +31,12 @@ pub(crate) const GUARDIAN_ROLE: &str = "GUARDIAN";
 /// transfer do not give it to the owner.
 pub(crate) const CURATOR_ROLE: &str = "CURATOR";
 
-/// Returns the five default operational role symbols (oracle, proposer,
-/// executor, canceller, guardian).
-pub(crate) fn default_operational_roles(env: &Env) -> [Symbol; 5] {
+/// Returns the four default operational role symbols (oracle, proposer,
+/// canceller, guardian).
+pub(crate) fn default_operational_roles(env: &Env) -> [Symbol; 4] {
     [
         Symbol::new(env, ORACLE_ROLE),
         Symbol::new(env, PROPOSER_ROLE),
-        Symbol::new(env, EXECUTOR_ROLE),
         Symbol::new(env, CANCELLER_ROLE),
         Symbol::new(env, GUARDIAN_ROLE),
     ]
@@ -141,51 +138,19 @@ pub(crate) fn apply_transfer_ownership(env: &Env, new_owner: &Address, live_unti
     sync_pending_admin_transfer(env, new_owner, live_until_ledger);
 }
 
-/// Panics with `GenericError::InvalidRole` if granting `role` to `account`
-/// would give it both the executor and canceller roles. No-op when
-/// `account` is `owner`, and when `role` is neither executor nor canceller.
-fn require_executor_canceller_separation(
-    env: &Env,
-    owner: &Address,
-    account: &Address,
-    role: &Symbol,
-) {
-    if account == owner {
-        return;
-    }
-    let executor = Symbol::new(env, EXECUTOR_ROLE);
-    let canceller = Symbol::new(env, CANCELLER_ROLE);
-    let conflicting = if role == &executor {
-        canceller
-    } else if role == &canceller {
-        executor
-    } else {
-        return;
-    };
-    assert_with_error!(
-        env,
-        access_control::has_role(env, account, &conflicting).is_none(),
-        GenericError::InvalidRole
-    );
-}
-
 /// Renews the governance instance's storage TTL and grants `role` to
-/// `account`, after checking that the grant does not give `account` both
-/// the executor and canceller roles. The role-granted event names this
-/// contract as the caller: the grant runs as a timelocked operation.
+/// `account`. The role-granted event names this contract as the caller: the
+/// grant runs as a timelocked operation.
 pub(crate) fn apply_grant_role(env: &Env, account: &Address, role: &Symbol) {
     renew_instance(env);
-    let owner = owner_or_panic(env);
-    require_executor_canceller_separation(env, &owner, account, role);
     access_control::grant_role_no_auth(env, account, role, &env.current_contract_address());
 }
 
 /// Renews the governance instance's storage TTL, revokes the canceller role
 /// from every current holder other than `owner`, then grants it to each
 /// address in `new_cancellers` that does not already hold it, skipping
-/// `owner` and enforcing the executor/canceller separation on each new
-/// grant. The role events name this contract as the caller: the reset runs as
-/// a timelocked operation.
+/// `owner`. The role events name this contract as the caller: the reset runs
+/// as a timelocked operation.
 pub(crate) fn apply_canceller_reset(env: &Env, new_cancellers: &Vec<Address>) {
     renew_instance(env);
     let owner = owner_or_panic(env);
@@ -201,7 +166,6 @@ pub(crate) fn apply_canceller_reset(env: &Env, new_cancellers: &Vec<Address>) {
     }
     for account in new_cancellers.iter() {
         if account != owner && access_control::has_role(env, &account, &role).is_none() {
-            require_executor_canceller_separation(env, &owner, &account, &role);
             access_control::grant_role_no_auth(env, &account, &role, &governance);
         }
     }

@@ -91,7 +91,6 @@ pub(crate) fn propose(
 /// operation's scheduled state on completion.
 pub(crate) fn execute(
     env: &Env,
-    executor: Option<Address>,
     target: Address,
     function: Symbol,
     args: Vec<Val>,
@@ -110,7 +109,7 @@ pub(crate) fn execute(
         predecessor,
         salt,
     };
-    let operation_id = prepare_execute(env, executor.as_ref(), &operation);
+    let operation_id = prepare_execute(env, &operation);
     let result = execute_operation(env, &operation);
     finish_execute(env, &operation_id);
     result
@@ -119,19 +118,14 @@ pub(crate) fn execute(
 /// Executes a scheduled admin operation that targets this contract itself, once
 /// its delay has elapsed and it has not expired. Rejects operations resolved to a
 /// different target. Clears the operation's scheduled state on completion.
-pub(crate) fn execute_self(
-    env: &Env,
-    executor: Option<Address>,
-    op: &AdminOperation,
-    salt: BytesN<32>,
-) {
+pub(crate) fn execute_self(env: &Env, op: &AdminOperation, salt: BytesN<32>) {
     let (operation, _) = operation_for_admin_op(env, op, salt);
     assert_with_error!(
         env,
         operation.target == env.current_contract_address(),
         GenericError::InternalError
     );
-    let operation_id = prepare_execute(env, executor.as_ref(), &operation);
+    let operation_id = prepare_execute(env, &operation);
     set_execute_operation(env, &operation);
     apply_self_op(env, op);
     finish_execute(env, &operation_id);

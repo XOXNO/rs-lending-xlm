@@ -55,15 +55,6 @@
     "scope": "advance recovery delay; not a multiweek testnet observation"
   },
   {
-    "id": "governance_role_separation",
-    "execution": "controlled-ledger",
-    "methods": [
-      "governance.execute_canceller_reset"
-    ],
-    "test": "timelock::tests::recovery_grant_enforces_executor_canceller_separation",
-    "scope": "recovery cannot merge executor and canceller authority"
-  },
-  {
     "id": "governance_ownership",
     "execution": "controlled-ledger",
     "methods": [

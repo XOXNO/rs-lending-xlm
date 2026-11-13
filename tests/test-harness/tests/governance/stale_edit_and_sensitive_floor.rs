@@ -76,7 +76,6 @@ fn execute_relax_as_stranger(
     let gov = governance_interface::GovernanceClient::new(&t.env, &t.governance);
     t.env.set_auths(&[]);
     let result = flatten(gov.try_execute(
-        &None,
         &t.controller,
         &Symbol::new(&t.env, "relax_spoke_asset_flags"),
         &relax_call_args(&t.env, args),
@@ -149,7 +148,6 @@ fn stale_edit_executed_by_a_stranger_cannot_clear_a_guardian_freeze() {
     // A stranger, with no signature at all, drives the stale operation.
     t.env.set_auths(&[]);
     let result = flatten(gov.try_execute(
-        &None,
         &t.controller,
         &Symbol::new(&t.env, "edit_asset_in_spoke"),
         &soroban_sdk::vec![&t.env, args.into_val(&t.env)],
@@ -310,7 +308,7 @@ fn sensitive_operations_are_not_ready_at_a_min_delay_below_the_floor() {
 
     let wasm_hash = BytesN::<32>::from_array(env, &[7u8; 32]);
     let grantee = Address::generate(env);
-    let executor_role = Symbol::new(env, "EXECUTOR");
+    let granted_role = Symbol::new(env, "GUARDIAN");
     let cases = [
         SensitiveCase {
             label: "UpgradeController",
@@ -333,11 +331,11 @@ fn sensitive_operations_are_not_ready_at_a_min_delay_below_the_floor() {
             label: "GrantGovRole",
             op: AdminOperation::GrantGovRole(RoleArgs {
                 account: grantee.clone(),
-                role: executor_role.clone(),
+                role: granted_role.clone(),
             }),
             target: gov_addr.clone(),
             function: "grant_role",
-            args: soroban_sdk::vec![env, grantee.into_val(env), executor_role.into_val(env)],
+            args: soroban_sdk::vec![env, grantee.into_val(env), granted_role.into_val(env)],
         },
     ];
 
@@ -374,10 +372,9 @@ fn sensitive_operations_are_not_ready_at_a_min_delay_below_the_floor() {
         let c = &cases[i];
         // Self-targeted operations go through `execute_self`.
         if c.target == gov_addr {
-            return flatten(gov.try_execute_self(&None, &c.op, &salt(env, 10 + i as u8)));
+            return flatten(gov.try_execute_self(&c.op, &salt(env, 10 + i as u8)));
         }
         flatten(gov.try_execute(
-            &None,
             &c.target,
             &Symbol::new(env, c.function),
             &c.args,

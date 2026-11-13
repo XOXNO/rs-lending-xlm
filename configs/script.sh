@@ -1107,6 +1107,41 @@ await_op_ready() {
     done
 }
 
+# Governance builds from before the EXECUTOR role was removed (audit finding
+# I-02) take a leading `executor: Option<Address>` on `execute`, `execute_self`
+# and `execute_canceller_reset`; current builds take no such argument. Sets
+# GOV_EXECUTOR_ARGS to the CLI arguments the deployed contract expects:
+# `--executor null` for a legacy build, nothing for a current one. The form is
+# read from the contract's own interface before every execution, so one script
+# drives a network before and after its governance upgrade, also when the
+# upgrade is one of several operations executed by the same run. The result is
+# never kept: an upgrade changes the form without changing the address.
+# GOV_EXECUTOR_ARG=legacy|none skips the read.
+resolve_gov_executor_args() {
+    local gov=$1 iface
+    case "${GOV_EXECUTOR_ARG:-auto}" in
+        legacy) GOV_EXECUTOR_ARGS="--executor null" ;;
+        none) GOV_EXECUTOR_ARGS="" ;;
+        auto)
+            iface=$(stellar contract info interface --id "$gov" --network "$NETWORK" 2>/dev/null) || iface=""
+            if ! printf '%s' "$iface" | grep -q 'fn execute_self'; then
+                echo "ERROR: could not read the governance interface of ${gov} on ${NETWORK}." >&2
+                echo "       Set GOV_EXECUTOR_ARG=legacy if its execute entrypoints take an executor, or none." >&2
+                return 1
+            fi
+            if printf '%s' "$iface" | grep -q 'executor:'; then
+                GOV_EXECUTOR_ARGS="--executor null"
+            else
+                GOV_EXECUTOR_ARGS=""
+            fi
+            ;;
+        *)
+            echo "ERROR: GOV_EXECUTOR_ARG must be auto, legacy or none (got '${GOV_EXECUTOR_ARG}')." >&2
+            return 1
+            ;;
+    esac
+}
+
 execute_gov_self_op() {
     local op_id=$1
     local path
@@ -1115,6 +1150,7 @@ execute_gov_self_op() {
     gov=$(get_governance)
     execute_label=$(jq -r '.execute_label' "$path")
     salt=$(jq -r '.salt' "$path")
+    resolve_gov_executor_args "$gov" || return $?
     echo "Executing governance-self op ${op_id} -> ${execute_label}..." >&2
     local op_file
     op_file=$(mktemp)
@@ -1122,7 +1158,7 @@ execute_gov_self_op() {
 
     retry_tx stellar contract invoke --instruction-leeway "${INSTRUCTION_LEEWAY:-20000000}" --id "$gov" $SOURCE_FLAG --network "$NETWORK" \
         -- execute_self \
-        --executor null \
+        $GOV_EXECUTOR_ARGS \
         --op-file-path "$op_file" \
         --salt "$salt" || { local rc=$?; rm -f "$op_file"; return "$rc"; }
     rm -f "$op_file"
@@ -1177,6 +1213,7 @@ execute_op() {
     else
         args_json=$(jq -c '.args' "$path")
     fi
+    resolve_gov_executor_args "$gov" || return $?
     echo "Executing op ${op_id} -> ${function} on ${target}..." >&2
     local args_file
     args_file=$(mktemp)
@@ -1184,7 +1221,7 @@ execute_op() {
 
     retry_tx stellar contract invoke --instruction-leeway "${INSTRUCTION_LEEWAY:-20000000}" --id "$gov" $SOURCE_FLAG --network "$NETWORK" \
         -- execute \
-        --executor null \
+        $GOV_EXECUTOR_ARGS \
         --target "$target" \
         --function "$function" \
         --args-file-path "$args_file" \
@@ -4084,9 +4121,12 @@ migrate_controller_cmd() {
 
 validate_governance_role() {
     case "$1" in
-        ORACLE|PROPOSER|EXECUTOR|CANCELLER|GUARDIAN|CURATOR) return 0 ;;
+        ORACLE|PROPOSER|CANCELLER|GUARDIAN|CURATOR) return 0 ;;
+        # Only a governance build from before audit finding I-02 knows EXECUTOR.
+        # It stays accepted so its holders can be revoked before an upgrade.
+        EXECUTOR) return 0 ;;
         *)
-            echo "ERROR: Invalid governance role '$1'. Use ORACLE, PROPOSER, EXECUTOR, CANCELLER, GUARDIAN, or CURATOR." >&2
+            echo "ERROR: Invalid governance role '$1'. Use ORACLE, PROPOSER, CANCELLER, GUARDIAN, or CURATOR (EXECUTOR only on a legacy governance build)." >&2
             exit 1
             ;;
     esac
@@ -5552,7 +5592,7 @@ case "$1" in
 "grantGovRole")
         if [ -z "$2" ] || [ -z "$3" ]; then
             echo "Usage: $0 grantGovRole <account> <role>" >&2
-            echo "Governance roles: ORACLE | PROPOSER | EXECUTOR | CANCELLER | GUARDIAN | CURATOR (timelocked)" >&2
+            echo "Governance roles: ORACLE | PROPOSER | CANCELLER | GUARDIAN | CURATOR (timelocked); EXECUTOR only on a legacy governance build" >&2
             exit 1
         fi
         grant_gov_role_cmd "$2" "$3"
@@ -5810,7 +5850,7 @@ case "$1" in
         echo "  setPositionManager <addr> <t|f> Timelocked position-manager toggle"
         echo "  transferCtrlOwnership <a> <l>   Timelocked controller ownership handoff"
         echo "  migrateController <version>     Timelocked controller migrate"
-        echo "  grantGovRole <account> <role>   Grant role (PROPOSER|EXECUTOR|CANCELLER|ORACLE|GUARDIAN|CURATOR; timelocked)"
+        echo "  grantGovRole <account> <role>   Grant role (PROPOSER|CANCELLER|ORACLE|GUARDIAN|CURATOR; timelocked)"
         echo "  revokeGovRole <account> <role>  Revoke governance role (timelocked)"
         echo "  upgradeGovernanceHash <hash>    Timelocked governance WASM upgrade"
         echo "  updateDelay <ledgers>           Timelocked min-delay increase (cannot shorten)"

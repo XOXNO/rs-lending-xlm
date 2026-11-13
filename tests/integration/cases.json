@@ -2973,7 +2973,7 @@
         "contract": "governance"
       },
       {
-        "label": "gov_has_role_admin_executor",
+        "label": "gov_has_role_admin_proposer",
         "method": "has_role",
         "status": "read",
         "count": 1,
@@ -3253,7 +3253,7 @@
         ]
       },
       {
-        "label": "gov_revoke_executor_rejected",
+        "label": "gov_revoke_proposer_rejected",
         "method": "revoke_role_immediate",
         "status": "xfail",
         "count": 1,

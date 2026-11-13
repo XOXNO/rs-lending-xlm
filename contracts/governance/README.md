@@ -6,7 +6,7 @@ both contracts; every privileged change to them goes through here.
 | | |
 | --- | --- |
 | Owner | OZ `Ownable`, two-step |
-| Roles | `PROPOSER`, `EXECUTOR`, `CANCELLER`, `GUARDIAN`, `ORACLE`, and grantable `CURATOR_ROLE` |
+| Roles | `PROPOSER`, `CANCELLER`, `GUARDIAN`, `ORACLE`, and grantable `CURATOR_ROLE` |
 | Client | [`interfaces/governance`](../../interfaces/governance) |
 
 Full signatures are in `contracts/governance/src/`; the generated client drops
@@ -42,15 +42,15 @@ are in its rustdoc.
 | Entrypoint | Caller | Does |
 | --- | --- | --- |
 | `propose(proposer, op, salt) -> id` | `PROPOSER` (owner for the ops above) | Schedules `op` |
-| `execute(executor, target, function, args, predecessor, salt) -> Val` | anyone (see below) | Runs a ready op against `target` (not governance) |
-| `execute_self(executor, op, salt)` | anyone (see below) | Runs a ready op that targets governance |
+| `execute(target, function, args, predecessor, salt) -> Val` | anyone (see below) | Runs a ready op against `target` (not governance) |
+| `execute_self(op, salt)` | anyone (see below) | Runs a ready op that targets governance |
 | `cancel(canceller, operation_id)` | `CANCELLER` | Vetoes a pending op. Cannot cancel a Recovery op or a revocation of the canceller |
 | `propose_canceller_reset(new_cancellers, salt) -> id` | owner | Schedules a Recovery reset of the canceller set |
-| `execute_canceller_reset(executor, new_cancellers, salt)` | anyone (see below) | Runs a ready canceller reset |
+| `execute_canceller_reset(new_cancellers, salt)` | anyone (see below) | Runs a ready canceller reset |
 
-With `executor = None` anyone may execute a ready op; with `Some(address)`
-that address must authorize and hold `EXECUTOR`. A canceller reset uses the
-Recovery delay and cannot be cancelled.
+Anyone may execute a ready op: execution takes no caller and checks no role.
+The delay and the cancellers protect an operation, not the identity of the
+executor. A canceller reset uses the Recovery delay and cannot be cancelled.
 
 ### Immediate (no delay)
 
