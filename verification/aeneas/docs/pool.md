@@ -82,7 +82,8 @@ Charon translates only what these items reach (`start_from` in
 * `crate::interest::{global_sync, accrue_chunk, add_protocol_revenue, apply_bad_debt_to_supply_index}`
   (`global_sync` needs the `postextract.sh` workaround, see
   "Aeneas bug: duplicate parent-clause field"),
-* `crate::ops::flash::{terms, book_fee}`,
+* `crate::ops::flash::{terms, book_fee, finalize}` (`finalize` is the tail of
+  a flash loan after the balance checks: fee booking, entry ceiling, commit),
 * `crate::rates::scaling` (so the copied RatesAeneas scaling proofs find
   every function they name),
 * the operation legs, at the function that does no token call:
@@ -97,10 +98,12 @@ ledger-time and event stand-ins are translated as signatures only, and
 their meaning is in `FunsExternal.lean` (trusted base below). Through the
 legs, `Cache::load` (storage reads, `now_ms`), `Cache::commit` (storage
 write), `ttl::renew_instance` (instance TTL) and the full `global_sync` are
-now in the Lean code, and with `global_sync` the one event it can publish
-(`events::emit_market_value_ceiling`). Token transfers (`Cache::transfer_out`,
-still excluded; the `apply` wrappers of borrow/withdraw/repay/recapitalize/
-strategy/revenue), the other events, the flash-loan callback, `run_batch`,
+now in the Lean code, and with them the two events they publish:
+`events::emit_market_value_ceiling` (`global_sync`) and
+`events::emit_market_state` (`flash::finalize`). Token transfers
+(`Cache::transfer_out`, still excluded; the `apply` wrappers of
+borrow/withdraw/repay/recapitalize/strategy/revenue), the other events, the
+flash-loan callback and its balance checks (`flash::apply`), `run_batch`,
 `market.rs` and the contract entry points (`lib.rs`, so also `get_sync_data`)
 are not reached.
 
@@ -162,7 +165,7 @@ verbatim.
 | `src/oracle.rs` | `common::oracle::observation` | No | The three constants `validation.rs` imports, copied with production values |
 | `src/storage.rs` | `contracts/pool/src/storage.rs` | Signatures only (`opaque`): `read_params`, `read_state`, `write_state`, `renew_market` | Production signatures, `unimplemented!()` bodies (never executed). Persistent storage is modelled in `FunsExternal.lean`: reads are uninterpreted, writes return `()`. `market_exists`, `write_params`, `write_rate_model`, `load_state`, `load_sync_data` exist only for `market.rs` / type-checking |
 | `src/time.rs` | `contracts/pool/src/time.rs` | Signature only (`opaque`) | `now_ms`, uninterpreted in Lean |
-| `src/events.rs` | `contracts/pool/src/events.rs` | Signature only (`opaque`): `emit_market_value_ceiling` | The five emitters' signatures. `global_sync` calls `emit_market_value_ceiling` when the value ceiling held a chunk's interest; only the `apply` wrappers and `run_batch` call the other four, so they are not reached |
+| `src/events.rs` | `contracts/pool/src/events.rs` | Signature only (`opaque`): `emit_market_value_ceiling`, `emit_market_state` | The five emitters' signatures. `global_sync` calls `emit_market_value_ceiling` when the value ceiling held a chunk's interest, and `flash::finalize` calls `emit_market_state` after its commit; only the `apply` wrappers, `run_batch` and `market.rs` call the other three, so they are not reached |
 | `src/ownable.rs` | `stellar_access::ownable` | No | `get_owner` signature, for `ops::revenue::apply` (not a root) |
 
 ### Shim (`pool/shim`, `pool/shim-macros`)
@@ -213,6 +216,7 @@ meanings in `lean/PoolAeneas/TypesExternal.lean` and `FunsExternal.lean`:
 | `storage.renew_market` | Persistent TTL extension of a market | `ok ()` |
 | `storage.write_state` | Persistent write of a market's state (`Cache::commit`) | `ok ()`. The written state is the committed cache, which the theorems describe (`commit_eq`: `commit c = ok (snapOf c)`); nothing in a leg reads storage after its commit. Host write traps (resource limits) are not modelled |
 | `events.emit_market_value_ceiling` | Publication of `MarketValueCeilingEvent` (`interest::global_sync`, when the value ceiling held interest) | `ok ()`. An event writes only the host event buffer, which nothing in the extracted code reads; the cache is unchanged (`global_sync_spec_of_inv`). Added with the S-04 fix |
+| `events.emit_market_state` | Publication of the market state snapshot (`ops::flash::finalize`, after the commit) | `ok ()`, for the same reason. The snapshot it is given is the committed cache (`commit_eq`), which `flash_finalize_keeps_ceiling` describes |
 
 Storage and time are not state in the model: nothing here says that a read
 returns what an earlier write stored. The "stored-state invariant is
@@ -451,7 +455,8 @@ index and of total debt at the borrow index are both at most
 `MAX_MARKET_VALUE_RAY`. Every extracted leg keeps it, so no stored state
 reached through these legs has a market total above the ceiling. Each exit
 theorem takes the hypotheses of its leg theorem plus `ValueCeil c` on the
-synced cache; the entry theorems need no ceiling hypothesis.
+synced cache; the entry theorems and the flash-loan theorem need no ceiling
+hypothesis.
 
 | Lean name | Rust function | Claim | Why | Invariants |
 |---|---|---|---|---|
@@ -465,10 +470,38 @@ synced cache; the entry theorems need no ceiling hypothesis.
 | `seize_keeps_ceiling` | `ops::seize::apply` | `ValueCeil` of the committed cache, both sides | deposit side reclassifies shares; borrow side burns debt and lowers the supply index | INV-IDX-06, INV-IDX-03 |
 | `recapitalize_keeps_ceiling` | `ops::recapitalize::accounting` | `ValueCeil` of the committed cache | only cash changes | INV-IDX-06 |
 | `revenue_keeps_ceiling` | `ops::revenue::accounting` | `ValueCeil` of the committed cache | revenue and supply shares only fall | INV-IDX-06 |
+| `flash_finalize_keeps_ceiling` | `ops::flash::finalize` | `PoolInv` and `ValueCeil` of the returned (committed) cache, with no ceiling hypothesis; `cash += fee` | the fee is booked (`book_fee_spec`), then the cache passes the entry-ceiling guard | INV-ACCT-11, INV-FLASH-01 |
 | `ValueWithin.mono`, `ValueWithin.of_entryFits`, `ValueCeil.of_le`, `ValueCeil.of_entry_guard` | | A smaller product has a smaller half-up value; the entry ceiling is below the value ceiling | | |
 
-Not covered by these: the flash-loan fee (below), and market creation, which
-writes zero totals.
+`flash_finalize_keeps_ceiling` takes the hypotheses of `book_fee_spec`
+(`fee ≥ 0`, `decimals < 27`, `fee·10^k` and `cash + fee` fit `i128`).
+`finalize` runs after `flash::apply` has checked the token balances; that
+part (callback, balance measurement, transfers) is not extracted.
+
+Not covered by these: market creation, which writes zero totals.
+
+**The ceiling discharges the fit hypotheses.** The leg theorems assume that
+the values they convert fit `i128`. Those assumptions now follow from
+`ValueCeil`:
+
+| Lean name | Claim | Discharges |
+|---|---|---|
+| `ValueCeil.supply_value_fits` | Within the ceiling, the half-up value of total supply is below `2^127` | the fit hypothesis of `seize_apply_spec`; `seize_keeps_ceiling` no longer takes it |
+| `ValueCeil.revenue_fits` | Within the ceiling and with `revenue ≤ supplied`, `revenue·supply_index < 2^127·RAY` | the fit hypothesis of `revenue_accounting_spec`; `revenue_keeps_ceiling` no longer takes it |
+| `ValueWithin.fits_half_up`, `ValueWithin.fits_floor`, `ValueWithin.fits_ceil` | For `p ≤ total` and `index ≥ 0`: the half-up, floored and ceiled value of `p` at the index is below `2^127` (the ceiled value is at most the half-up value plus one, and the ceiling leaves one whole token below `i128::MAX`) | the position fit hypotheses, given "position ≤ market total" |
+| `isFloor_le_halfUp`, `isCeil_le_halfUp_succ` | `⌊n/RAY⌋ ≤ hu(n/RAY)` and `⌈n/RAY⌉ ≤ hu(n/RAY) + 1` | |
+| `withdraw_keeps_ceiling_of_position_le` | `withdraw_keeps_ceiling` with `position ≤ supplied` in place of the fit hypothesis | |
+| `repay_keeps_ceiling_of_position_le` | `repay_keeps_ceiling` with `position ≤ borrowed` in place of the fit hypothesis | |
+| `net_settle_keeps_ceiling_of_position_le` | `net_settle_keeps_ceiling` with `supply position ≤ supplied` and `debt position ≤ borrowed` in place of both fit hypotheses | |
+
+So the total-based fit assumptions (seize, revenue claim) are gone, and the
+position-based ones (withdraw, repay, net settlement) are reduced to one
+statement: **the caller's position is at most its market's total**. The
+pool keeps no per-account book, so it cannot prove that statement; it is the
+pool-side shape of INV-ACCT-10, which the controller maintains. The entry
+legs' hypotheses on the *amount* (`amount·10^k` fits, and for supply the
+minted share count fits) are about the call's input, not stored state, and
+stay.
 
 ### Certora summaries in their own terms (`Summaries.lean`)
 
@@ -572,7 +605,7 @@ unextracted `MarketParamsRaw::verify`).
 | `net_settle_summary` | Discharged | `net_settle_summary_holds`, `net_settle_apply_spec` | |
 | `update_indexes_summary` (empty) | Discharged | `synced_market_spec`, `global_sync_spec` | `ops::market::accrue` (loop over keys, events) not extracted |
 | `recapitalize_summary` | Discharged | `recapitalize_summary_holds`, `recapitalize_accounting_spec` | Refund transfer |
-| `flash_loan_summary` | Discharged (fee arithmetic) | `terms_spec`, `book_fee_spec` | `flash::apply`/`finalize` (callback, balance measurement, transfers) not extracted |
+| `flash_loan_summary` | Discharged (fee arithmetic) | `terms_spec`, `book_fee_spec`, `flash_finalize_keeps_ceiling` | `flash::apply` (callback, balance measurement, transfers) not extracted |
 | `create_strategy_summary` | Discharged | `create_strategy_summary_holds`, `strategy_accounting_spec` | Transfer of `amount_received`, strategy-fee event |
 | `seize_positions_summary` (empty) | Discharged per entry | `seize_apply_spec` | The batch (`run_batch`, `unique_markets = false`) and events not extracted; that the summary has no return value means nothing more is assumed |
 | `claim_revenue_summary` | Discharged | `claim_revenue_summary_holds`, `revenue_accounting_spec` | Owner lookup and payout transfer (`revenue::apply`) |
@@ -612,17 +645,16 @@ and do not appear.
 
 ## Not covered
 
-* **The flash-loan fee and the value ceiling.** `ops::flash::finalize`, which
-  books the fee and then calls `require_within_entry_ceiling`, is not
-  extracted (events). It is the one leg for which `ValueCeil` is not proved
-  preserved; the guard it calls is specified
-  (`require_within_entry_ceiling_spec`), and passing it implies `ValueCeil`
-  (`ValueCeil.of_entry_guard`).
-* **Discharging the exit legs' fit hypotheses from the ceiling.** The exit
-  theorems still assume that the position value they convert fits `i128`.
-  `ValueCeil` bounds the market totals, and a position is at most its
-  market's total only by INV-ACCT-10, which is the controller's invariant and
-  outside this model.
+* **"Position ≤ market total" (INV-ACCT-10).** The withdraw, repay and
+  net-settlement theorems assume that the value of the caller's position
+  fits `i128`. With `ValueCeil` that follows from "the position is at most
+  its market's total" (`*_keeps_ceiling_of_position_le`), but that statement
+  itself is not proved: the pool keeps no per-account book, and the
+  controller, which does, is a separate model. It stays a hypothesis.
+* **The flash loan before `finalize`.** `ops::flash::apply` (payout, the
+  receiver callback, the two balance checks) is not extracted, so that
+  `finalize` is reached only with the fee actually received is not proved
+  here.
 * **Which accruals publish the ceiling event.** The `value_capped` flag is
   carried through the loop but no theorem relates it to the interest held.
 * **`compound_interest` accuracy.** Only the bounds `RAY + x ≤ f ≤ 21·RAY`
@@ -636,8 +668,7 @@ and do not appear.
   `PoolInv` cache → `load_ok` → `synced_market_spec`". The `apply` wrappers
   (token transfers), `run_batch` (the batch driver, its `unique_markets`
   check and batch events), `ops::market` (create, rate-model replacement,
-  `accrue`), `ops::flash::{apply, finalize}` and the views are not
-  extracted.
+  `accrue`), `ops::flash::apply` and the views are not extracted.
 * **Non-abort of the legs.** The leg theorems are about every successful
   return, which is what the summaries need; when a leg aborts (a guard
   fails) is not characterised beyond the guard specs (`Guards.lean`).
@@ -682,11 +713,16 @@ proofs changed with them.
   committed cache passes the entry-ceiling guard; `gate_and_debit_ok` and
   `revenue_accounting_spec` name the exit utilization guard.
 * `ValueCeiling.lean`: the value ceiling is a stored-state invariant of every
-  extracted leg (`ValueCeil`, 16 theorems). For it,
-  `withhold_liquidation_fee_ok` and `withdraw_accounting_spec` gained one
-  conclusion each: the liquidation-fee shares are worth at most the fee, and
-  never exceed the supply shares burned.
-* One trusted-base addition: `events.emit_market_value_ceiling` returns `()`.
+  extracted leg, the flash-loan fee booking included (`ValueCeil`, 27
+  theorems). For it, `withhold_liquidation_fee_ok` and
+  `withdraw_accounting_spec` gained one conclusion each: the liquidation-fee
+  shares are worth at most the fee, and never exceed the supply shares
+  burned. The same file derives the legs' fit hypotheses from the ceiling:
+  outright for seize and revenue claims, and from "position ≤ market total"
+  for withdraw, repay and net settlement.
+* `ops::flash::finalize` is a new extraction root.
+* Two trusted-base additions: `events.emit_market_value_ceiling` and
+  `events.emit_market_state` return `()`.
 
 No previously proved property was lost. `ray_from_same` moved from
 `Interest.lean` to `Wrappers.lean`.

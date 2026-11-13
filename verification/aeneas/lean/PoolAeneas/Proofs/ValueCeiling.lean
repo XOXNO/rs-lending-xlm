@@ -14,9 +14,16 @@ Every extracted leg keeps it:
 * the exits (withdraw, repay, net settlement, seize, revenue claim) and
   recapitalization never raise a market value.
 
+* the flash-loan fee (`flash::finalize`) is booked and then checked against
+  the entry ceiling, so it establishes the invariant outright as well.
+
 So no stored state reached through these legs has a market total above the
-ceiling. The flash-loan fee is the one path not covered: `flash::finalize`,
-which books the fee and then checks the entry ceiling, is not extracted.
+ceiling.
+
+The last section turns the ceiling into the fit conditions the leg theorems
+assume: a market total within the ceiling fits `i128`, and so does the value
+of any position that is at most its market's total (the pool-side shape of
+INV-ACCT-10).
 -/
 import PoolAeneas.Proofs.Legs2
 
@@ -73,6 +80,75 @@ theorem ValueCeil.of_entry_guard (env : Env) (c : market_cache.Cache) (hinv : Po
   obtain ⟨h1, h2⟩ := (require_within_entry_ceiling_spec env c (by omega) (by omega) hsh.2.2
     (by omega)).mp h
   exact ⟨ValueWithin.of_entryFits h1, ValueWithin.of_entryFits h2⟩
+
+/-! ## What the ceiling gives: values that fit `i128` -/
+
+/-- The floor of `n/RAY` is at most its half-up rounding. -/
+theorem isFloor_le_halfUp {n q v : Int} (hq : IsFloor n (10^27) q)
+    (hv : IsHalfUp n (10^27) v) : q ≤ v := by
+  unfold IsFloor at hq; rw [if_pos (by norm_num)] at hq
+  unfold IsHalfUp at hv
+  by_contra hc
+  have h1 : (v + 1) * 10^27 ≤ q * 10^27 := by nlinarith
+  nlinarith
+
+/-- The ceiling of `n/RAY` is at most one above its half-up rounding. -/
+theorem isCeil_le_halfUp_succ {n q v : Int} (hq : IsCeil n (10^27) q)
+    (hv : IsHalfUp n (10^27) v) : q ≤ v + 1 := by
+  unfold IsCeil at hq; rw [if_pos (by norm_num)] at hq
+  unfold IsHalfUp at hv
+  by_contra hc
+  have h1 : (v + 2) * 10^27 ≤ q * 10^27 := by nlinarith
+  nlinarith
+
+/-- **A position inside a market total within the ceiling has a half-up value
+that fits `i128`.** For `p ≤ x` and `index ≥ 0`. -/
+theorem ValueWithin.fits_half_up {x i p : Int} (h : ValueWithin x i) (hi : 0 ≤ i)
+    (hp : p ≤ x) : ∃ q, IsHalfUp (p * i) (10^27) q ∧ q < 2^127 := by
+  obtain ⟨q, hq⟩ := IsHalfUp.exists (p * i) (10^27) (by norm_num)
+  have hle := (h.mono (Int.mul_le_mul_of_nonneg_right hp hi)) q hq
+  exact ⟨q, hq, by unfold MaxMarketValue at hle; omega⟩
+
+/-- The same for the floored value. -/
+theorem ValueWithin.fits_floor {x i p : Int} (h : ValueWithin x i) (hi : 0 ≤ i)
+    (hp : p ≤ x) : ∃ q, IsFloor (p * i) (10^27) q ∧ q < 2^127 := by
+  obtain ⟨v, hv, hlt⟩ := h.fits_half_up hi hp
+  obtain ⟨q, hq⟩ := exists_isFloor (p * i) (10^27) (by norm_num)
+  exact ⟨q, hq, by have := isFloor_le_halfUp hq hv; omega⟩
+
+/-- The same for the ceiled value: the ceiling leaves one whole token of room
+below `i128::MAX`, more than the one raw unit rounding up can add. -/
+theorem ValueWithin.fits_ceil {x i p : Int} (h : ValueWithin x i) (hi : 0 ≤ i)
+    (hp : p ≤ x) : ∃ q, IsCeil (p * i) (10^27) q ∧ q < 2^127 := by
+  obtain ⟨v, hv⟩ := IsHalfUp.exists (p * i) (10^27) (by norm_num)
+  have hle := (h.mono (Int.mul_le_mul_of_nonneg_right hp hi)) v hv
+  obtain ⟨q, hq⟩ := isCeil_exists (p * i) (10^27) (by norm_num)
+  exact ⟨q, hq, by
+    have := isCeil_le_halfUp_succ hq hv
+    unfold MaxMarketValue at hle; omega⟩
+
+/-- **Within the ceiling, the total supply value fits `i128`.** This is the
+fit hypothesis of `seize_apply_spec`. -/
+theorem ValueCeil.supply_value_fits {c : market_cache.Cache} (hV : ValueCeil c) :
+    ∃ V : Int, IsHalfUp (c.supplied.val * c.supply_index.val) (10^27) V ∧ V < 2^127 := by
+  obtain ⟨V, hVv⟩ := IsHalfUp.exists (c.supplied.val * c.supply_index.val) (10^27) (by norm_num)
+  have hle := hV.1 V hVv
+  exact ⟨V, hVv, by unfold MaxMarketValue at hle; omega⟩
+
+/-- **Within the ceiling, the revenue value fits.** Revenue shares are part of
+total supply (INV-ACCT-01), so their value is below `2^127` RAY. This is the
+fit hypothesis of `revenue_accounting_spec`. -/
+theorem ValueCeil.revenue_fits {c : market_cache.Cache} (hV : ValueCeil c)
+    (hsh : SharesInv c) (hsi : 0 ≤ c.supply_index.val) :
+    c.revenue.val * c.supply_index.val < 2^127 * 10^27 := by
+  unfold SharesInv at hsh
+  obtain ⟨V, hVv⟩ := IsHalfUp.exists (c.supplied.val * c.supply_index.val) (10^27) (by norm_num)
+  have hle := hV.1 V hVv
+  have hrs : c.revenue.val * c.supply_index.val ≤ c.supplied.val * c.supply_index.val :=
+    Int.mul_le_mul_of_nonneg_right hsh.2.1 hsi
+  unfold IsHalfUp at hVv
+  unfold MaxMarketValue at hle
+  nlinarith
 
 /-! ## Accrual -/
 
@@ -256,16 +332,15 @@ theorem net_settle_keeps_ceiling (env : Env) (entry : types.pool.PoolNetSettleEn
 
 /-- **Seizure keeps the market value ceiling.** The deposit side only
 reclassifies shares as revenue. The borrow side burns debt shares and writes
-the supply index down, never up. -/
+the supply index down, never up. The fit hypothesis of `seize_apply_spec` is
+discharged from the ceiling. -/
 theorem seize_keeps_ceiling (env : Env) (entry : types.pool.PoolSeizeEntry)
     (c : market_cache.Cache) (hsync : ops.synced_market env entry.hub_asset = ok c)
-    (hinv : PoolInv c)
-    (hVfit : ∃ V : Int, IsHalfUp (c.supplied.val * c.supply_index.val) (10^27) V ∧ V < 2^127)
-    (hV : ValueCeil c)
+    (hinv : PoolInv c) (hV : ValueCeil c)
     (r : types.pool.MarketStateSnapshot) (h : ops.seize.apply env entry = ok r) :
     ∃ c' : market_cache.Cache, r = snapOf c' ∧ PoolInv c' ∧ ValueCeil c' := by
   obtain ⟨hp0, c', hsnap, hinv', _, hdep, hbor⟩ :=
-    seize_apply_spec env entry c hsync hinv hVfit r h
+    seize_apply_spec env entry c hsync hinv hV.supply_value_fits r h
   have hsh := hinv.shares
   unfold SharesInv at hsh
   have hbi := hinv.bi_lo
@@ -301,16 +376,17 @@ theorem recapitalize_keeps_ceiling (env : Env) (k : types.pool.HubAssetKey) (amo
       show r.cache.borrow_index = c.borrow_index by rw [hce]]
 
 /-- **A revenue claim keeps the market value ceiling.** Revenue and supply
-shares only fall; debt and both indexes are unchanged. -/
+shares only fall; debt and both indexes are unchanged. The fit hypothesis of
+`revenue_accounting_spec` is discharged from the ceiling. -/
 theorem revenue_keeps_ceiling (env : Env) (k : types.pool.HubAssetKey)
     (c : market_cache.Cache) (hsync : ops.synced_market env k = ok c) (hinv : PoolInv c)
     (hdec : c.params.asset_decimals.val ≤ 27)
-    (hfit : c.revenue.val * c.supply_index.val < 2^127 * 10^27)
     (hV : ValueCeil c)
     (r : ops.revenue.RevenueOutcome) (h : ops.revenue.accounting env k = ok r) :
     ValueCeil r.cache := by
   obtain ⟨T, c1, _, hcr, h0, _, _, _, hce, _, _⟩ :=
-    revenue_accounting_spec env k c hsync hinv hdec hfit r h
+    revenue_accounting_spec env k c hsync hinv hdec
+      (hV.revenue_fits hinv.shares (by have := hinv.si_lo; omega)) r h
   unfold ClaimResult at hcr
   obtain ⟨_, _, _, _, _, hz, hp⟩ := hcr
   have hsi := hinv.si_lo
@@ -328,5 +404,78 @@ theorem revenue_keeps_ceiling (env : Env) (k : types.pool.HubAssetKey)
     exact Int.mul_le_mul_of_nonneg_right hsle (by omega)
   · rw [show r.cache.borrowed = c1.borrowed by rw [hce],
       show r.cache.borrow_index = c1.borrow_index by rw [hce], hbe, hbie]
+
+/-! ## Flash loan: the fee booking -/
+
+/-- **A flash loan leaves the market within the value ceiling (INV-ACCT-11).**
+Whenever `flash::finalize` returns `c'` on a cache `c` with `PoolInv c`: the
+fee was booked (`cash += fee`), the stored-state invariant holds, and both
+market totals are within the ceiling, with no ceiling hypothesis: the leg
+checks the entry ceiling after it mints the fee shares. `finalize` runs only
+after the token balance checks confirm principal and fee came back.
+
+Hypotheses are those of `book_fee_spec`: `fee ≥ 0` (`terms_spec`),
+`decimals < 27`, and `fee·10^k` and `cash + fee` fit `i128`. -/
+theorem flash_finalize_keeps_ceiling (env : Env) (c : market_cache.Cache) (fee : Std.I128)
+    (hinv : PoolInv c) (hfee : 0 ≤ fee.val) (hdec : c.params.asset_decimals.val < 27)
+    (hA : fee.val * 10^(27 - c.params.asset_decimals.val) < 2^127)
+    (hcash : c.cash.val + fee.val < 2^127)
+    (c' : market_cache.Cache) (h : ops.flash.finalize env c fee = ok c') :
+    PoolInv c' ∧ ValueCeil c' ∧ c'.cash.val = c.cash.val + fee.val := by
+  unfold ops.flash.finalize at h
+  obtain ⟨c1, hb, h⟩ := bind_eq_ok h
+  obtain ⟨u, hg, h⟩ := bind_eq_ok h
+  rw [commit_eq, bind_ok] at h
+  simp only [events.emit_market_state, bind_ok, ok.injEq] at h
+  subst h
+  obtain ⟨hsh, hcashv, s, hs0, hr, hsu, hce⟩ :=
+    spec_ok_eq (book_fee_spec c fee hinv.shares hinv.si_pos hfee hdec hA hcash) hb
+  have hinv1 : PoolInv c1 :=
+    hinv.of_eq hsh (by rw [hcashv]; have := hinv.cash; omega) (by rw [hce]) (by rw [hce])
+  exact ⟨hinv1, ValueCeil.of_entry_guard env c1 hinv1 ⟨u, hg⟩, hcashv⟩
+
+/-! ## Exits under "position ≤ market total"
+
+The exit leg theorems assume that the value of the caller's position fits
+`i128`. The pool keeps no per-account book, so it cannot know that a position
+is part of its total; the controller maintains it (INV-ACCT-10). Given that
+one fact and the ceiling, the fit hypotheses hold. -/
+
+/-- **Withdraw, with "position ≤ total supply" in place of the fit
+hypothesis.** -/
+theorem withdraw_keeps_ceiling_of_position_le (env : Env) (isl : Bool)
+    (entry : types.pool.PoolWithdrawEntry) (c : market_cache.Cache)
+    (hsync : ops.synced_market env entry.action.hub_asset = ok c)
+    (hinv : PoolInv c) (hdec : c.params.asset_decimals.val ≤ 18)
+    (hpos : entry.action.position.scaled_amount.val ≤ c.supplied.val) (hV : ValueCeil c)
+    (r : ops.withdraw.WithdrawOutcome) (h : ops.withdraw.accounting env isl entry = ok r) :
+    ValueCeil r.cache :=
+  withdraw_keeps_ceiling env isl entry c hsync hinv hdec
+    (hV.1.fits_half_up (by have := hinv.si_lo; omega) hpos) hV r h
+
+/-- **Repay, with "position ≤ total debt" in place of the fit hypothesis.** -/
+theorem repay_keeps_ceiling_of_position_le (env : Env) (action : types.pool.PoolAction)
+    (c : market_cache.Cache) (hsync : ops.synced_market env action.hub_asset = ok c)
+    (hinv : PoolInv c) (hdec : c.params.asset_decimals.val ≤ 18)
+    (hpos : action.position.scaled_amount.val ≤ c.borrowed.val) (hV : ValueCeil c)
+    (r : ops.repay.RepayOutcome) (h : ops.repay.accounting env action = ok r) :
+    ValueCeil r.cache :=
+  repay_keeps_ceiling env action c hsync hinv hdec
+    (hV.2.fits_ceil (by have := hinv.bi_lo; omega) hpos) hV r h
+
+/-- **Net settlement, with "positions ≤ market totals" in place of the fit
+hypotheses.** -/
+theorem net_settle_keeps_ceiling_of_position_le (env : Env)
+    (entry : types.pool.PoolNetSettleEntry) (c : market_cache.Cache)
+    (hsync : ops.synced_market env entry.hub_asset = ok c)
+    (hinv : PoolInv c) (hdec : c.params.asset_decimals.val ≤ 18)
+    (hposS : entry.supply_position.scaled_amount.val ≤ c.supplied.val)
+    (hposD : entry.debt_position.scaled_amount.val ≤ c.borrowed.val) (hV : ValueCeil c)
+    (r : types.pool.PoolNetSettleResult × types.pool.MarketStateSnapshot)
+    (h : ops.net_settle.apply env entry = ok r) :
+    ∃ c' : market_cache.Cache, r.2 = snapOf c' ∧ PoolInv c' ∧ ValueCeil c' :=
+  net_settle_keeps_ceiling env entry c hsync hinv hdec
+    (hV.1.fits_floor (by have := hinv.si_lo; omega) hposS)
+    (hV.2.fits_ceil (by have := hinv.bi_lo; omega) hposD) hV r h
 
 end PoolAeneas.Proofs

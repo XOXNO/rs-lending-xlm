@@ -253,3 +253,10 @@ buffer, which nothing in the extracted code reads. -/
 def events.emit_market_value_ceiling (_ : aeneas_pool_shim.Env) (_ : types.pool.HubAssetKey) :
     Result Unit :=
   ok ()
+
+/-- `events::emit_market_state` (in `ops::flash::finalize`): publishes the
+market state snapshot; returns `()`. An event writes only the host event
+buffer, which nothing in the extracted code reads. -/
+def events.emit_market_state (_ : aeneas_pool_shim.Env) (_ : types.pool.MarketStateSnapshot) :
+    Result Unit :=
+  ok ()

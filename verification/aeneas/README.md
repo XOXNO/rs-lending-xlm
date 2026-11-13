@@ -15,7 +15,7 @@ The full check takes under a minute.
 
 ## What is proved
 
-1020 theorems: four area libraries plus `FixedPoint`, the rounding
+1031 theorems: four area libraries plus `FixedPoint`, the rounding
 specifications they share (headline theorems plus lemmas; some math proofs
 exist once per library, since each library carries its own extraction of the
 shared `common` code, and `sync_copies.py` writes those copies).
@@ -36,7 +36,7 @@ axiom in the generated code, the external models or the proofs.
 |---|---|---|---|
 | Fixed-point core, floor/ceil, share conversions | `RatesAeneas` | [docs/rates-floor-ceil.md](docs/rates-floor-ceil.md) | `mul_div_floor`/`mul_div_ceil` exact for every `i128` input (native and `I256` paths); saturating floor never aborts; `rescale_*` exact; every `scaling.rs` conversion has the ADR-0003 direction; deposit→claim never pays more, borrow→repay never owes less; `resolve_withdrawal`/`resolve_repay`/`resolve_net_settle` never over-burn or over-pay; every typed `Ray`/`Wad`/`Bps` wrapper (#224) specified |
 | Half-up core, rate curve, index accrual | `RatesAeneas` | [docs/rates-half-up-curve-index.md](docs/rates-half-up-curve-index.md) | `mul_div_half_up` and `div_by_int_half_up` exact; flash-loan fee in `[1, amount]`; **borrow rate monotone across all segments** (#225) and exact at every kink, in `[base, max]` under exactly `InterestRateModel::verify`; **`utilization` in `[0, RAY]` for all non-negative totals** (S-03); deposit rate ≤ borrow rate; borrow index monotone and capped (INV-IDX-01); rewards + fee = accrued interest (INV-IDX-05) |
-| Pool accounting and operation legs | `PoolAeneas` | [docs/pool.md](docs/pool.md) | `revenue ≤ supplied` preserved everywhere (INV-ACCT-01); guards' exact pass conditions (INV-ACCT-04/07/08/09/11), including the division-free utilization gate at every ceiling (S-03) and the entry ceiling; `compound_interest` bounded; **`accrue_step` and `global_sync` never abort, for any elapsed time and any size of the market values** (interest is held at the value ceiling, S-04, INV-IDX-06), and keep indexes monotone and capped (INV-IDX-01/02/04/05); the value ceiling is a stored-state invariant of accrual and every extracted leg (`ValueCeil`); supply/borrow/withdraw/repay/net-settle/seize/recapitalize/strategy/revenue legs: exact accounting, `PoolInv` inductive; **11 of 13 Certora pool summaries discharged** |
+| Pool accounting and operation legs | `PoolAeneas` | [docs/pool.md](docs/pool.md) | `revenue ≤ supplied` preserved everywhere (INV-ACCT-01); guards' exact pass conditions (INV-ACCT-04/07/08/09/11), including the division-free utilization gate at every ceiling (S-03) and the entry ceiling; `compound_interest` bounded; **`accrue_step` and `global_sync` never abort, for any elapsed time and any size of the market values** (interest is held at the value ceiling, S-04, INV-IDX-06), and keep indexes monotone and capped (INV-IDX-01/02/04/05); the value ceiling is a stored-state invariant of accrual and every extracted leg, the flash-loan fee booking included (`ValueCeil`), and it discharges the legs' value-fit hypotheses (for positions, given "position ≤ market total"); supply/borrow/withdraw/repay/net-settle/seize/recapitalize/strategy/revenue legs: exact accounting, `PoolInv` inductive; **11 of 13 Certora pool summaries discharged** |
 | Controller liquidation and risk | `ControllerAeneas` | [docs/controller.md](docs/controller.md), [docs/controller-estimate.md](docs/controller-estimate.md), [docs/controller-seizure.md](docs/controller-seizure.md), [docs/controller-repayment.md](docs/controller-repayment.md) | valuation floor ≤ half-up ≤ ceil (INV-RISK-02); account risk totals conservative (collateral floored, debt ceiled); bonus curve bounded and antitone for every validated curve; `estimate_liquidation_amount` never aborts in the production domain, repays ≤ debt, leaves no dust, hits the target HF within 5.5·10⁻¹⁸ USD; repayment capped per leg with excess refunded exactly; `normalize_repayment_plan` / `process_excess_payment` conserve tokens (kept + refunded = offered) and never release more than the unbacked part; `calculate_seized_collateral` never aborts in its domain, seizes ≤ held, bonus ≤ seized, fee ≤ amount, within the budget up to stated rounding; **health factor after the executed plan ≥ before** (HF-preserving cap) and **≥ the curve target** (target branch), each up to an explicit rounding allowance; under-delivery scales seizures down end to end (INV-LIQ-03); bad-debt socialisation condition exact (INV-LIQ-04) |
 | LP oracle pricing | `OracleAeneas` | [docs/oracle.md](docs/oracle.md) | `isqrt_of_product` exact for every `u128` pair (Certora cannot prove it); LP price fails closed, symmetric, exact formula; **StableSwap solver never traps**, `D` within `D*−1 < D ≤ D*+5` of the exact root, stable price formula exact |
 
@@ -147,12 +147,17 @@ libraries were re-extracted and re-checked.
   hypotheses). `accrue_step_within_ceiling`: accrual never takes a total
   across the ceiling. `ValueCeiling.lean` makes the ceiling a stored-state
   invariant: accrual over any elapsed time and every extracted leg (supply,
-  borrow, strategy, withdraw, repay, net settlement, seize, recapitalize,
-  revenue claim) leave both market totals at most `MAX_MARKET_VALUE_RAY`. The entry ceiling is specified
+  borrow, strategy, flash-loan fee booking, withdraw, repay, net settlement,
+  seize, recapitalize, revenue claim) leave both market totals at most
+  `MAX_MARKET_VALUE_RAY`. From the ceiling the same file derives the fit
+  hypotheses of the leg theorems: outright for seize and revenue claims, and
+  from "position ≤ market total" for withdraw, repay and net settlement.
+  The entry ceiling is specified
   (`require_within_entry_ceiling_spec`) and the supply, borrow and strategy
   theorems conclude that the committed cache passes it.
-* **Trusted base:** one addition, the event emitter
-  `events.emit_market_value_ceiling`, modelled as returning `()`.
+* **Trusted base:** two additions, the event emitters
+  `events.emit_market_value_ceiling` and `events.emit_market_state`, each
+  modelled as returning `()`.
 * Controller and oracle libraries: regenerated code only (a new error
   variant and one new `fp.rs` wrapper); no proof changed.
 
@@ -230,11 +235,11 @@ under a minute.
 
 Each area doc lists its gaps with the blocker. The main ones:
 
-* The flash-loan fee and the market value ceiling: every other leg is proved
-  to keep the ceiling (`ValueCeiling.lean`), but `flash::finalize` is not
-  extracted. The exit legs' own conversions still assume that the position
-  value fits `i128`; bounding a position by its market total needs
-  INV-ACCT-10, the controller's invariant.
+* "Position ≤ market total" (INV-ACCT-10). With the value ceiling it gives
+  the fit hypotheses of the withdraw, repay and net-settlement theorems
+  (`ValueCeiling.lean`), but it is itself a hypothesis: the pool keeps no
+  per-account book, and the controller is a separate model. The flash loan
+  before `finalize` (callback, balance checks) is not extracted.
 * Liquidation execution side: `apply_liquidation_seizures`, the share credit
   and the pool repay are modelled (`SupplyAfter`/`DebtAfter`), not proved from
   the calls; transfer-mode seizure can burn one more share than modelled. The

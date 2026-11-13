@@ -2938,6 +2938,18 @@ def ops.flash.book_fee
   let cache1 ← interest.add_protocol_revenue cache protocol_fee
   market_cache.cash.Cache.credit_cash cache1 fee
 
+/-- [pool_aeneas::ops::flash::finalize]:
+    Source: 'src/../../../../contracts/pool/src/ops/flash.rs', lines 135:0-139:1 -/
+def ops.flash.finalize
+  (env : aeneas_pool_shim.Env) (cache : market_cache.Cache) (fee : Std.I128) :
+  Result market_cache.Cache
+  := do
+  let cache1 ← ops.flash.book_fee cache fee
+  guards.require_within_entry_ceiling env cache1
+  let mss ← market_cache.Cache.commit cache1
+  events.emit_market_state env mss
+  ok cache1
+
 /-- [pool_aeneas::ops::renewed_market]:
     Source: 'src/../../../../contracts/pool/src/ops/mod.rs', lines 38:0-41:1 -/
 def ops.renewed_market
