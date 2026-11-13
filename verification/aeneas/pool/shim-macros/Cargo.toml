@@ -1,0 +1,10 @@
+[package]
+name = "aeneas-pool-shim-macros"
+version = "0.0.0"
+publish = false
+edition = "2021"
+description = "Identity stand-ins for soroban-sdk's #[contracttype] and #[contracterror] attributes"
+
+[lib]
+proc-macro = true
+path = "src/lib.rs"

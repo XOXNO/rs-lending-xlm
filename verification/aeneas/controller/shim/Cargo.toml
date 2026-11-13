@@ -1,0 +1,9 @@
+[package]
+name = "aeneas-soroban-shim"
+version = "0.0.0"
+publish = false
+edition = "2021"
+description = "Signature-only stand-in for the slice of soroban-sdk that the controller liquidation math uses; Aeneas sees every item here as opaque and lean/ControllerAeneas/FunsExternal.lean gives it meaning"
+
+[lib]
+path = "src/lib.rs"

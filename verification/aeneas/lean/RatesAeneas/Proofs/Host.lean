@@ -1,0 +1,58 @@
+/-
+`@[step]` specifications for the host `I256` model in `FunsExternal.lean`, so
+the `step` tactic can walk through generated code that calls it. Each is a
+direct consequence of the definition it describes.
+-/
+module
+public import RatesAeneas.FunsExternal
+@[expose] public section
+
+open Aeneas Aeneas.Std Result
+open rates_aeneas
+
+namespace aeneas_soroban_shim.I256
+
+/-- In the host range. -/
+abbrev InRange (v : Int) : Prop := MIN ≤ v ∧ v ≤ MAX
+
+@[step] theorem from_i128_spec (env : aeneas_soroban_shim.Env) (i : Std.I128) :
+    from_i128 env i ⦃ v => (v : Int) = i.val ⦄ := by
+  simp [from_i128]
+
+@[step] theorem mul_spec (a b : aeneas_soroban_shim.I256) (h : InRange ((a : Int) * b)) :
+    mul a b ⦃ c => (c : Int) = (a : Int) * b ⦄ := by
+  simp [mul, checked, h.1, h.2]
+
+@[step] theorem sub_spec (a b : aeneas_soroban_shim.I256) (h : InRange ((a : Int) - b)) :
+    sub a b ⦃ c => (c : Int) = (a : Int) - b ⦄ := by
+  simp [sub, checked, h.1, h.2]
+
+@[step] theorem add_spec (a b : aeneas_soroban_shim.I256) (h : InRange ((a : Int) + b)) :
+    add a b ⦃ c => (c : Int) = (a : Int) + b ⦄ := by
+  simp [add, checked, h.1, h.2]
+
+@[step] theorem div_spec (a b : aeneas_soroban_shim.I256) (hb : (b : Int) ≠ 0)
+    (h : InRange (Int.tdiv a b)) :
+    div a b ⦃ q => (q : Int) = Int.tdiv a b ⦄ := by
+  simp [div, checked, hb, h.1, h.2]
+
+@[step] theorem rem_euclid_spec (a b : aeneas_soroban_shim.I256) (hb : (b : Int) ≠ 0)
+    (h : ¬ ((a : Int) = MIN ∧ (b : Int) = -1)) :
+    rem_euclid a b ⦃ r => (r : Int) = Int.emod a b ⦄ := by
+  simp only [rem_euclid, hb, if_false]
+  rw [if_neg h]
+  simp
+
+@[step] theorem eq_spec (a b : aeneas_soroban_shim.I256) :
+    Insts.CoreCmpPartialEqI256.eq a b ⦃ c => c ↔ a = b ⦄ := by
+  simp [Insts.CoreCmpPartialEqI256.eq]
+
+@[step] theorem partial_cmp_spec (a b : aeneas_soroban_shim.I256) :
+    Insts.CoreCmpPartialOrdI256.partial_cmp a b ⦃ o => o = some (compare (a : Int) b) ⦄ := by
+  simp [Insts.CoreCmpPartialOrdI256.partial_cmp]
+
+@[step] theorem to_i128_spec (v : aeneas_soroban_shim.I256) :
+    to_i128 v ⦃ o => o = IScalar.tryMkOpt .I128 v ⦄ := by
+  simp [to_i128]
+
+end aeneas_soroban_shim.I256

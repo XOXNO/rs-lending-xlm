@@ -1,0 +1,9 @@
+[package]
+name = "aeneas-oracle-shim"
+version = "0.0.0"
+publish = false
+edition = "2021"
+description = "Signature-only stand-in for the slice of soroban-sdk that common/src/oracle/{lp,lp_stable,observation}.rs and common/src/math/fp_core.rs use; Aeneas sees every item here as opaque and lean/OracleAeneas/FunsExternal.lean gives it meaning"
+
+[lib]
+path = "src/lib.rs"

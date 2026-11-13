@@ -1,7 +1,8 @@
 """Checks for the doc-symbol gate: skills/**/*.md are scanned even
 before git tracks them, everything else stays tracked-only, the
 external-service skill trees are exempt without exempting the rest of skills/,
-the checker's own source is not corpus, and an unused allowance fails."""
+the proof tree is corpus only for its own Markdown, the checker's own source
+is not corpus, and an unused allowance fails."""
 import contextlib
 import io
 import shutil
@@ -44,6 +45,33 @@ class DocSymbolsTest(unittest.TestCase):
             self.assertIn("skills/new/SKILL.md:1  ghost_in_skill", text)
             self.assertNotIn("ghost_in_docs", text)
             self.assertIn("unknown symbols: 1", text)
+
+    def test_proof_tree_is_corpus_only_for_its_own_markdown(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            for d in ("src", "docs", "verification/aeneas/lean", "verification/aeneas/docs"):
+                (root / d).mkdir(parents=True)
+            (root / "src/lib.rs").write_text("pub fn real_symbol() {}\n")
+            # Generated Lean still carries a name production has dropped.
+            lean = root / "verification/aeneas/lean/Funs.lean"
+            lean.write_text("def dropped_symbol := 1\ntheorem lean_theorem : True := trivial\n")
+            proof_doc = root / "verification/aeneas/docs/area.md"
+            proof_doc.write_text("Proves `lean_theorem` about `real_symbol`.\n")
+            listing = (
+                "src/lib.rs\nverification/aeneas/lean/Funs.lean\n"
+                "verification/aeneas/docs/area.md\ndocs/guide.md\n"
+            )
+            guide = root / "docs/guide.md"
+            guide.write_text("Calls `real_symbol`.\n")
+            self.assertEqual(run(root, listing)[0], 0)
+            # Outside the proof tree the Lean files do not resolve anything.
+            guide.write_text("Calls `dropped_symbol` and `lean_theorem`.\n")
+            status, text = run(root, listing)
+            self.assertEqual(status, 1)
+            self.assertIn("docs/guide.md:1  dropped_symbol", text)
+            self.assertIn("docs/guide.md:1  lean_theorem", text)
+            self.assertNotIn("verification/aeneas/docs/area.md", text)
+            self.assertIn("unknown symbols: 2", text)
 
     def test_external_doc_dirs_are_exempt_but_other_skills_are_not(self):
         with tempfile.TemporaryDirectory() as directory:

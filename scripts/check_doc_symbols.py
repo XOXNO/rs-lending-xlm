@@ -9,7 +9,8 @@ stale name the code has renamed or dropped, or a name that never existed.
 The corpus is the repo's own sources plus the places docs legitimately cite
 names from: ops/config files (env vars, Prometheus alert rules), Rust file
 stems (test-binary and module names), and `EXTERNAL_SYMBOLS`, a fixed list of
-names that dependencies define. This checker and its test are not corpus, so
+names that dependencies define. The Aeneas proof tree (`verification/`) is
+corpus only for the Markdown inside it (see `PROOF_TREE`). This checker and its test are not corpus, so
 an allowance is scoped to the file it names. An allowance that no citation
 needs fails as stale.
 
@@ -31,6 +32,14 @@ IDENT = re.compile(r"\b([A-Za-z_][A-Za-z0-9_]*)\b")
 # Dockerfiles and Compose files, Prometheus alert names in
 # services/*/ops/alerts.yml.
 EXTRA_SUFFIXES = (".toml", ".json", ".sh", ".py", ".yml", ".yaml")
+
+# The Aeneas proof tree. Its Markdown cites Lean theorem and definition names,
+# which live in the tracked *.lean files there. Those files (generated Lean
+# and stand-in Rust) also repeat production names as of the last extraction,
+# so the tree is corpus only for Markdown inside it: a name the production
+# code dropped must not keep resolving for the rest of the repository's docs.
+PROOF_TREE = "verification/"
+PROOF_SUFFIXES = (".lean",)
 EXTRA_NAMES = ("Makefile", "Dockerfile")
 
 # Dependencies whose internal items the docs name directly. Their sources are
@@ -104,18 +113,24 @@ def tracked_files() -> list[Path]:
     return [ROOT / line for line in out.stdout.split("\n") if line.strip()]
 
 
-def sources() -> str:
+def sources(proof_tree: bool = False) -> str:
+    """The corpus: everything outside PROOF_TREE, or (`proof_tree`) only the
+    files inside it, where *.lean counts too."""
     parts = []
     stems = []
     for p in tracked_files():
         rel = str(p.relative_to(ROOT))
         if in_skipped_dir(rel) or rel in SELF_FILES or not p.is_file():
             continue
+        if rel.startswith(PROOF_TREE) != proof_tree:
+            continue
         if p.suffix == ".rs":
             parts.append(p.read_text(errors="replace"))
             # File stems name test binaries and modules (`smoke_test`, `curve`).
             stems.append(p.stem)
         elif p.suffix in EXTRA_SUFFIXES or p.name in EXTRA_NAMES:
+            parts.append(p.read_text(errors="replace"))
+        elif proof_tree and p.suffix in PROOF_SUFFIXES:
             parts.append(p.read_text(errors="replace"))
     parts.append(" ".join(stems))
     return "\n".join(parts)
@@ -151,7 +166,8 @@ def candidates(text: str):
 
 def main() -> int:
     quiet = "--quiet" in sys.argv
-    known = set(IDENT.findall(sources()))
+    known_repo = set(IDENT.findall(sources()))
+    known_proofs = known_repo | set(IDENT.findall(sources(proof_tree=True)))
 
     unknown = []
     used: set = set()
@@ -160,6 +176,7 @@ def main() -> int:
         if rel.startswith(EXTERNAL_DOC_DIRS):
             continue
         allowed = FILE_ALLOW.get(rel, frozenset())
+        known = known_proofs if rel.startswith(PROOF_TREE) else known_repo
         text = md.read_text(errors="replace")
         for m, name in candidates(text):
             if name in known:
