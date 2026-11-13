@@ -20,8 +20,9 @@ specifications they share (headline theorems plus lemmas; some math proofs
 exist once per library, since each library carries its own extraction of the
 shared `common` code, and `sync_copies.py` writes those copies).
 
-**Production revision covered:** `main` at `c5e6def0` ("fix(rates): round
-borrow-curve slopes once", #225), on top of #224. See
+**Production revision covered:** `main` at `3d96ffc3` (#227). The proved code
+last changed in `c5e6def0` ("fix(rates): round borrow-curve slopes once",
+#225), on top of #224. See
 [Changes after #224](#changes-after-224-typed-fixed-point-boundary) and the
 first finding below. Every theorem depends only on Lean's standard axioms (`propext`,
 `Classical.choice`, `Quot.sound`); there is no `sorry`, `admit` or added
