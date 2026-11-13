@@ -23,7 +23,8 @@ pub(crate) enum RiskRefreshScope {
     FullTuple,
 }
 
-/// Refreshes LTV; `FullTuple` also applies gated liquidation parameters.
+/// Refreshes LTV; `FullTuple` first applies gated liquidation parameters.
+/// The LTV is clamped under the threshold the position ends with.
 /// Returns whether the in-memory position changed.
 pub(crate) fn refresh_supply_risk_params(
     env: &Env,
@@ -35,16 +36,36 @@ pub(crate) fn refresh_supply_risk_params(
     scope: RiskRefreshScope,
 ) -> bool {
     let before = *position;
-    position.loan_to_value = effective_config.loan_to_value;
     if scope == RiskRefreshScope::FullTuple {
         apply_gated_liquidation_params(env, cache, account, hub_asset, position, effective_config);
     }
+    position.loan_to_value =
+        ltv_under_stored_threshold(env, position.liquidation_threshold, effective_config);
     *position != before
+}
+
+/// Listed LTV to store beside `stored_threshold`, in BPS. A stored threshold
+/// below the listed one lowers the LTV by the same amount, floored at zero.
+/// The position then keeps the listing's `threshold - LTV` gap, so its borrow
+/// limit stays below its liquidation line.
+fn ltv_under_stored_threshold(env: &Env, stored_threshold: Bps, config: &AssetConfig) -> Bps {
+    let listed_ltv = config.loan_to_value;
+    if stored_threshold >= config.liquidation_threshold {
+        return listed_ltv;
+    }
+    let shortfall = config
+        .liquidation_threshold
+        .checked_sub(env, stored_threshold);
+    if shortfall >= listed_ltv {
+        return Bps::from(0);
+    }
+    listed_ltv.checked_sub(env, shortfall)
 }
 
 /// Refreshes stored LTV snapshots in memory for listed supply assets, skipping
 /// unlisted assets, and buffers a `ParamUpd` delta for each changed leg.
 /// A liquidation tuple that does not favor liquidators refreshes with the LTV.
+/// Otherwise the LTV is clamped under the stored threshold.
 /// Returns whether any position changed.
 pub(crate) fn restamp_listed_supply_ltv(cache: &mut Context, account: &mut Account) -> bool {
     let mut changed = false;
@@ -59,10 +80,11 @@ pub(crate) fn restamp_listed_supply_ltv(cache: &mut Context, account: &mut Accou
         };
         let stored = AccountPosition::from(&raw);
         let mut position = stored;
-        position.loan_to_value = config.loan_to_value;
         if !favors_liquidator(&stored, &config) {
             set_liquidation_params(&mut position, &config);
         }
+        position.loan_to_value =
+            ltv_under_stored_threshold(cache.env(), position.liquidation_threshold, &config);
         if position == stored {
             continue;
         }

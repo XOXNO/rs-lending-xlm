@@ -311,6 +311,159 @@ fn refresh_ltv_only_leaves_liquidation_tuple_stamped() {
     });
 }
 
+/// Listing at LTV 8_200 and threshold 8_500: a 300 BPS gap, with the
+/// threshold 500 BPS above the stamped one.
+fn looser_config(bonus: i128, fees: i128) -> AssetConfig {
+    AssetConfig {
+        loan_to_value: Bps::from(8_200i128),
+        ..config(8_500, bonus, fees)
+    }
+}
+
+#[test]
+fn ltv_under_stored_threshold_drops_by_the_threshold_shortfall() {
+    let env = Env::default();
+    let listed = looser_config(STAMPED_BONUS, STAMPED_FEES);
+    for (stored_threshold, expected_ltv) in [
+        (9_000, 8_200),
+        (8_500, 8_200),
+        (8_499, 8_199),
+        (8_000, 7_700),
+        (301, 1),
+        (300, 0),
+        (299, 0),
+        (0, 0),
+    ] {
+        assert_eq!(
+            ltv_under_stored_threshold(&env, Bps::from(stored_threshold), &listed).raw(),
+            expected_ltv,
+            "stored threshold {stored_threshold}"
+        );
+    }
+}
+
+#[test]
+fn refresh_keeps_ltv_under_the_held_threshold_when_gate_rejects() {
+    let env = Env::default();
+    let contract = env.register(crate::Controller, (Address::generate(&env),));
+    env.as_contract(&contract, || {
+        let hub = HubAssetKey {
+            hub_id: 0,
+            asset: Address::generate(&env),
+        };
+        let mut account = debt_free_account(&env);
+        account.borrow_positions.set(
+            hub.clone(),
+            DebtPositionRaw {
+                scaled_amount: Ray::from_asset(&env, 100_0000000, 7).raw(),
+            },
+        );
+        let mut cache = Context::new_view(&env);
+        let mut prices = Map::new(&env);
+        prices.set(
+            hub.asset.clone(),
+            PriceFeedRaw {
+                price_wad: WAD,
+                asset_decimals: 7,
+                timestamp: 0,
+            },
+        );
+        cache.set_prices(prices);
+        cache.put_market_index(
+            &hub,
+            &MarketIndexRaw {
+                borrow_index: RAY,
+                supply_index: RAY,
+            },
+        );
+
+        // The higher bonus favors liquidators and the empty position fails
+        // the 1.05 gate, so the stamped threshold stays.
+        let mut position = stamped_position();
+        let changed = refresh_supply_risk_params(
+            &env,
+            &mut cache,
+            &account,
+            &hub,
+            &mut position,
+            &looser_config(STAMPED_BONUS + 100, STAMPED_FEES),
+            RiskRefreshScope::FullTuple,
+        );
+
+        assert!(changed, "LTV moves to the listed gap under the threshold");
+        assert_eq!(
+            position.loan_to_value.raw(),
+            STAMPED_LT - 300,
+            "LTV keeps the listed 300 BPS gap under the held threshold"
+        );
+        assert_eq!(position.liquidation_threshold.raw(), STAMPED_LT);
+        assert_eq!(position.liquidation_bonus.raw(), STAMPED_BONUS);
+        assert_eq!(position.liquidation_fees.raw(), STAMPED_FEES);
+    });
+}
+
+#[test]
+fn refresh_ltv_only_keeps_ltv_under_the_stamped_threshold() {
+    let env = Env::default();
+    let contract = env.register(crate::Controller, (Address::generate(&env),));
+    env.as_contract(&contract, || {
+        let account = debt_free_account(&env);
+        let hub = HubAssetKey {
+            hub_id: 0,
+            asset: Address::generate(&env),
+        };
+        let mut cache = Context::new_view(&env);
+        let mut position = stamped_position();
+
+        let changed = refresh_supply_risk_params(
+            &env,
+            &mut cache,
+            &account,
+            &hub,
+            &mut position,
+            &looser_config(STAMPED_BONUS, STAMPED_FEES),
+            RiskRefreshScope::LtvOnly,
+        );
+
+        assert!(changed);
+        assert_eq!(position.loan_to_value.raw(), STAMPED_LT - 300);
+        assert_eq!(position.liquidation_threshold.raw(), STAMPED_LT);
+        assert_eq!(position.liquidation_bonus.raw(), STAMPED_BONUS);
+        assert_eq!(position.liquidation_fees.raw(), STAMPED_FEES);
+    });
+}
+
+#[test]
+fn refresh_writes_the_listed_ltv_when_the_listed_threshold_lands() {
+    let env = Env::default();
+    let contract = env.register(crate::Controller, (Address::generate(&env),));
+    env.as_contract(&contract, || {
+        let account = debt_free_account(&env);
+        let hub = HubAssetKey {
+            hub_id: 0,
+            asset: Address::generate(&env),
+        };
+        let mut cache = Context::new_view(&env);
+        let mut position = stamped_position();
+
+        let changed = refresh_supply_risk_params(
+            &env,
+            &mut cache,
+            &account,
+            &hub,
+            &mut position,
+            &looser_config(STAMPED_BONUS + 100, STAMPED_FEES),
+            RiskRefreshScope::FullTuple,
+        );
+
+        assert!(changed);
+        assert_eq!(position.loan_to_value.raw(), 8_200);
+        assert_eq!(position.liquidation_threshold.raw(), 8_500);
+        assert_eq!(position.liquidation_bonus.raw(), STAMPED_BONUS + 100);
+        assert_eq!(position.liquidation_fees.raw(), STAMPED_FEES);
+    });
+}
+
 #[test]
 fn refresh_returns_false_when_full_tuple_already_matches() {
     let env = Env::default();

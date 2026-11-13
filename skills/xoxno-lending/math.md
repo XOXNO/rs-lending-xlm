@@ -287,6 +287,24 @@ values first, together with a liquidation tuple that does not favor
 liquidators. `get_ltv_collateral_usd` does the same. Supply and non-liquidation
 withdrawal also refresh eligible liquidation parameters.
 
+A refresh never stores an LTV at or above the stored liquidation threshold.
+When the stored threshold stays below the listed one, the stored LTV is the
+listed LTV minus that difference, floored at zero. The position keeps the
+listing's gap between LTV and threshold:
+
+```text
+refreshed_ltv_bps = stored_lt_bps >= listed_lt_bps
+  ? listed_ltv_bps
+  : max(listed_ltv_bps − (listed_lt_bps − stored_lt_bps), 0)
+```
+
+This applies when a listing edit raises the threshold and also favors
+liquidators (a higher bonus or a lower fee), so the position keeps its stored
+threshold. Example: stored `ltv 7500 / lt 8000`, listed `ltv 8000 / lt 8500`
+with a higher bonus. A borrow keeps `ltv 7500 / lt 8000`, not `ltv 8000`.
+It also applies to `update_account_threshold` with `has_risks = false`, which
+never changes the stored threshold.
+
 `update_account_threshold` refreshes LTV. With `has_risks = true`, it also
 refreshes threshold, bonus, and fees. A change that favors liquidators requires
 hypothetical health factor of at least `1.05 WAD`. With `has_risks = true`, the call fails with `HealthFactorTooLow` only if the refresh lowers the health factor below both `1.05 WAD` and its value before the refresh.
@@ -313,7 +331,7 @@ Two conventions for the same account:
 
 Borrow capacity in USD WAD is `max(ltv_collateral − total_debt, 0)`. The
 collateral weight is the lower of stored LTV and stored liquidation threshold.
-The admission check first refreshes listed LTV values.
+The admission check first refreshes listed LTV values with the rule above.
 
 Worked example with illustrative position parameters: XLM `ltv 7500 / lt 7800`
 and USDC `ltv 7600 / lt 8000`. These values are not a live configuration claim.
