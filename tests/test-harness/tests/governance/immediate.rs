@@ -349,6 +349,8 @@ fn owner_revokes_role_immediately() {
     let result = gov.try_revoke_role_immediate(&holder, &canceller_role);
     assert_contract_error(flatten(result), errors::INVALID_ROLE);
 
+    // `EXECUTOR` is not a governance role (audit finding I-02); like any name
+    // outside GUARDIAN and ORACLE it is refused.
     for role in ["PROPOSER", "EXECUTOR"] {
         let result = gov.try_revoke_role_immediate(&admin, &Symbol::new(&t.env, role));
         assert_contract_error(flatten(result), errors::INVALID_ROLE);

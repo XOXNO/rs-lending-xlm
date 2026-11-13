@@ -451,7 +451,7 @@ serial_snapshot() {
         --argjson uri "$(view "${label}_uri" "$POSITION_NFT" -- token_uri --token_id "$acct")" \
         --argjson total "$(view "${label}_total" "$POSITION_NFT" -- total_supply)" \
         '{name:$name,symbol:$symbol,uri:$uri,total:$total}') || return 1
-    for role in PROPOSER EXECUTOR CANCELLER GUARDIAN ORACLE; do
+    for role in PROPOSER CANCELLER GUARDIAN ORACLE; do
         held=$(view "${label}_role_$role" "$GOVERNANCE" -- has_role --account "$ADMIN_ADDR" --role "$role") || return 1
         roles=$(jq -nc --argjson roles "$roles" --arg role "$role" --argjson held "$held" '$roles+[{role:$role,held:$held}]') || return 1
     done
@@ -488,11 +488,11 @@ for m in $MARKETS; do td_residue_job "${m%%:*}" "${m##*:}"; done
             rows = self.rows(root)
         self.assertEqual(grouped, serial)
         snapshot = json.loads(grouped)
-        self.assertEqual([r['role'] for r in snapshot['roles']], ['PROPOSER', 'EXECUTOR', 'CANCELLER', 'GUARDIAN', 'ORACLE'])
+        self.assertEqual([r['role'] for r in snapshot['roles']], ['PROPOSER', 'CANCELLER', 'GUARDIAN', 'ORACLE'])
         self.assertEqual(snapshot['nft']['name'], 'name-CNFT')
         self.assertEqual(len({snapshot['wallet'], snapshot['pool'], snapshot['controller_cash']}), 3)
         floor = next(i for i, r in enumerate(rows) if r[2] == 'prod_snap_ledger_floor')
-        self.assertEqual(floor, 18)
+        self.assertEqual(floor, 17)
         self.assertEqual([r[2:] for r in rows[floor+1:]], [r[2:] for r in rows[:floor]])
 
     def test_teardown_trustline_reads_share_the_simulation_slots(self):

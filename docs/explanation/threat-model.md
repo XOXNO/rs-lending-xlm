@@ -93,8 +93,7 @@ the governance code and its delay rules
 
 Typed proposals perform proposal-time checks; targets retain execution-time
 validation. Ready operations must also be within the grace window. Anyone may
-execute with no executor identity; supplying one requires its authorization
-and EXECUTOR role. Executor/canceller separation exempts the governance owner.
+execute a ready operation: execution takes no caller and checks no role.
 A revocation target cannot cancel its own removal, but an independent canceller
 can veto it. Owner-proposed Recovery operations cannot be cancelled and replace
 cancellers after their delay; they do not recover a lost owner key.

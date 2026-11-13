@@ -196,7 +196,7 @@ Constructor `(admin: Address)` sets its owner; normal deployment passes the cont
 
 Constructor `(admin: Address, min_delay: u32)` initializes the owner, access-control admin, five operational roles and a nonzero minimum delay. Scheduled operations use the interface's `AdminOperation` variants.
 
-`execute` must match a scheduled operation hash and predecessor and run within its execution window. With `executor = None`, anyone can execute a ready operation. With `Some(address)`, that address must authorize and hold EXECUTOR_ROLE.
+`execute` must match a scheduled operation hash and predecessor and run within its execution window. Anyone can execute a ready operation: execution takes no caller and checks no role.
 
 | Endpoint | Authority / effect |
 | --- | --- |
@@ -204,7 +204,7 @@ Constructor `(admin: Address, min_delay: u32)` initializes the owner, access-con
 | `controller() -> Address` | Open view / resolver |
 | `deploy_price_aggregator(wasm_hash: BytesN<32>) -> Address` | Owner; one-time deployment |
 | `price_aggregator() -> Address` | Open view / resolver |
-| `execute(executor: Option<Address>, target: Address, function: Symbol, args: Vec<Val>, predecessor: BytesN<32>, salt: BytesN<32>) -> Val` | Ready scheduled operation; optional executor |
+| `execute(target: Address, function: Symbol, args: Vec<Val>, predecessor: BytesN<32>, salt: BytesN<32>) -> Val` | Ready scheduled operation; permissionless |
 | `cancel(canceller: Address, operation_id: BytesN<32>)` | CANCELLER_ROLE; recovery ops cannot be cancelled; target cannot cancel own revocation |
 | `get_min_delay() -> u32` | Open view / resolver |
 | `get_operation_state(operation_id: BytesN<32>) -> OperationState` | Open view / resolver |
@@ -223,9 +223,9 @@ Constructor `(admin: Address, min_delay: u32)` initializes the owner, access-con
 | `deactivate_position_manager(caller: Address, manager: Address)` | GUARDIAN_ROLE; immediate, deactivation only |
 | `revoke_blend_pool(caller: Address, pool: Address)` | GUARDIAN_ROLE; immediate, revocation only |
 | `revoke_role_immediate(account: Address, role: Symbol)` | Owner; only guardian/oracle roles |
-| `execute_self(executor: Option<Address>, op: AdminOperation, salt: BytesN<32>)` | Ready scheduled self-operation; optional executor |
+| `execute_self(op: AdminOperation, salt: BytesN<32>)` | Ready scheduled self-operation; permissionless |
 | `propose_canceller_reset(new_cancellers: Vec<Address>, salt: BytesN<32>) -> BytesN<32>` | Owner; schedule uncancellable recovery |
-| `execute_canceller_reset(executor: Option<Address>, new_cancellers: Vec<Address>, salt: BytesN<32>)` | Ready recovery; optional executor |
+| `execute_canceller_reset(new_cancellers: Vec<Address>, salt: BytesN<32>)` | Ready recovery; permissionless |
 | `accept_ownership()` | Pending owner; synchronizes access-control admin and roles |
 | `has_role(account: Address, role: Symbol) -> bool` | Open view / resolver |
 

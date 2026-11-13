@@ -29,7 +29,7 @@ bound payload only after its delay and within its grace window. Target
 contracts also validate at execution. Completed operations require a fresh
 proposal and delay before reuse.
 
-Execution is permissionless when the executor identity is omitted. Cancellation
+Execution is permissionless: it takes no executor identity and checks no role. Cancellation
 and owner-dependent recovery have distinct rules. Their security depends on
 the effective review window and key custody; see
 [governance powers](threat-model.md#governance-windows-and-emergency-powers).

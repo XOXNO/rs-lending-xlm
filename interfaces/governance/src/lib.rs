@@ -183,7 +183,6 @@ pub trait GovernanceInterface {
 
     fn execute(
         env: Env,
-        executor: Option<Address>,
         target: Address,
         function: Symbol,
         args: Vec<Val>,
@@ -247,7 +246,7 @@ pub trait GovernanceInterface {
 
     fn revoke_role_immediate(env: Env, account: Address, role: Symbol);
 
-    fn execute_self(env: Env, executor: Option<Address>, op: AdminOperation, salt: BytesN<32>);
+    fn execute_self(env: Env, op: AdminOperation, salt: BytesN<32>);
 
     fn propose_canceller_reset(
         env: Env,
@@ -255,12 +254,7 @@ pub trait GovernanceInterface {
         salt: BytesN<32>,
     ) -> BytesN<32>;
 
-    fn execute_canceller_reset(
-        env: Env,
-        executor: Option<Address>,
-        new_cancellers: Vec<Address>,
-        salt: BytesN<32>,
-    );
+    fn execute_canceller_reset(env: Env, new_cancellers: Vec<Address>, salt: BytesN<32>);
 
     fn accept_ownership(env: Env);
 

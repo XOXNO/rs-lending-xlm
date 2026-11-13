@@ -61,7 +61,7 @@ Each TTL tick discovers:
 
 The controller defines no access-control roles. Governance role keys are
 discovered from the governance `ExistingRoles` entry. Governance defines the
-roles `PROPOSER`, `EXECUTOR`, `CANCELLER`, `ORACLE`, and `GUARDIAN`
+roles `PROPOSER`, `CANCELLER`, `ORACLE`, and `GUARDIAN`
 (`contracts/governance/src/access.rs`). The controller/pool/governance boundary
 and role model live in the contract rustdoc and
 [`skills/xoxno-lending/SKILL.md`](../../skills/xoxno-lending/SKILL.md).

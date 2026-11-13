@@ -430,7 +430,7 @@ prod_position_snapshot() {
     group_spawn view "${label}_symbol" "$POSITION_NFT" -- symbol
     group_spawn view "${label}_uri" "$POSITION_NFT" -- token_uri --token_id "$acct"
     group_spawn view "${label}_total" "$POSITION_NFT" -- total_supply
-    for role in PROPOSER EXECUTOR CANCELLER GUARDIAN ORACLE; do
+    for role in PROPOSER CANCELLER GUARDIAN ORACLE; do
         group_spawn view "${label}_role_$role" "$GOVERNANCE" -- has_role --account "$ADMIN_ADDR" --role "$role"
     done
     group_spawn view "${label}_pa_owner" "$PRICE_AGGREGATOR" -- get_owner
@@ -442,11 +442,11 @@ prod_position_snapshot() {
     nft_state=$(jq -nc --argjson name "$(group_out 6)" --argjson symbol "$(group_out 7)" \
         --argjson uri "$(group_out 8)" --argjson total "$(group_out 9)" \
         '{name:$name,symbol:$symbol,uri:$uri,total:$total}') || return 1
-    for role in PROPOSER EXECUTOR CANCELLER GUARDIAN ORACLE; do
+    for role in PROPOSER CANCELLER GUARDIAN ORACLE; do
         n=$((n+1)); held=$(group_out "$n")
         roles=$(jq -nc --argjson roles "$roles" --arg role "$role" --argjson held "$held" '$roles+[{role:$role,held:$held}]') || return 1
     done
-    pa_owner=$(group_out 15); controller_cash=$(group_out 16); wallet=$(group_out 17); pool=$(group_out 18)
+    pa_owner=$(group_out 14); controller_cash=$(group_out 15); wallet=$(group_out 16); pool=$(group_out 17)
     jq -ncS --argjson positions "$positions" --argjson attributes "$attributes" --argjson usage "$usage" \
         --argjson owner "$owner" --arg wallet "$wallet" --arg pool "$pool" --arg controller_cash "$controller_cash" \
         --argjson book "$book" --argjson nft "$nft_state" --argjson roles "$roles" --argjson pa_owner "$pa_owner" \

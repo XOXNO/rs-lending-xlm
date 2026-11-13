@@ -2,7 +2,7 @@ use soroban_sdk::testutils::{Address as _, Ledger as _};
 use soroban_sdk::{Address, BytesN, Env, Error, Symbol};
 use stellar_governance::timelock::OperationState;
 
-use crate::access::EXECUTOR_ROLE;
+use crate::access::GUARDIAN_ROLE;
 use crate::constants::{TIMELOCK_MIN_DELAY_LEDGERS, TIMELOCK_SENSITIVE_MIN_DELAY_LEDGERS};
 use crate::op::{AdminOperation, RoleArgs};
 use crate::test_support::{register, upload_controller_wasm, zero_salt, ZERO_SALT};
@@ -84,7 +84,7 @@ fn execute_governance_upgrade_replaces_contract_code() {
     gov.propose(&admin, &op, &salt);
     env.ledger()
         .with_mut(|l| l.sequence_number += TIMELOCK_SENSITIVE_MIN_DELAY_LEDGERS);
-    gov.execute_self(&Some(admin), &op, &salt);
+    gov.execute_self(&op, &salt);
 
     let upgraded = controller::ControllerClient::new(&env, &gov.address);
     assert_eq!(upgraded.get_app_version(), 1);
@@ -102,11 +102,7 @@ fn execute_update_delay_applies_after_delay() {
     env.ledger().with_mut(|l| l.sequence_number += delay);
     assert_eq!(gov.get_operation_state(&id), OperationState::Ready);
 
-    gov.execute_self(
-        &Some(admin.clone()),
-        &AdminOperation::UpdateGovDelay(15u32),
-        &salt,
-    );
+    gov.execute_self(&AdminOperation::UpdateGovDelay(15u32), &salt);
     assert_eq!(gov.get_min_delay(), 15u32);
     assert_eq!(gov.get_operation_state(&id), OperationState::Unset);
 }
@@ -130,7 +126,7 @@ fn update_delay_shortens_to_the_floor_through_the_timelock_but_not_below() {
     env.ledger().with_mut(|l| l.sequence_number += delay - 1);
     assert_eq!(gov.get_operation_state(&id), OperationState::Waiting);
     env.ledger().with_mut(|l| l.sequence_number += 1);
-    gov.execute_self(&Some(admin.clone()), &floor, &salt);
+    gov.execute_self(&floor, &salt);
     assert_eq!(gov.get_min_delay(), TIMELOCK_MIN_DELAY_LEDGERS);
 }
 
@@ -204,7 +200,7 @@ fn execute_grant_governance_role_after_delay() {
     let delay = 10u32;
     let (admin, _gov_id, gov) = register(&env, delay);
     let grantee = Address::generate(&env);
-    let role = Symbol::new(&env, EXECUTOR_ROLE);
+    let role = Symbol::new(&env, GUARDIAN_ROLE);
     let salt = zero_salt(&env);
 
     gov.propose(
@@ -218,7 +214,6 @@ fn execute_grant_governance_role_after_delay() {
     env.ledger()
         .with_mut(|l| l.sequence_number += delay.max(TIMELOCK_SENSITIVE_MIN_DELAY_LEDGERS));
     gov.execute_self(
-        &Some(admin.clone()),
         &AdminOperation::GrantGovRole(RoleArgs {
             account: grantee.clone(),
             role: role.clone(),

@@ -80,7 +80,6 @@ fn operation_state_transitions_unset_waiting_ready_unset() {
     );
 
     gov.execute(
-        &Some(admin.clone()),
         &t.controller,
         &Symbol::new(&t.env, SET_POSITION_LIMITS),
         &soroban_sdk::vec![&t.env, new_limits.clone().into_val(&t.env)],
@@ -128,7 +127,6 @@ fn cancelled_operation_cannot_execute() {
         .with_mut(|l| l.sequence_number += TEST_DELAY_LEDGERS);
 
     let result = gov.try_execute(
-        &Some(admin.clone()),
         &t.controller,
         &Symbol::new(&t.env, SET_POSITION_LIMITS),
         &soroban_sdk::vec![&t.env, new_limits.into_val(&t.env)],
@@ -167,7 +165,6 @@ fn operation_cannot_execute_before_the_delay_elapses() {
 
     let try_execute = |t: &LendingTest| {
         let result = t.gov_iface_client().try_execute(
-            &Some(admin.clone()),
             &t.controller,
             &Symbol::new(&t.env, SET_POSITION_LIMITS),
             &soroban_sdk::vec![&t.env, new_limits.clone().into_val(&t.env)],
@@ -189,7 +186,6 @@ fn operation_cannot_execute_before_the_delay_elapses() {
 
     t.env.ledger().with_mut(|l| l.sequence_number += 1);
     gov.execute(
-        &Some(admin.clone()),
         &t.controller,
         &Symbol::new(&t.env, SET_POSITION_LIMITS),
         &soroban_sdk::vec![&t.env, new_limits.clone().into_val(&t.env)],
@@ -242,14 +238,13 @@ fn propose_transfer_controller_ownership_rejects_non_contract_owner() {
     assert_contract_error(mapped, errors::NOT_SMART_CONTRACT);
 }
 
-/// Execution is permissionless: a named executor without `EXECUTOR` reverts,
-/// but the same ready op runs with no executor named and no role held.
+/// Execution is permissionless: a ready op runs with no authorization recorded
+/// and no role held by the caller.
 #[test]
-fn execution_is_permissionless_but_a_named_executor_needs_the_role() {
+fn execution_is_permissionless() {
     let t = LendingTest::new().build();
     let gov = t.gov_iface_client();
     let admin = t.admin();
-    let stranger = Address::generate(&t.env);
     let s = salt(&t.env, 4);
 
     assert_harness_delay(&t);
@@ -266,23 +261,10 @@ fn execution_is_permissionless_but_a_named_executor_needs_the_role() {
 
     let args = soroban_sdk::vec![&t.env, new_limits.into_val(&t.env)];
     let function = Symbol::new(&t.env, SET_POSITION_LIMITS);
-    let result = gov.try_execute(
-        &Some(stranger),
-        &t.controller,
-        &function,
-        &args,
-        &salt(&t.env, 0),
-        &s,
-    );
-    let mapped = match result {
-        Ok(res) => res.map_err(|e| e.into()),
-        Err(e) => Err(e.expect("expected contract error, got InvokeError")),
-    };
-    assert_contract_error(mapped, errors::UNAUTHORIZED);
 
-    // No executor named: the op runs without any authorization or role.
+    // No authorization is recorded at all: the op still runs.
     t.env.set_auths(&[]);
-    gov.execute(&None, &t.controller, &function, &args, &salt(&t.env, 0), &s);
+    gov.execute(&t.controller, &function, &args, &salt(&t.env, 0), &s);
     let stored = read_controller_position_limits(&t);
     assert_eq!(stored.max_supply_positions, 5);
     assert_eq!(stored.max_borrow_positions, 4);
@@ -403,7 +385,6 @@ fn resolve_market_oracle_view_matches_scheduled_and_executes() {
     t.mock_reflector_client().set_price(&asset, &usd(1));
 
     gov.execute(
-        &Some(admin.clone()),
         &t.price_aggregator,
         &Symbol::new(&t.env, SET_ASSET_ORACLE),
         &soroban_sdk::vec![
@@ -464,7 +445,6 @@ fn resolve_oracle_tolerance_view_matches_scheduled_and_executes() {
     t.mock_reflector_client().set_price(&asset, &usd(1));
 
     gov.execute(
-        &Some(admin.clone()),
         &t.price_aggregator,
         &Symbol::new(&t.env, "set_tolerance"),
         &soroban_sdk::vec![

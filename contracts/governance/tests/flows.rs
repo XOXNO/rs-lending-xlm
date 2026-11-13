@@ -14,7 +14,7 @@ use soroban_sdk::testutils::{Address as _, Events as _, Ledger as _, MockAuth, M
 use soroban_sdk::{vec, Address, BytesN, Env, Event as _, IntoVal, String, Symbol};
 use stellar_access::{access_control, ownable};
 
-use crate::access::EXECUTOR_ROLE;
+use crate::access::GUARDIAN_ROLE;
 use crate::test_support::{
     read_controller_position_limits, register_governance, upload_controller_wasm,
     upload_price_aggregator_wasm,
@@ -498,7 +498,7 @@ fn entrypoint_renews_governance_instance_ttl() {
 
     let initial_ttl = env.as_contract(&gov_id, || env.storage().instance().get_ttl());
 
-    let role = Symbol::new(&env, EXECUTOR_ROLE);
+    let role = Symbol::new(&env, GUARDIAN_ROLE);
     let salt = BytesN::<32>::from_array(&env, &[0u8; 32]);
     let grantee = Address::generate(&env);
     gov.propose(
@@ -515,7 +515,6 @@ fn entrypoint_renews_governance_instance_ttl() {
             .max(constants::TIMELOCK_SENSITIVE_MIN_DELAY_LEDGERS);
     });
     gov.execute_self(
-        &Some(admin.clone()),
         &AdminOperation::GrantGovRole(RoleArgs {
             account: grantee.clone(),
             role: role.clone(),
@@ -591,7 +590,7 @@ fn propose_resolves_all_controller_and_self_variants() {
 
 #[test]
 fn execute_self_transfer_then_accept_migrates_owner_and_roles() {
-    use crate::access::{EXECUTOR_ROLE, ORACLE_ROLE};
+    use crate::access::{GUARDIAN_ROLE, ORACLE_ROLE};
     use crate::constants::TIMELOCK_SENSITIVE_MIN_DELAY_LEDGERS;
     use crate::op::{AdminOperation, TransferOwnershipArgs};
     use crate::{constants, Governance, GovernanceClient};
@@ -620,7 +619,7 @@ fn execute_self_transfer_then_accept_migrates_owner_and_roles() {
     gov.propose(&admin, &op, &salt);
     env.ledger()
         .with_mut(|l| l.sequence_number += sensitive_delay);
-    gov.execute_self(&Some(admin.clone()), &op, &salt);
+    gov.execute_self(&op, &salt);
 
     let pending_admin = env.as_contract(&gov_id, || {
         env.storage()
@@ -639,7 +638,7 @@ fn execute_self_transfer_then_accept_migrates_owner_and_roles() {
         assert_eq!(access_control::get_admin(&env), Some(new_owner.clone()));
     });
     assert!(gov.has_role(&new_owner, &Symbol::new(&env, ORACLE_ROLE)));
-    assert!(gov.has_role(&new_owner, &Symbol::new(&env, EXECUTOR_ROLE)));
+    assert!(gov.has_role(&new_owner, &Symbol::new(&env, GUARDIAN_ROLE)));
     assert!(!gov.has_role(&admin, &Symbol::new(&env, ORACLE_ROLE)));
 }
 
@@ -650,7 +649,7 @@ fn execute_immediate_self_op_applies_inline() {
     env.mock_all_auths();
     let (admin, _gov_id, gov) = register_governance(&env);
     let grantee = Address::generate(&env);
-    let role = Symbol::new(&env, EXECUTOR_ROLE);
+    let role = Symbol::new(&env, GUARDIAN_ROLE);
 
     gov.execute_immediate(
         &admin,

@@ -51,19 +51,17 @@ impl GovernanceInterface for Governance {
     }
 
     /// Executes a ready, non-expired scheduled op against `target` (not this
-    /// contract). If `executor` is `Some`, requires that address to auth and
-    /// hold `EXECUTOR_ROLE`; if `None`, no executor role check (anyone may
-    /// drive execution of a ready op). Clears scheduled state on success.
+    /// contract). Permissionless: anyone may execute a ready op; the delay
+    /// and the cancellers protect it. Clears scheduled state on success.
     fn execute(
         env: Env,
-        executor: Option<Address>,
         target: Address,
         function: Symbol,
         args: Vec<Val>,
         predecessor: BytesN<32>,
         salt: BytesN<32>,
     ) -> Val {
-        lifecycle::execute(&env, executor, target, function, args, predecessor, salt)
+        lifecycle::execute(&env, target, function, args, predecessor, salt)
     }
 
     /// Cancels a pending operation. Requires the caller to hold the
@@ -201,10 +199,9 @@ impl GovernanceInterface for Governance {
     }
 
     /// Executes a ready, non-expired scheduled admin operation that targets this
-    /// contract itself. If `executor` is `Some`, requires that address to auth
-    /// and hold `EXECUTOR_ROLE`; if `None`, no executor role check.
-    fn execute_self(env: Env, executor: Option<Address>, op: AdminOperation, salt: BytesN<32>) {
-        lifecycle::execute_self(&env, executor, &op, salt)
+    /// contract itself. Permissionless, like `execute`.
+    fn execute_self(env: Env, op: AdminOperation, salt: BytesN<32>) {
+        lifecycle::execute_self(&env, &op, salt)
     }
 
     /// Schedules a reset of the canceller role to `new_cancellers` and
@@ -220,14 +217,9 @@ impl GovernanceInterface for Governance {
     }
 
     /// Executes a ready, non-expired scheduled reset of the canceller role to
-    /// `new_cancellers`. Same optional-executor auth rules as `execute`.
-    fn execute_canceller_reset(
-        env: Env,
-        executor: Option<Address>,
-        new_cancellers: Vec<Address>,
-        salt: BytesN<32>,
-    ) {
-        recovery::execute_canceller_reset(&env, executor, &new_cancellers, salt)
+    /// `new_cancellers`. Permissionless, like `execute`.
+    fn execute_canceller_reset(env: Env, new_cancellers: Vec<Address>, salt: BytesN<32>) {
+        recovery::execute_canceller_reset(&env, &new_cancellers, salt)
     }
 
     /// Completes a pending ownership transfer to the caller.

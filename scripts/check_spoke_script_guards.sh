@@ -264,20 +264,74 @@ echo "spoke script guards: OK"
 # Both retry entry points share this guarantee; Bash errexit is disabled by ||.
 cat > "$tmp/execute.sh" <<EOF
 set -e
-SOURCE_FLAG= NETWORK=testnet
+SOURCE_FLAG= NETWORK=testnet GOV_EXECUTOR_ARG=none
 op_record_path() { echo '$tmp/op.json'; }
 get_governance() { echo CTEST; }
 retry_tx() { echo injected-submission-failure >&2; return 7; }
 mark_op_executed() { echo marked >> '$tmp/incorrectly-marked'; }
+$(extract resolve_gov_executor_args)
 $(extract execute_gov_self_op)
 $(extract execute_op)
 EOF
 printf '%s\n' '{"cli_executable":true,"kind":"controller","target":"C","function":"pause","predecessor":"00","salt":"00","args":[]}' > "$tmp/op.json"
-if bash -c "source '$tmp/execute.sh'; result=\$(execute_op test) || exit \$?"; then fail 'failed controller execution reported success'; fi
+if bash -c "source '$tmp/execute.sh'; result=\$(execute_op test) || exit \$?" 2> "$tmp/execute-err"; then fail 'failed controller execution reported success'; fi
+grep -q injected-submission-failure "$tmp/execute-err" || fail 'controller execution failed before the submission'
 printf '%s\n' '{"cli_executable":true,"kind":"governance_self","execute_label":"UpdateGovDelay","salt":"00","op":{}}' > "$tmp/op.json"
-if bash -c "source '$tmp/execute.sh'; result=\$(execute_op test) || exit \$?"; then fail 'failed self execution reported success'; fi
+if bash -c "source '$tmp/execute.sh'; result=\$(execute_op test) || exit \$?" 2> "$tmp/execute-err"; then fail 'failed self execution reported success'; fi
+grep -q injected-submission-failure "$tmp/execute-err" || fail 'self execution failed before the submission'
 [ ! -f "$tmp/incorrectly-marked" ] || fail 'failed operation was marked executed'
 echo 'operator failed-submission regression: OK'
+
+# A governance build from before audit finding I-02 takes a leading executor on
+# its execute entrypoints; a current build takes none. The script reads the
+# form from the contract interface and submits exactly the arguments it needs.
+cat > "$tmp/executor-form.sh" <<EOF
+set -e
+SOURCE_FLAG= NETWORK=testnet
+op_record_path() { echo "\$OP_JSON"; }
+get_governance() { echo CTEST; }
+mark_op_executed() { :; }
+stellar() {
+    [ "\$1 \$2 \$3" = "contract info interface" ] || { echo "unexpected stellar call: \$*" >&2; return 9; }
+    echo read >> '$tmp/interface-reads'
+    case "\${IFACE:-}" in
+        legacy) echo 'fn execute_self(env: soroban_sdk::Env, executor: Option<soroban_sdk::Address>, op: AdminOperation);' ;;
+        current) echo 'fn execute_self(env: soroban_sdk::Env, op: AdminOperation);' ;;
+        *) return 1 ;;
+    esac
+}
+retry_tx() { printf '%s\n' "\$*" >> '$tmp/submitted'; }
+$(extract resolve_gov_executor_args)
+$(extract execute_gov_self_op)
+$(extract execute_op)
+EOF
+printf '%s\n' '{"cli_executable":true,"kind":"controller","target":"C","function":"pause","predecessor":"00","salt":"00","args":[]}' > "$tmp/op-controller.json"
+printf '%s\n' '{"cli_executable":true,"kind":"governance_self","execute_label":"UpdateGovDelay","salt":"00","op":{}}' > "$tmp/op-self.json"
+# Runs one controller op and one self op in a single shell; prints nothing.
+executor_form() {
+    rm -f "$tmp/submitted" "$tmp/interface-reads"
+    env "$@" bash -c "source '$tmp/executor-form.sh'
+        OP_JSON='$tmp/op-controller.json' execute_op test >/dev/null
+        OP_JSON='$tmp/op-self.json' execute_op test >/dev/null" 2> "$tmp/executor-form-err"
+}
+executor_form IFACE=legacy || fail 'execution against a legacy governance interface failed'
+grep -q -- '-- execute --executor null --target C ' "$tmp/submitted" || fail 'legacy execute lost its executor argument'
+grep -q -- '-- execute_self --executor null --op-file-path ' "$tmp/submitted" || fail 'legacy execute_self lost its executor argument'
+[ "$(wc -l < "$tmp/interface-reads")" -eq 1 ] || fail 'the governance interface was read more than once in one shell'
+executor_form IFACE=current || fail 'execution against a current governance interface failed'
+grep -q -- '-- execute --target C ' "$tmp/submitted" || fail 'current execute was not submitted without an executor'
+grep -q -- '-- execute_self --op-file-path ' "$tmp/submitted" || fail 'current execute_self was not submitted without an executor'
+if grep -q -- '--executor' "$tmp/submitted"; then fail 'current governance was sent an executor argument'; fi
+if executor_form IFACE=unreadable; then fail 'an unreadable governance interface did not stop execution'; fi
+grep -q 'GOV_EXECUTOR_ARG' "$tmp/executor-form-err" || fail 'the unreadable-interface error does not name the override'
+[ ! -f "$tmp/submitted" ] || fail 'an operation was submitted without knowing the execute form'
+executor_form IFACE=unreadable GOV_EXECUTOR_ARG=legacy || fail 'GOV_EXECUTOR_ARG=legacy did not skip the interface read'
+[ "$(grep -c -- '--executor null' "$tmp/submitted")" -eq 2 ] || fail 'GOV_EXECUTOR_ARG=legacy did not add the executor argument'
+[ ! -f "$tmp/interface-reads" ] || fail 'GOV_EXECUTOR_ARG=legacy still read the interface'
+executor_form IFACE=legacy GOV_EXECUTOR_ARG=none || fail 'GOV_EXECUTOR_ARG=none did not skip the interface read'
+if grep -q -- '--executor' "$tmp/submitted"; then fail 'GOV_EXECUTOR_ARG=none still sent an executor argument'; fi
+if executor_form IFACE=current GOV_EXECUTOR_ARG=sometimes; then fail 'an invalid GOV_EXECUTOR_ARG was accepted'; fi
+echo 'governance execute form detection: OK'
 
 # Disposable roots route every config and operation write away from the checkout.
 cat > "$tmp/isolation.sh" <<EOF
@@ -509,7 +563,7 @@ done
 # submission, including operations reused after their timelock expires.
 cat > "$tmp/chainlink-execute.sh" <<EOF
 set -e
-SOURCE_FLAG= NETWORK=testnet
+SOURCE_FLAG= NETWORK=testnet GOV_EXECUTOR_ARG=none
 op_record_path() { echo '$tmp/chainlink-op.json'; }
 get_governance() { echo CGOV; }
 resolve_oracle_op_args() { echo '[]'; }
@@ -524,6 +578,7 @@ die() { echo "ERROR: \$*" >&2; exit 1; }
 $(extract curve_reviewed_schema_hint)
 $(extract curve_reviewed_hashes)
 $(extract refuse_unreviewed_curve_hash)
+$(extract resolve_gov_executor_args)
 $(extract execute_op)
 EOF
 jq -n '{pools:[{wasm_hash:("ab" * 32), source_repo:"r", source_commit:"c", review:"v", expected_factory:"f"}]}' \

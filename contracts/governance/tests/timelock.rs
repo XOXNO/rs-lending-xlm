@@ -6,7 +6,7 @@ use stellar_governance::timelock::OperationState;
 use common::errors::GenericError;
 use common::types::{AssetOracle, IndependencePolicy, OracleTolerance, PositionLimits, PriceKey};
 
-use crate::access::{CANCELLER_ROLE, CURATOR_ROLE, EXECUTOR_ROLE, GUARDIAN_ROLE, PROPOSER_ROLE};
+use crate::access::{CANCELLER_ROLE, CURATOR_ROLE, GUARDIAN_ROLE, PROPOSER_ROLE};
 use crate::constants::{
     TIMELOCK_MAX_DELAY_LEDGERS, TIMELOCK_MIN_DELAY_LEDGERS, TIMELOCK_OPERATION_GRACE_LEDGERS,
     TIMELOCK_RECOVERY_MIN_DELAY_LEDGERS, TIMELOCK_SENSITIVE_MIN_DELAY_LEDGERS,
@@ -38,7 +38,7 @@ fn grant_role_via_timelock(
 
     env.ledger()
         .with_mut(|l| l.sequence_number += delay.max(TIMELOCK_SENSITIVE_MIN_DELAY_LEDGERS));
-    gov.execute_self(&Some(admin.clone()), &grant, &salt);
+    gov.execute_self(&grant, &salt);
     account
 }
 
@@ -48,7 +48,6 @@ fn constructor_grants_timelock_roles_to_admin() {
     let (admin, _gov_id, gov) = register(&env, TIMELOCK_MIN_DELAY_LEDGERS);
 
     assert!(gov.has_role(&admin, &Symbol::new(&env, PROPOSER_ROLE)));
-    assert!(gov.has_role(&admin, &Symbol::new(&env, EXECUTOR_ROLE)));
     assert!(gov.has_role(&admin, &Symbol::new(&env, CANCELLER_ROLE)));
 }
 
@@ -176,7 +175,6 @@ fn execute_before_delay_reverts() {
     );
 
     gov.execute(
-        &Some(admin.clone()),
         &controller,
         &Symbol::new(&env, "set_position_limits"),
         &vec![&env, limits.into_val(&env)],
@@ -208,7 +206,6 @@ fn execute_after_delay_applies_to_controller() {
     assert_eq!(gov.get_operation_state(&id), OperationState::Ready);
 
     gov.execute(
-        &Some(admin.clone()),
         &controller,
         &Symbol::new(&env, "set_position_limits"),
         &vec![&env, limits.into_val(&env)],
@@ -245,7 +242,6 @@ fn execute_after_grace_period_reverts() {
         .with_mut(|l| l.sequence_number += delay + TIMELOCK_OPERATION_GRACE_LEDGERS + 1);
 
     gov.execute(
-        &Some(admin.clone()),
         &controller,
         &Symbol::new(&env, "set_position_limits"),
         &vec![&env, limits.into_val(&env)],
@@ -310,7 +306,7 @@ fn timelock_revokes_the_only_curator_member() {
     assert_eq!(gov.get_operation_state(&id), OperationState::Waiting);
     env.ledger()
         .with_mut(|l| l.sequence_number += delay.max(TIMELOCK_SENSITIVE_MIN_DELAY_LEDGERS));
-    gov.execute_self(&None, &revoke, &salt);
+    gov.execute_self(&revoke, &salt);
     assert!(!gov.has_role(&curator, &role));
     assert!(gov.has_role(&admin, &Symbol::new(&env, PROPOSER_ROLE)));
     assert_eq!(gov.get_operation_state(&id), OperationState::Unset);
@@ -674,7 +670,7 @@ fn revoking_proposer_ok_when_another_remains() {
     gov.propose(&admin, &revoke, &r_salt);
     env.ledger()
         .with_mut(|l| l.sequence_number += delay.max(TIMELOCK_SENSITIVE_MIN_DELAY_LEDGERS));
-    gov.execute_self(&Some(admin.clone()), &revoke, &r_salt);
+    gov.execute_self(&revoke, &r_salt);
     // A timelocked revocation names governance, not the owner, as the caller.
     let revoked = RoleRevoked {
         role: proposer.clone(),
@@ -705,37 +701,36 @@ fn non_proposer_cannot_propose() {
     gov.propose(&stranger, &AdminOperation::SetPositionLimits(limits), &salt);
 }
 
-/// Execution is permissionless with `executor = None`; naming an executor that
-/// lacks `EXECUTOR` reverts.
+/// Execution is permissionless (audit finding I-02): a ready operation runs
+/// with no authorization recorded and no role held by the caller.
 #[test]
-#[should_panic(expected = "Error(Contract, #2000)")]
-fn permissionless_execute_rejects_a_named_executor_without_role() {
+fn execute_requires_no_authorization() {
     let env = Env::default();
     env.mock_all_auths();
     let delay = 10u32;
     let (admin, controller, gov) = register_with_controller(&env, delay);
-    let stranger = Address::generate(&env);
 
     let limits = PositionLimits {
         max_supply_positions: 5,
         max_borrow_positions: 4,
     };
     let salt = zero_salt(&env);
-    gov.propose(
+    let id = gov.propose(
         &admin,
         &AdminOperation::SetPositionLimits(limits.clone()),
         &salt,
     );
     env.ledger().with_mut(|l| l.sequence_number += delay);
 
+    env.set_auths(&[]);
     gov.execute(
-        &Some(stranger),
         &controller,
         &Symbol::new(&env, "set_position_limits"),
         &vec![&env, limits.into_val(&env)],
         &zero_salt(&env),
         &salt,
     );
+    assert_eq!(gov.get_operation_state(&id), OperationState::Unset);
 }
 
 #[test]
@@ -827,31 +822,13 @@ fn recovery_resets_captured_council_after_long_delay() {
 
     env.ledger()
         .with_mut(|l| l.sequence_number += TIMELOCK_RECOVERY_MIN_DELAY_LEDGERS);
-    gov.execute_canceller_reset(&Some(admin.clone()), &new_set, &salt);
+    gov.execute_canceller_reset(&new_set, &salt);
 
     let role = Symbol::new(&env, CANCELLER_ROLE);
     assert!(!gov.has_role(&bad1, &role));
     assert!(!gov.has_role(&bad2, &role));
     assert!(gov.has_role(&fresh, &role));
     assert!(gov.has_role(&admin, &role));
-}
-
-#[test]
-#[should_panic(expected = "Error(Contract, #41)")]
-fn recovery_grant_enforces_executor_canceller_separation() {
-    let env = Env::default();
-    env.mock_all_auths();
-    let delay = 10u32;
-    let (admin, _controller, gov) = register_with_controller(&env, delay);
-    let executor = grant_role_via_timelock(&env, &gov, &admin, delay, EXECUTOR_ROLE, 1);
-
-    let salt = BytesN::<32>::from_array(&env, &[6u8; 32]);
-    let new_set = soroban_sdk::vec![&env, executor.clone()];
-    let _id = gov.propose_canceller_reset(&new_set, &salt);
-
-    env.ledger()
-        .with_mut(|l| l.sequence_number += TIMELOCK_RECOVERY_MIN_DELAY_LEDGERS);
-    gov.execute_canceller_reset(&Some(admin.clone()), &new_set, &salt);
 }
 
 /// Proposes `UpgradePriceAggregator`, waits the Sensitive delay and executes the
@@ -887,7 +864,6 @@ fn upgrade_price_aggregator_executes_against_the_aggregator() {
     assert_eq!(gov.get_operation_state(&id), OperationState::Ready);
 
     gov.execute(
-        &Some(admin.clone()),
         &agg_id,
         &Symbol::new(&env, "upgrade"),
         &vec![&env, wasm_hash.into_val(&env)],

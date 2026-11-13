@@ -110,12 +110,12 @@ flow_governance() {
     unpause_args_f="$LOG_DIR/gov_unpause_args.json"
     printf '[]' > "$unpause_args_f"
     inv gov_execute_unpause "$ADMIN" "$GOVERNANCE" -- execute \
-        --executor null --target "$GOV_CONTROLLER" --function unpause \
+        --target "$GOV_CONTROLLER" --function unpause \
         --args-file-path "$unpause_args_f" --predecessor "$GOV_ZERO32" --salt "$GOV_SALT_UNPAUSE" >/dev/null
 local gov_delay
 gov_delay=$(view gov_min_delay "$GOVERNANCE" -- get_min_delay | tr -d '"[:space:]')
-view gov_has_role_admin_executor "$GOVERNANCE" -- has_role \
---account "$ADMIN_ADDR" --role EXECUTOR >/dev/null
+view gov_has_role_admin_proposer "$GOVERNANCE" -- has_role \
+--account "$ADMIN_ADDR" --role PROPOSER >/dev/null
 view gov_resolve_tol "$GOVERNANCE" -- resolve_oracle_tolerance \
 --tolerance 200 >/dev/null
 
@@ -147,12 +147,12 @@ view gov_hash_exec "$GOVERNANCE" -- hash_operation \
 view gov_op_ledger_exec "$GOVERNANCE" -- get_operation_ledger \
 --operation_id "$op_exec" >/dev/null
 inv gov_execute "$ADMIN" "$GOVERNANCE" -- execute \
---executor null --target "$GOV_CONTROLLER" --function set_position_limits \
+--target "$GOV_CONTROLLER" --function set_position_limits \
 --args-file-path "$args_f" --predecessor "$GOV_ZERO32" --salt "$GOV_SALT_EXEC" >/dev/null
     gov_assert_state gov_state_unset_after_exec "$op_exec" Unset
 
     xfail gov_execute_replay 'Error\(Contract, #4002\)' "$ADMIN" "$GOVERNANCE" -- execute \
-        --executor null --target "$GOV_CONTROLLER" --function set_position_limits \
+        --target "$GOV_CONTROLLER" --function set_position_limits \
         --args-file-path "$args_f" --predecessor "$GOV_ZERO32" --salt "$GOV_SALT_EXEC"
 
     xfail gov_propose_non_proposer 'Error\(Contract, #2000\)' "$ALICE" "$GOVERNANCE" -- propose \
@@ -183,7 +183,6 @@ if [ "$st" != "Ready" ] && [ "$st" != "Done" ]; then
     _assert_fail gov_self_await_ready "op $op_self never reached Ready (state=$st)"
 fi
 inv gov_self_execute_delay "$ADMIN" "$GOVERNANCE" -- execute_self \
-    --executor null \
     --op "{\"UpdateGovDelay\":$delay_next}" \
     --salt "$GOV_SALT_SELF_DELAY" >/dev/null
 
@@ -195,7 +194,7 @@ fi
 local op_sensitive
 op_sensitive=$(inv gov_self_propose_grant "$ADMIN" "$GOVERNANCE" -- propose \
     --proposer "$ADMIN_ADDR" \
-    --op '{"GrantGovRole":{"account":"'"$DAVE_ADDR"'","role":"EXECUTOR"}}' \
+    --op '{"GrantGovRole":{"account":"'"$DAVE_ADDR"'","role":"ORACLE"}}' \
     --salt "$GOV_SALT_SELF_SENSITIVE" | tr -d '"[:space:]')
 gov_assert_scheduled gov_self_sensitive_waiting gov_self_propose_grant "$op_sensitive" \
     "$((delay_next > GOV_SENSITIVE_MIN_DELAY ? delay_next : GOV_SENSITIVE_MIN_DELAY))"
@@ -206,7 +205,7 @@ gov_assert_state gov_self_sensitive_unset "$op_sensitive" Unset
 xfail gov_execute_immediate_absent 'execute_immediate|unknown|not found|No such' \
 "$ADMIN" "$GOVERNANCE" -- execute_immediate \
 --caller "$ADMIN_ADDR" \
---op '{"GrantGovRole":{"account":"'"$DAVE_ADDR"'","role":"EXECUTOR"}}'
+--op '{"GrantGovRole":{"account":"'"$DAVE_ADDR"'","role":"ORACLE"}}'
 xfail gov_set_controller_absent 'set_controller|unknown|not found|No such' \
 "$ADMIN" "$GOVERNANCE" -- set_controller --addr "$CONTROLLER"
 
@@ -218,7 +217,7 @@ xfail gov_set_controller_absent 'set_controller|unknown|not found|No such' \
         _assert_fail gov_curator_grant_ready "grant op $op_curator never reached Ready ($curator_st)"
     fi
     inv gov_execute_grant_curator "$ADMIN" "$GOVERNANCE" -- execute_self \
-        --executor null --op "$curator_op" --salt "$GOV_SALT_GRANT_CURATOR" >/dev/null
+        --op "$curator_op" --salt "$GOV_SALT_GRANT_CURATOR" >/dev/null
     inv gov_create_hub "$ADMIN" "$GOVERNANCE" -- create_hub --caller "$ADMIN_ADDR" >/dev/null
     inv gov_add_spoke "$ADMIN" "$GOVERNANCE" -- add_spoke --caller "$ADMIN_ADDR" >/dev/null
 
@@ -284,16 +283,16 @@ flow_gov_recovery_and_roles() {
     xfail gov_revoke_owner_role_rejected 'Error\(Contract, #44\)' "$ADMIN" "$GOVERNANCE" -- revoke_role_immediate \
         --account "$ADMIN_ADDR" --role GUARDIAN
 
-    # Only guardian and oracle are revocable this way; EXECUTOR must not be.
-    xfail gov_revoke_executor_rejected 'Error\(Contract, #41\)' "$ADMIN" "$GOVERNANCE" -- revoke_role_immediate \
-        --account "$ADMIN_ADDR" --role EXECUTOR
+    # Only guardian and oracle are revocable this way; PROPOSER must not be.
+    xfail gov_revoke_proposer_rejected 'Error\(Contract, #41\)' "$ADMIN" "$GOVERNANCE" -- revoke_role_immediate \
+        --account "$ADMIN_ADDR" --role PROPOSER
 
     # The happy path therefore needs a non-owner holder: grant GUARDIAN to DAVE
     # through the timelock, then revoke it.
     grant_st=$(gov_await_ready "$op_grant")
     if [ "$grant_st" = "Ready" ] || [ "$grant_st" = "Done" ]; then
         inv gov_execute_grant_guardian "$ADMIN" "$GOVERNANCE" -- execute_self \
-            --executor null --op "$grant_op" \
+            --op "$grant_op" \
             --salt "$GOV_SALT_GRANT_GUARDIAN" >/dev/null
         view gov_dave_has_guardian "$GOVERNANCE" -- has_role \
             --account "$DAVE_ADDR" --role GUARDIAN >/dev/null
@@ -324,5 +323,5 @@ flow_gov_recovery_and_roles() {
     fi
 
     xfail gov_execute_canceller_reset_early 'Error\(Contract, #4002\)' "$ADMIN" "$GOVERNANCE" -- execute_canceller_reset \
-        --executor null --new_cancellers "$cancellers" --salt "$GOV_SALT_CANCELLER_RESET"
+        --new_cancellers "$cancellers" --salt "$GOV_SALT_CANCELLER_RESET"
 }
