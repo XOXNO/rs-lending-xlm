@@ -229,6 +229,36 @@ fn test_a_wider_declaration_passes_without_exact() {
 }
 
 #[test]
+fn test_same_address_set_ignores_order_and_repeats() {
+    let env = Env::default();
+    let [a, b] = [0; 2].map(|_| Address::generate(&env));
+    let pair = Vec::from_array(&env, [a.clone(), b.clone()]);
+
+    assert!(same_address_set(
+        &pair,
+        &Vec::from_array(&env, [b.clone(), a.clone()])
+    ));
+    assert!(same_address_set(
+        &pair,
+        &Vec::from_array(&env, [a.clone(), b, a])
+    ));
+    assert!(same_address_set(&Vec::new(&env), &Vec::new(&env)));
+}
+
+#[test]
+fn test_same_address_set_tells_apart_lists_that_differ_by_one_address() {
+    let env = Env::default();
+    let [a, b] = [0; 2].map(|_| Address::generate(&env));
+    let pair = Vec::from_array(&env, [a.clone(), b.clone()]);
+    let only_a = Vec::from_array(&env, [a]);
+
+    // A list that covers the other is still a different set, either way round.
+    assert!(!same_address_set(&pair, &only_a));
+    assert!(!same_address_set(&only_a, &pair));
+    assert!(!same_address_set(&only_a, &Vec::from_array(&env, [b])));
+}
+
+#[test]
 #[should_panic(expected = "Error(Contract, #220)")]
 fn test_an_lp_whose_two_reserves_are_the_same_token_is_refused() {
     let env = Env::default();

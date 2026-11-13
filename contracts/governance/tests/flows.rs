@@ -3,18 +3,23 @@ extern crate std;
 use crate::op::{
     AdminOperation, ConfigureAssetOracleArgs, EditToleranceArgs, RoleArgs, SpokeAssetArgs,
 };
-use common::constants::{MAX_REASONABLE_PRICE_WAD, WAD};
+use common::constants::{MAX_REASONABLE_PRICE_WAD, RAY, WAD};
+use common::errors::{GenericError, OracleError};
 use common::types::{
     AssetOracle, ChainlinkFeedRef, ControllerKey, FeedNature, FeedSource, HubAssetKey,
-    IndependencePolicy, MultiFeedRef, OracleAssetRef, OracleReadMode, OracleTolerance,
-    PositionLimits, PriceKey, PriceSource, ProviderRef, ReflectorFeedRef,
+    IndependencePolicy, MarketParamsRaw, MultiFeedRef, OracleAssetRef, OracleReadMode,
+    OracleTolerance, PositionLimits, PriceKey, PriceSource, ProviderRef, ReflectorFeedRef,
 };
+use price_aggregator::{PriceAggregator, PriceAggregatorClient};
 use soroban_sdk::testutils::storage::Instance as _;
 use soroban_sdk::testutils::{Address as _, Events as _, Ledger as _, MockAuth, MockAuthInvoke};
-use soroban_sdk::{vec, Address, BytesN, Env, Event as _, IntoVal, String, Symbol};
+use soroban_sdk::{
+    contract, contractimpl, symbol_short, vec, Address, BytesN, Env, Event as _, IntoVal, String,
+    Symbol,
+};
 use stellar_access::{access_control, ownable};
 
-use crate::access::GUARDIAN_ROLE;
+use crate::access::{CURATOR_ROLE, GUARDIAN_ROLE};
 use crate::test_support::{
     read_controller_position_limits, register_governance, upload_controller_wasm,
     upload_price_aggregator_wasm,
@@ -773,6 +778,80 @@ fn guardian_deactivates_a_manager_and_revokes_a_blend_pool_immediately() {
     assert!(!is_manager() && !ctrl.is_blend_pool_approved(&pool));
 }
 
+/// Stands in for the curator contract. Governance reaches the curator by
+/// function name, so the double needs only the entry point governance calls
+/// and the view the real curator exposes for the flag.
+#[contract]
+struct MockCurator;
+
+#[contractimpl]
+impl MockCurator {
+    pub fn set_registrar_suspended(env: Env, registrar: u32, suspended: bool) {
+        env.storage().instance().set(&registrar, &suspended);
+    }
+
+    pub fn registrar_suspended(env: Env, registrar: u32) -> bool {
+        env.storage().instance().get(&registrar).unwrap_or(false)
+    }
+}
+
+const REGISTRAR: u32 = 7;
+
+/// Governance with a guardian who is not the owner and a curator contract that
+/// holds `CURATOR_ROLE`. Returns the governance client, the guardian and the
+/// curator client.
+fn governance_with_curator(env: &Env) -> (GovernanceClient<'_>, Address, MockCuratorClient<'_>) {
+    env.mock_all_auths();
+    let (admin, _, gov) = register_governance(env);
+    let guardian = Address::generate(env);
+    grant_incident_role(env, &admin, &gov, &guardian, GUARDIAN_ROLE);
+    let curator_id = env.register(MockCurator, ());
+    grant_incident_role(env, &admin, &gov, &curator_id, CURATOR_ROLE);
+    (gov, guardian, MockCuratorClient::new(env, &curator_id))
+}
+
+#[test]
+fn guardian_suspends_the_named_registrar_on_the_curator_immediately() {
+    let env = Env::default();
+    let (gov, guardian, curator) = governance_with_curator(&env);
+    assert!(!curator.registrar_suspended(&REGISTRAR));
+
+    gov.suspend_curator_registrar(&guardian, &curator.address, &REGISTRAR);
+
+    assert!(curator.registrar_suspended(&REGISTRAR));
+    assert!(
+        !curator.registrar_suspended(&(REGISTRAR + 1)),
+        "only the named registrar is suspended"
+    );
+}
+
+#[test]
+fn suspend_curator_registrar_requires_guardian_role() {
+    let env = Env::default();
+    let (gov, _guardian, curator) = governance_with_curator(&env);
+
+    // The caller is the curator contract itself. Its curator role does not
+    // stand in for the guardian role here, unlike on `set_spoke_asset_flags`.
+    assert_eq!(
+        gov.try_suspend_curator_registrar(&curator.address, &curator.address, &REGISTRAR),
+        Err(Ok(access_control::AccessControlError::Unauthorized.into()))
+    );
+    assert!(!curator.registrar_suspended(&REGISTRAR));
+}
+
+#[test]
+fn suspend_curator_registrar_rejects_a_contract_without_the_curator_role() {
+    let env = Env::default();
+    let (gov, guardian, _curator) = governance_with_curator(&env);
+    let unlisted = MockCuratorClient::new(&env, &env.register(MockCurator, ()));
+
+    assert_eq!(
+        gov.try_suspend_curator_registrar(&guardian, &unlisted.address, &REGISTRAR),
+        Err(Ok(GenericError::NotAuthorized.into()))
+    );
+    assert!(!unlisted.registrar_suspended(&REGISTRAR));
+}
+
 #[test]
 #[should_panic(expected = "Error(Contract, #2000)")]
 fn set_sanity_band_requires_oracle_role() {
@@ -841,6 +920,102 @@ fn curator_create_hub_and_add_spoke_forward_and_return_controller_ids() {
     let second_spoke = gov.add_spoke(&curator);
     assert!(first_spoke >= 1);
     assert_eq!(second_spoke, first_spoke + 1);
+}
+
+/// Stands in for the controller on the market-creation path. It records the
+/// market governance forwards and answers with the pool address it was built
+/// with, as the controller does.
+#[contract]
+struct MarketRecorder;
+
+const RECORDER_POOL: Symbol = symbol_short!("pool");
+const RECORDER_MARKET: Symbol = symbol_short!("market");
+
+#[contractimpl]
+impl MarketRecorder {
+    pub fn __constructor(env: Env, pool: Address) {
+        env.storage().instance().set(&RECORDER_POOL, &pool);
+    }
+
+    pub fn create_liquidity_pool(
+        env: Env,
+        hub_id: u32,
+        asset: Address,
+        _params: MarketParamsRaw,
+    ) -> Address {
+        env.storage()
+            .instance()
+            .set(&RECORDER_MARKET, &(hub_id, asset));
+        env.storage().instance().get(&RECORDER_POOL).unwrap()
+    }
+
+    pub fn market(env: Env) -> Option<(u32, Address)> {
+        env.storage().instance().get(&RECORDER_MARKET)
+    }
+}
+
+fn market_params(asset: &Address) -> MarketParamsRaw {
+    MarketParamsRaw {
+        max_borrow_rate: RAY,
+        base_borrow_rate: 0,
+        slope1: RAY / 100,
+        slope2: RAY / 10,
+        slope3: RAY / 2,
+        mid_utilization: RAY / 2,
+        optimal_utilization: 8 * RAY / 10,
+        max_utilization: 95 * RAY / 100,
+        reserve_factor: 1_000,
+        is_flashloanable: false,
+        flashloan_fee: 0,
+        asset_id: asset.clone(),
+        asset_decimals: 7,
+    }
+}
+
+// The same curator call with the same parameters is refused twice and then
+// goes through. Only the oracle state of the price aggregator changes between
+// the three calls.
+#[test]
+fn create_liquidity_pool_is_refused_until_the_aggregator_stores_an_oracle_for_the_asset() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (admin, gov_id, gov) = register_governance(&env);
+    let pool = Address::generate(&env);
+    let controller = MarketRecorderClient::new(&env, &env.register(MarketRecorder, (&pool,)));
+    gov.set_controller(&controller.address);
+    let curator = Address::generate(&env);
+    grant_incident_role(&env, &admin, &gov, &curator, CURATOR_ROLE);
+    let asset = env.register_stellar_asset_contract_v2(admin).address();
+    let params = market_params(&asset);
+    let hub_id = 1u32;
+    let not_configured = Err(Ok(OracleError::OracleNotConfigured.into()));
+
+    // No price aggregator is deployed.
+    assert_eq!(
+        gov.try_create_liquidity_pool(&curator, &hub_id, &params),
+        not_configured
+    );
+
+    // The aggregator is deployed and prices another token, not this asset.
+    let aggregator = PriceAggregatorClient::new(&env, &env.register(PriceAggregator, (&gov_id,)));
+    gov.set_price_aggregator(&aggregator.address);
+    aggregator.seed_oracle(
+        &PriceKey::Token(Address::generate(&env)),
+        &sample_asset_oracle(&env),
+    );
+    assert_eq!(
+        gov.try_create_liquidity_pool(&curator, &hub_id, &params),
+        not_configured
+    );
+    assert_eq!(
+        controller.market(),
+        None,
+        "no refused call reaches the controller"
+    );
+
+    aggregator.seed_oracle(&PriceKey::Token(asset.clone()), &sample_asset_oracle(&env));
+    assert_eq!(gov.create_liquidity_pool(&curator, &hub_id, &params), pool);
+    assert_eq!(controller.market(), Some((hub_id, asset)));
 }
 
 #[test]
