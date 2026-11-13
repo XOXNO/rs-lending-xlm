@@ -12,13 +12,14 @@ operation,target,function={
 v=json.loads(payload); args=v['args']
 assert v['contract_address']==governance
 expected={'vec':[{'symbol':operation},{'bytes':wasm}]}
-if v['function_name'] in ('propose','execute_self'):
+if v['function_name']=='propose':
     assert len(args)==3 and args[1]==expected
-    assert v['function_name']=='propose' or verb=='upgradeGovernanceHash'
+elif v['function_name']=='execute_self':
+    assert verb=='upgradeGovernanceHash' and len(args)==2 and args[0]==expected
 elif v['function_name']=='execute':
-    assert verb!='upgradeGovernanceHash' and len(args)==6
-    assert args[1]=={'address':target} and args[2]=={'symbol':function}
-    assert args[3]=={'vec':[{'bytes':wasm}]} and args[4]=={'bytes':'00'*32}
+    assert verb!='upgradeGovernanceHash' and len(args)==5
+    assert args[0]=={'address':target} and args[1]=={'symbol':function}
+    assert args[2]=={'vec':[{'bytes':wasm}]} and args[3]=={'bytes':'00'*32}
 else:
     raise AssertionError('unexpected upgrade invocation')
 salt=args[-1]['bytes']; assert len(salt)==64
@@ -135,7 +136,7 @@ prod_ops() {
             record_path="$RUN_DIR/ops/testnet/$PROD_SPLIT_OP.json"
             [ "$proposed" -eq 0 ] && [ "$executed" -eq 1 ] && [ "$execution_salt" = "$PROD_SPLIT_SALT" ] && [ -f "$record_path" ] \
                 && jq -e --argjson call "$executed_call" '.salt == $call.args[-1].bytes and ((.kind // "controller") == "governance_self"
-                    or ($call.function_name == "execute" and $call.args[1].address == .target and $call.args[2].symbol == .function))' "$record_path" >/dev/null \
+                    or ($call.function_name == "execute" and $call.args[0].address == .target and $call.args[1].symbol == .function))' "$record_path" >/dev/null \
                 || { _assert_fail "operator_$tag" 'execute differs from the proposed operation record'; return 1; }
             proposed=1; proposal_salt="$PROD_SPLIT_SALT"
         fi

@@ -1112,11 +1112,13 @@ await_op_ready() {
 # and `execute_canceller_reset`; current builds take no such argument. Sets
 # GOV_EXECUTOR_ARGS to the CLI arguments the deployed contract expects:
 # `--executor null` for a legacy build, nothing for a current one. The form is
-# read from the contract's own interface, so one script drives a network before
-# and after its governance upgrade. GOV_EXECUTOR_ARG=legacy|none skips the read.
+# read from the contract's own interface before every execution, so one script
+# drives a network before and after its governance upgrade, also when the
+# upgrade is one of several operations executed by the same run. The result is
+# never kept: an upgrade changes the form without changing the address.
+# GOV_EXECUTOR_ARG=legacy|none skips the read.
 resolve_gov_executor_args() {
     local gov=$1 iface
-    [ "${GOV_EXECUTOR_ARGS_FOR:-}" != "$gov" ] || return 0
     case "${GOV_EXECUTOR_ARG:-auto}" in
         legacy) GOV_EXECUTOR_ARGS="--executor null" ;;
         none) GOV_EXECUTOR_ARGS="" ;;
@@ -1138,7 +1140,6 @@ resolve_gov_executor_args() {
             return 1
             ;;
     esac
-    GOV_EXECUTOR_ARGS_FOR=$gov
 }
 
 execute_gov_self_op() {

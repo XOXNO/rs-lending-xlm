@@ -201,9 +201,13 @@ PROD_OP_TAG="$2" prod_ops setupAll >/dev/null'''
         salt='ab'*32; op='cd'*32
         propose={'function_name':'propose','contract_address':'GOV','args':[{'address':'ADMIN'},{'vec':[]},{'bytes':salt}]}
         def execute(s_,target='CTRL',fn='set_price_aggregator'):
-            return {'function_name':'execute','contract_address':'GOV','args':[{'address':'ADMIN'},{'address':target},{'symbol':fn},{'vec':[]},{'bytes':'00'*32},{'bytes':s_}]}
+            return {'function_name':'execute','contract_address':'GOV','args':[{'address':target},{'symbol':fn},{'vec':[]},{'bytes':'00'*32},{'bytes':s_}]}
+        # `execute` takes no executor: a receipt with the removed leading
+        # argument does not bind the recorded target and function.
+        legacy=execute(salt); legacy['args']=['void',*legacy['args']]
         for case,exec_call,record_salt,ok in [('good',execute(salt),salt,True),('salt',execute('ee'*32),salt,False),
-                                              ('target',execute(salt,target='OTHER'),salt,False),('record',execute(salt),'ff'*32,False)]:
+                                              ('target',execute(salt,target='OTHER'),salt,False),('record',execute(salt),'ff'*32,False),
+                                              ('legacy',legacy,salt,False)]:
             with tempfile.TemporaryDirectory() as d:
                 root=Path(d);(root/'configs').mkdir();(root/'logs').mkdir();(root/'ops/testnet').mkdir(parents=True)
                 (root/'inv.1').write_text(json.dumps(propose));(root/'inv.2').write_text(json.dumps(exec_call))

@@ -388,8 +388,8 @@ flow_production_operator
             proposal = {'contract_address':'GOV','function_name':'propose','args':[
                 {'address':'OWNER'},{'vec':[{'symbol':op},{'bytes':wasm}]},{'bytes':'b'*64}]}
             execution = {'contract_address':'GOV','function_name':'execute_self' if target=='GOV' else 'execute',
-                'args': ['void', proposal['args'][1], proposal['args'][2]] if target=='GOV' else
-                ['void',{'address':target},{'symbol':method},{'vec':[{'bytes':wasm}]},{'bytes':'0'*64},{'bytes':'b'*64}]}
+                'args': [proposal['args'][1], proposal['args'][2]] if target=='GOV' else
+                [{'address':target},{'symbol':method},{'vec':[{'bytes':wasm}]},{'bytes':'0'*64},{'bytes':'b'*64}]}
             for invocation in [proposal, execution]:
                 def check(value, expected_hash=wasm):
                     return subprocess.run(['bash','-c','source "$1"; shift; prod_upgrade_invocation "$@"','_',
@@ -398,6 +398,9 @@ flow_production_operator
                 self.assertNotEqual(check(invocation,'c'*64).returncode,0)
                 self.assertNotEqual(check(dict(invocation,contract_address='ATTACKER')).returncode,0)
                 self.assertNotEqual(check(dict(invocation,function_name='unpause')).returncode,0)
+            # The execute entrypoints take no executor: a receipt with the
+            # removed leading argument is not a current-form execution.
+            self.assertNotEqual(check(dict(execution,args=['void',*execution['args']])).returncode,0)
 
     def test_contract_authority_transition_preserves_financial_state(self):
         script = Path(__file__).resolve().parent/'flows/production.sh'

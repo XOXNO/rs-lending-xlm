@@ -294,7 +294,12 @@ mark_op_executed() { :; }
 stellar() {
     [ "\$1 \$2 \$3" = "contract info interface" ] || { echo "unexpected stellar call: \$*" >&2; return 9; }
     echo read >> '$tmp/interface-reads'
-    case "\${IFACE:-}" in
+    local form="\${IFACE:-}"
+    # A governance upgrade lands between the first and the second read.
+    if [ "\$form" = upgraded-mid-run ]; then
+        if [ "\$(wc -l < '$tmp/interface-reads')" -eq 1 ]; then form=legacy; else form=current; fi
+    fi
+    case "\$form" in
         legacy) echo 'fn execute_self(env: soroban_sdk::Env, executor: Option<soroban_sdk::Address>, op: AdminOperation);' ;;
         current) echo 'fn execute_self(env: soroban_sdk::Env, op: AdminOperation);' ;;
         *) return 1 ;;
@@ -317,7 +322,12 @@ executor_form() {
 executor_form IFACE=legacy || fail 'execution against a legacy governance interface failed'
 grep -q -- '-- execute --executor null --target C ' "$tmp/submitted" || fail 'legacy execute lost its executor argument'
 grep -q -- '-- execute_self --executor null --op-file-path ' "$tmp/submitted" || fail 'legacy execute_self lost its executor argument'
-[ "$(wc -l < "$tmp/interface-reads")" -eq 1 ] || fail 'the governance interface was read more than once in one shell'
+[ "$(wc -l < "$tmp/interface-reads")" -eq 2 ] || fail 'the governance interface was not read before each execution'
+# A governance upgrade keeps the address and changes the form. The operation
+# executed after it in the same run must use the new form.
+executor_form IFACE=upgraded-mid-run || fail 'execution across a governance upgrade failed'
+grep -q -- '-- execute --executor null --target C ' "$tmp/submitted" || fail 'the operation before the upgrade lost its executor argument'
+grep -q -- '-- execute_self --op-file-path ' "$tmp/submitted" || fail 'the operation after the upgrade kept the legacy executor argument'
 executor_form IFACE=current || fail 'execution against a current governance interface failed'
 grep -q -- '-- execute --target C ' "$tmp/submitted" || fail 'current execute was not submitted without an executor'
 grep -q -- '-- execute_self --op-file-path ' "$tmp/submitted" || fail 'current execute_self was not submitted without an executor'
