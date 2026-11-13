@@ -41,8 +41,10 @@ fn assume_valid_curve(
     max_rate: i128,
 ) {
     cvlr_assume!(base >= 0);
-    cvlr_assume!(base <= slope1 && slope1 <= slope2 && slope2 <= slope3);
-    cvlr_assume!(slope3 <= max_rate);
+    // `InterestRateModel::verify` orders steepness per unit of utilization,
+    // not the slopes themselves; each slope is non-negative and at most the max.
+    cvlr_assume!(base <= slope1 && slope2 >= 0 && slope3 >= 0);
+    cvlr_assume!(slope1 <= max_rate && slope2 <= max_rate && slope3 <= max_rate);
     cvlr_assume!(max_rate > base && max_rate <= MAX_BORROW_RATE_RAY);
     cvlr_assume!(mid > 0 && mid < optimal && optimal < RAY);
 }

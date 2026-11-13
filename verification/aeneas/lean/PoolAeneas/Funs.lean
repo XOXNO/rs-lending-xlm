@@ -824,7 +824,7 @@ def math.fp_core.mul_div_ceil
   | some quotient => ok quotient
 
 /-- [pool_aeneas::math::fp::{pool_aeneas::math::fp::Ray}::div_ceil]:
-    Source: 'src/../../../../common/src/math/fp.rs', lines 113:4-115:5
+    Source: 'src/../../../../common/src/math/fp.rs', lines 129:4-131:5
     Visibility: public -/
 def math.fp.Ray.div_ceil
   (self : math.fp.Ray) (env : aeneas_pool_shim.Env) (other : math.fp.Ray) :
@@ -856,7 +856,7 @@ def math.fp_core.div_by_int_half_up
     else ok quotient
 
 /-- [pool_aeneas::math::fp::{pool_aeneas::math::fp::Ray}::div_by_int]:
-    Source: 'src/../../../../common/src/math/fp.rs', lines 118:4-120:5
+    Source: 'src/../../../../common/src/math/fp.rs', lines 134:4-136:5
     Visibility: public -/
 def math.fp.Ray.div_by_int
   (self : math.fp.Ray) (env : aeneas_pool_shim.Env) (n : Std.I128) :
@@ -866,7 +866,7 @@ def math.fp.Ray.div_by_int
   ok i
 
 /-- [pool_aeneas::math::fp::{pool_aeneas::math::fp::Ray}::mul_floor]:
-    Source: 'src/../../../../common/src/math/fp.rs', lines 123:4-125:5
+    Source: 'src/../../../../common/src/math/fp.rs', lines 139:4-141:5
     Visibility: public -/
 def math.fp.Ray.mul_floor
   (self : math.fp.Ray) (env : aeneas_pool_shim.Env) (other : math.fp.Ray) :
@@ -876,7 +876,7 @@ def math.fp.Ray.mul_floor
   ok i
 
 /-- [pool_aeneas::math::fp::{pool_aeneas::math::fp::Ray}::mul_ceil]:
-    Source: 'src/../../../../common/src/math/fp.rs', lines 128:4-130:5
+    Source: 'src/../../../../common/src/math/fp.rs', lines 144:4-146:5
     Visibility: public -/
 def math.fp.Ray.mul_ceil
   (self : math.fp.Ray) (env : aeneas_pool_shim.Env) (other : math.fp.Ray) :
@@ -886,7 +886,7 @@ def math.fp.Ray.mul_ceil
   ok i
 
 /-- [pool_aeneas::math::fp::{pool_aeneas::math::fp::Ray}::mul_ratio_ceil]:
-    Source: 'src/../../../../common/src/math/fp.rs', lines 133:4-135:5
+    Source: 'src/../../../../common/src/math/fp.rs', lines 149:4-151:5
     Visibility: public -/
 def math.fp.Ray.mul_ratio_ceil
   (self : math.fp.Ray) (env : aeneas_pool_shim.Env) (numerator : Std.I128)
@@ -1058,7 +1058,7 @@ def math.fp_core.rescale_half_up
     env a from_decimals to_decimals env
 
 /-- [pool_aeneas::math::fp::{pool_aeneas::math::fp::Ray}::to_asset]:
-    Source: 'src/../../../../common/src/math/fp.rs', lines 168:4-170:5
+    Source: 'src/../../../../common/src/math/fp.rs', lines 184:4-186:5
     Visibility: public -/
 def math.fp.Ray.to_asset
   (self : math.fp.Ray) (env : aeneas_pool_shim.Env) (asset_decimals : Std.U32)
@@ -1156,7 +1156,7 @@ def math.fp_core.rescale_floor
     env a from_decimals to_decimals ()
 
 /-- [pool_aeneas::math::fp::{pool_aeneas::math::fp::Ray}::to_asset_floor]:
-    Source: 'src/../../../../common/src/math/fp.rs', lines 173:4-175:5
+    Source: 'src/../../../../common/src/math/fp.rs', lines 189:4-191:5
     Visibility: public -/
 def math.fp.Ray.to_asset_floor
   (self : math.fp.Ray) (env : aeneas_pool_shim.Env) (asset_decimals : Std.U32)
@@ -1262,7 +1262,7 @@ def math.fp_core.rescale_ceil
     env a from_decimals to_decimals ()
 
 /-- [pool_aeneas::math::fp::{pool_aeneas::math::fp::Ray}::to_asset_ceil]:
-    Source: 'src/../../../../common/src/math/fp.rs', lines 178:4-180:5
+    Source: 'src/../../../../common/src/math/fp.rs', lines 194:4-196:5
     Visibility: public -/
 def math.fp.Ray.to_asset_ceil
   (self : math.fp.Ray) (env : aeneas_pool_shim.Env) (asset_decimals : Std.U32)
@@ -1273,7 +1273,7 @@ def math.fp.Ray.to_asset_ceil
     asset_decimals
 
 /-- [pool_aeneas::math::fp::{pool_aeneas::math::fp::Ray}::from_asset]:
-    Source: 'src/../../../../common/src/math/fp.rs', lines 188:4-195:5
+    Source: 'src/../../../../common/src/math/fp.rs', lines 204:4-211:5
     Visibility: public -/
 def math.fp.Ray.from_asset
   (env : aeneas_pool_shim.Env) (amount : Std.I128) (asset_decimals : Std.U32) :
@@ -1285,7 +1285,7 @@ def math.fp.Ray.from_asset
   ok i
 
 /-- [pool_aeneas::math::fp::{pool_aeneas::math::fp::Ray}::checked_sub]:
-    Source: 'src/../../../../common/src/math/fp.rs', lines 199:4-201:5
+    Source: 'src/../../../../common/src/math/fp.rs', lines 215:4-217:5
     Visibility: public -/
 def math.fp.Ray.checked_sub
   (self : math.fp.Ray) (env : aeneas_pool_shim.Env) (rhs : math.fp.Ray) :
@@ -1295,7 +1295,7 @@ def math.fp.Ray.checked_sub
   ok i
 
 /-- [pool_aeneas::math::fp::{pool_aeneas::math::fp::Ray}::checked_add]:
-    Source: 'src/../../../../common/src/math/fp.rs', lines 204:4-206:5
+    Source: 'src/../../../../common/src/math/fp.rs', lines 220:4-222:5
     Visibility: public -/
 def math.fp.Ray.checked_add
   (self : math.fp.Ray) (env : aeneas_pool_shim.Env) (rhs : math.fp.Ray) :
@@ -1305,7 +1305,7 @@ def math.fp.Ray.checked_add
   ok i
 
 /-- [pool_aeneas::math::fp::{pool_aeneas::math::fp::Bps}::from]:
-    Source: 'src/../../../../common/src/math/fp.rs', lines 358:4-360:5
+    Source: 'src/../../../../common/src/math/fp.rs', lines 374:4-376:5
     Visibility: public -/
 def math.fp.Bps.from
   {T0 : Type _} (coreconvertIntoT0I128Inst : core.convert.Into T0 Std.I128)
@@ -1316,13 +1316,13 @@ def math.fp.Bps.from
   ok i
 
 /-- [pool_aeneas::math::fp::{pool_aeneas::math::fp::Bps}::raw]:
-    Source: 'src/../../../../common/src/math/fp.rs', lines 364:4-366:5
+    Source: 'src/../../../../common/src/math/fp.rs', lines 380:4-382:5
     Visibility: public -/
 def math.fp.Bps.raw (self : math.fp.Bps) : Result Std.I128 := do
   ok self
 
 /-- [pool_aeneas::math::fp::{pool_aeneas::math::fp::Bps}::apply_to]:
-    Source: 'src/../../../../common/src/math/fp.rs', lines 399:4-401:5
+    Source: 'src/../../../../common/src/math/fp.rs', lines 415:4-417:5
     Visibility: public -/
 def math.fp.Bps.apply_to
   (self : math.fp.Bps) (env : aeneas_pool_shim.Env) (amount : Std.I128) :
@@ -1331,7 +1331,7 @@ def math.fp.Bps.apply_to
   math.fp_core.mul_div_half_up env amount self constants.shared.BPS
 
 /-- [pool_aeneas::math::fp::{pool_aeneas::math::fp::Bps}::apply_to_ceil]:
-    Source: 'src/../../../../common/src/math/fp.rs', lines 404:4-406:5
+    Source: 'src/../../../../common/src/math/fp.rs', lines 420:4-422:5
     Visibility: public -/
 def math.fp.Bps.apply_to_ceil
   (self : math.fp.Bps) (env : aeneas_pool_shim.Env) (amount : Std.I128) :
@@ -1340,7 +1340,7 @@ def math.fp.Bps.apply_to_ceil
   math.fp_core.mul_div_ceil env amount self constants.shared.BPS
 
 /-- [pool_aeneas::math::fp::{pool_aeneas::math::fp::Bps}::flash_loan_fee_on]:
-    Source: 'src/../../../../common/src/math/fp.rs', lines 415:4-422:5
+    Source: 'src/../../../../common/src/math/fp.rs', lines 431:4-438:5
     Visibility: public -/
 def math.fp.Bps.flash_loan_fee_on
   (self : math.fp.Bps) (env : aeneas_pool_shim.Env) (amount : Std.I128) :
@@ -1355,7 +1355,7 @@ def math.fp.Bps.flash_loan_fee_on
   else ok fee_amount
 
 /-- [pool_aeneas::math::fp::{pool_aeneas::math::fp::Bps}::apply_to_ray]:
-    Source: 'src/../../../../common/src/math/fp.rs', lines 439:4-441:5
+    Source: 'src/../../../../common/src/math/fp.rs', lines 455:4-457:5
     Visibility: public -/
 def math.fp.Bps.apply_to_ray
   (self : math.fp.Bps) (env : aeneas_pool_shim.Env) (value : math.fp.Ray) :
@@ -2054,7 +2054,7 @@ def types.pool.MarketParams.Insts.CoreConvertFromShared0MarketParamsRaw.from
     }
 
 /-- [pool_aeneas::types::pool::{impl core::clone::Clone for pool_aeneas::types::pool::HubAssetKey}::clone]:
-    Source: 'src/../../../../common/src/types/pool.rs', lines 478:9-478:14
+    Source: 'src/../../../../common/src/types/pool.rs', lines 513:9-513:14
     Visibility: public -/
 def types.pool.HubAssetKey.Insts.CoreCloneClone.clone
   (self : types.pool.HubAssetKey) : Result types.pool.HubAssetKey := do
@@ -2063,7 +2063,7 @@ def types.pool.HubAssetKey.Insts.CoreCloneClone.clone
   ok { hub_id := i, asset := a }
 
 /-- [pool_aeneas::types::pool::{impl core::convert::From<&'_0 pool_aeneas::types::pool::PoolStateRaw> for pool_aeneas::types::pool::PoolState}::from]:
-    Source: 'src/../../../../common/src/types/pool.rs', lines 584:4-594:5
+    Source: 'src/../../../../common/src/types/pool.rs', lines 619:4-629:5
     Visibility: public -/
 def types.pool.PoolState.Insts.CoreConvertFromShared0PoolStateRaw.from
   (r : types.pool.PoolStateRaw) : Result types.pool.PoolState := do

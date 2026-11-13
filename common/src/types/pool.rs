@@ -165,13 +165,20 @@ pub struct InterestRateModel {
 }
 
 impl InterestRateModel {
-    /// Validates that the rate curve is well-formed: a non-negative base rate, non-decreasing
-    /// slopes up through the max borrow rate, a max rate within bounds and above the base
-    /// rate, a curve whose rate at full utilization (`base + slope1 + slope2 + slope3`) stays
-    /// at or below the max rate, a utilization breakpoint sequence that is strictly increasing through
+    /// Validates that the rate curve is well-formed: a non-negative base rate, `slope1` at
+    /// least the base rate, non-negative `slope2` and `slope3`, each slope at most the max
+    /// borrow rate, a max rate within bounds and above the base rate, a curve whose rate at
+    /// full utilization (`base + slope1 + slope2 + slope3`) stays at or below the max rate,
+    /// a utilization breakpoint sequence that is strictly increasing through
     /// `optimal_utilization` and non-decreasing to `max_utilization`
-    /// (`0 < mid < optimal < RAY`, `optimal <= max <= RAY`), a reserve factor below 100%, and
-    /// a flashloan fee within the configured maximum. Panics if any of these checks fails.
+    /// (`0 < mid < optimal < RAY`, `optimal <= max <= RAY`), a curve whose steepness per unit
+    /// of utilization does not fall at either kink, a reserve factor below 100%, and a
+    /// flashloan fee within the configured maximum. Panics if any of these checks fails.
+    ///
+    /// Each slope is the rise across its whole segment, so the steepness of a segment is its
+    /// slope divided by its width: `slope1 / mid`, `slope2 / (optimal - mid)` and
+    /// `slope3 / (RAY - optimal)`. Comparing the slopes themselves would accept a curve that
+    /// flattens at a kink and reject one that steepens across a narrow segment.
     pub fn verify(&self, env: &Env) {
         assert_with_error!(
             env,
@@ -179,9 +186,11 @@ impl InterestRateModel {
             CollateralError::BaseRateNegative
         );
         if self.slope1 < self.base_borrow_rate
-            || self.slope2 < self.slope1
-            || self.slope3 < self.slope2
-            || self.max_borrow_rate < self.slope3
+            || self.slope2 < 0
+            || self.slope3 < 0
+            || self.slope1 > self.max_borrow_rate
+            || self.slope2 > self.max_borrow_rate
+            || self.slope3 > self.max_borrow_rate
         {
             panic_with_error!(env, CollateralError::SlopeNonMonotonic);
         }
@@ -218,6 +227,15 @@ impl InterestRateModel {
         if self.max_utilization < self.optimal_utilization || self.max_utilization > RAY {
             panic_with_error!(env, CollateralError::InvalidUtilRange);
         }
+        let mid_width = Ray::from(self.mid_utilization);
+        let optimal_width =
+            Ray::from(self.optimal_utilization).checked_sub(env, Ray::from(self.mid_utilization));
+        let top_width = Ray::ONE.checked_sub(env, Ray::from(self.optimal_utilization));
+        if !steepness_does_not_fall(env, self.slope1, mid_width, self.slope2, optimal_width)
+            || !steepness_does_not_fall(env, self.slope2, optimal_width, self.slope3, top_width)
+        {
+            panic_with_error!(env, CollateralError::SlopeNonMonotonic);
+        }
         assert_with_error!(
             env,
             i128::from(self.reserve_factor) < BPS,
@@ -229,6 +247,23 @@ impl InterestRateModel {
             CollateralError::InvalidBorrowParams
         );
     }
+}
+
+/// Whether `rise / width` is at most `next_rise / next_width`, exactly. Both rises are RAY
+/// rates and non-negative; both widths are positive RAY utilizations.
+///
+/// Compares `rise * next_width <= next_rise * width` without rounding: for an integer
+/// `rise`, that holds exactly when `rise <= floor(next_rise * width / next_width)`. A
+/// quotient beyond `i128` saturates, and `rise` fits in `i128`, so the comparison never
+/// aborts and stays exact.
+fn steepness_does_not_fall(
+    env: &Env,
+    rise: i128,
+    width: Ray,
+    next_rise: i128,
+    next_width: Ray,
+) -> bool {
+    Ray::from(rise) <= Ray::from(next_rise).mul_ray_ratio_floor_saturating(env, width, next_width)
 }
 
 /// Wire form of a supply position: ray-scaled amount plus the risk parameters stamped on the

@@ -58,13 +58,18 @@ that failure is the only effect) and `spec_bind_inv` (bind inversion). No
 
 ## Rate-model hypotheses
 
-`ValidRateModel p` (`Proofs/Curve.lean`) is exactly what
+`ValidRateModel p` (`Proofs/Curve.lean`) is part of what
 `InterestRateModel::verify` (`common/src/types/pool.rs`) checks, on the fields
-`MarketParams` carries: `0 ≤ base`, `base ≤ slope1 ≤ slope2 ≤ slope3 ≤ max`,
-`base < max`, `max ≤ MAX_BORROW_RATE_RAY = 2·RAY`,
+`MarketParams` carries: `0 ≤ base`, `base ≤ slope1`, `0 ≤ slope2`,
+`0 ≤ slope3`, `slope3 ≤ max`, `base < max`, `max ≤ MAX_BORROW_RATE_RAY = 2·RAY`,
 `base + slope1 + slope2 + slope3 ≤ max`, `0 < mid < optimal < RAY`,
-`optimal ≤ max_utilization ≤ RAY`, `0 ≤ reserve_factor < BPS`. `verify` runs
-on market creation and every parameter update
+`optimal ≤ max_utilization ≤ RAY`, `0 ≤ reserve_factor < BPS`. `verify` also
+requires `slope1, slope2 ≤ max` and steepness per unit of utilization that
+does not fall at either kink (audit I-08); no theorem needs those, so every
+theorem holds for more models than `verify` admits. Before I-08, `verify`
+ordered the slopes themselves (`slope1 ≤ slope2 ≤ slope3`) and this
+predicate did too; the proofs only ever used the non-negativity that
+ordering implied. `verify` runs on market creation and every parameter update
 (`contracts/pool/src/ops/market.rs`, `contracts/governance/src/validate/asset.rs`,
 `contracts/governance/src/op.rs`).
 
