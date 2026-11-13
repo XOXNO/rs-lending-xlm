@@ -76,7 +76,8 @@ current base units rounded half-up. Ceiled debt can be one unit higher than
 
 Use current controller views for balances, prices, indexes, and stored risk
 parameters. Use `get_ltv_collateral_usd` for current LTV-weighted collateral
-in USD WAD. Listed collateral uses the current listing LTV. Unlisted
+in USD WAD. Listed collateral uses the current listing LTV, lowered by any
+amount the stored liquidation threshold is below the listed one. Unlisted
 collateral keeps its stored LTV. Each weight is capped by the stored
 liquidation threshold. Keep custom arithmetic in `bigint` WAD/RAY/BPS.
 Follow the [formulas](../xoxno-lending/math.md#health-factor-and-ltv-weighting).

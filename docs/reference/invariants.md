@@ -427,6 +427,15 @@ precede entry; spoke caps use returned pool deltas and revert the whole
 transaction on failure. Supply, repayment and liquidation do not universally
 apply this final gate.
 
+A refresh never stores an LTV at or above the stored liquidation threshold.
+When the stored threshold stays below the listed one, the refresh stores the
+listed LTV minus that difference, floored at zero. The position then keeps the
+listing's gap between LTV and threshold, so its borrow weight stays below its
+liquidation weight. This holds for the refresh before the gate, for a supply
+or withdrawal of the leg, for `update_account_threshold`, and for the limit
+that `get_ltv_collateral_usd` reports. An unlisted leg is not refreshed and
+keeps its stored tuple.
+
 <a id="inv-risk-02"></a>
 
 ### INV-RISK-02 — Conservative valuation biases safety

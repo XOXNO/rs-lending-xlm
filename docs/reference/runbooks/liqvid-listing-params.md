@@ -389,7 +389,7 @@ stored values, not the live listing:
 Thus an `editAssetInSpoke` that lowers LT changes only the positions created
 after it and the positions that the controller refreshes. Every borrow,
 withdrawal and account strategy refreshes the stored LTV of each listed supply
-position without a condition. In the same step it refreshes the stored LT,
+position, up to the limit below. In the same step it refreshes the stored LT,
 bonus and fee if the new values do not favour the liquidator. A change that
 favours the liquidator refreshes LT, bonus and fee together, and only in these
 paths:
@@ -413,6 +413,24 @@ takes the new values. In the supply path, the gate calculates the HF before
 the new supply adds to the collateral. The gate reads the prices of all
 assets of the account. When the gate runs, a stale price or a price outside
 the band makes the call fail, also a supply.
+
+A refresh never stores an LTV at or above the stored LT. When the stored LT
+stays below the listing LT, the refresh stores the listing LTV minus that
+difference, and not less than zero. The position then keeps the listing gap
+`LT - LTV` below its stored LT. This occurs when one edit raises LT and also
+raises the bonus or lowers the fee. Such an edit favours the liquidator, so a
+borrow keeps the old LT, and a supply keeps it when the gate fails. It also
+occurs when `update_account_threshold` with `has_risks = false` runs after an
+edit that raises LT, because that call never changes the stored LT.
+
+For example, a position stores LTV 7500 and LT 8000. The listing changes to
+LTV 8000 and LT 8500 with a higher bonus. A borrow keeps LT 8000 and LTV 7500
+(8000 minus the gap of 500). The borrow limit stays 500 BPS below the
+liquidation line, and a borrow to the limit gives HF 1.067. With LTV 8000
+next to LT 8000, a borrow to the limit would give HF 1. The position takes
+LTV 8000 together with LT 8500, in one of the three paths above.
+`get_ltv_collateral_usd` reports the limit with the same rule. For this
+listing the rule changes nothing, because the edit lowers LT.
 
 `update_account_threshold` with `has_risks = true` also checks the account HF
 after the refresh. If the refresh lowers the HF below both 1.05 and the HF
