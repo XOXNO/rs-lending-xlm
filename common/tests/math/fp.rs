@@ -1504,3 +1504,24 @@ fn exact_ratio_and_fraction_wrappers_round_once_in_their_named_direction() {
     assert_eq!(Wad::try_from_token_upscale(0, 7), Some(Wad::ZERO));
     assert_eq!(Wad::try_from_token_upscale(-1, 7), None);
 }
+
+#[test]
+fn test_ray_mul_ray_ratio_floor_saturating() {
+    let env = Env::default();
+    let ratio = |x: i128, n: i128, d: i128| {
+        Ray::from(x)
+            .mul_ray_ratio_floor_saturating(&env, Ray::from(n), Ray::from(d))
+            .raw()
+    };
+    assert_eq!(ratio(100, 1, 3), 33, "floors");
+    assert_eq!(ratio(99, 1, 3), 33, "exact");
+    assert_eq!(ratio(2 * RAY, RAY, 1), i128::MAX, "saturates above i128");
+    assert_eq!(ratio(0, RAY, 1), 0);
+}
+
+#[test]
+#[should_panic]
+fn test_ray_mul_ray_ratio_floor_saturating_rejects_a_zero_denominator() {
+    let env = Env::default();
+    let _ = Ray::ONE.mul_ray_ratio_floor_saturating(&env, Ray::ONE, Ray::ZERO);
+}

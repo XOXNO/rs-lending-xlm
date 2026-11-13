@@ -70,24 +70,60 @@ struct In {
     pin_raw: u64,
 }
 
-fn make_params(_env: &Env, asset: &Address, i: &In) -> MarketParamsRaw {
-    let mid_pct = (i.mid_pct % 98 + 1) as i128;
-    let opt_pct = (i.opt_pct as i128 % (99 - mid_pct)) + mid_pct + 1;
+/// A rate curve `InterestRateModel::verify` admits, as raw RAY values.
+struct Curve {
+    base: i128,
+    slopes: [i128; 3],
+    mid: i128,
+    optimal: i128,
+    max: i128,
+}
 
-    let base_pct = (i.base_pct as i128) % 51;
-    let s1_pct = base_pct + ((i.s1_pct as i128) % ((200 - base_pct) / 3 - base_pct + 1));
-    let s2_pct = s1_pct + ((i.s2_pct as i128) % ((200 - base_pct - s1_pct) / 2 - s1_pct + 1));
-    let s3_pct = s2_pct + ((i.s3_pct as i128) % (200 - base_pct - s1_pct - 2 * s2_pct + 1));
-    let max_pct = (base_pct + s1_pct + s2_pct + s3_pct).max(base_pct + 1);
+/// Builds a curve from whole-percent breakpoints and per-unit steepness
+/// `k1 <= k2 <= k3` (percent of rate per whole utilization, at most 100). Each
+/// slope is `k * width`, so the steepness ordering is exact; the slopes sum to
+/// at most `k3`, and `base` is a share of `slope1`, so the full-utilization
+/// rate stays within 200%. A smaller slope over a narrower segment, equal
+/// steepness and the all-zero curve are all generated.
+fn curve(base_pct: i128, s1_pct: i128, s2_pct: i128, s3_pct: i128, mid_pct: i128, opt_pct: i128) -> Curve {
+    let mid_pct = mid_pct % 98 + 1;
+    let opt_pct = opt_pct % (99 - mid_pct) + mid_pct + 1;
+    let widths = [mid_pct, opt_pct - mid_pct, 100 - opt_pct];
+    let k3 = s3_pct % 101;
+    let k2 = k3 * (s2_pct % 101) / 100;
+    let k1 = k2 * (s1_pct % 101) / 100;
+    // RAY per (percent of rate) * (percent of utilization).
+    let unit = RAY / 10_000;
+    let slopes = [unit * k1 * widths[0], unit * k2 * widths[1], unit * k3 * widths[2]];
+    let base = slopes[0] * (base_pct % 101) / 100;
+    let full = base + slopes[0] + slopes[1] + slopes[2];
+    Curve {
+        base,
+        slopes,
+        mid: RAY * mid_pct / 100,
+        optimal: RAY * opt_pct / 100,
+        max: full.max(base + RAY / 100),
+    }
+}
+
+fn make_params(_env: &Env, asset: &Address, i: &In) -> MarketParamsRaw {
+    let c = curve(
+        i.base_pct as i128,
+        i.s1_pct as i128,
+        i.s2_pct as i128,
+        i.s3_pct as i128,
+        i.mid_pct as i128,
+        i.opt_pct as i128,
+    );
 
     MarketParamsRaw {
-        base_borrow_rate: RAY * base_pct / 100,
-        slope1: RAY * s1_pct / 100,
-        slope2: RAY * s2_pct / 100,
-        slope3: RAY * s3_pct / 100,
-        mid_utilization: RAY * mid_pct / 100,
-        optimal_utilization: RAY * opt_pct / 100,
-        max_borrow_rate: RAY * max_pct / 100,
+        base_borrow_rate: c.base,
+        slope1: c.slopes[0],
+        slope2: c.slopes[1],
+        slope3: c.slopes[2],
+        mid_utilization: c.mid,
+        optimal_utilization: c.optimal,
+        max_borrow_rate: c.max,
         reserve_factor: (((i.reserve_pct as i128 % 51) * 100).clamp(0, BPS - 1)) as u32,
         max_utilization: RAY,
         is_flashloanable: true,
@@ -301,23 +337,23 @@ fn withdraw_entry(hub_asset: &HubAssetKey, scaled_amount: i128, amount: i128) ->
 }
 
 fn rate_model_from_input(i: &In, salt: u32) -> InterestRateModel {
-    let base_pct = ((i.base_pct as i128 + salt as i128) % 51).max(0);
-    let s1_pct =
-        base_pct + ((i.s1_pct as i128 + salt as i128) % ((200 - base_pct) / 3 - base_pct + 1));
-    let s2_pct =
-        s1_pct + ((i.s2_pct as i128 + salt as i128) % ((200 - base_pct - s1_pct) / 2 - s1_pct + 1));
-    let s3_pct =
-        s2_pct + ((i.s3_pct as i128 + salt as i128) % (200 - base_pct - s1_pct - 2 * s2_pct + 1));
-    let mid_pct = (i.mid_pct as i128 + salt as i128) % 98 + 1;
-    let opt_pct = ((i.opt_pct as i128 + salt as i128) % (99 - mid_pct)) + mid_pct + 1;
+    let salt_i = salt as i128;
+    let c = curve(
+        i.base_pct as i128 + salt_i,
+        i.s1_pct as i128 + salt_i,
+        i.s2_pct as i128 + salt_i,
+        i.s3_pct as i128 + salt_i,
+        i.mid_pct as i128 + salt_i,
+        i.opt_pct as i128 + salt_i,
+    );
     let mut model = InterestRateModel {
-        max_borrow_rate: RAY * (base_pct + s1_pct + s2_pct + s3_pct).max(base_pct + 1) / 100,
-        base_borrow_rate: RAY * base_pct / 100,
-        slope1: RAY * s1_pct / 100,
-        slope2: RAY * s2_pct / 100,
-        slope3: RAY * s3_pct / 100,
-        mid_utilization: RAY * mid_pct / 100,
-        optimal_utilization: RAY * opt_pct / 100,
+        max_borrow_rate: c.max,
+        base_borrow_rate: c.base,
+        slope1: c.slopes[0],
+        slope2: c.slopes[1],
+        slope3: c.slopes[2],
+        mid_utilization: c.mid,
+        optimal_utilization: c.optimal,
         max_utilization: RAY,
         reserve_factor: (((i.reserve_pct as i128 + salt as i128) % 51) * 100).clamp(0, BPS - 1)
             as u32,

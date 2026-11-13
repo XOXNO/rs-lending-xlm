@@ -151,7 +151,16 @@ multiply-divide, `slope * excess / width`, so each region ends exactly on its
 slope and the rate never falls as utilization rises. The result cannot exceed the
 configured maximum, which is limited to 200% APR. Parameter validation requires
 `base + slope1 + slope2 + slope3 <= max`, so the maximum never cuts the curve
-before full utilization.
+before full utilization. It also requires the curve not to flatten at a kink:
+each slope is the rise across its whole segment, so validation compares
+steepness per unit of utilization, `slope1 / mid <= slope2 / (optimal - mid) <=
+slope3 / (RAY - optimal)`, exactly and without division
+(`slope1 * (optimal - mid) <= slope2 * mid`, and the same at optimal). Equal
+steepness is allowed, so a straight line through a kink passes. Slopes must
+also be non-negative, at most the max rate, and `slope1` at least the base rate.
+Together these imply `base + slope1 + slope2 < max`, so the segment above
+optimal always has room below the cap: a positive `slope3` leaves it, and
+`slope3 = 0` forces `slope1 = slope2 = 0`, where `max > base` does.
 
 Accrual uses the per-millisecond rate `per_ms`. Pool borrow and deposit rate
 views return annual RAY fractions from stored indexes, without first accruing

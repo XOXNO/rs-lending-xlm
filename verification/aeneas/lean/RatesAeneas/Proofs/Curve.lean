@@ -5,8 +5,9 @@ import RatesAeneas.Proofs.TypedWrappers
 `rates::curve` (common/src/rates/curve.rs): the three-segment borrow-rate
 curve, the per-millisecond borrow rate and the deposit rate.
 
-Hypotheses on the rate model are exactly the checks of
-`InterestRateModel::verify` (common/src/types/pool.rs), which every market
+Hypotheses on the rate model are checks of
+`InterestRateModel::verify` (common/src/types/pool.rs), a subset of them (see
+`ValidRateModel`), which every market
 creation and parameter update runs (contracts/pool/src/ops/market.rs,
 contracts/governance/src/validate/asset.rs, contracts/governance/src/op.rs).
 -/
@@ -22,18 +23,22 @@ namespace RatesAeneas.Proofs
 
 local notation "rv " r:max => IScalar.val (ty := IScalarTy.I128) r
 
-/-- The checks `InterestRateModel::verify` performs, on the fields the rate
+/-- Checks `InterestRateModel::verify` performs, on the fields the rate
 code reads (`MarketParams` carries them unchanged from the verified model):
-non-negative base, slopes non-decreasing up to the max rate
-(`base ≤ slope1 ≤ slope2 ≤ slope3 ≤ max`), `max > base`,
-`max ≤ MAX_BORROW_RATE_RAY = 2·RAY`, `base + slope1 + slope2 + slope3 ≤ max`,
-`0 < mid < optimal < RAY`, `optimal ≤ max_utilization ≤ RAY`, and
-`0 ≤ reserve_factor < BPS` (`reserve_factor` is a `u32`). -/
+non-negative base, `base ≤ slope1`, non-negative `slope2` and `slope3`,
+`slope3 ≤ max`, `max > base`, `max ≤ MAX_BORROW_RATE_RAY = 2·RAY`,
+`base + slope1 + slope2 + slope3 ≤ max`, `0 < mid < optimal < RAY`,
+`optimal ≤ max_utilization ≤ RAY`, and `0 ≤ reserve_factor < BPS`
+(`reserve_factor` is a `u32`). `verify` also requires the steepness per unit
+of utilization not to fall at either kink (`slope1 / mid ≤ slope2 / (optimal - mid)
+≤ slope3 / (RAY - optimal)`) and `slope1, slope2 ≤ max`; no theorem here needs
+those, so they are left out and every theorem covers more models than `verify`
+admits. -/
 structure ValidRateModel (p : types.MarketParams) : Prop where
   base_nonneg : 0 ≤ rv p.base_borrow_rate
   base_le_s1 : rv p.base_borrow_rate ≤ rv p.slope1
-  s1_le_s2 : rv p.slope1 ≤ rv p.slope2
-  s2_le_s3 : rv p.slope2 ≤ rv p.slope3
+  s2_nonneg : 0 ≤ rv p.slope2
+  s3_nonneg : 0 ≤ rv p.slope3
   s3_le_max : rv p.slope3 ≤ rv p.max_borrow_rate
   base_lt_max : rv p.base_borrow_rate < rv p.max_borrow_rate
   max_le : rv p.max_borrow_rate ≤ 2 * 10^27
@@ -112,7 +117,7 @@ theorem calculate_annual_borrow_rate_spec (env : Env) (u : math.fp.Ray) (p : typ
     (hu : 0 ≤ rv u) (hp : ValidRateModel p) :
     rates.curve.calculate_annual_borrow_rate env u p ⦃ r =>
       AnnualRate p (min (rv u) (10^27)) (rv r) ⦄ := by
-  obtain ⟨hb0, hbs1, hs12, hs23, hs3m, hbm, hm2, hsum, hmid, hmo, hor, _, _, _, _⟩ := hp
+  obtain ⟨hb0, hbs1, hs2n, hs3n, hs3m, hbm, hm2, hsum, hmid, hmo, hor, _, _, _, _⟩ := hp
   unfold rates.curve.calculate_annual_borrow_rate
   rw [ray_gt_eq u math.fp.Ray.ONE, ray_one_val]
   simp only [bind_ok]
@@ -208,7 +213,7 @@ theorem calculate_annual_borrow_rate_spec (env : Env) (u : math.fp.Ray) (p : typ
 theorem AnnualRate.bounds {p : types.MarketParams} {m r : Int} (hp : ValidRateModel p)
     (hm0 : 0 ≤ m) (hm1 : m ≤ 10^27) (h : AnnualRate p m r) :
     rv p.base_borrow_rate ≤ r ∧ r ≤ rv p.max_borrow_rate := by
-  obtain ⟨hb0, hbs1, hs12, hs23, hs3m, hbm, hm2, hsum, hmid, hmo, hor, _, _, _, _⟩ := hp
+  obtain ⟨hb0, hbs1, hs2n, hs3n, hs3m, hbm, hm2, hsum, hmid, hmo, hor, _, _, _, _⟩ := hp
   obtain ⟨h1, h2, h3⟩ := h
   by_cases c1 : m < rv p.mid_utilization
   · obtain ⟨c, hc, hr⟩ := h1 c1
@@ -245,7 +250,7 @@ def SameSegment (p : types.MarketParams) (m m' : Int) : Prop :=
 theorem AnnualRate.mono_segment {p : types.MarketParams} {m m' r r' : Int}
     (hp : ValidRateModel p) (hmm : m ≤ m') (hseg : SameSegment p m m')
     (h : AnnualRate p m r) (h' : AnnualRate p m' r') : r ≤ r' := by
-  obtain ⟨hb0, hbs1, hs12, hs23, hs3m, hbm, hm2, hsum, hmid, hmo, hor, _, _, _, _⟩ := hp
+  obtain ⟨hb0, hbs1, hs2n, hs3n, hs3m, hbm, hm2, hsum, hmid, hmo, hor, _, _, _, _⟩ := hp
   obtain ⟨h1, h2, h3⟩ := h
   obtain ⟨h1', h2', h3'⟩ := h'
   rcases hseg with c | ⟨c1, c2⟩ | c
@@ -287,7 +292,7 @@ the next segment starts. -/
 theorem AnnualRate.mono {p : types.MarketParams} {m m' r r' : Int}
     (hp : ValidRateModel p) (hm0 : 0 ≤ m) (hmm : m ≤ m') (hm1 : m' ≤ 10^27)
     (h : AnnualRate p m r) (h' : AnnualRate p m' r') : r ≤ r' := by
-  obtain ⟨hb0, hbs1, hs12, hs23, hs3m, hbm, hm2, hsum, hmid, hmo, hor, _, _, _, _⟩ := hp
+  obtain ⟨hb0, hbs1, hs2n, hs3n, hs3m, hbm, hm2, hsum, hmid, hmo, hor, _, _, _, _⟩ := hp
   obtain ⟨h1, h2, h3⟩ := h
   obtain ⟨h1', h2', h3'⟩ := h'
   by_cases c1 : m < rv p.mid_utilization
@@ -355,7 +360,7 @@ theorem AnnualRate.at_kinks {p : types.MarketParams} {m r : Int} (hp : ValidRate
       r = min (rv p.base_borrow_rate + rv p.slope1 + rv p.slope2 + rv p.slope3)
         (rv p.max_borrow_rate) ∧
       r = rv p.base_borrow_rate + rv p.slope1 + rv p.slope2 + rv p.slope3) := by
-  obtain ⟨hb0, hbs1, hs12, hs23, hs3m, hbm, hm2, hsum, hmid, hmo, hor, _, _, _, _⟩ := hp
+  obtain ⟨hb0, hbs1, hs2n, hs3n, hs3m, hbm, hm2, hsum, hmid, hmo, hor, _, _, _, _⟩ := hp
   obtain ⟨h1, h2, h3⟩ := h
   refine ⟨fun hm => ?_, fun hm => ?_, fun hm => ?_⟩
   · obtain ⟨x, hx, hr⟩ := h2 (by omega) (by omega)

@@ -3,7 +3,7 @@
 
 
 controller.wasm 140000
-pool.wasm 42000
+pool.wasm 42500
 common.wasm 21000
 flash_loan_receiver.wasm 27000
 defindex_strategy.wasm 45000

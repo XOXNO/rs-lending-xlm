@@ -72,20 +72,35 @@ const PARTITION_MAX: usize = 8;
 /// at most two internal compounding steps.
 const PARTITION_SPAN_MAX_MS: u64 = 2 * MS_PER_YEAR;
 
+/// Builds a rate model `InterestRateModel::verify` admits. Each segment's
+/// steepness per unit of utilization is at least the previous one's
+/// (`k1 <= k2 <= k3`, with `k3` at most half the rate cap), and each slope is
+/// that steepness times the segment width. Because the widths sum to `RAY`,
+/// the slopes sum to at most `k3`; `base` is at most `slope1`, so the
+/// full-utilization rate stays under the cap. A smaller slope over a narrower
+/// segment, and equal steepness across a kink, are both generated.
 fn make_params(env: &Env, i: &In) -> MarketParamsRaw {
     let cap = MAX_BORROW_RATE_RAY;
-
-    let base = cap / 4 * (i.base_pct as i128) / 1_024;
-    let s1 = base + ((cap - base) / 3 - base) * (i.s1_pct as i128) / 256;
-    let s2 = s1 + ((cap - base - s1) / 2 - s1) * (i.s2_pct as i128) / 256;
-    let s3 = s2 + (cap - base - s1 - s2 - s2) * (i.s3_pct as i128) / 65_536;
-    let full = base + s1 + s2 + s3;
-
-    let max_rate = (full + (cap - full) * (i.max_pct as i128) / 65_536).max(base + 1);
 
     let mid = RAY * (i.mid_pct as i128 % 98 + 1) / 100;
     let optimal = mid + (RAY - mid) * (i.opt_pct as i128 % 99 + 1) / 101;
     let max_util = optimal + (RAY - optimal) * (i.max_util_pct as i128) / 256;
+    let (w1, w2, w3) = (mid, optimal - mid, RAY - optimal);
+
+    // Steepness, in rate per whole unit of utilization (RAY-scaled).
+    let k3 = (cap / 2 - RAY / 1_000) * (i.s3_pct as i128) / 65_536;
+    let k2 = k3 * (i.s2_pct as i128) / 255;
+    let k1 = k2 * (i.s1_pct as i128) / 255;
+    let slope = |k: i128, w: i128| Ray::from(k).mul_floor(env, Ray::from(w)).raw();
+    let s1 = slope(k1, w1);
+    // Flooring can leave a later slope a raw unit short of the earlier
+    // steepness; lift it to the exact minimum.
+    let s2 = slope(k2, w2).max(Ray::from(s1).mul_ratio_ceil(env, w2, w1).raw());
+    let s3 = slope(k3, w3).max(Ray::from(s2).mul_ratio_ceil(env, w3, w2).raw());
+    let base = s1 * (i.base_pct as i128) / 255;
+    let full = base + s1 + s2 + s3;
+
+    let max_rate = (full + (cap - full) * (i.max_pct as i128) / 65_536).max(base + 1);
 
     MarketParamsRaw {
         max_borrow_rate: max_rate,
