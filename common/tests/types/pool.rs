@@ -679,13 +679,7 @@ fn test_steepness_comparison_is_exact_across_magnitudes() {
         } else {
             draw(MAX_BORROW_RATE_RAY + 1)
         };
-        let got = steepness_does_not_fall(
-            &env,
-            rise,
-            Ray::from(width),
-            next_rise,
-            Ray::from(next_width),
-        );
+        let got = steepness_does_not_fall(&env, rise, width, next_rise, next_width);
         let want = steepness_reference(&env, rise, width, next_rise, next_width);
         assert_eq!(
             got, want,
@@ -768,11 +762,7 @@ fn test_rate_model_verify_admits_only_curves_whose_top_segment_has_room() {
         if max <= base || max > MAX_BORROW_RATE_RAY {
             continue;
         }
-        let (w1, w2, w3) = (
-            Ray::from(mid),
-            Ray::from(optimal - mid),
-            Ray::from(RAY - optimal),
-        );
+        let (w1, w2, w3) = (mid, optimal - mid, RAY - optimal);
         if !steepness_does_not_fall(&env, s1, w1, s2, w2)
             || !steepness_does_not_fall(&env, s2, w2, s3, w3)
         {

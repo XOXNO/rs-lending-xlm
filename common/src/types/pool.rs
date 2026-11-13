@@ -227,12 +227,16 @@ impl InterestRateModel {
         if self.max_utilization < self.optimal_utilization || self.max_utilization > RAY {
             panic_with_error!(env, CollateralError::InvalidUtilRange);
         }
-        let mid_width = Ray::from(self.mid_utilization);
-        let optimal_width =
-            Ray::from(self.optimal_utilization).checked_sub(env, Ray::from(self.mid_utilization));
-        let top_width = Ray::ONE.checked_sub(env, Ray::from(self.optimal_utilization));
-        if !steepness_does_not_fall(env, self.slope1, mid_width, self.slope2, optimal_width)
-            || !steepness_does_not_fall(env, self.slope2, optimal_width, self.slope3, top_width)
+        // Both widths are positive: `mid < optimal < RAY` was checked above.
+        let optimal_width = self.optimal_utilization - self.mid_utilization;
+        let top_width = RAY - self.optimal_utilization;
+        if !steepness_does_not_fall(
+            env,
+            self.slope1,
+            self.mid_utilization,
+            self.slope2,
+            optimal_width,
+        ) || !steepness_does_not_fall(env, self.slope2, optimal_width, self.slope3, top_width)
         {
             panic_with_error!(env, CollateralError::SlopeNonMonotonic);
         }
@@ -250,7 +254,7 @@ impl InterestRateModel {
 }
 
 /// Whether `rise / width` is at most `next_rise / next_width`, exactly. Both rises are RAY
-/// rates and non-negative; both widths are positive RAY utilizations.
+/// rates and non-negative; both widths are positive RAY utilizations, as raw `i128`.
 ///
 /// Compares `rise * next_width <= next_rise * width` without rounding: for an integer
 /// `rise`, that holds exactly when `rise <= floor(next_rise * width / next_width)`. A
@@ -259,11 +263,16 @@ impl InterestRateModel {
 fn steepness_does_not_fall(
     env: &Env,
     rise: i128,
-    width: Ray,
+    width: i128,
     next_rise: i128,
-    next_width: Ray,
+    next_width: i128,
 ) -> bool {
-    Ray::from(rise) <= Ray::from(next_rise).mul_ray_ratio_floor_saturating(env, width, next_width)
+    Ray::from(rise)
+        <= Ray::from(next_rise).mul_ray_ratio_floor_saturating(
+            env,
+            Ray::from(width),
+            Ray::from(next_width),
+        )
 }
 
 /// Wire form of a supply position: ray-scaled amount plus the risk parameters stamped on the

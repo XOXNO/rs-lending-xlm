@@ -2054,7 +2054,7 @@ def types.pool.MarketParams.Insts.CoreConvertFromShared0MarketParamsRaw.from
     }
 
 /-- [pool_aeneas::types::pool::{impl core::clone::Clone for pool_aeneas::types::pool::HubAssetKey}::clone]:
-    Source: 'src/../../../../common/src/types/pool.rs', lines 513:9-513:14
+    Source: 'src/../../../../common/src/types/pool.rs', lines 522:9-522:14
     Visibility: public -/
 def types.pool.HubAssetKey.Insts.CoreCloneClone.clone
   (self : types.pool.HubAssetKey) : Result types.pool.HubAssetKey := do
@@ -2063,7 +2063,7 @@ def types.pool.HubAssetKey.Insts.CoreCloneClone.clone
   ok { hub_id := i, asset := a }
 
 /-- [pool_aeneas::types::pool::{impl core::convert::From<&'_0 pool_aeneas::types::pool::PoolStateRaw> for pool_aeneas::types::pool::PoolState}::from]:
-    Source: 'src/../../../../common/src/types/pool.rs', lines 619:4-629:5
+    Source: 'src/../../../../common/src/types/pool.rs', lines 628:4-638:5
     Visibility: public -/
 def types.pool.PoolState.Insts.CoreConvertFromShared0PoolStateRaw.from
   (r : types.pool.PoolStateRaw) : Result types.pool.PoolState := do

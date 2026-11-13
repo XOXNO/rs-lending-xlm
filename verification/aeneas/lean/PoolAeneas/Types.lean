@@ -262,27 +262,27 @@ structure types.pool.MarketParamsRaw where
   asset_decimals : Std.U32
 
 /-- [pool_aeneas::types::pool::ScaledPositionRaw]
-    Source: 'src/../../../../common/src/types/pool.rs', lines 327:0-329:1
+    Source: 'src/../../../../common/src/types/pool.rs', lines 336:0-338:1
     Visibility: public -/
 structure types.pool.ScaledPositionRaw where
   scaled_amount : Std.I128
 
 /-- [pool_aeneas::types::pool::MarketIndexRaw]
-    Source: 'src/../../../../common/src/types/pool.rs', lines 387:0-391:1
+    Source: 'src/../../../../common/src/types/pool.rs', lines 396:0-400:1
     Visibility: public -/
 structure types.pool.MarketIndexRaw where
   borrow_index : Std.I128
   supply_index : Std.I128
 
 /-- [pool_aeneas::types::pool::HubAssetKey]
-    Source: 'src/../../../../common/src/types/pool.rs', lines 514:0-517:1
+    Source: 'src/../../../../common/src/types/pool.rs', lines 523:0-526:1
     Visibility: public -/
 structure types.pool.HubAssetKey where
   hub_id : Std.U32
   asset : aeneas_pool_shim.Address
 
 /-- [pool_aeneas::types::pool::MarketStateSnapshot]
-    Source: 'src/../../../../common/src/types/pool.rs', lines 422:0-438:1
+    Source: 'src/../../../../common/src/types/pool.rs', lines 431:0-447:1
     Visibility: public -/
 structure types.pool.MarketStateSnapshot where
   hub_asset : types.pool.HubAssetKey
@@ -295,7 +295,7 @@ structure types.pool.MarketStateSnapshot where
   revenue : Std.I128
 
 /-- [pool_aeneas::types::pool::PoolPositionMutation]
-    Source: 'src/../../../../common/src/types/pool.rs', lines 445:0-452:1
+    Source: 'src/../../../../common/src/types/pool.rs', lines 454:0-461:1
     Visibility: public -/
 structure types.pool.PoolPositionMutation where
   position : types.pool.ScaledPositionRaw
@@ -304,7 +304,7 @@ structure types.pool.PoolPositionMutation where
   asset_decimals : Std.U32
 
 /-- [pool_aeneas::types::pool::PoolStrategyMutation]
-    Source: 'src/../../../../common/src/types/pool.rs', lines 460:0-469:1
+    Source: 'src/../../../../common/src/types/pool.rs', lines 469:0-478:1
     Visibility: public -/
 structure types.pool.PoolStrategyMutation where
   position : types.pool.ScaledPositionRaw
@@ -314,7 +314,7 @@ structure types.pool.PoolStrategyMutation where
   asset_decimals : Std.U32
 
 /-- [pool_aeneas::types::pool::PoolNetSettleResult]
-    Source: 'src/../../../../common/src/types/pool.rs', lines 476:0-482:1
+    Source: 'src/../../../../common/src/types/pool.rs', lines 485:0-491:1
     Visibility: public -/
 structure types.pool.PoolNetSettleResult where
   supply_position : types.pool.ScaledPositionRaw
@@ -323,13 +323,13 @@ structure types.pool.PoolNetSettleResult where
   settled_amount : Std.I128
 
 /-- [pool_aeneas::types::pool::PoolAmountMutation]
-    Source: 'src/../../../../common/src/types/pool.rs', lines 499:0-501:1
+    Source: 'src/../../../../common/src/types/pool.rs', lines 508:0-510:1
     Visibility: public -/
 structure types.pool.PoolAmountMutation where
   actual_amount : Std.I128
 
 /-- [pool_aeneas::types::pool::PoolAction]
-    Source: 'src/../../../../common/src/types/pool.rs', lines 532:0-537:1
+    Source: 'src/../../../../common/src/types/pool.rs', lines 541:0-546:1
     Visibility: public -/
 structure types.pool.PoolAction where
   position : types.pool.ScaledPositionRaw
@@ -337,19 +337,19 @@ structure types.pool.PoolAction where
   hub_asset : types.pool.HubAssetKey
 
 /-- [pool_aeneas::types::pool::PoolSupplyEntry]
-    Source: 'src/../../../../common/src/types/pool.rs', lines 542:0-544:1
+    Source: 'src/../../../../common/src/types/pool.rs', lines 551:0-553:1
     Visibility: public -/
 structure types.pool.PoolSupplyEntry where
   action : types.pool.PoolAction
 
 /-- [pool_aeneas::types::pool::PoolBorrowEntry]
-    Source: 'src/../../../../common/src/types/pool.rs', lines 549:0-551:1
+    Source: 'src/../../../../common/src/types/pool.rs', lines 558:0-560:1
     Visibility: public -/
 structure types.pool.PoolBorrowEntry where
   action : types.pool.PoolAction
 
 /-- [pool_aeneas::types::pool::PoolWithdrawEntry]
-    Source: 'src/../../../../common/src/types/pool.rs', lines 557:0-561:1
+    Source: 'src/../../../../common/src/types/pool.rs', lines 566:0-570:1
     Visibility: public -/
 structure types.pool.PoolWithdrawEntry where
   action : types.pool.PoolAction
@@ -364,7 +364,7 @@ inductive types.shared.AccountPositionType where
 | Borrow : types.shared.AccountPositionType
 
 /-- [pool_aeneas::types::pool::PoolSeizeEntry]
-    Source: 'src/../../../../common/src/types/pool.rs', lines 568:0-572:1
+    Source: 'src/../../../../common/src/types/pool.rs', lines 577:0-581:1
     Visibility: public -/
 structure types.pool.PoolSeizeEntry where
   hub_asset : types.pool.HubAssetKey
@@ -372,7 +372,7 @@ structure types.pool.PoolSeizeEntry where
   position : types.pool.ScaledPositionRaw
 
 /-- [pool_aeneas::types::pool::PoolNetSettleEntry]
-    Source: 'src/../../../../common/src/types/pool.rs', lines 578:0-584:1
+    Source: 'src/../../../../common/src/types/pool.rs', lines 587:0-593:1
     Visibility: public -/
 structure types.pool.PoolNetSettleEntry where
   hub_asset : types.pool.HubAssetKey
@@ -381,7 +381,7 @@ structure types.pool.PoolNetSettleEntry where
   debt_position : types.pool.ScaledPositionRaw
 
 /-- [pool_aeneas::types::pool::PoolStateRaw]
-    Source: 'src/../../../../common/src/types/pool.rs', lines 590:0-603:1
+    Source: 'src/../../../../common/src/types/pool.rs', lines 599:0-612:1
     Visibility: public -/
 structure types.pool.PoolStateRaw where
   supplied : Std.I128
@@ -393,7 +393,7 @@ structure types.pool.PoolStateRaw where
   cash : Std.I128
 
 /-- [pool_aeneas::types::pool::PoolState]
-    Source: 'src/../../../../common/src/types/pool.rs', lines 607:0-616:1
+    Source: 'src/../../../../common/src/types/pool.rs', lines 616:0-625:1
     Visibility: public -/
 structure types.pool.PoolState where
   supplied : math.fp.Ray
