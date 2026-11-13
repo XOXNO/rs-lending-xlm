@@ -688,25 +688,47 @@ jobs:
           chmod +x .github/tools/*
           echo "$PWD/.github/tools" >> "$GITHUB_PATH"
 
-      - name: Configure fast host linker
+      # A fast linker shortens every mutant's relink, but the job does not
+      # depend on one. It uses mold or lld if the runner has it, else fetches
+      # the pinned mold release (checksum verified), else keeps the default
+      # linker. A runner without mold must not fail the whole matrix.
+      - name: Configure fast host linker (best-effort)
         shell: bash
         run: |
+          set -u
+          linker=""
           if command -v mold >/dev/null 2>&1; then
             linker=mold
-            mold --version
           elif command -v ld.lld >/dev/null 2>&1; then
             linker=lld
-            ld.lld --version
           else
-            echo "Install mold (preferred) or lld on the self-hosted runner." >&2
-            exit 1
+            MOLD_VER=2.34.1
+            MOLD_SHA256=dafd02fe19c51818aa22c9d569393616b1a85a2220d6fb32ba3728d351074e59
+            MOLD_TAR="$RUNNER_TEMP/mold-${MOLD_VER}-x86_64-linux.tar.gz"
+            MOLD_DIR="$RUNNER_TEMP/mold-${MOLD_VER}-x86_64-linux"
+            if ! curl -fsSL -o "$MOLD_TAR" "https://github.com/rui314/mold/releases/download/v${MOLD_VER}/mold-${MOLD_VER}-x86_64-linux.tar.gz"; then
+              echo "::warning::mold download failed; using the default linker"
+            elif ! echo "$MOLD_SHA256  $MOLD_TAR" | sha256sum -c - >/dev/null 2>&1; then
+              echo "::warning::mold archive does not match its pinned SHA-256; using the default linker"
+            elif ! tar -xzf "$MOLD_TAR" -C "$RUNNER_TEMP"; then
+              echo "::warning::mold archive could not be unpacked; using the default linker"
+            else
+              echo "$MOLD_DIR/bin" >> "$GITHUB_PATH"
+              PATH="$MOLD_DIR/bin:$PATH"
+              linker=mold
+            fi
           fi
-          command -v cc >/dev/null 2>&1 || {
-            echo "A C compiler driver (cc) is required for the fast linker." >&2
-            exit 1
-          }
-          echo "CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER=cc" >> "$GITHUB_ENV"
-          echo "CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUSTFLAGS=-C link-arg=-fuse-ld=$linker" >> "$GITHUB_ENV"
+          if [ -z "$linker" ]; then
+            exit 0
+          fi
+          echo 'fn main(){}' > "$RUNNER_TEMP/linkcheck.rs"
+          if rustc -C linker=cc -C "link-arg=-fuse-ld=$linker" -o "$RUNNER_TEMP/linkcheck" "$RUNNER_TEMP/linkcheck.rs" 2>/dev/null; then
+            echo "CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER=cc" >> "$GITHUB_ENV"
+            echo "CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUSTFLAGS=-C link-arg=-fuse-ld=$linker" >> "$GITHUB_ENV"
+            echo "$linker enabled for host builds"
+          else
+            echo "::warning::the toolchain cannot link with $linker; using the default linker"
+          fi
 
 
 
