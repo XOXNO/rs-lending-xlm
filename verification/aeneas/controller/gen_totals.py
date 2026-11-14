@@ -8,7 +8,7 @@ a pointer. The production file is copied verbatim except for four exact
 substitutions that replace the pointer by an enum naming the same two
 functions, plus the enum itself (appended). Every substitution must match
 exactly once, so a production edit near these lines fails the extraction
-instead of silently changing the copy. See ../docs/controller.md.
+instead of silently changing the copy. See ../docs/extraction.md.
 """
 import pathlib, sys
 

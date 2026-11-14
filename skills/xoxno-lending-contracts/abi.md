@@ -51,14 +51,35 @@ initial payment to the controller. See
 |---|---|
 | `supply` | ID `0` creates a `Normal` account and returns its ID. Existing-account third-party top-up is limited to an existing supply market. Persist and renew the returned ID locally. |
 | `borrow` / `withdraw` | `to = None` pays the caller. `to` cannot be the pool or controller. Zero in a withdrawal leg means withdraw all. Use the returned actual withdrawal amounts. The wrapper's `withdraw` and `withdraw_all` return `Withdrawal { amount, account_closed }`. |
-| `repay` | Anyone may repay. Excess is refunded to the caller. The wrapper's `repay` returns the amount repaid, which excludes that refund; a contract that repays with a user's tokens sends `amount - repaid` back to that user. `repay` never removes the account, even when it repays the last debt; reconcile only after an operation that can remove the account. |
-| `liquidate` | Simulate `get_liquidation_estimate`, subtract its per-asset `refunds`, then submit and authorize exactly those planned amounts. Omit a market whose planned amount is zero. When the quote covers the whole debt, the controller pulls each submitted amount in full and the pool refunds the excess. `Credit(0)` creates a receiving `Normal` account in the victim's spoke. |
+| `repay` | Anyone may repay; see [repay rules](#repay-rules). |
+| `liquidate` | Submit the planned amounts; see [liquidate rules](#liquidate-rules). |
 | `flash_loan` | Receiver approves `amount + fee` to the pool. A direct repayment transfer is rejected. |
 | `flash_position` | Debt remains on the account. The callback pushes declared collateral to the controller; undeclared controller balances are not credited. |
 | `multiply` | `Multiply` requires distinct markets. The swap bytes must be empty when both markets use the same token address, and non-empty otherwise. `Long` and `Short` reject identical token addresses. |
 | `swap_debt` / `swap_collateral` | Distinct markets are required. The route must be empty when both markets use the same token address, and non-empty otherwise. |
 | `repay_debt_with_collateral` | The same market nets with an empty route. Different markets withdraw and swap: the route must be empty when both markets use the same token address, and non-empty otherwise. `close_position` withdraws all remaining collateral to the caller and fails with `CannotCloseWithRemainingDebt` if any debt remains. |
 | `renew_account` | Renews controller account entries and NFT state. It never renews the caller contract's persistent pointer or instance. |
+
+### Repay rules
+
+- Anyone may repay.
+- Excess is refunded to the caller.
+- The wrapper's `repay` returns the amount repaid, which excludes that refund.
+- A contract that repays with a user's tokens sends `amount - repaid` back to
+  that user.
+- `repay` never removes the account, even when it repays the last debt.
+  Reconcile only after an operation that can remove the account.
+
+### Liquidate rules
+
+1. Simulate `get_liquidation_estimate`.
+2. Subtract its per-asset `refunds` from the quoted amounts.
+3. Omit a market whose planned amount is zero.
+4. Submit and authorize exactly those planned amounts.
+
+When the quote covers the whole debt, the controller pulls each submitted
+amount in full and the pool refunds the excess. `Credit(0)` creates a
+receiving `Normal` account in the victim's spoke.
 
 ## Views that need interpretation
 

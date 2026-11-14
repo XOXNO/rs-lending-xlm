@@ -11,7 +11,14 @@ Each theorem is stated about that translation and checked by Lean. It holds
 for every input the code can receive. The only limits on the values are the
 hypotheses written in its statement.
 
-* **Size:** 1031 theorems in five Lean libraries.
+* **Size:** five Lean libraries. To count the theorems, run from this
+  directory:
+
+  ```sh
+  grep -rhE '^\s*(@\[[^]]*\]\s*)?(private |protected )?theorem ' --include='*.lean' \
+    lean/FixedPoint lean/RatesAeneas lean/PoolAeneas lean/ControllerAeneas lean/OracleAeneas | wc -l
+  ```
+
 * **Hidden assumptions:** none. No `sorry`, `admit` or added axiom, and the
   build enforces it.
 * **Run it:** `./run.sh` (see [Running](#running)). No CI workflow runs it.
@@ -19,7 +26,9 @@ hypotheses written in its statement.
 
 The area documents below list every theorem with its Rust function,
 hypotheses and invariant IDs. To add or repair a proof, read
-[WRITING-PROOFS.md](WRITING-PROOFS.md).
+[WRITING-PROOFS.md](WRITING-PROOFS.md). The controller and pool extraction
+crates, their trusted models and the Aeneas workarounds are in
+[docs/extraction.md](docs/extraction.md).
 
 ## What is proved
 
@@ -101,7 +110,8 @@ The proofs are as strong as four assumptions.
    functions, and `Vec` as a list.
    They model stored state, ledger time, prices and external calls as opaque
    values.
-   Each area document lists its models.
+   Each area document lists its models. The controller and pool models are
+   in [docs/extraction.md](docs/extraction.md).
 3. **A panic is an abort.** The proofs do not check which error code an
    abort carries.
 4. **Integer overflow aborts.** This holds while the root `Cargo.toml` keeps

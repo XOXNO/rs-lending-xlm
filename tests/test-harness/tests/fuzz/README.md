@@ -56,12 +56,42 @@ harness suite runs at libtest's default of one thread per core.
 | `prop_swap_collateral_conserves_position_delta` | Successful stablecoin swaps debit and credit the exact raw position amounts | Router or accounting delta drift |
 | `empty_swap_payload_reverts_without_state_or_guard_leak` | Empty swap bytes reject atomically | Payload validation and rollback gaps |
 | `prop_liquidation_matches_bigrational_reference` | Every generated account is liquidatable and in differential scope; liquidation in `SeizeMode::Transfer` or `SeizeMode::Credit` succeeds and matches `reference::compute_liquidation` (repaid, seized, protocol fee) within the ULP bounds | Liquidation math drift and silently skipped cases |
-| `prop_below_base_liquidation_matches_reference_and_never_loses_the_liquidator_money` | Band (`D <= C < D * (1 + base)`) and insolvent accounts, offers up to 1.5x the debt: bonus within 1 bps and repayment within one debt-token unit of the reference, insolvent pull capped at the collateral-backed quote, liquidator receives at least what it spends (within 2 raw USDC units), a band partial never lowers coverage | Band and insolvent quote drift, liquidator loss |
+| `prop_below_base_liquidation_matches_reference_and_never_loses_the_liquidator_money` | Band and insolvent quotes match the reference; the liquidator never loses money. See [Below-base cases](#below-base-cases) | Band and insolvent quote drift, liquidator loss |
 | `below_base_differential_holds_at_exact_cover` | The same checks at collateral equal to debt, with offers of 5%, 100% and 150% of the debt | Exact-cover boundary |
 | `prop_whole_unit_liquidation_holds_the_documented_bounds` | Properties P1 to P8 in [Whole-unit liquidation](#whole-unit-liquidation) | Whole-unit rounding, rule 1 and rule 2 drift, liquidator over-reward, estimate drift, liveness gaps outside the band |
-| `wul_*` | Deterministic unit-edge cases. Two $509.79 units hold a $351.00 debt at bonus 45.24% (LT 26%): inside the margin band every offer reverts until one day of accrual; above it a debt-sized offer closes the debt for one unit; below it the offer sells one unit. A one-unit residue at cover closes at bonus 0. Two units at the testnet LIQVID1039 listing stay healthy at the unit edge. Each case asserts its units, `U`, `D`, `b` and HF | Band, rule 1, rule 2 and residue boundaries |
+| `wul_*` | Deterministic unit-edge cases. See [Whole-unit edge cases](#whole-unit-edge-cases) | Band, rule 1, rule 2 and residue boundaries |
 
 Flash-loan repayment with strict per-call auth is covered by deterministic tests in `tests/controller/flash_loan.rs`.
+
+### Below-base cases
+
+`prop_below_base_liquidation_matches_reference_and_never_loses_the_liquidator_money`
+generates band (`D <= C < D * (1 + base)`) and insolvent accounts. Offers reach
+1.5x the debt. Each case asserts:
+
+- the bonus is within 1 bps of the reference;
+- the repayment is within one debt-token unit of the reference;
+- the insolvent pull is capped at the collateral-backed quote;
+- the liquidator receives at least what it spends, within 2 raw USDC units;
+- a band partial never lowers coverage.
+
+### Whole-unit edge cases
+
+The `wul_*` tests live in `whole_unit_liquidation.rs`. The first three share
+one setup: two $509.79 units hold a $351.00 debt at bonus 45.24% (LT 26%).
+
+- `wul_two_units_inside_the_margin_band_refuse_every_offer_until_accrual`:
+  inside the margin band, every offer reverts until one day of accrual.
+- `wul_two_units_above_the_margin_band_close_in_full_for_one_unit`: above the
+  band, a debt-sized offer closes the debt for one unit.
+- `wul_two_units_below_the_margin_band_sell_one_unit`: below the band, the
+  offer sells one unit.
+- `wul_one_unit_residue_at_cover_closes_in_full_at_zero_bonus`: a one-unit
+  residue at cover closes at bonus 0.
+- `wul_listed_liqvid_two_units_are_healthy_at_the_unit_edge`: two units at the
+  testnet LIQVID1039 listing stay healthy at the unit edge.
+
+Each case asserts its units, `U`, `D`, `b` and HF.
 
 ## Whole-unit liquidation
 

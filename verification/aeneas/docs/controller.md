@@ -4,6 +4,8 @@ Machine-checked Lean 4 proofs about the production controller liquidation
 math and the position valuation it relies on. Charon and Aeneas translate the
 Rust; every theorem is about the generated `lean/ControllerAeneas/Funs.lean`.
 Library: `ControllerAeneas`. Conventions and pitfalls: [../WRITING-PROOFS.md](../WRITING-PROOFS.md).
+Extraction crate, trusted models and tool workarounds:
+[extraction.md](extraction.md#controller).
 
 ## Scope
 
@@ -19,7 +21,7 @@ Library: `ControllerAeneas`. Conventions and pitfalls: [../WRITING-PROOFS.md](..
 | same | `calculate_seized_collateral` | seizure budget (first three steps) proved here; per-leg loop proved in [controller-seizure.md](controller-seizure.md) |
 | same | `get_account_bonus_params`, `calculate_seizure_proportions` | proved in [controller-seizure.md](controller-seizure.md) |
 | same | `normalize_repayment_plan`, `whole_unit_repayment`, `release_unbacked_repayment`, `process_excess_payment`, `one_unit_per_*` | proved in [controller-repayment.md](controller-repayment.md) |
-| same | `repays_every_debt_leg` | kept opaque (closure with a mutable capture, see Aeneas issues) |
+| same | `repays_every_debt_leg` | kept opaque (closure with a mutable capture, [Aeneas issue 5](extraction.md#controller-aeneas-issues)) |
 | `contracts/controller/src/positions/liquidation/apply.rs` | `apply_liquidation_repayments`, `credited_shares`, `check_bad_debt_after_liquidation` | proved |
 | same | `apply_liquidation_seizures`, `apply_liquidation_share_credit`, `credit_supply_shares` | extracted, not proved (their observable effects are external calls) |
 | `contracts/controller/src/risk/totals.rs` | `calculate_account_risk_totals`, `calculate_ltv_collateral_wad`, `sum_debt_usd` (and `sum_debt_usd_loaded`, `portfolio_hub_keys`) | proved (exact sums, INV-RISK-02 conservativeness) |
@@ -31,190 +33,32 @@ inputs**, subject only to the stated domain hypotheses. Specifications never div
 `FloorCeilSpec.lean`, `HalfUpSpec.lean`, shared with the other libraries) are stated with
 multiplications only.
 
-## The extraction crate (`verification/aeneas/controller/`)
+## Extraction and trusted base
 
-A standalone Cargo workspace (`[workspace]` table, members `.` and `shim`),
-never part of the root workspace or any Wasm build.
+The extraction crate, its stand-ins and shim, the full list of hand-written
+models, the copied proof files, the rebuild commands and the Aeneas
+workarounds are in [extraction.md](extraction.md#controller).
 
-**Included verbatim** through `#[path]` (nothing under `common/` or
-`contracts/` is copied or edited):
-
-* `common/src/constants/` (`src/constants.rs`) and
-  `contracts/controller/src/constants.rs` (re-exported together, so both
-  `common::constants::X` and `crate::constants::BAD_DEBT_USD_THRESHOLD`
-  resolve);
-* `common/src/math/{fp,fp_core}.rs` (`src/math.rs`). `fp_core` is a private
-  module, as in `common/src/math/mod.rs`, so the included controller files
-  reach it only through the typed `fp` wrappers;
-* `common/src/rates/{scaling,value}.rs` (`src/rates.rs`, with the
-  `pub use` lines of `rates/mod.rs`; `curve`, `index`, `compound`, `simulate`
-  are not needed);
-* `contracts/controller/src/positions/liquidation/{curve,math,apply}.rs`
-  (`src/positions/liquidation/mod.rs`).
-
-**Generated from production** (one mechanical substitution):
-
-* `src/risk/totals.rs` is written by `controller/gen_totals.py` (run by
-  `extract.sh`) from `contracts/controller/src/risk/totals.rs`. It is
-  verbatim with one exception. The `fn(&Env, Ray, Ray, Wad) -> Wad` argument
-  of `sum_debt_usd_loaded` becomes an enum `DebtValue { HalfUp, Ceil }`. Its
-  `apply` calls exactly `position_value` / `position_value_ceil`, the two
-  functions production passes. Aeneas cannot translate `fn` pointers with a
-  higher-ranked lifetime (see Aeneas issues). Each of the four substitutions
-  must match exactly once, so a production edit there fails the extraction.
-
-`src/lib.rs` declares `extern crate self as common;` so the controller files'
-`common::...` paths resolve to this crate.
-
-**Stand-ins** (in the crate, compiled but either never extracted or
-field-for-field copies):
-
-* `src/types.rs` — the structs the included files use (`SpokeConfig`,
-  `HubAssetKey`, `PriceFeed(Raw)`, `MarketIndex(Raw)`, `AccountPosition(Raw)`,
-  `DebtPosition(Raw)`, `PaymentTuple`, `SeizeEntry`, `RepayEntry`,
-  `LiquidationResult`, `Account` without `mode`). They have exactly the
-  production fields, and the production `From` conversions are copied
-  verbatim. The production
-  types are `#[contracttype]`, which only adds XDR serialisation.
-* `src/errors.rs` — the error variants raised, with production codes (codes
-  are not modelled; every `panic_with_error!` is an abort).
-* `src/validation.rs` — `expect_invariant`, `require_nonneg_amount`,
-  `require_non_empty_payments`, copied verbatim.
-* `src/payment_legs.rs` (re-exported as `crate::payments`) —
-  `ZeroLeg`, `aggregate_positive_payments`, `aggregate_payments`,
-  `aggregate_payment_amount` copied verbatim from
-  `contracts/controller/src/payments.rs`; `transfer_amount_measured` opaque.
-* `src/context.rs` — the `Context` model (next section).
-* `src/storage.rs` — `iter_typed_positions` / `iter_debt_positions`. The
-  production `map.iter().map(|(k, raw)| (k, From::from(&raw)))` is written
-  as a loop. The loop pushes the same items in the same order and returns
-  the vector's iterator. Aeneas translates neither `impl Iterator` return
-  types nor the `map` adapter.
-* `src/types.rs` additionally carries `AccountPositionType`,
-  `AggregatedPayments`, `ScaledPositionRaw` (with its two `From` impls),
-  `PoolAction`, `PoolWithdrawEntry`, `PoolSeizeEntry`, `AssetConfig`,
-  `Account::get_or_create_supply_position` (verbatim) and a field-less
-  `PoolPositionMutation`; `HubAssetKey` derives `PartialEq, Eq` as in
-  production.
-* Opaque stand-ins (signatures only, Charon `--opaque`, meaning in
-  `FunsExternal.lean`): `account_store.rs` (re-exported as `crate::account`:
-  `cleanup_account_if_empty`, `update_or_remove_supply_position`),
-  `external/{mod,pool}.rs` (`fetch_market_index`, `pool_seize_positions_call`),
-  `positions/mod.rs` (`enforce_spoke_asset_flags`, `apply_repay_batch`,
-  `apply_withdraw_batch`; `make_pool_action`, `get_supply_position_or_panic`,
-  `FreezePolicy`, `WithdrawKind` are verbatim), `positions/liquidation/bad_debt.rs`
-  (`execute_bad_debt_cleanup`).
-* Never extracted (signatures for compilation): `risk/validation.rs`,
-  `collections.rs` (`push_unique_address`, verbatim), `events.rs`,
-  `spoke_usage.rs` (enums only).
-
-`controller/extract.sh` lists the roots (`--start-from`) and the opaque items
-(`--opaque`), and passes `--inline-anon-consts` (see Aeneas issues).
-`controller/postextract.sh` applies one documented fix to the generated
-`Funs.lean` (see Aeneas issues). For scratch runs, `AENEAS_LEAN_DEST=<dir>`
-redirects the output and `KEEP_TEMPLATES=1` keeps the `*_Template.lean`
-files.
-
-**Shim** (`controller/shim/`, package `aeneas-soroban-shim`, copied from
-`verification/aeneas/shim` and extended): `Env`, `I256`, `Error`,
-`panic_with_error!` as in the rates crate, plus `assert_with_error!`,
-`Address`, `Vec<T>` (with `VecIter<T>` and `IntoIterator`) and `Map<K, V>`.
-Charon translates only signatures of shim items, so they are opaque to Aeneas
-and get their meaning in the trusted base below.
-
-## Trusted base
+The theorems trust three things
+([details](extraction.md#controller-trusted-base)):
 
 1. Charon and Aeneas translate faithfully (pinned release, see
    [../README.md](../README.md)).
-2. `lean/ControllerAeneas/TypesExternal.lean` and `FunsExternal.lean`:
-   * **`I256`** and the Rust core functions (`checked_pow`, `abs_diff`,
-     `Option::{unwrap_or_else, and_then}`, `?` on `Option`): copied unchanged
-     from `RatesAeneas` (exact integer arithmetic with the host's 256-bit traps).
-   * **`i128::from(u32)`**: the same number (always fits).
-   * **`Address`**: an opaque handle (`Nat`); `clone` is the identity.
-   * **`Vec<T>`**: a Lean `List T`, index 0 at the front.
-     `Vec::new` = `[]`; `push_back v x` = `v ++ [x]`; `Vec::iter` yields the
-     elements front to back (`VecIter T` = the list of elements not yet
-     yielded; `next` pops the head, `None` when empty); `clone` returns the
-     same elements. This follows the soroban-sdk `Vec` documentation: a host
-     object with value semantics (`clone` copies the handle, mutations rebind
-     the variable). Not modelled: the host's `u32::MAX` length limit
-     (`push_back` never fails here); the only theorem that pushes builds an
-     output no longer than its input.
-   * **`Vec<T>`, further methods**: `len` (as `u32`), `is_empty`,
-     `get(i)` (`None` out of range), `set(i, x)` (traps out of range),
-     `remove(i)` (shifts later elements down; `None` and unchanged out of
-     range), `append`, `into_iter` (front to back).
-   * **`Address` equality**: equality of the handles.
-   * **`Map<K, V>`** ("Map model"): a Lean `List (K × V)` of entries in
-     iteration order.
-     * `get k` is the value of the first entry whose key equals `k` (keys
-       compared by value, decided classically).
-     * `set k v` replaces that entry's value or appends `(k, v)`.
-     * `keys`/`iter`/`len`/`is_empty` read the list.
+2. The hand-written models in `lean/ControllerAeneas/TypesExternal.lean` and
+   `FunsExternal.lean` are right:
+   * `I256` is exact integer arithmetic with the host's 256-bit traps.
+   * `Vec<T>` is a Lean list. The host's `u32::MAX` length limit is not
+     modelled.
+   * **Map model:** `Map<K, V>` is a list of entries in iteration order. Key
+     order and key uniqueness are not modelled, and every theorem holds for
+     all entry lists.
+   * **Context model:** the two caches `token_prices` and `market_indexes`.
+     The rest of the host state (pool index, oracle price, spoke
+     configuration, transfer receipts) is uninterpreted, so a theorem holds
+     for every value it could take.
+3. `panic_with_error!`/`assert_with_error!` abort.
 
-     **What the proofs rely on:** only `get` after the list is given, and
-     `iter`/`keys` yielding the list itself. **Not modelled:** the host's
-     ascending key order and key uniqueness of arbitrary inputs. Every
-     theorem quantifies over all entry lists. So it holds for the host's
-     sorted, unique lists in particular.
-   * **Rust core**, each per the Rust docs: `i128::saturating_mul` (exact
-     product clamped to the `i128` range), `Option::map_or`, and
-     `Iterator::{all, find}` (front to back, stopping at the first `false` /
-     match).
-   * **Controller `Context`** ("Context model", `src/context.rs`): a
-     struct with the two caches the extracted code reads, `token_prices`
-     (`Map<Address, PriceFeedRaw>`) and `market_indexes`
-     (`Map<HubAssetKey, MarketIndexRaw>`). `cached_price` is the production
-     body (aborts when the asset is not cached); `cached_market_index` is the
-     production body with the one-key pool fetch as one call.
-     * The rest of the host state is represented by uninterpreted Lean
-       constants (`opaque` definitions, not axioms). So a theorem holds for
-       every value they could stand for. The constants are `poolIndex` (the
-       pool's current index for a key, used by `fetch_market_index`),
-       `oraclePrice` (the aggregator's price, `None` = the fetch aborts),
-       `poolAddress`, `spokeAssetConfig`, `spokeExitOk`, `spokeFlagsAllow`
-       and `transferReceived` (the measured balance change of a transfer:
-       any token behaviour).
-     * `load_markets` caches the missing price of each key's asset (aborting
-       if the oracle has none) and the missing index of each key. It keeps
-       cached entries. Production batches the same fetches.
-     * `cached_pool_address`, `require_spoke_asset`, `apply_spoke_exit`,
-       `record_supply_position_update` and `enforce_spoke_asset_flags`
-       leave the two caches unchanged. They abort where production can
-       abort. In production they only touch spoke usage, configuration
-       caches, event buffers and the pool-address cache.
-     * `transfer_amount_measured` aborts unless `amount > 0` and returns
-       `transferReceived`.
-     * `apply_repay_batch`, `apply_withdraw_batch`,
-       `pool_seize_positions_call`, `cleanup_account_if_empty`,
-       `update_or_remove_supply_position`, `execute_bad_debt_cleanup` and
-       `repays_every_debt_leg` are uninterpreted functions. A theorem about
-       a caller either does not depend on them or states the call
-       explicitly (an equation).
-3. `panic_with_error!`/`assert_with_error!` abort (as in `RatesAeneas`).
-
-## Reused proofs
-
-The rounding specifications (`Spec`, `FloorCeilSpec`, `HalfUpSpec`) are not
-copied: they live once in `lean/FixedPoint/` and this library imports them.
-
-Each extraction generates its own copy of the common math, so the proofs
-about that math exist once per library. `Host`, `MulDiv`
-(`mul_div_floor_spec`), `FloorCeilRescale` (`rescale_floor`/`rescale_ceil`),
-`HalfUp` (`mul_div_half_up_spec`) and `HalfUpDivInt` (`div_by_int_half_up`)
-are the RatesAeneas files with the library, crate and shim names changed.
-`../sync_copies.py` writes them, and `run.sh` fails if one is out of date.
-`FloorCeilCore` (`mul_div_ceil_spec`) is a hand-adapted copy: the
-`mul_div_floor_saturating` section is omitted because it is not extracted
-here.
-
-Also copied (header comment in each): `Saturating.lean` (the
-`mul_div_floor_saturating` section of `RatesAeneas/Proofs/FloorCeilCore.lean`)
-and `Scaling.lean` (`RatesAeneas/Proofs/FloorCeilScaling.lean` up to
-`unscale_borrow_ceil_spec`, without the `calculate_scaled_*` theorems;
-`unscale_supply_floor_spec` renamed `unscale_supply_floor_isFloor` because
-`Seizure.lean` has its own).
+## Supporting proof files
 
 `Model.lean` proves the Map/Context facts the liquidation proofs use:
 `map_get_eq`/`mapLookup`, `cached_price_ok`, `cached_market_index_ok`,
@@ -222,14 +66,19 @@ and `Scaling.lean` (`RatesAeneas/Proofs/FloorCeilScaling.lean` up to
 `iter_typed_positions_spec`, `iter_debt_positions_spec`,
 `i128_from_u32_val`.
 
-Supporting files: `Basic.lean` (comparison/min/conversion lemmas for
-`Wad`/`Ray`/`Bps`, `checked_add_raw`, `checked_sub_nonneg`),
-`Rounding.lean` (division-free relations between floor, half-up and ceiling),
-`Wrappers.lean` (the typed `fp.rs` wrappers). `Wrappers.lean` holds the
-unfolding equations to the raw `mul_div_*` call, the exact-rounding specs,
-and the ratio-at-most-one lemmas `floor_ratio_fits`, `floor_ratio_le` and
-`ceil_ratio_le`. `Shares`, `Curve` and `Seizure` rewrite each wrapper call
-with its `*_eq` lemma and then use the raw `mul_div_*` spec.
+* `Basic.lean`: comparison/min/conversion lemmas for `Wad`/`Ray`/`Bps`,
+  `checked_add_raw`, `checked_sub_nonneg`.
+* `Rounding.lean`: division-free relations between floor, half-up and
+  ceiling.
+* `Wrappers.lean`: the typed `fp.rs` wrappers. It holds the unfolding
+  equations to the raw `mul_div_*` call, the exact-rounding specs, and the
+  ratio-at-most-one lemmas `floor_ratio_fits`, `floor_ratio_le` and
+  `ceil_ratio_le`.
+* `Shares`, `Curve` and `Seizure` rewrite each wrapper call with its `*_eq`
+  lemma and then use the raw `mul_div_*` spec.
+
+Copied math proofs (`MulDiv`, `HalfUp`, `Scaling`, ...) are listed in
+[extraction.md](extraction.md#controller-copied-proofs).
 
 ## Theorems
 
@@ -252,12 +101,12 @@ Value-domain hypothesis **(VD)** for `scaled s`, `index i`, `price p`:
 | `max_bonus_for_threshold_bound` | `Proofs/Curve.lean` | same | `0 ≤ m ≤ BPS(BPS−1)` and `(BPS+m)·p ≤ BPS·W` (`(1+bonus)·proportion ≤ 1`) | `0 < p ≤ W` | INV-LIQ-02 | `derived_bonus_respects_threshold` |
 | `max_bonus_for_threshold_antitone` | `Proofs/Curve.lean` | same | `0 < p₁ ≤ p₂` → `m(p₂) ≤ m(p₁)` | as stated | INV-LIQ-02 | — |
 | `bonus_scale_spec` | `Proofs/Curve.lean` | `curve.rs::LiquidationCurve::bonus_scale` | returns `min(hu((target−hf)·W/(target−hf_max)), W)` | `0 ≤ hf_max < target ≤ 10 WAD`, `0 ≤ hf ≤ target` | — | — |
-| `calculate_linear_bonus_spec` | `Proofs/Curve.lean` | `curve.rs::calculate_linear_bonus_with_target` | returns `b`: `b = base` if `hf ≥ target`; else `b = base + hu(hu((max−base)·scale/W)·factor/BPS)`; always `base ≤ b ≤ max` | validated curve (`0 ≤ hf_max < target ≤ 10 WAD`, `0 ≤ factor ≤ BPS`), `hf ≥ 0`, `0 ≤ base ≤ max` | INV-LIQ-02 | `bonus_bounded`, `bonus_is_base_at_or_above_target` |
+| `calculate_linear_bonus_spec` | `Proofs/Curve.lean` | `curve.rs::calculate_linear_bonus_with_target` | exact bonus `b` ([notes](#theorem-notes)); `base ≤ b ≤ max` | validated curve, `hf ≥ 0`, `0 ≤ base ≤ max` | INV-LIQ-02 | `bonus_bounded`, `bonus_is_base_at_or_above_target` |
 | `calculate_linear_bonus_antitone` | `Proofs/Curve.lean` | same | `0 ≤ hf₁ ≤ hf₂` → `bonus(hf₂) ≤ bonus(hf₁)` | as above | INV-LIQ-02 | `bonus_monotone_in_hf` |
 | `calculate_linear_bonus_max_below_floor` | `Proofs/Curve.lean` | same | `hf ≤ hf_max`, factor = BPS → bonus = `max` | as above | INV-LIQ-02 | `bonus_is_max_below_curve_floor` |
-| `split_seized_shares_spec` | `Proofs/Shares.lean` | `liquidation/math.rs::split_seized_shares` | returns `(fee, liq)`, `fee = ⌈b·f/BPS⌉`, `fee + liq = S` exactly, `0 ≤ fee ≤ b`, `0 ≤ liq ≤ S`; the two internal re-checks are dead code | `0 ≤ b ≤ S`, `f < BPS` | INV-LIQ-02 | none for this function (`seizure_split_math` / `protocol_fee_bonus_math` in value_math_rules check the transfer-mode fee split, bounded) |
-| `scale_seizures_to_received_spec` | `Proofs/Seizure.lean` | `math.rs::scale_seizures_to_received` | `planned ≤ 0 ∨ received ≥ planned` → input unchanged; otherwise same length, each entry related by `ScaledEntry`: shares, bonus, amount floored by `received/planned`, amount capped at floor value of new shares, fee floored and capped at new amount, other fields unchanged | `received ≥ 0`; on a short receipt each entry has decimals in `[3,18]`, `shares, index ≥ 0`, `shares·index < 2^127·R` | INV-LIQ-03 | none for this function (`liquidation_does_not_increase_seized_collateral` is an account-level rule) |
-| `ScaledEntry.proportional` | `Proofs/Seizure.lean` | same (per entry) | `x'·planned ≤ x·received` for shares and amount, `x' ≤ x`, `fee' ≤ amount'`, `bonus ≤ scaled` preserved | `0 ≤ received < planned`, `shares, amount ≥ 0` | INV-LIQ-03 | — |
+| `split_seized_shares_spec` | `Proofs/Shares.lean` | `liquidation/math.rs::split_seized_shares` | `fee = ⌈b·f/BPS⌉`, `fee + liq = S` exactly, both in range ([notes](#theorem-notes)) | `0 ≤ b ≤ S`, `f < BPS` | INV-LIQ-02 | none for this function ([notes](#theorem-notes)) |
+| `scale_seizures_to_received_spec` | `Proofs/Seizure.lean` | `math.rs::scale_seizures_to_received` | on a short receipt, every entry scaled down by `received/planned` (`ScaledEntry`, [notes](#theorem-notes)) | `received ≥ 0`, entry domain ([notes](#theorem-notes)) | INV-LIQ-03 | none for this function ([notes](#theorem-notes)) |
+| `ScaledEntry.proportional` | `Proofs/Seizure.lean` | same (per entry) | each scaled entry is proportional and no larger ([notes](#theorem-notes)) | `0 ≤ received < planned`, `shares, amount ≥ 0` | INV-LIQ-03 | — |
 | `mul_wad_ratio_floor_spec` | `Proofs/Wrappers.lean` | `common/src/math/fp.rs::Ray::mul_wad_ratio_floor` | returns `⌊x·n/d⌋` (one floor; the WAD ratio is not quantised first) | `d ≠ 0`, the floor fits `i128` | INV-LIQ-03 | — |
 | `mul_wad_ratio_floor_le` | `Proofs/Wrappers.lean` | same | returns `⌊x·n/d⌋ ∈ [0, x]` | `x ≥ 0`, `0 ≤ n ≤ d`, `d > 0` | INV-LIQ-03 | — |
 | `apply_ratio_to_amount_floor_spec` | `Proofs/Wrappers.lean` | `fp.rs::Wad::apply_ratio_to_amount_floor` (`self = n`) | returns `⌊a·n/d⌋` | `d ≠ 0`, the floor fits `i128` | INV-LIQ-03 | — |
@@ -269,25 +118,87 @@ Value-domain hypothesis **(VD)** for `scaled s`, `index i`, `price p`:
 | `mul_wad_ratio_floor_eq`, `apply_ratio_to_amount_floor_eq`, `from_fraction_ceil_eq`, `apply_to_ray_ceil_eq` | `Proofs/Wrappers.lean` | the four wrappers | each wrapper equals one raw call: `mul_div_floor(x, n, d)`, `mul_div_floor(a, n, d)`, `mul_div_ceil(n, BPS, d)`, `mul_div_ceil(v, b, BPS)` | none | — | — |
 | `sum_repaid_usd_spec` | `Proofs/Sum.lean` | `math.rs::sum_repaid_usd` | returns exactly `Σ usd_wad` | every prefix sum fits `i128` | INV-LIQ-02 | — |
 | `sum_repaid_usd_nonneg` | `Proofs/Sum.lean` | same | returns `Σ usd_wad ≥ 0` | all `usd_wad ≥ 0`, total `< 2^127` | INV-LIQ-02 | — |
-| `calculate_account_risk_totals_spec` | `Proofs/Totals.lean` | `risk/totals.rs::calculate_account_risk_totals` | returns, context unchanged; `total_collateral = Σ huv`, `ltv_collateral = Σ ⌊fv·min(LTV,LT)/BPS⌋`, `weighted_collateral = Σ ⌊fv·LT/BPS⌋`, `total_debt = Σ cv` (borrow index), `health_factor = i128::MAX` without debt, else `min(i128::MAX, ⌊weighted·W/debt⌋)` | TOT | INV-RISK-02 | — (Certora summarises this function outside the health/solvency rules) |
-| `calculate_account_risk_totals_conservative` | `Proofs/Totals.lean` | same | `weighted·BPS·10^54 ≤ Σ LT·s·i·p`; `ltv·BPS·10^54 ≤ Σ min(LTV,LT)·s·i·p`; `ltv ≤ weighted ≤ total_collateral`; `Σ fv ≤ total_collateral ≤ Σ cv`; `Σ s·i·p ≤ total_debt·10^54` | TOT | INV-RISK-02 | `position_value_ceil_ge_floor` (per leg, bounded) |
+| `calculate_account_risk_totals_spec` | `Proofs/Totals.lean` | `risk/totals.rs::calculate_account_risk_totals` | exact sums of the four totals and the health factor, context unchanged ([notes](#theorem-notes)) | TOT | INV-RISK-02 | — ([notes](#theorem-notes)) |
+| `calculate_account_risk_totals_conservative` | `Proofs/Totals.lean` | same | collateral totals never overstate and debt never understates the exact value ([notes](#theorem-notes)) | TOT | INV-RISK-02 | `position_value_ceil_ge_floor` (per leg, bounded) |
 | `calculate_ltv_collateral_wad_spec` | `Proofs/Totals.lean` | `totals.rs::calculate_ltv_collateral_wad` | returns `Σ ⌊fv·min(LTV,LT)/BPS⌋` (same as the totals' `ltv_collateral`), context unchanged | TOT (supply half) | INV-RISK-02 | — |
 | `sum_debt_usd_spec` | `Proofs/Totals.lean` | `totals.rs::sum_debt_usd` | returns `Σ huv` (borrow index) `≤ Σ cv`, context unchanged | TOT (debt half) | INV-RISK-02 | — |
 | `totals_loop_spec`, `ltv_loop_spec`, `debt_loop_spec` | `Proofs/Totals.lean` | the three generated loops | exact accumulation, context unchanged | per-leg TOT, accumulator + remaining ceiling sum `< 2^127` | INV-RISK-02 | — |
-| `calculate_repayment_amounts_spec` | `Proofs/Repayment.lean` | `liquidation/math.rs::calculate_repayment_amounts` | for the merged legs `P`: returns, context unchanged; one entry per leg with `amount = min(offered, D)`, `usd_wad = legUsd` (floor value `fv` of the whole debt when the leg pays `D`, else `hu(offered·10^(18−dec)·p/W)`), feed/index snapshot; one refund `offered − D` per overpaid leg, in order; total `= Σ legUsd` | REP; `aggregate_positive_payments` returned `P` | INV-LIQ-02 | `liquidation_does_not_increase_repaid_debt` (account level, bounded) |
+| `calculate_repayment_amounts_spec` | `Proofs/Repayment.lean` | `liquidation/math.rs::calculate_repayment_amounts` | one capped entry per merged leg, exact refunds, total `= Σ legUsd` ([notes](#theorem-notes)) | REP; `aggregate_positive_payments` returned `P` | INV-LIQ-02 | `liquidation_does_not_increase_repaid_debt` (account level, bounded) |
 | `repay_entry_le_debt` | `Proofs/Repayment.lean` | same (per entry) | `amount ≤ D` and `amount ≤ offered` | an entry of the spec | INV-LIQ-02 | `liquidation_does_not_increase_repaid_debt` |
 | `repay_kept_plus_refund` | `Proofs/Repayment.lean` | same (per leg) | overpaid leg: `kept + refund = offered`; otherwise `kept = offered` (excess refunded exactly) | an entry/refund of the spec | INV-LIQ-02 | — |
 | `repay_loop_spec`, `usd_value_wad_spec`, `from_token_spec` | `Proofs/Repayment.lean` | loop; `PriceFeed::usd_value_wad`; `Wad::from_token` | loop invariant; `hu(a·10^(18−dec)·p/W)`; exact upscale `a·10^(18−dec)` | as stated | INV-LIQ-02 | — |
-| `apply_liquidation_repayments_eq` | `Proofs/Apply.lean` | `liquidation/apply.rs::apply_liquidation_repayments` (`offered = None`) | equals: one pool action per leg repaying with the *received* amount, then the batch repay; returns `u = Σ legRecv`, `legRecv = usd_wad` if `received ≥ amount`, else `⌊usd_wad·received/amount⌋` | APP | INV-LIQ-03 | — |
+| `apply_liquidation_repayments_eq` | `Proofs/Apply.lean` | `liquidation/apply.rs::apply_liquidation_repayments` (`offered = None`) | equation: repays the *received* amounts, returns `u = Σ legRecv` ([notes](#theorem-notes)) | APP | INV-LIQ-03 | — |
 | `legRecv_le_planned`, `recvLeg_bounds` | `Proofs/Apply.lean` | same | `0 ≤ u ≤ Σ usd_wad`; per leg `0 ≤ legRecv ≤ usd_wad` and `legRecv·amount ≤ usd_wad·received` on a short receipt | APP | INV-LIQ-03 | — |
-| `underdelivery_scales_seizures` | `Proofs/Apply.lean` | `apply_liquidation_repayments` → `scale_seizures_to_received` | `u ≤ planned`; seizures unchanged when all arrived, else every entry floored by `u/planned` (`ScaledEntry`) | APP, planned `= Σ usd_wad`, seizure entries as in `scale_seizures_to_received_spec` | INV-LIQ-03 | `liquidation_does_not_increase_seized_collateral` (account level) |
+| `underdelivery_scales_seizures` | `Proofs/Apply.lean` | `apply_liquidation_repayments` → `scale_seizures_to_received` | `u ≤ planned`; a short receipt floors every seizure by `u/planned` ([notes](#theorem-notes)) | APP ([notes](#theorem-notes)) | INV-LIQ-03 | `liquidation_does_not_increase_seized_collateral` (account level) |
 | `credited_shares_spec` | `Proofs/Apply.lean` | `apply.rs::credited_shares` | returns `S − ⌈bonus·fee/BPS⌉ ∈ [0, S]` | `0 ≤ bonus ≤ S`, fee `< BPS` | INV-LIQ-02 | — |
-| `check_bad_debt_after_liquidation_eq` | `Proofs/Apply.lean` | `apply.rs::check_bad_debt_after_liquidation` | equation: no debt left → only the empty-account cleanup; else socialization (`execute_bad_debt_cleanup` on the whole account) exactly when `coll < debt ∧ coll ≤ 5 WAD`; else nothing | none | INV-LIQ-04 | `bad_debt_socialization_threshold_boundary` |
-| `seizure_budget_spec` | `Proofs/Apply.lean` | `math.rs::calculate_seized_collateral` (its `one_plus_bonus` / `total_seizure_usd` steps) | `total_seizure_usd = hu(repay·(BPS+bonus)/BPS)` | `repay ≥ 0`, `0 ≤ bonus ≤ BPS`, result fits | INV-LIQ-02 | — |
+| `check_bad_debt_after_liquidation_eq` | `Proofs/Apply.lean` | `apply.rs::check_bad_debt_after_liquidation` | equation: socializes exactly when `coll < debt ∧ coll ≤ 5 WAD` ([notes](#theorem-notes)) | none | INV-LIQ-04 | `bad_debt_socialization_threshold_boundary` |
+| `seizure_budget_spec` | `Proofs/Apply.lean` | `math.rs::calculate_seized_collateral` (budget steps) | `total_seizure_usd = hu(repay·(BPS+bonus)/BPS)` ([notes](#theorem-notes)) | `repay ≥ 0`, `0 ≤ bonus ≤ BPS`, result fits | INV-LIQ-02 | — |
 | `seizure_budget_exceeds_exact` | `Proofs/Apply.lean` | same | concrete case `repay = 10`, bonus 5%: budget 11 > exact 10.5 (rounding not in the protocol's favour, by < 1 WAD unit) | none | INV-LIQ-02 | — |
 | `liq_bps_to_wad_val`, `div_floor_saturating_val` | `Proofs/Apply.lean`, `Proofs/Totals.lean` | `Bps::to_wad`, `Wad::div_floor_saturating` | `b·10^14`; `min(i128::MAX, ⌊a·W/b⌋)` for `a ≥ 0`, `b > 0` | as stated | — | — |
 
-Hypothesis groups of the new rows (each per entry of the respective map or list):
+### Theorem notes
+
+* **`calculate_linear_bonus_spec`**: returns `b = base` if `hf ≥ target`;
+  else `b = base + hu(hu((max−base)·scale/W)·factor/BPS)`. The validated
+  curve is `0 ≤ hf_max < target ≤ 10 WAD` and `0 ≤ factor ≤ BPS`.
+* **`split_seized_shares_spec`**: returns `(fee, liq)` with `0 ≤ fee ≤ b` and
+  `0 ≤ liq ≤ S`. The two internal re-checks are dead code. No Certora rule
+  covers this function. `seizure_split_math` / `protocol_fee_bonus_math` in
+  value_math_rules check the transfer-mode fee split (bounded).
+* **`scale_seizures_to_received_spec`**:
+  * `planned ≤ 0 ∨ received ≥ planned`: the input is returned unchanged.
+  * Otherwise the output has the same length, and each entry is related by
+    `ScaledEntry`. Shares, bonus and amount are floored by
+    `received/planned`. The amount is capped at the floor value of the new
+    shares. The fee is floored and capped at the new amount. Other fields are
+    unchanged.
+  * Entry domain, on a short receipt: decimals in `[3,18]`,
+    `shares, index ≥ 0`, `shares·index < 2^127·R`.
+  * No Certora rule covers this function.
+    `liquidation_does_not_increase_seized_collateral` is an account-level
+    rule.
+* **`ScaledEntry.proportional`**: `x'·planned ≤ x·received` for shares and
+  amount, `x' ≤ x`, `fee' ≤ amount'`, and `bonus ≤ scaled` is preserved.
+* **`calculate_account_risk_totals_spec`**: returns with the context
+  unchanged, and:
+  * `total_collateral = Σ huv`;
+  * `ltv_collateral = Σ ⌊fv·min(LTV,LT)/BPS⌋`;
+  * `weighted_collateral = Σ ⌊fv·LT/BPS⌋`;
+  * `total_debt = Σ cv` (borrow index);
+  * `health_factor = i128::MAX` without debt, else
+    `min(i128::MAX, ⌊weighted·W/debt⌋)`.
+
+  Certora summarises this function outside the health/solvency rules.
+* **`calculate_account_risk_totals_conservative`**:
+  `weighted·BPS·10^54 ≤ Σ LT·s·i·p`; `ltv·BPS·10^54 ≤ Σ min(LTV,LT)·s·i·p`;
+  `ltv ≤ weighted ≤ total_collateral`; `Σ fv ≤ total_collateral ≤ Σ cv`;
+  `Σ s·i·p ≤ total_debt·10^54`.
+* **`calculate_repayment_amounts_spec`**: for the merged legs `P`, returns
+  with the context unchanged.
+  * One entry per leg with `amount = min(offered, D)` and the feed/index
+    snapshot.
+  * `usd_wad = legUsd`: the floor value `fv` of the whole debt when the leg
+    pays `D`, else `hu(offered·10^(18−dec)·p/W)`.
+  * One refund `offered − D` per overpaid leg, in order.
+  * Total `= Σ legUsd`.
+* **`apply_liquidation_repayments_eq`**: equals one pool action per leg
+  repaying with the *received* amount, then the batch repay. It returns
+  `u = Σ legRecv`, where `legRecv = usd_wad` if `received ≥ amount`, else
+  `⌊usd_wad·received/amount⌋`.
+* **`underdelivery_scales_seizures`**: seizures are unchanged when all
+  arrived. Otherwise every entry is floored by `u/planned` (`ScaledEntry`).
+  Hypotheses: APP, planned `= Σ usd_wad`, and seizure entries as in
+  `scale_seizures_to_received_spec`.
+* **`check_bad_debt_after_liquidation_eq`**: with no debt left, only the
+  empty-account cleanup runs. Otherwise socialization
+  (`execute_bad_debt_cleanup` on the whole account) runs exactly when
+  `coll < debt ∧ coll ≤ 5 WAD`. Else nothing happens.
+* **`seizure_budget_spec`**: covers the `one_plus_bonus` /
+  `total_seizure_usd` steps of `calculate_seized_collateral`.
+
+### Hypothesis groups
+
+Each group applies per entry of the respective map or list.
 
 * **TOT** (`RawSupplyOK` / `RawDebtOK`):
   * the context serves the key: the price of its asset and its index are
@@ -332,32 +243,12 @@ Hypothesis groups of the new rows (each per entry of the respective map or list)
 * **Repayment legs** — every `usd_wad` is a floor or half-up valuation of a
   non-negative amount at a non-negative price.
 
-## Rebuilding
+## Axiom check
 
-```sh
-export AENEAS_HOME=/path/to/aeneas-nightly-2026.11.12-0d21a9e   # or your unpacked release
-export PATH=$HOME/.elan/bin:$PATH
-cd verification/aeneas
-ALLOW_DRIFT=1 ./run.sh controller   # extract.sh, then postextract.sh, then lake build ControllerAeneas
-```
-
-`extract.sh` runs `gen_totals.py`, then `charon cargo --preset=aeneas
---inline-anon-consts --dest-file target/llbc/controller.llbc --start-from ...
---opaque ...` and `aeneas -backend lean -dest ../lean -subdir
-ControllerAeneas -split-files target/llbc/controller.llbc` (the `-subdir`
-makes the generated imports `ControllerAeneas.*`), then deletes the
-`*_Template.lean` files. `run.sh` then runs `postextract.sh` on the
-generated library (Aeneas issue 3).
-
-Axioms: `ControllerAeneas.lean` ends with
-`#assert_standard_axioms ControllerAeneas` (`lean/Audit.lean`), so the build
-fails unless every declaration of the library depends only on `propext`,
-`Classical.choice` and `Quot.sound`.
-
-Stand-ins: the copied production items in `controller/src` (`types.rs`,
-`cached_price`, the payment aggregation, `make_pool_action`, ...) are
-compared with production by `../check_standins.py`, which `run.sh` runs
-first. An adapted stand-in pins the hash of the production item it replaces.
+`ControllerAeneas.lean` ends with `#assert_standard_axioms ControllerAeneas`
+(`lean/Audit.lean`). So the build fails unless every declaration of the
+library depends only on `propext`, `Classical.choice` and `Quot.sound`. To
+rebuild, see [extraction.md](extraction.md#controller-rebuild).
 
 ## Not covered
 
@@ -373,7 +264,7 @@ first. An adapted stand-in pins the hash of the production item it replaces.
   still leaves out.
 * **`repays_every_debt_leg`** — kept opaque. Its `Iterator::all` closure
   mutably borrows the context, and the Aeneas library's `FnMut` model cannot
-  type that (see Aeneas issues). So the `repays_all_debt` flag is arbitrary in the
+  type that ([Aeneas issue 5](extraction.md#controller-aeneas-issues)). So the `repays_all_debt` flag is arbitrary in the
   model.
 * **`apply_liquidation_seizures`, `apply_liquidation_share_credit`** —
   extracted, not proved. Their effects are the external batch withdraw /
@@ -389,57 +280,8 @@ first. An adapted stand-in pins the hash of the production item it replaces.
   list). It does not prove the aggregation.
 * **Error codes** — every abort is just an abort; codes are checked by Kani /
   tests, not here.
-* **`Vec` length limit** — not modelled (see Trusted base).
+* **`Vec` length limit** — not modelled ([trusted base](extraction.md#controller-trusted-base)).
 * **Map key order** — not modelled; no theorem depends on it.
-
-## Aeneas issues (and how the extraction avoids them)
-
-1. **Internal error on `process_excess_payment`** (`InterpAbs.ml` line 940,
-   reported as `Interp.ml` line 686). Minimal reproduction, a loop whose
-   condition compares a derived-`PartialOrd` newtype against a temporary and
-   short-circuits:
-
-   ```rust
-   #[derive(Clone, Copy, PartialEq, PartialOrd)]
-   pub struct W9(i128);
-   pub fn v9(excess: W9, mut n: u32) -> W9 {
-       let mut rem = excess;
-       while rem > W9(0) && n > 0 {   // `rem > W9(0)` alone, or `rem > z` with a local `z`, works
-           n -= 1;
-           rem = W9(rem.0 - 1);
-       }
-       rem
-   }
-   ```
-
-   In production the condition is `remaining_excess_usd > Wad::ZERO &&
-   current_index > 0`. Charon's `--inline-anon-consts` avoids it.
-   `--no-code-duplication` also avoids it, but breaks other functions.
-   `extract.sh` passes `--inline-anon-consts`. It leaves the translation of
-   every other extracted function unchanged (checked by diffing `Funs.lean`).
-2. **`fn` pointers with a higher-ranked lifetime are not supported** ("arrow
-   types with locally quantified regions"), nor the coercion of a function
-   item to one. Avoided by `gen_totals.py` (see the crate section). Passing
-   `position_value` as a generic `F: Fn(&Env, ..)` fails too ("lifetime
-   constraint relating a higher-ranked lifetime to a free lifetime").
-3. **Provided `Iterator` methods emitted as instance fields.** For the shim's
-   `impl Iterator for VecIter<T>`, Aeneas puts `all` and `find` into the trait
-   instance. The Lean library's `Iterator` structure has no such fields
-   (Aeneas warns about it), so `Funs.lean` does not compile. The calls go to
-   `core.iter.traits.iterator.Iterator.{all,find}.default` directly. So
-   `controller/postextract.sh` deletes exactly these two field definitions
-   from that one instance. It fails if the instance has another shape.
-4. **Parameter names shadow module namespaces.** A function with a parameter
-   named `account` (or `payments`) that calls `crate::account::f` is emitted
-   as `account.f`. Lean resolves that as field access on the parameter. The
-   crate defines those items in `account_store` / `payment_legs` and
-   re-exports them as `crate::account` / `crate::payments`. So the generated
-   names differ from the parameters.
-5. **Closures with a mutable capture.** `repays_every_debt_leg`'s
-   `Iterator::all` closure captures `cache: &mut Context`; the generated
-   `FnMut` instance has type `closure → Item → Result (Bool × closure ×
-   (closure → closure))`, which does not match the library's `FnMut`. The
-   function is kept opaque.
 
 ## Production code review notes
 

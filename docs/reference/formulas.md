@@ -499,64 +499,6 @@ offer is refunded. If no leg remains, `liquidate` reverts with
 branch does not promote the quote to full debt; bad-debt cleanup takes the unbacked
 residue. With `p == 0`, the target formula and dust promotion below apply instead.
 
-A partial seizure leg below 3 decimals takes whole units only. One whole unit
-is one base unit of the token, `10^-d` of a token for `d` decimals. When the
-repayment covers the whole debt, the leg rounds up to the next whole unit,
-capped at the held balance, and the debt closes. Otherwise the leg rounds
-down. The dropped fraction's USD value, divided by `1 + bonus` and floored, is
-trimmed from the repayment and refunded. Kept amounts round up, so the
-liquidator pays for the units it receives. A plan that then seizes nothing
-reverts with `InvalidPayments` (16). Neither applies when an insolvent account's repayment reaches the
-collateral-backed quote: that call seizes every unit. Such a leg is its
-account's only supply position, so it is the whole collateral and the seizure
-stays proportional. A borrow, withdrawal or account strategy that leaves debt
-needs at least 2 whole units in it. A liquidation can leave fewer, and a
-`Credit` receiver's units are not checked at credit.
-
-The controller can change a partial quote for such a leg. All of these
-conditions must be true:
-
-- the account is solvent (`C >= D`);
-- the curve quote is below `D`;
-- the leg is the account's only supply position;
-- the leg holds at least one whole unit.
- Let `U` be the WAD USD value of one whole unit, `b` the
-bonus and `m = max(floor(U / 1e6), 1)` in raw WAD. Let `R` be the sum, over the
-account's debt legs, of the USD value of one base unit of that debt token. `R`
-is the per-leg ceiling rounding that a full close can record. The controller
-applies the first rule that matches:
-
-1. If `floor(U / (1 + b)) >= D + R`, the quote becomes `D`. The plan closes in
-   full and the leg rounds up to one whole unit. The liquidator repays all
-   debt and receives one unit.
-2. If the curve quote seizes less than `U + m`, and
-   `ceil((U + m) / (1 + b)) < D`, the quote rises. The new quote is
-   `ceil((U + m) / (1 + b))`. The seizure takes one unit. It refunds the
-   margin that it does not seize, rounded down to whole debt-token units.
-3. Otherwise the curve quote stays.
-
-The raised quote is a ceiling, not a floor. A smaller offer is not raised. An
-offer that backs less than one whole unit seizes nothing and reverts with
-`InvalidPayments` (16). An offer between `U / (1 + b)` and the raised quote
-still takes one unit. Size offers for such a leg from
-`get_liquidation_estimate`, not from the curve formula.
-
-The HF-preserving bonus cap keeps `1 + b <= C / D`, so the sale of one unit does
-not lower `C / D`. Take a solvent account whose only supply leg is below 3
-decimals and holds a whole unit. It stays liquidatable below `HF = 1`, by a
-one-unit sale or by a full close. There is one exception. While
-`floor(U / (1 + b)) - R < D <= ceil((U + m) / (1 + b))`, neither rule 1 nor
-rule 2 applies. If the curve quote then backs less than one unit, every offer
-reverts until accrual or a price move ends that state.
-
-A rule-1 full close pays the liquidator one unit worth `U` for `D`. Its
-effective bonus is `U / D - 1`, not `b`. Take `k` held units and liquidation
-threshold `LT`. `HF < 1` then gives `k * U * LT < D`. The effective bonus is
-therefore at most about `1 / (k * LT) - 1`. The borrower loses `U - D * (1 + b)` above the
-normal bonus. `bonus_rate_bps` in the estimate and `bonus_bps` in
-`LiquidationEvent` show only `b`. A listing below 3 decimals has no liquidation
-fee, so no protocol fee applies to that excess.
-
 For positive `p`, `HF / p` approximates `C / D`. `HF` floors and `p` rounds
 half-up, however. An account at `C == D`, or a few raw WAD units above it, can
 therefore compute a cap of `-1`. Such a
@@ -567,7 +509,7 @@ That unit stays with the account as collateral. Bad-debt cleanup does not
 sweep it, because the account has no debt.
 
 An ideal residual debt strictly between zero and $5 also promotes the quote to
-full debt, without requiring full funding. A raised whole-unit quote is not
+full debt, without requiring full funding. A [raised whole-unit quote](#raised-partial-quote) is not
 promoted to full debt, so it can leave debt below $5. Each input is capped at
 its leg's ceiling-rounded debt, and the excess is listed as a refund. A partial quote
 also trims the inputs above the quote from the last leg backward before tokens
@@ -580,6 +522,93 @@ pulls each merged offered amount. The pool refunds what exceeds each leg's
 debt, which is exactly the listed refund. Neither a full-debt quote nor the target
 health factor guarantees an executed full close after rounding or
 under-delivery.
+
+### Whole-unit collateral below 3 decimals
+
+A collateral leg whose token has fewer than 3 decimals seizes whole units
+only. One whole unit is one base unit of the token, `10^-d` of a token for `d`
+decimals.
+
+A partial seizure of such a leg rounds as follows:
+
+- When the repayment covers the whole debt, the leg rounds up to the next
+  whole unit, capped at the held balance. The debt closes.
+- Otherwise the leg rounds down. The dropped fraction's USD value, divided by
+  `1 + bonus` and floored, is trimmed from the repayment and refunded.
+- Kept amounts round up, so the liquidator pays for the units it receives.
+- A plan that then seizes nothing reverts with `InvalidPayments` (16).
+
+Neither rounding rule applies when an insolvent account's repayment reaches
+the collateral-backed quote. That call seizes every unit. Such a leg is its
+account's only supply position, so it is the whole collateral and the seizure
+stays proportional.
+
+A borrow, withdrawal or account strategy that leaves debt needs at least 2
+whole units in the leg. A liquidation can leave fewer, and a `Credit`
+receiver's units are not checked at credit.
+
+#### Raised partial quote
+
+The controller can change a partial quote for such a leg. All of these
+conditions must be true:
+
+- the account is solvent (`C >= D`);
+- the curve quote is below `D`;
+- the leg is the account's only supply position;
+- the leg holds at least one whole unit.
+
+The rules use these values, in raw WAD:
+
+- `U` is the USD value of one whole unit.
+- `b` is the bonus.
+- `m = max(floor(U / 1e6), 1)`.
+- `R` is the sum, over the account's debt legs, of the USD value of one base
+  unit of that debt token. `R` is the per-leg ceiling rounding that a full
+  close can record.
+
+The controller applies the first rule that matches:
+
+1. If `floor(U / (1 + b)) >= D + R`, the quote becomes `D`. The plan closes in
+   full and the leg rounds up to one whole unit. The liquidator repays all
+   debt and receives one unit.
+2. If the curve quote seizes less than `U + m`, and
+   `ceil((U + m) / (1 + b)) < D`, the quote rises. The new quote is
+   `ceil((U + m) / (1 + b))`. The seizure takes one unit. It refunds the
+   margin that it does not seize, rounded down to whole debt-token units.
+3. Otherwise the curve quote stays.
+
+Size offers for such a leg from `get_liquidation_estimate`, not from the
+curve formula:
+
+- The raised quote is a ceiling, not a floor. A smaller offer is not raised.
+- An offer that backs less than one whole unit seizes nothing and reverts
+  with `InvalidPayments` (16).
+- An offer between `U / (1 + b)` and the raised quote still takes one unit.
+
+#### Liquidatability of a whole-unit leg
+
+The HF-preserving bonus cap keeps `1 + b <= C / D`, so the sale of one unit
+does not lower `C / D`. Take a solvent account whose only supply leg is below
+3 decimals and holds a whole unit. It stays liquidatable below `HF = 1`, by a
+one-unit sale or by a full close.
+
+There is one exception. While
+`floor(U / (1 + b)) - R < D <= ceil((U + m) / (1 + b))`, neither rule 1 nor
+rule 2 applies. If the curve quote then backs less than one unit, every offer
+reverts until accrual or a price move ends that state.
+
+#### Effective bonus of a rule-1 full close
+
+- A rule-1 full close pays the liquidator one unit worth `U` for `D`. Its
+  effective bonus is `U / D - 1`, not `b`.
+- Take `k` held units and liquidation threshold `LT`. `HF < 1` then gives
+  `k * U * LT < D`. The effective bonus is therefore at most about
+  `1 / (k * LT) - 1`.
+- The borrower loses `U - D * (1 + b)` above the normal bonus.
+- `bonus_rate_bps` in the estimate and `bonus_bps` in `LiquidationEvent` show
+  only `b`.
+- A listing below 3 decimals has no liquidation fee, so no protocol fee
+  applies to that excess.
 
 ### Seizure and fees
 

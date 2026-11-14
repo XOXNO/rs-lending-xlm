@@ -171,64 +171,93 @@ operations fit network budgets.
 Measured inbound receipt prevents crediting a requested amount that never
 arrived on supported supply, repay, recapitalization, and strategy paths.
 It is not a generic safety guarantee for arbitrary token contracts. Listing
-review must consider sender surcharges, false balances, rebases, clawbacks,
-upgrades, and semantics that can change after admission.
+review must consider:
 
-A token issuer can change the token's decimals after listing, for example with
-a `set_metadata` call. Pool decimals are fixed at listing, and the pool never
-reads the token's decimals itself. Governance calls the token's `decimals()`
-and `symbol()` on every `CreateLiquidityPool` proposal. It does the same on
-every `ConfigureAssetOracle` proposal for a `PriceKey::Token` key. A failing
-call rejects the proposal with `InvalidAsset` (6). Governance uses the live decimals
-only while the price aggregator holds no oracle for the token. Otherwise
-`resolve_oracle` uses the stored oracle's `asset_decimals`, and
-`CreateLiquidityPool` checks `asset_decimals` against the same value. The price
-aggregator rejects a replacement oracle that changes the stored
-`asset_decimals` with `InvalidOracleDecimals` (221). Thus oracle maintenance
-keeps the listed decimals after a relabel, and a listing in a second hub must
-use them too.
+- sender surcharges;
+- false balances;
+- rebases;
+- clawbacks;
+- upgrades;
+- semantics that can change after admission.
+
+**Decimals changes.** A token issuer can change the token's decimals after
+listing, for example with a `set_metadata` call. The protocol holds the listed
+decimals as follows:
+
+- Pool decimals are fixed at listing. The pool never reads the token's
+  decimals itself.
+- Governance calls the token's `decimals()` and `symbol()` on every
+  `CreateLiquidityPool` proposal. It does the same on every
+  `ConfigureAssetOracle` proposal for a `PriceKey::Token` key. A failing call
+  rejects the proposal with `InvalidAsset` (6).
+- Governance uses the live decimals only while the price aggregator holds no
+  oracle for the token.
+- Otherwise `resolve_oracle` uses the stored oracle's `asset_decimals`, and
+  `CreateLiquidityPool` checks `asset_decimals` against the same value.
+- The price aggregator rejects a replacement oracle that changes the stored
+  `asset_decimals` with `InvalidOracleDecimals` (221).
+
+Thus oracle maintenance keeps the listed decimals after a relabel, and a
+listing in a second hub must use them too.
 
 Live decimals still apply to every `CreateLiquidityPool` and
 `ConfigureAssetOracle` proposed while the aggregator holds no oracle for the
 token, in either order. This includes every such proposal after a
 `SetPriceAggregator` re-point to an aggregator with an empty registry. Before
-execution, the operator must compare the resolved `asset_decimals` of every
-pending listing and oracle operation for that token. The operator compares
-them with each other and with the existing pools of that token. On any
-mismatch, the operator cancels the operation. After a mismatch executes, only an aggregator Wasm upgrade can
-correct the stored unit: `set_oracle` rejects a decimals change, and
-`remove_oracle` exists only in testing builds.
+execution, the operator must:
 
-Never list a receipt-tax or otherwise under-delivering token as borrowable in a
-spoke that holds collateral below `MIN_BORROWABLE_ASSET_DECIMALS`. A short
-receipt against such collateral reverts. A borrower in that pairing can only
-be fully closed with a fully delivered offer, never partially liquidated.
+1. Compare the resolved `asset_decimals` of every pending listing and oracle
+   operation for that token with each other.
+2. Compare them with the existing pools of that token.
+3. Cancel the operation on any mismatch.
 
-One token listed in several hubs shares physical pool custody even though
-market books are separate. Direct donations do not rewrite those books.
-Cash flash loans impose exact balance transitions and allowance repayment;
-receipt-tax compatibility elsewhere does not establish flash-loan compatibility.
+After a mismatch executes, only an aggregator Wasm upgrade can correct the
+stored unit: `set_oracle` rejects a decimals change, and `remove_oracle`
+exists only in testing builds.
 
-Aquarius LP collateral earns venue rewards for its holder, which is the pool.
-The pool has no entrypoint to claim or forward them. In a mainnet simulation,
-the venue's reward claim did not require the holder's authorization. Any
-caller can therefore push accrued rewards into the pool address as an unbooked
-donation. Gauge rewards need the pool's authorization and therefore cannot be
-claimed at all. Suppliers of LP collateral should expect no venue rewards;
-this is forgone yield, not a loss of principal.
+**Receipt-tax tokens.** Never list a receipt-tax or otherwise under-delivering
+token as borrowable in a spoke that holds collateral below
+`MIN_BORROWABLE_ASSET_DECIMALS`. A short receipt against such collateral
+reverts. A borrower in that pairing can only be fully closed with a fully
+delivered offer, never partially liquidated.
 
-Curve LP collateral is priced at the pool's virtual price times the lowest coin
-price. The virtual price depends on the amplification coefficient A whenever
-the pool is imbalanced. The pool factory's admin can ramp A within the pool's
-own rate limits. The aggregator pins the pool executable, not its factory.
-Governance must therefore review the factory and its admin as trusted parties,
-as it does an Aquarius stable pool's admin. On an imbalanced pool a ramp can
-move the mark either way. The mark never goes above the normalized balances
-per share times the lowest coin price, because the invariant never exceeds
-their sum. Each coin's issuer carries the same trust as a directly listed
-token's. The lowest-coin price
-understates an LP held as debt, so LP sources are collateral-only and LP
-markets must not be borrowable.
+**Shared custody.**
+
+- One token listed in several hubs shares physical pool custody even though
+  market books are separate.
+- Direct donations do not rewrite those books.
+- Cash flash loans impose exact balance transitions and allowance repayment.
+  Receipt-tax compatibility elsewhere does not establish flash-loan
+  compatibility.
+
+**Aquarius LP rewards.**
+
+- Aquarius LP collateral earns venue rewards for its holder, which is the
+  pool. The pool has no entrypoint to claim or forward them.
+- In a mainnet simulation, the venue's reward claim did not require the
+  holder's authorization. Any caller can therefore push accrued rewards into
+  the pool address as an unbooked donation.
+- Gauge rewards need the pool's authorization and therefore cannot be claimed
+  at all.
+- Suppliers of LP collateral should expect no venue rewards. This is forgone
+  yield, not a loss of principal.
+
+**Curve LP pricing.**
+
+- Curve LP collateral is priced at the pool's virtual price times the lowest
+  coin price.
+- The virtual price depends on the amplification coefficient A whenever the
+  pool is imbalanced. The pool factory's admin can ramp A within the pool's
+  own rate limits.
+- The aggregator pins the pool executable, not its factory. Governance must
+  therefore review the factory and its admin as trusted parties, as it does an
+  Aquarius stable pool's admin.
+- On an imbalanced pool a ramp can move the mark either way. The mark never
+  goes above the normalized balances per share times the lowest coin price,
+  because the invariant never exceeds their sum.
+- Each coin's issuer carries the same trust as a directly listed token's.
+- The lowest-coin price understates an LP held as debt. LP sources are
+  therefore collateral-only, and LP markets must not be borrowable.
 
 ## Routes, callbacks, and external integrations
 
@@ -539,7 +568,7 @@ these rows do not assign severity or establish exploitability.
 | Tamper.3 | Non-standard tokens/donations; measured receipts and separate books do not neutralize arbitrary token semantics. |
 | Tamper.4 | Malicious router/venue; measured input/output bounds apply, while payload minimum output remains router-enforced. |
 | Tamper.5 | Callback reentry/intermediate state; guards and host rules protect reachable paths, not hypothetical EVM behavior. |
-| Tamper.6 | Accrual manipulation/extremes; bounded indexes and chunks coexist with cadence effects. At the market value ceiling accrual holds interest instead of overflowing, which under-charges borrowers of that market ([INV-IDX-06](../reference/invariants.md#inv-idx-06)). |
+| Tamper.6 | Accrual manipulation/extremes; bounded indexes and chunks coexist with cadence effects. See [Tamper.6 detail](#tamper6-detail). |
 | Tamper.7 | Malicious upgrade; core upgrades are delayed, including price aggregator; standalone owners retain their own upgrade policy. |
 | Tamper.8 | Hostile Blend integration; allowlisting and measured settlement do not freeze an approved pool's code. |
 | Tamper.9 | False feed-nature label bypasses intended smoothing selection; nature is operator-asserted. |
@@ -551,19 +580,19 @@ these rows do not assign severity or establish exploitability.
 | Info.2 | Liquidation competition and MEV; the bonus curve bounds terms, not ordering or liquidator profit. |
 | Info.3 | Visible pending governance changes allow anticipatory positioning; observability is intentional. |
 | Info.4 | Invalid quotes may contain prices; use validity flags or strict reads. |
-| DoS.1 | Price outage blocks valuation-dependent actions, including liquidation; fail-closed availability cost. A borrower can pick which outage shields the account. See [DoS.1 detail](#dos1-detail). |
+| DoS.1 | Price outage blocks valuation-dependent actions, including liquidation; fail-closed availability cost. See [DoS.1 detail](#dos1-detail). |
 | DoS.2 | Selected paused debt or no_seize collateral blocks liquidation; distinct flag policies matter. |
 | DoS.3 | False-alarm pause needs delayed reopening; emergency response is asymmetric. |
 | DoS.4 | Lost governance keys; proposer safeguards and owner-dependent canceller recovery do not restore a lost owner. |
 | DoS.5 | Resource exhaustion; limits do not substitute for real-WASM maximum-case measurements. |
 | DoS.6 | Archived storage blocks access until restoration; controller renewal is owner-authorized. |
 | DoS.7 | Signer liveness loss prevents new aggregates; a prior aggregate can remain usable until stale. |
-| DoS.8 | Cash/utilization/cap limits reject otherwise desired actions; zero caps admit no new exposure. A Transfer liquidation that burns a market's last supply shares while that market has debt reverts with `PoolInsolvent` (123) unless the leg's protocol fee books revenue shares first; `Credit` mode, a smaller Transfer seizure, or a repayment of that debt avoids it ([INV-ACCT-09](../reference/invariants.md#inv-acct-09)). |
+| DoS.8 | Cash/utilization/cap limits reject otherwise desired actions. See [DoS.8 detail](#dos8-detail). |
 | DoS.9 | Dust and zero-share movements; rejection/floors reduce griefing but do not guarantee liquidation profitability. |
-| DoS.10 | Router/oracle owner loss disables administration; existing oracle signers may continue, but future repair powers are lost. The source ABIs export no `renounce_ownership`; verify that the deployed artifacts match. |
-| DoS.11 | A receipt-tax debt token against collateral below 3 decimals: a short receipt reverts liquidation, so only a fully delivered full close settles. The listing rule under [Token assumptions](#token-assumptions) forbids the pairing. |
+| DoS.10 | Router/oracle owner loss disables administration. See [DoS.10 detail](#dos10-detail). |
+| DoS.11 | Receipt-tax debt token against collateral below 3 decimals blocks partial liquidation. See [DoS.11 detail](#dos11-detail). |
 | Elevation.1 | Governance-owner compromise; actual configured delay and approved replacement code determine exposure. |
-| Elevation.2 | Guardian attempts reopening; immediate flag ratchets reject it. Listing edits cannot clear flags either; only a delayed relaxation bound to the listing's flags epoch can, so one proposed before a later guardian action reverts. A guardian cannot hold a listing closed against governance by re-asserting flags it already set: a write that changes nothing reverts and does not advance the epoch, so each flag invalidates a pending relaxation at most once. The owner's immediate `revoke_role_immediate` remains the escape from a guardian that keeps tightening. |
+| Elevation.2 | Guardian attempts reopening; immediate flag ratchets reject it. See [Elevation.2 detail](#elevation2-detail). |
 | Elevation.3 | Role overlap/cancellation abuse; separation exempts owner and recovery has its own rules. |
 | Elevation.4 | Delegate exceeds mandate; owner-only grant management and delayed global manager deactivation limit eligibility, not economic intent. |
 | Elevation.5 | Third-party creation of foreign risk; supply top-ups require existing positions, while account creation belongs to its caller. |
@@ -572,6 +601,13 @@ these rows do not assign severity or establish exploitability.
 | Elevation.8 | Test powers in release WASM; feature and artifact checks cover only their actual build/export scope. |
 | Elevation.9 | Vault abuses adapter authority; adapter exposes supply/withdrawal, not borrowing or other vault accounts. |
 | Elevation.10 | ORACLE role narrows band to exclude market price; immediate fail-closed denial of service remains possible. |
+
+### Tamper.6 detail
+
+Bounded indexes and accrual chunks coexist with cadence effects. At the market
+value ceiling, accrual holds interest instead of overflowing. This
+under-charges borrowers of that market
+([INV-IDX-06](../reference/invariants.md#inv-idx-06)).
 
 ### DoS.1 detail
 
@@ -616,6 +652,41 @@ LP legs (Aquarius or Curve) add outage causes:
 - A Curve leg fails when an A ramp lowers pool value below the floor.
 
 The same failing leg blocks bad-debt cleanup and force-socialization.
+
+### DoS.8 detail
+
+- Zero caps admit no new exposure.
+- A Transfer liquidation that burns a market's last supply shares while that
+  market has debt reverts with `PoolInsolvent` (123)
+  ([INV-ACCT-09](../reference/invariants.md#inv-acct-09)).
+- The revert does not happen when the leg's protocol fee books revenue shares
+  first.
+- `Credit` mode, a smaller Transfer seizure, or a repayment of that debt
+  avoids the revert.
+
+### DoS.10 detail
+
+Existing oracle signers may continue, but future repair powers are lost. The
+source ABIs export no `renounce_ownership`; verify that the deployed
+artifacts match.
+
+### DoS.11 detail
+
+A short receipt reverts the liquidation, so only a fully delivered full close
+settles. The listing rule under [Token assumptions](#token-assumptions)
+forbids the pairing.
+
+### Elevation.2 detail
+
+- Listing edits cannot clear flags.
+- Only a delayed relaxation bound to the listing's flags epoch can clear a
+  flag. A relaxation proposed before a later guardian action reverts.
+- A guardian write that changes nothing reverts and does not advance the
+  epoch. Each flag therefore invalidates a pending relaxation at most once.
+  A guardian cannot hold a listing closed against governance by re-asserting
+  flags it already set.
+- The owner's immediate `revoke_role_immediate` remains the escape from a
+  guardian that keeps tightening.
 
 ## Review triggers
 

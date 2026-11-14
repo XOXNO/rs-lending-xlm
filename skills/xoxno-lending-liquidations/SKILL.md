@@ -101,17 +101,23 @@ Offer only positive debt legs the account actually owes. The controller pulls ac
 whole offer and the pool refunds excess. A direct repayment transfer to the
 pool is a donation. Refunds are in debt-token units.
 
-For a contract liquidator, require each payment leg to have a unique token
-address even when the same token is borrowed in multiple hubs. Estimates and
-refunds are keyed by token address only, not by `(hub_id, asset)`.
+### Unique debt-token addresses for contract liquidators
 
-This is an authorization limit. `authorize_as_current_contract` authorizes the
-nested token call by token contract, function, and transfer arguments. It does
-not include the controller's hub id. With repeated token addresses, asset-only
-refunds cannot determine the accepted amount for each hub leg, while
-authorization entries are consumed against ordered token-transfer
-sub-invocations. The contract cannot safely construct exact per-leg transfer
-authorizations.
+A contract liquidator must give each payment leg a unique token address, even
+when the same token is borrowed in several hubs. This is an authorization
+limit:
+
+- Estimates and refunds are keyed by token address only, not by
+  `(hub_id, asset)`.
+- `authorize_as_current_contract` authorizes the nested token call by token
+  contract, function, and transfer arguments. It does not include the
+  controller's hub id.
+- Authorization entries are consumed against ordered token-transfer
+  sub-invocations.
+
+With repeated token addresses, asset-only refunds cannot determine the
+accepted amount for each hub leg. The contract cannot safely construct exact
+per-leg transfer authorizations.
 
 ### Full-close and insolvent plans
 
@@ -128,37 +134,14 @@ A plan without a payment leg fails with `InvalidPayments`.
 Authorize the final accepted transfers. A stale authorization can fail if a
 competing liquidation changes the plan.
 
-**Collateral below 3 decimals seizes base units.** Such a leg is the account's
-only supply position. One unit means `10^-decimals` tokens, not one whole token.
-At 2 decimals, one base unit is 0.01 token. On a solvent account whose leg holds at least one base
-unit, the controller can change a partial quote:
-
-- When one unit's USD value divided by `1 + bonus` covers the whole debt plus
-  one base unit of each debt leg, the quote is the whole debt. The liquidator
-  repays all debt and receives one unit.
-- Otherwise, check whether the curve quote seizes less than one base unit
-  plus a `1e-6` margin. The quote rises to the repayment for that amount only
-  if the raised repayment stays below the whole debt. The seizure takes one
-  unit and refunds the margin, rounded down to debt-token base units.
-- Otherwise the curve quote stays.
-
-The raised quote is a ceiling. A smaller offer is not raised. An offer that
-backs less than one unit seizes nothing and reverts with `InvalidPayments`
-(`controller #16`). A raised quote is not promoted to full debt, so it can
-leave debt below $5. If neither rule changes the quote, check whether it backs one base unit.
-If it does not, every offer fails until accrual or a price change ends the condition.
-
-In the full-close case the liquidator pays the debt `D` and receives one unit
-worth `U`. Its effective bonus is `U / D - 1`, not the reported
-`bonus_rate_bps`. With `k` held units and liquidation threshold `LT`, it is at
-most about `1 / (k * LT) - 1`. The borrower loses `U - D * (1 + bonus)` above
-the normal bonus. The listing has no liquidation fee. Value the seized unit at
-its price, not at `D * (1 + bonus)`.
-
-Do not size such an offer from the curve formula. Estimate an offer up to the
-debt with `get_liquidation_estimate`, read `max_payment_wad` and `refunds`, and
-sign only the accepted amounts. See
-[math](../xoxno-lending/math.md#seizure-and-fees-per-collateral).
+**Collateral below 3 decimals seizes whole base units.** The controller can
+raise a partial quote or turn it into a full close, and an offer that backs
+less than one unit reverts with `InvalidPayments` (`controller #16`). Do not
+size such an offer from the curve formula. Estimate an offer up to the debt
+with `get_liquidation_estimate`, read `max_payment_wad` and `refunds`, and sign
+only the accepted amounts. Value the seized unit at its price, not at
+`D * (1 + bonus)`. Rules and effective bonus:
+[math](../xoxno-lending/math.md#low-decimal-collateral-quotes).
 
 Perform every controller/token read first. Offer exactly the accepted amounts. Authorize each planned
 `transfer(liquidator, pool, amount)`. Call `liquidate` immediately.
@@ -197,10 +180,6 @@ preserve the hub from each ordered supply-position entry and do not deduplicate
 those estimate legs. If a repeated token has fewer estimate legs than supply positions, the
 estimate alone cannot identify which hub lost a leg. Use the lower value
 across compatible hub assignments.
-
-Repeated debt-payment token addresses have a separate problem for contract
-liquidators. Refunds and nested transfer authorization cannot identify the
-hub-specific repayment legs.
 
 For every paired collateral `(hub_id, asset)`:
 
@@ -286,7 +265,7 @@ flash loan with `FlashLoanOngoing`. Use inventory or external liquidity.
 - [ ] Exact payments/mode were estimated and the final write was simulated.
 - [ ] Net profit used conservative net proceeds per asset,
       including gas, trustline/reserve cost, and exit slippage.
-- [ ] Repeated debt-payment token addresses were rejected for a contract
-      liquidator.
+- [ ] A contract liquidator used
+      [unique debt-token addresses](#unique-debt-token-addresses-for-contract-liquidators).
 - [ ] The original signed envelope/hash was persisted and confirmed.
 - [ ] Events were reconciled with resulting account and market state.

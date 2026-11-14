@@ -10,7 +10,7 @@
 //! compiles and are never executed. Items that exist only so the verbatim
 //! production files type-check (token client, contract invocation, `Vec`,
 //! `Symbol`, ...) are never reachable from the extracted functions, and are
-//! listed in `docs/pool.md`.
+//! listed in `docs/extraction.md`.
 #![no_std]
 
 pub use aeneas_pool_shim_macros::{contracterror, contracttype};

@@ -32,14 +32,34 @@ discovers every `tests/*.rs` and `tests/<domain>/main.rs`.
 
 ## Module inventory
 
+Each domain's `main.rs` declares its modules. List them with:
+
+```bash
+grep -E '^ *(pub )?mod ' tests/test-harness/tests/controller/main.rs
+```
+
+Swap `controller` for any other domain directory. The groups below describe
+what each domain covers.
+
 ### `controller/`
 
-`account`, `admin`, `admin_config`, `audit_borrow_withdraw_liquidate_stale_anchor_blend`, `audit_liquidate_and_clean_stale_leg`, `audit_liquidate_dust_fee_dos`, `audit_supply_stale_shield`, `bad_debt_index`, `bad_debt_netting_and_exit_timing`, `borrow`, `bulk_indexes`, `decimal_diversity`, `deprecated_spoke_liquidation_liveness`, `dust_threshold_and_decimal_floor`, `events`, `extreme_amount_inputs`, `flash_loan`, `flash_loan_adversarial`, `force_socialize_refuses_solvent_accounts`, `governance_change_between_legs`, `keeper`, `large_positions_and_long_horizons`, `liquidation`, `liquidation_accrual_timing`, `liquidation_and_borrow_exact_boundaries`, `liquidation_band_full_close`, `liquidation_band_signed_auth`, `liquidation_boundary`, `liquidation_coverage`, `liquidation_extreme`, `liquidation_math`, `liquidation_mixed_decimal`, `liquidation_ratchet`, `liquidation_seize_modes`, `liquidation_under_delivering_debt_token`, `liqvid_listing_params`, `liqvid_oracle_deviation_bounds`, `liqvid_rwa_collateral`, `ltv_restamp_events`, `max_utilization`, `min_borrow_collateral`, `multi_hub`, `outbound_transfer_measurement`, `ownership`, `position_limit_lowering_keeps_topups`, `position_nft`, `position_nft_ttl_and_ownership_reads`, `recipient_is_protocol_contract`, `repay`, `round_trip_exactness_and_loop_drift`, `same_market_bad_debt_cleanup_arithmetic`, `security_audit`, `security_audit_extended`, `shared`, `spoke`, `spoke_caps`, `spoke_liquidation_combo`, `spoke_usage_tracks_positions`, `supply`, `third_party_supply_and_risk_restamp`, `validation_admin`, `views`, `withdraw`, `zero_decimal_collateral`
+| Area | Modules |
+|------|---------|
+| Core verbs and reads | `supply`, `borrow`, `repay`, `withdraw`, `account`, `views`, `events`, `position_nft*` |
+| Liquidation | `liquidation*`, `spoke_liquidation_combo`, `deprecated_spoke_liquidation_liveness` (roles below) |
+| Bad debt | `bad_debt_*`, `force_socialize_refuses_solvent_accounts`, `same_market_bad_debt_cleanup_arithmetic` |
+| Admin, ownership, keeper | `admin*`, `validation_admin`, `ownership`, `keeper`, `bulk_indexes`, risk restamps and governance edits between legs |
+| Spokes and hubs | `spoke*`, `multi_hub` |
+| Flash loans | `flash_loan*` |
+| Amounts, decimals, limits | Dust floors, decimal mixes, extreme amounts, long horizons, utilization and borrow-collateral floors, round trips, transfer measurement |
+| LIQVID listings | `liqvid_*` |
+| Audit regressions | `audit_*`, `security_audit*` |
+| Helpers | `shared` |
 
 Modules named `audit_*` and `security_audit*` are regression tests for
 external audit findings.
 
-#### Liquidation modules (roles)
+### Liquidation modules (roles)
 
 | Module | Role |
 |--------|------|
@@ -58,44 +78,17 @@ external audit findings.
 | `liquidation_under_delivering_debt_token.rs` | A fee-on-transfer debt token scales both the debt retired and the collateral seized |
 | `spoke_liquidation_combo.rs` | Spoke category liquidation with category-specific LTV/threshold |
 
-### `governance/`
+### Other domains
 
-`admin`, `admin_config`, `dex_usd_repricing`, `immediate`, `permissionless_execution`, `redstone`, `spoke`, `stale_edit_and_sensitive_floor`, `timelock`, `tolerance`, `validation_admin`
-
-### `oracle/`
-
-- `tolerance/` — `bands`, `config`, `dual_source`, `edge`, `staleness`
-- `dex_usd_repricing`, `future_skew_live_path`, `redstone`, `redstone_bulk`, `twap`, `xoxno`
-
-### `pool/`
-
-`accrual_partition_bound`, `interest`, `interest_rigorous`, `math_rates`, `pool_coverage`, `pool_revenue_edge`, `revenue`
-
-### `strategy/`
-
-`adversarial`, `core`, `cross_hub_same_asset_loop`, `edge/` (`multiply`, `pause_bypass`, `rejections`, `swap`), `extreme_amount_inputs`, `flash_position`, `flash_position_adversarial`, `flash_position_callback_ownership_transfer`, `flash_position_mode_and_asset_edges`, `happy`, `helpers`, `migrate_blend`, `migrate_blend_account_ownership`, `rdwc_close_footprint`, `rogue_hop_pool_transfer_joins_caller_auth_tree`, `router`, `strategy_solvency_gate_on_low_value_router_output`
-
-### `composition/`
-
-`atomic_revert_all_legs`, `contract_caller_runs_every_verb`, `delegate_revocation_between_legs`, `helpers`, `last_created_opened_by_a_sentinel_supply`, `nft_transfer_between_legs`, `repeated_loops_never_extract_value`, `supplier_exit_before_socialization_is_bounded_by_utilization`
-
-### `meta/`
-
-`account_ttl_regression`, `admin_instance_ttl_regression`, `bench_liquidate_max_positions`, `budget_breakdown`, `chaos_simulation`, `economic_attacks`, `footprint_test`, `invariant`, `lifecycle_regression`, `mem_attribution`, `reentrancy_matrix`, `repro_live_supply`, `stress_simulation`, `utils`
-
-### `fuzz/`
-
-`accounting_conservation`, `config`, `liquidation_vs_reference`, `migrate_blend`, `ops`, `privileged_auth_rejects`, `strategy_helpers`, `strategy_multiply_budget`, `strategy_router_invariants`, `whole_unit_liquidation`
-
-These inventories are generated from the `mod` declarations in each
-`tests/<domain>/main.rs`. Regenerate them after adding or removing a module:
-
-```bash
-for m in tests/test-harness/tests/*/main.rs; do
-  echo "--- $m"
-  grep -oE '^ *(pub )?mod \w+;' "$m" | sed 's/.*mod //;s/;//' | paste -sd' ' -
-done
-```
+| Directory | Areas |
+|-----------|-------|
+| `governance/` | Timelock, immediate path, permissionless execution, admin forwarders and validation, spoke, oracle tolerance, Redstone, DEX USD repricing, stale edits |
+| `oracle/` | `tolerance/` (bands, config, dual source, edges, staleness), Redstone, TWAP, XOXNO, DEX USD repricing, future-skew live path |
+| `pool/` | Interest curves, rate math, revenue, accrual partition bound, pool coverage |
+| `strategy/` | Multiply, flash position, swaps, `edge/` cases, router guards, Blend migration, cross-hub loops, adversarial and happy paths |
+| `composition/` | One contract caller chains verbs: atomic revert, delegate revocation, NFT transfer, repeated loops, supplier exit |
+| `meta/` | TTL regressions, budget and memory attribution, footprint, chaos and stress sims, economic attacks, invariants, reentrancy matrix |
+| `fuzz/` | Proptest properties; see [`fuzz/README.md`](fuzz/README.md) |
 
 ## Test naming
 

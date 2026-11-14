@@ -127,7 +127,7 @@ of:
 - Soroban instruction/memory/resource or footprint limits;
 - sequence consumption, fee conditions, or timebounds expiry.
 
-### Complete example: 3× long on XLM funded by USDC debt
+### Complete example: 3× XLM in Multiply mode, funded by USDC debt
 
 1. Set the user's XLM as `initialPayment`.
 2. Calculate the additional XLM in token base units.
@@ -138,7 +138,8 @@ of:
 7. Build with `mode: 1`.
 8. Prepare the complete controller transaction.
 
-This produces a Multiply account. The leverage calculation is a preview.
+This produces a Multiply account (mode `1`). For a Long account, build with
+`mode: 2`. The leverage calculation is a preview.
 
 ## Repay and close
 

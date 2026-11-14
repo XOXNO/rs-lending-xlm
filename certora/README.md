@@ -196,8 +196,6 @@ included, so a low bound cuts the search without an error.
   cause is the bit-level limb arithmetic described in
   [Function names must survive the build](#function-names-must-survive-the-build).
 
-<a id="model-boundaries"></a>
-
 ## Reading a Sunbeam verdict
 
 Read the rule, its fixture, its feature path and every summary it reaches

@@ -115,7 +115,7 @@ non-empty route into a same-token swap would also fail inside the router with
 - Repay debt with collateral (same-token aware, exact-out variant):
   [../xoxno-lending-sdk/strategies.md#complete-example-repay-usdc-debt-with-xlm-collateral-same-token-aware](../xoxno-lending-sdk/strategies.md#complete-example-repay-usdc-debt-with-xlm-collateral-same-token-aware)
 - Multiply quoted net of the flash-loan fee, built with the gross amount:
-  [../xoxno-lending-sdk/strategies.md#complete-example-3-long-on-xlm-funded-by-usdc-debt](../xoxno-lending-sdk/strategies.md#complete-example-3-long-on-xlm-funded-by-usdc-debt)
+  [the SDK Multiply example](../xoxno-lending-sdk/strategies.md#complete-example-3-xlm-in-multiply-mode-funded-by-usdc-debt)
 
 ## Budget: why `maxSplits: 1`, `maxHops: 2`
 

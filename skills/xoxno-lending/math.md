@@ -154,7 +154,15 @@ else:                  rate = base + slope1 + slope2 + half_up((u − optimal) �
 rate = min(rate, max_borrow_rate)
 ```
 
-Each segment adds its full slope at the kink: `slope1` is the total rise from 0 to `mid`, `slope2` from `mid` to `optimal`, `slope3` from `optimal` to 100%. `max_borrow_rate ≤ MAX_BORROW_RATE_RAY = 2 RAY` (200% APR), and validation requires `base + slope1 + slope2 + slope3 ≤ max_borrow_rate`, so the cap never flattens the curve before 100%. Validation also requires the steepness per unit of utilization not to fall at a kink: `slope1 / mid ≤ slope2 / (optimal − mid) ≤ slope3 / (1 − optimal)`, with equality allowed. A smaller slope over a narrower segment can be the steeper one. The result is an **annual RAY fraction**; `get_borrow_rate` returns it as `i128`.
+Each segment adds its full slope at the kink: `slope1` is the total rise from 0 to `mid`, `slope2` from `mid` to `optimal`, `slope3` from `optimal` to 100%.
+
+Parameter validation requires:
+
+- `max_borrow_rate ≤ MAX_BORROW_RATE_RAY = 2 RAY` (200% APR).
+- `base + slope1 + slope2 + slope3 ≤ max_borrow_rate`, so the cap never flattens the curve before 100%.
+- `slope1 / mid ≤ slope2 / (optimal − mid) ≤ slope3 / (1 − optimal)`, with equality allowed. Steepness per unit of utilization never falls at a kink. A smaller slope over a narrower segment can be the steeper one.
+
+The result is an **annual RAY fraction**; `get_borrow_rate` returns it as `i128`.
 
 Worked example with illustrative parameters (not a live market; read live parameters with the pool's `get_sync_data`): base 0.005, slope1 0.03, slope2 0.095, slope3 1.0, mid 0.60, optimal 0.85, max 1.25 (all × RAY):
 
@@ -456,10 +464,26 @@ fee_ray           = half_up(bonus_ray × liquidation_fees_bps / BPS)
 
 | Seize mode | Liquidator receives | Protocol fee |
 |---|---|---|
-| `SeizeMode::Transfer` | tokens: `capped_ray` rescaled **floor** (partial) or **half-up** (full, pool still pays the floor claim) minus the fee | `max(1, floor(fee_ray / 10^(27−d)))` when `fee_ray > 0`, capped at the base units the pool pays above the principal (`floor((paid_ray − base_ray) / 10^(27−d))`, 0 when the payout does not exceed it); withheld from the transfer |
-| `SeizeMode::Credit(account_id)` | shares: `seized_scaled − fee_scaled` credited to the receiver account | `fee_scaled = ceil(bonus_scaled × fees_bps / BPS)` where `seized_scaled = floor(capped_ray × RAY / supply_index)` (exact held shares on full close), `bonus_scaled = min(floor(bonus_ray × RAY / supply_index), seized_scaled)` |
+| `SeizeMode::Transfer` | tokens: rescaled `capped_ray` minus the fee | base units, withheld from the transfer |
+| `SeizeMode::Credit(account_id)` | shares: `seized_scaled − fee_scaled` credited to the receiver account | `fee_scaled` shares |
 
-Under-delivery (measured repayment USD below plan) floors every seizure field by `received / planned` and caps each transfer amount at the floor asset value of its scaled shares; credit fees are recomputed from the scaled bonus. Under-delivery reverts with `InvalidPayments` when a seized leg is below 3 decimals. Planning drops legs that round to zero tokens or zero shares. A collateral market below 3 decimals is the account's only supplied market.
+`SeizeMode::Transfer`:
+
+- `capped_ray` is rescaled **floor** on a partial seizure and **half-up** on a full one. On a full seizure the pool still pays the floor claim.
+- When `fee_ray > 0`, the fee is `max(1, floor(fee_ray / 10^(27−d)))`.
+- The fee is capped at the base units the pool pays above the principal: `floor((paid_ray − base_ray) / 10^(27−d))`, or 0 when the payout does not exceed it.
+
+`SeizeMode::Credit(account_id)`:
+
+```text
+seized_scaled = floor(capped_ray × RAY / supply_index)                  // exact held shares on full close
+bonus_scaled  = min(floor(bonus_ray × RAY / supply_index), seized_scaled)
+fee_scaled    = ceil(bonus_scaled × fees_bps / BPS)
+```
+
+Under-delivery means the measured repayment USD is below plan. It floors every seizure field by `received / planned` and caps each transfer amount at the floor asset value of its scaled shares. Credit fees are recomputed from the scaled bonus. Under-delivery reverts with `InvalidPayments` when a seized leg is below 3 decimals.
+
+Planning drops legs that round to zero tokens or zero shares. A collateral market below 3 decimals is the account's only supplied market.
 Liquidation rounds its seizure to token base units. A full-debt repayment rounds
 the seizure up; a partial repayment rounds down and is trimmed to the backed
 value. A low-decimal plan with no seizure fails with `InvalidPayments`.
@@ -476,6 +500,8 @@ fee_ray   = 43_543_223_052_294_557_097_132_307_692
 Transfer: seized 24_973_319_103 stroops (2,497.3319103 XLM), fee 435_432_230 stroops (43.543223 XLM), liquidator receives the difference
 Credit:   seized shares 2_497_331_910_352_187_833_512_000_000_000, fee shares 43_543_223_052_294_557_097_132_307_693, liquidator shares 2_453_788_687_299_893_276_414_867_692_307
 ```
+
+### Low-decimal collateral quotes
 
 For collateral below 3 decimals, one quote unit means one token base unit.
 At two decimals, that is 0.01 token. Let `U` be its USD value in WAD.
@@ -518,7 +544,14 @@ alone.
 
 ## Bad-debt socialization
 
-Eligibility (`is_socializable_bad_debt`): `total_debt > total_collateral` and `total_collateral ≤ 5 WAD` for permissionless `clean_bad_debt` and the check after `liquidate`; owner-only `force_socialize_bad_debt` drops the collateral cap. `contracts/pool/src/interest.rs::apply_bad_debt_to_supply_index` then lowers only the affected market's supply index ([formulas.md#bad-debt](https://github.com/XOXNO/rs-lending-xlm/blob/main/docs/reference/formulas.md#bad-debt)). Example: 2,000,000 USDC of shares at index 1.083 (`total_supply_ray = 2_166_000e27`), bad debt 30,000 USDC:
+Eligibility (`is_socializable_bad_debt`):
+
+- Permissionless `clean_bad_debt` and the check after `liquidate` require `total_debt > total_collateral` and `total_collateral ≤ 5 WAD`.
+- Owner-only `force_socialize_bad_debt` drops the collateral cap.
+
+`contracts/pool/src/interest.rs::apply_bad_debt_to_supply_index` then lowers only the affected market's supply index ([formulas.md#bad-debt](https://github.com/XOXNO/rs-lending-xlm/blob/main/docs/reference/formulas.md#bad-debt)).
+
+Example: 2,000,000 USDC of shares at index 1.083 (`total_supply_ray = 2_166_000e27`), bad debt 30,000 USDC:
 
 ```text
 reduction = 986_149_584_487_534_626_038_781_163   // 0.98615
@@ -527,7 +560,9 @@ index 1.083e27 → 1_067_999_999_999_999_999_999_999_999   // ≈ 1.068
 
 ## Liquidation buffer
 
-Every debt mint (`borrow` and strategy openings, gross of any fee) keeps 200 bps of the floored supplied token value in cash (INV-ACCT-07, `contracts/pool/src/guards.rs::require_liquidation_buffer`, `InsufficientLiquidity`; the backing-shortfall gate on supply entry is [formulas.md#backing-and-cash-constraints](https://github.com/XOXNO/rs-lending-xlm/blob/main/docs/reference/formulas.md#backing-and-cash-constraints)):
+Every debt mint keeps 200 bps of the floored supplied token value in cash. Debt mints are `borrow` and strategy openings, gross of any fee. A draw that breaks the buffer fails with `InsufficientLiquidity` (INV-ACCT-07, `contracts/pool/src/guards.rs::require_liquidation_buffer`). The backing-shortfall gate on supply entry is in [formulas.md#backing-and-cash-constraints](https://github.com/XOXNO/rs-lending-xlm/blob/main/docs/reference/formulas.md#backing-and-cash-constraints).
+
+The gate:
 
 ```text
 reserved    = ceil(floor_supply_tokens × 200 / BPS)

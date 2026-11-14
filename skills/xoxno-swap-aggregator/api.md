@@ -16,11 +16,11 @@ server release.
 |---|---|
 | Method | Every route is `GET`; no authentication; permissive CORS (`Any` origin, method, header) |
 | Amounts | Atomic base-unit integers as decimal **strings** (`u128` on the wire, `1..=i128::MAX` accepted); `*Short` fields are `f64` whole-token display values, never transaction arithmetic |
-| Token ids | 56-char `C…` Soroban contract strkeys only. `AssetKey::parse_id` rejects `XLM`, `CODE:GISSUER`, and `G…` with `400 invalid_request`. Resolve `from`/`to` from `GET /api/v1/tokens`; XLM is listed under its Stellar Asset Contract id, and lending market ids are in [../xoxno-lending/addresses.md](../xoxno-lending/addresses.md) |
-| Naming | `/health` and `/ready` bodies are **snake_case** (`last_applied_ledger`, `seconds_since_last_apply`). Every `/api/v1/*` body is **camelCase** (`#[serde(rename_all = "camelCase")]`) with one exception: `/api/v1/prices` entries carry `depth_usd` (`PriceEntry` has no rename) |
+| Token ids | 56-char `C…` Soroban contract strkeys only. `XLM`, `CODE:GISSUER`, and `G…` fail with `400 invalid_request`. Resolve `from`/`to` from `GET /api/v1/tokens`; XLM is listed under its Stellar Asset Contract id, and lending market ids are in [../xoxno-lending/addresses.md](../xoxno-lending/addresses.md) |
+| Naming | `/health` and `/ready` bodies are **snake_case** (`last_applied_ledger`, `seconds_since_last_apply`). Every `/api/v1/*` body is **camelCase**, with one exception: `/api/v1/prices` entries carry `depth_usd` |
 | Query names | `/api/v1/quote` canonical names are snake_case; camelCase aliases exist for `amount_in`, `amount_out`, `max_hops`, `max_splits`, `include_paths`, `referral_id` (plus `referral`). `from`, `to`, `slippage`, `sender`, `simulate`, `platform`, `fresh` have one spelling. Unknown query keys (for example `router`) are ignored, not rejected |
 | Limits | 30 s request timeout, 1 MiB request-body limit, `x-request-id` header propagated or generated. A timed-out request gets `408` with an empty body |
-| Errors | JSON `{ "code": string, "error": string }` (`ErrorResponse` on `/api/v1/quote`, `DiscoveryError` on `/api/v1/referrals/{id}`). Branch on `code` (stable); `error` is free text and may change |
+| Errors | JSON `{ "code": string, "error": string }` on `/api/v1/quote` and `/api/v1/referrals/{id}`. Branch on `code` (stable); `error` is free text and may change |
 | OpenAPI | `GET /api-docs/openapi.json`; Swagger UI at `/` |
 
 ## Routes
@@ -79,13 +79,13 @@ Use `/health` for process liveness. Preserve the readiness body for diagnosis.
 | `networkPassphrase` | string | Signing domain every returned envelope is bound to |
 | `router` | string \| null | Router contract `C…` the deployment executes through. Resolved from `AGGREGATOR_ROUTER`, then the seed file, then the built-in network default; `null` only when none resolves. Must equal the `aggregator` entry of `configs/networks.json` for the same network |
 | `apiVersion` | string | `"v1"` |
-| `protocolVersion` | integer (u8) | Packed program version the router expects: `1` (`PROGRAM_VERSION`, see [payload.md](payload.md)) |
-| `defaultMaxHops` | integer | `4` (`SplitConfig::default().max_hops`) |
-| `defaultMaxSplits` | integer | `4` (`SplitConfig::default().max_splits`) |
-| `maxHops` | integer | `6` (`MAX_REQUEST_HOPS`) |
-| `maxSplits` | integer | `8` (`MAX_REQUEST_SPLITS`) |
+| `protocolVersion` | integer (u8) | Packed program version the router expects: `1` (see [payload.md](payload.md)) |
+| `defaultMaxHops` | integer | `4` |
+| `defaultMaxSplits` | integer | `4` |
+| `maxHops` | integer | `6` |
+| `maxSplits` | integer | `8` |
 | `operations` | string[] | `["swap","addLiquidity","removeLiquidity","convertLiquidity"]` |
-| `venues` | string[] | DEX labels present in this snapshot, sorted (`BTreeSet`); not a route promise |
+| `venues` | string[] | DEX labels present in this snapshot, sorted; not a route promise |
 | `lastAppliedLedger` | integer (u32) | Snapshot ledger |
 
 ### GET /api/v1/tokens
@@ -105,7 +105,7 @@ Use the published `StellarQuoteToken` type from the [pinned SDK](../xoxno-lendin
 
 ### GET /api/v1/prices
 
-`Record<tokenId, PriceEntry>`. A token is absent, not zero, when no usable pool path of 4 hops or fewer (`PRICE_MAX_HOPS`) reaches it from an oracle-priced token. An LP share is priced from its constituents instead, and is absent unless all of them have a price.
+`Record<tokenId, PriceEntry>`. A token is absent, not zero, when no usable pool path of 4 hops or fewer reaches it from an oracle-priced token. An LP share is priced from its constituents instead, and is absent unless all of them have a price.
 
 | Field | Type | Meaning |
 |---|---|---|
@@ -127,7 +127,7 @@ Use the published `StellarQuoteToken` type from the [pinned SDK](../xoxno-lendin
 
 ### GET /api/v1/referrals/{id}
 
-Path `id`: unsigned u32 decimal; `0` = no referral. Served from the quote cache (`REFERRAL_TTL` = 60 s); a cache miss simulates `referral(id)` on the router.
+Path `id`: unsigned u32 decimal; `0` = no referral. Served from a 60 s quote cache; a cache miss simulates `referral(id)` on the router.
 
 | Field | Type | Meaning |
 |---|---|---|
@@ -139,7 +139,7 @@ Path `id`: unsigned u32 decimal; `0` = no referral. Served from the quote cache 
 | `feePolicy` | string | `"input unless output is whitelisted and input is not"` |
 | `whitelistedTokens` | string[] | Cached router fee whitelist, sorted |
 
-Errors (`DiscoveryError` `{code, error}`): `400 invalid_referral_id` (not a u32), `503 router_unavailable` (router not configured), `502 upstream_unavailable` (RPC lookup failed; retry shortly).
+Errors (`{code, error}`): `400 invalid_referral_id` (not a u32), `503 router_unavailable` (router not configured), `502 upstream_unavailable` (RPC lookup failed; retry shortly).
 
 ### GET /api/v1/quote
 
@@ -167,12 +167,12 @@ can occur without `fresh=true`. A quote does not reserve liquidity.
 | `max_splits` | `maxSplits` | integer | `4` | `0..=8`; `0` is treated as `1` (single path) |
 | `include_paths` | `includePaths` | boolean | `false` | Emit `paths[]`; `hops[]` is always present |
 | `sender` | — | string | none | Account `G…` (56 chars). Requires `slippage`. Adds `transaction` (or `transactions[]` for `convertLiquidity`). Without `sender`, `slippage` alone still yields `routeXdr` |
-| `referral_id` | `referralId`, `referral` | integer | `0` | `0..=4294967295` (the payload stores a `u32`). `0` = no referral **and no protocol fee**. A nonzero id must be an **active** referral on the router: `lp_fee_for` looks it up and answers `400 invalid_request` (`unknown referral N`) when it is missing or inactive; the id is baked into `routeXdr` |
+| `referral_id` | `referralId`, `referral` | integer | `0` | `0..=4294967295` (the payload stores a `u32`). `0` = no referral **and no protocol fee**. A nonzero id must be an **active** referral on the router; otherwise the server answers `400 invalid_request` (`unknown referral N`) when it is missing or inactive; the id is baked into `routeXdr` |
 | `simulate` | — | boolean | `true` | `true`: the server simulates and returns a prepared envelope (`transaction.simulated = true`) with the budget fallback ladder. `false`: unprepared envelope, no ladder. Ignored without `sender` |
-| `platform` | — | string | `"aggregator"` | Only value accepted by the `Platform` enum |
-| `fresh` | — | boolean | `false` | Compare the live RPC ledger with the snapshot; `409` when drift > `MAX_FRESH_LEDGER_DRIFT = 2`. Costs one RPC call |
+| `platform` | — | string | `"aggregator"` | Only accepted value |
+| `fresh` | — | boolean | `false` | Compare the live RPC ledger with the snapshot; `409` when drift > 2 ledgers. Costs one RPC call |
 
-Not a parameter: `router`. The router is fixed by the deployment (`AppState::router`, echoed by `/api/v1/config`); a `router` query key is silently ignored. Read the router from trusted configuration and check `/api/v1/config`.
+Not a parameter: `router`. The router is fixed by the deployment and echoed by `/api/v1/config`; a `router` query key is silently ignored. Read the router from trusted configuration and check `/api/v1/config`.
 
 For reverse quotes, slippage also increases the requested output used to size
 input. Let `retainedPpm = 1_000_000 - floor(slippage × 1_000_000)`.
@@ -182,16 +182,16 @@ Verify that the encoded floor still meets the caller's requested output.
 
 #### Response: `QuoteResponse`
 
-`?` marks `skip_serializing_if = Option::is_none`.
+`?` marks a field the server omits when it has no value.
 
 | Field | Type | Meaning |
 |---|---|---|
-| `snapshot` | object | Set on every 200 (`QuoteSnapshot`): `ledger` (u32), `ageSeconds` (u64), `checkedLiveLedger?` (u32, only with `fresh=true`). Describes the search input — **there is no quote TTL**; re-quote before execution |
+| `snapshot` | object | Set on every 200: `ledger` (u32), `ageSeconds` (u64), `checkedLiveLedger?` (u32, only with `fresh=true`). Describes the search input — **there is no quote TTL**; re-quote before execution |
 | `mode` | string | `"forward"`, `"reverse"`, `"addLiquidity"`, `"removeLiquidity"`, `"convertLiquidity"` |
 | `from` / `to` | string | Token ids as resolved |
 | `tokenInKind` / `tokenOutKind` | `"soroban"` \| `"lp"` | Share-token flag per side |
 | `amountIn` | string | **Gross** input the router pulls from the user, fee-inclusive when `feeOnInput=true`. This is `total_in` for `execute_strategy` and the cost to report in reverse mode |
-| `amountOut` | string | Expected **net** output after aggregator/referral fees. A successful server-side simulation replaces the model estimate with the simulated delivered output (`apply_simulated_amount_out`) |
+| `amountOut` | string | Expected **net** output after aggregator/referral fees. A successful server-side simulation replaces the model estimate with the simulated delivered output |
 | `amountInShort` / `amountOutShort` | number | Display values (decimals applied) |
 | `amountOutMin?` | string | Absolute net-output floor encoded in `routeXdr`. Present when `slippage` was supplied, or when `amount_out` was set on a quote other than `convertLiquidity`. Exact-out: [composition.md#exact-out-status](composition.md#exact-out-status) |
 | `amountOutMinShort?` | number | Display value |
@@ -220,7 +220,7 @@ Verify that the encoded floor still meets the caller's requested output.
 
 `QuoteLp`: `pool`, `dex`, `kind` (`"ConstantProduct" | "Stable"`), `feeBps`, `shareToken`, `amounts[]` (`{token, tokenKind, amount, amountShort}` per constituent; zero entries omitted), `preSwap?` (mint-only balancing swap, a `QuoteSwap`), `refunded[]` (mint-only dust returned; omitted when empty).
 
-`DegradedQuote`: `requestedMaxSplits`, `effectiveMaxSplits`, `requestedMaxHops`, `effectiveMaxHops`, `fallbackAttempts` (1 = first fallback), `reason` (`"budget_exceeded"`). Ladder (`build_attempt_ladder`): original → `(max(splits/2, 1), max(hops/2, min(hops, 2)))` → `(1, min(hops, 2))`, deduplicated. Only `simulation_failed` bodies containing `Budget, ExceededLimit` advance the ladder.
+`DegradedQuote`: `requestedMaxSplits`, `effectiveMaxSplits`, `requestedMaxHops`, `effectiveMaxHops`, `fallbackAttempts` (1 = first fallback), `reason` (`"budget_exceeded"`). Fallback ladder: original → `(max(splits/2, 1), max(hops/2, min(hops, 2)))` → `(1, min(hops, 2))`, deduplicated. Only `simulation_failed` bodies containing `Budget, ExceededLimit` advance the ladder.
 
 `TransactionPayload`:
 
@@ -240,14 +240,34 @@ Verify that the encoded floor still meets the caller's requested output.
 
 | HTTP | `code` | Trigger | Client action |
 |---|---|---|---|
-| 400 | `invalid_request` | Query deserialization failure; `slippage` not finite or outside `[0,1)`; `sender` without `slippage`; bad `sender` strkey; `referral_id > u32::MAX`; `from`/`to` not a `C…` id or `token … not tracked in snapshot`; both or neither of `amount_in`/`amount_out`; amount not an integer or outside `1..=i128::MAX`; `maxHops` outside `1..=6`; `maxSplits > 8`; `amountOut` above the liquidity route capacity; `unknown referral N` (nonzero id not active on the router); combined static + referral fee above 1000 bps; fee-adjusted amount outside the executable range; `simulate=false` envelope build failure | Fix the request. Do not resend unchanged |
+| 400 | `invalid_request` | Malformed request; see [the trigger list](#invalid_request-triggers) | Fix the request. Do not resend unchanged |
 | 404 | `no_route` | Both tokens resolved, no path between them for the amount and limits | Do not retry as-is; change tokens or amount, or raise `maxHops` |
 | 409 | `snapshot_stale` | Inactive serving epoch, coverage age above 30 seconds, or observed ledger drift above 2; `fresh=true` also checks the live RPC ledger | Re-quote (optionally after `/ready` returns 200). Never submit the stale quote |
 | 422 | `simulation_failed` | Server simulation failed. Only `Budget, ExceededLimit` means the route is too large; other diagnostics (auth, state) do not. A successful simulation may also report output `0`/below `amountOutMin` (`below execution minimum`) or no decodable output (`no valid delivered output`) | Re-quote unchanged first for missing/zero/below-min output. Reduce `maxSplits`/`maxHops` only for explicit `Budget, ExceededLimit`. Fix or surface other diagnostics |
-| 422 | `minimum_output_unreachable` | Net output below the enforced floor `max(slippage floor, amount_out target, 1)`; on a fallback attempt the floor is the one fixed by the first attempt (`preserve_output_minimum`) | Re-quote |
+| 422 | `minimum_output_unreachable` | Net output below the enforced floor `max(slippage floor, amount_out target, 1)`; on a fallback attempt the floor is the one fixed by the first attempt | Re-quote |
 | 500 | `internal_error` | Payload encoding failed; routed output unparsable; nonzero `referral_id` on a deployment with no router configured for fees | Retry unchanged once after a bounded delay; then report and fail |
 | 502 | `upstream_error` | RPC unreachable during the `fresh` check, the referral lookup, or simulation | Transient: bounded backoff with jitter, then retry |
 | 503 | `router_unavailable` | `sender` supplied but no router configured for the deployment | Wait for the service; check `/api/v1/config.router` and `/ready` |
+
+#### `invalid_request` triggers
+
+The server answers `400 invalid_request` when:
+
+- the query string fails to parse;
+- `slippage` is not finite or is outside `[0,1)`;
+- `sender` is sent without `slippage`;
+- `sender` is not a valid strkey;
+- `referral_id > u32::MAX`;
+- `from` or `to` is not a `C…` id, or is `token … not tracked in snapshot`;
+- both or neither of `amount_in`/`amount_out` are sent;
+- an amount is not an integer or is outside `1..=i128::MAX`;
+- `maxHops` is outside `1..=6`;
+- `maxSplits > 8`;
+- `amountOut` exceeds the liquidity route capacity;
+- a nonzero referral id is not active on the router (`unknown referral N`);
+- the combined static + referral fee exceeds 1000 bps;
+- the fee-adjusted amount is outside the executable range;
+- a `simulate=false` envelope build fails.
 
 ## Request recipes
 
