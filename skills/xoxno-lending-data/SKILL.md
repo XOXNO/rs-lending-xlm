@@ -8,7 +8,7 @@ argument-hint: "[indexing or analytics task]"
 # XOXNO Lending data operations
 
 The canonical wire catalog is
-[docs/reference/events.md](../../docs/reference/events.md). It defines event
+[docs/reference/events.md](https://github.com/XOXNO/rs-lending-xlm/blob/main/docs/reference/events.md). It defines event
 topics, payload layouts, enum discriminants, units, ordering, and inherited
 events. Do not copy that catalog into an indexer guide. This skill covers the
 operational rules needed to consume it.

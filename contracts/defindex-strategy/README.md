@@ -14,6 +14,12 @@ share.
 Full signatures are in `contracts/defindex-strategy/src/lib.rs`; the generated
 client drops the `Env` argument.
 
+## Authorization
+
+`deposit`, `withdraw` and `harvest` require auth from `from`, the vault. The
+strategy owns one controller account per vault and acts on it as the account
+owner. Views need no auth.
+
 ## Entrypoints
 
 | Entrypoint | Caller | Does |
@@ -25,12 +31,23 @@ client drops the `Env` argument.
 | `balance(from) -> i128` | anyone | Live collateral of the vault's account |
 | `asset() -> Address` | anyone | The underlying asset |
 
-## Notes
+## Storage and TTL
+
+| Key | Tier | Holds |
+| --- | --- | --- |
+| `DataKey::Config` | instance | `hub_id`, `spoke_id`, `asset`, `controller`, `pool` |
+| `DataKey::VaultAccount(vault)` | persistent | The vault's controller `account_id` |
 
 - A full withdrawal clears `VaultAccount`, so the next deposit opens a new
   account. Two vaults never share an account.
 - The mapping TTL extends to 120 days (`TTL_BUMP_USER`) when it drops below
-  30 days (`TTL_THRESHOLD_USER`).
+  30 days (`TTL_THRESHOLD_USER`). This is the same tier as the controller
+  account it points at.
+
+## Events
+
+`harvest` publishes `HarvestEvent` (`["strategy", "harvest"]`). See
+[events](../../docs/reference/events.md#defindex-strategy-events).
 
 ## Layout
 
@@ -42,3 +59,4 @@ src/
 ## References
 
 - Controller `supply` and `withdraw`: [`contracts/controller`](../controller/README.md)
+- Events: [`docs/reference/events.md`](../../docs/reference/events.md#defindex-strategy-events)

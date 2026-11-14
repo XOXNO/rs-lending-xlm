@@ -50,23 +50,24 @@ and `aeneas`), pinned in README.md. Lean through elan (`~/.elan/bin` on
   sibling definition (ceiling, half-up, …) in your own spec file in the same
   style.
 * **No `sorry`, `admit` or new `axiom`** in any proof file. The only allowed
-  axioms are `propext`, `Classical.choice` and `Quot.sound`, and the build
-  enforces it: every library root ends with `#assert_standard_axioms <Lib>`,
-  which also fails if a file under `<Lib>/` is not imported from the root
-  (`run.sh` re-runs it outside Lake's cache). A claim
-  that cannot be proved is left out and listed under "Not covered" in the
-  area doc with the reason.
-* **Include production code with `#[path]`.** When a file cannot be included
-  whole and an item has to be copied into a stand-in, add the item to
-  `check_standins.py` (verbatim, subset, or pinned hash for an adaptation),
-  so a production change to it fails `run.sh`.
+  axioms are `propext`, `Classical.choice` and `Quot.sound`. The build
+  enforces it: every library root ends with `#assert_standard_axioms <Lib>`.
+  That check also fails if a file under `<Lib>/` is not imported from the
+  root (`run.sh` re-runs it outside Lake's cache). Leave out a claim that
+  cannot be proved. List it under "Not covered" in the area doc, with the
+  reason.
+* **Include production code with `#[path]`.** Sometimes a file cannot be
+  included whole, and an item has to be copied into a stand-in. Then add the
+  item to `check_standins.py` (verbatim, subset, or pinned hash for an
+  adaptation). A production change to it then fails `run.sh`.
 * **State hypotheses as domains, close to production.** Say why each holds at
   the call sites (for example "every index is ≥ 10^24, see
   `SUPPLY_INDEX_FLOOR_RAW`").
-* **Document every theorem** twice: a doc comment (`/-- … -/`) on the theorem
-  in plain English, and a row in `docs/<area>.md` with the Rust function, the
-  claim, the hypotheses, and the invariant IDs from
-  `docs/reference/invariants.md` it supports.
+* **Document every theorem** twice:
+  * a doc comment (`/-- … -/`) on the theorem, in plain English;
+  * a row in `docs/<area>.md` with the Rust function, the claim, the
+    hypotheses, and the invariant IDs from `docs/reference/invariants.md` it
+    supports.
 * **External definitions follow the documentation of what they model** (Rust
   core docs, the Soroban host), and each carries a comment saying so.
 
@@ -74,7 +75,7 @@ and `aeneas`), pinned in README.md. Lean through elan (`~/.elan/bin` on
 
 * **Checked signed operations are sealed.** `I128.checked_mul`,
   `checked_div`, `checked_sub` and friends are not exposed under Lean's module
-  system, and their library specs talk about the internal
+  system. Their library specs talk about the internal
   `core.num.checked_*_IScalar`. Write proof files that need them as plain
   (non-`module`) files (`import …`, no `module` line). Then
   `rw [show I128.checked_div p d = core.num.checked_div_IScalar p d from rfl]`
@@ -109,11 +110,11 @@ under its own namespace. The definitions are textually identical, so a proof
 in `RatesAeneas/Proofs` carries over by changing the namespace.
 
 * If the proof carries over unchanged, add its file to `sync_copies.py` and
-  run the script: it writes the copy (marked `GENERATED`), and `run.sh` fails
+  run the script. It writes the copy (marked `GENERATED`). `run.sh` fails
   when a copy is out of date. Edit the RatesAeneas original, never the copy.
-* If it needs changes (the pool and controller extractions differ from the
-  rates one in places), copy it by hand into your library's `Proofs/` and say
-  where it came from in the doc comment.
+* If it needs changes, copy it by hand into your library's `Proofs/`. Say
+  where it came from in the doc comment. The pool and controller extractions
+  differ from the rates one in places.
 
 Anything that does not mention generated code is not copied: the rounding
 specifications live once in `lean/FixedPoint/` and every library imports

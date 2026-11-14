@@ -17,7 +17,7 @@
 //!
 //! Spoke usage, configuration caches, event buffers and the pool-address
 //! cache of the production `Context` are not read by the extracted functions
-//! and are left out. See `../docs/controller.md`, "Context model".
+//! and are left out. See `../docs/extraction.md`, "Context model".
 
 use crate::errors::OracleError;
 use crate::events::PositionAction;

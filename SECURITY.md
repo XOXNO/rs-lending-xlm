@@ -9,8 +9,14 @@ putting users at risk.
 Do not open a public issue, pull request, discussion, or social-media post for
 a suspected vulnerability.
 
-Email [security@xoxno.com](mailto:security@xoxno.com). Encrypt sensitive
-details when possible; a PGP key is available on request.
+Use one of these channels:
+
+- To claim a bounty, submit the report through the
+  [XOXNO bug bounty on Immunefi](https://immunefi.com/bug-bounty/xoxno/information/).
+- For other reports, email [security@xoxno.com](mailto:security@xoxno.com).
+  Encrypt sensitive details with our
+  [PGP key](.github/security-pgp-key.asc), fingerprint
+  `E6CD 3011 03A0 CF06 96C4 57F5 35F6 978D 1310 C877`.
 
 A useful report includes:
 
@@ -35,6 +41,15 @@ enough evidence to demonstrate impact.
 | Coordinated disclosure | 90 days from report, unless we agree otherwise |
 
 We may credit reporters in release notes with their consent.
+
+## Bug bounty
+
+XOXNO runs a bug bounty on Immunefi:
+[immunefi.com/bug-bounty/xoxno](https://immunefi.com/bug-bounty/xoxno/information/).
+
+The program page sets the assets in scope, the reward for each severity and
+the submission rules. If this policy and the program page differ on a bounty
+question, the program page applies.
 
 ## Scope
 
@@ -77,21 +92,11 @@ this policy and:
 This policy does not authorize activity that violates law, targets third-party
 systems, or places user assets or data at risk.
 
-## Audit status
+## Audits
 
-Published audit material, when available, is linked with the relevant release.
-Repository documentation describes the current design and threat model; it is
-not a substitute for independent review of deployed contracts and active
-configuration.
+| Auditor | Scope | Commit | Engagement | Report |
+|---|---|---|---|---|
+| Runtime Verification | Core contracts and `common/` | `a2486b25` (`v1.1.0`) | 2026-09-30 to 2026-11-13 | [PDF](audits/2026-11-runtime-verification.pdf) |
 
-## Dependency maintenance
-
-Reviewed 2026-10-09: accept and track RUSTSEC-2024-0436 for `paste` 1.0.15
-in the root and fuzz lockfiles. It is an unmaintained build-time proc-macro
-pulled in by the Soroban SDK dependency tree, with no fixed release. Recheck
-this exception when upgrading the SDK or when an upstream replacement becomes
-available.
-
-Run workflow audits with `zizmor .github`. This scopes the scan to this
-repository's active workflows and Dependabot configuration; workflow files
-under `vendor/` are upstream source and GitHub does not execute them here.
+An audit covers the commit in its scope. Compare that commit with the release
+that you use.

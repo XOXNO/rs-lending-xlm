@@ -33,9 +33,9 @@ harassment, pressure, or public exposure of security-sensitive information.
 ## Reporting
 
 For a code-of-conduct concern, email
-[security@xoxno.com](mailto:security@xoxno.com) with any useful context, such
-as links, screenshots, dates, and participants. Reports will be handled as
-confidentially as practical.
+[security@xoxno.com](mailto:security@xoxno.com). Include links, screenshots,
+dates and participants. The maintainers handle each report as confidentially as
+practical.
 
 For a security vulnerability, follow [SECURITY.md](SECURITY.md) instead. Do
 not use public repository channels.

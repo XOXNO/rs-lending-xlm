@@ -107,8 +107,49 @@ executor. A canceller reset uses the Recovery delay and cannot be cancelled.
   relaxation proposed before a later guardian action reverts
   `SpokeFlagsEpochMismatch`.
 
+## Storage and TTL
+
+| Key | Tier | Holds |
+| --- | --- | --- |
+| `GovernanceKey::Controller`, `GovernanceKey::PriceAggregator` | instance | Deployed addresses |
+| `TimelockStorageKey::MinDelay` | instance | Configured minimum delay, in ledgers |
+| `TimelockStorageKey::OperationLedger(id)` | persistent | Ledger at which a pending op becomes ready |
+| `GovernanceKey::RoleRevocationTarget(id)` | persistent | Account a pending `RevokeGovRole` targets |
+| `GovernanceKey::RecoveryOp(id)` | persistent | Marker for a pending canceller reset |
+| OpenZeppelin `stellar-access` keys | instance, persistent | Owner, pending owner, admin, role members |
+
+Every entrypoint that writes state renews the instance TTL with
+`renew_instance` (`TTL_THRESHOLD_INSTANCE`, `TTL_BUMP_INSTANCE`). The two
+sidecar entries are extended with `TTL_THRESHOLD_SHARED` and `TTL_BUMP_SHARED`
+when written. OpenZeppelin extends an `OperationLedger` entry by 30 days each
+time it reads the entry. `execute`, `execute_self`, `execute_canceller_reset`
+and `cancel` remove the entry and its sidecars.
+
+## Events
+
+Governance defines `DeployControllerEvent` and `DeployPriceAggregatorEvent`.
+Timelock, ownership, and role changes publish the stock OpenZeppelin events.
+See [events](../../docs/reference/events.md#governance-events).
+
+## Layout
+
+```text
+contracts/governance/src/
+  lib.rs          # crate root; Governance contract
+  api.rs          # GovernanceInterface entrypoints
+  access.rs       # roles, owner and admin transfer, constructor
+  deploy.rs       # one-time controller and aggregator deployment
+  op.rs           # AdminOperation to target, function, args, delay tier
+  constants.rs    # timelock delay floors and grace period
+  storage.rs      # addresses and per-operation sidecars
+  events.rs       # deploy events
+  timelock/       # lifecycle, immediate, recovery; testing (feature-gated)
+  validate/       # asset onboarding and oracle tolerance checks
+```
+
 ## References
 
 - Errors: [`docs/reference/errors.md`](../../docs/reference/errors.md)
-- Events: [`docs/reference/events.md`](../../docs/reference/events.md)
+- Events: [`docs/reference/events.md`](../../docs/reference/events.md#governance-events)
+- Curator registry: [`contracts/curator`](../curator/README.md)
 - Controller entrypoints it drives: [`contracts/controller`](../controller/README.md)

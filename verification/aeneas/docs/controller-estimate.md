@@ -100,8 +100,8 @@ post-liquidation health factor equals the target up to
 `r* = (T·D − W·Wc)/(T − δ)`; `r` is it after three half-up roundings
 (`τ`, `δ`, `q`).
 
-The statement uses the code's rounded rate `δ = hu(p·opb/W)` rather than the
-exact `p·opb/W`; the two differ by at most `1/2`, which adds at most `r/2`
+The statement uses the code's rounded rate `δ = hu(p·opb/W)`, not the exact
+`p·opb/W`. The two differ by at most `1/2`. This adds at most `r/2`
 (in `W·USD`) to the bound.
 
 ## Why the hypotheses hold in production
@@ -171,12 +171,12 @@ meets its documented contract. Observations:
    doc comment ("If seizure's weighted rate meets the target…") describes a
    state the estimate never passes in. Harmless defence in depth.
 3. **The insolvent branch (`C < D`) may leave positive debt below
-   `BAD_DEBT_USD_THRESHOLD`.** This is by design: the remainder is bad debt
-   for socialisation (INV-LIQ-04), and the dust theorem excludes this branch
+   `BAD_DEBT_USD_THRESHOLD`.** This is by design. The remainder is bad debt
+   for socialisation (INV-LIQ-04). The dust theorem excludes this branch
    explicitly.
-4. **Full close at a reduced bonus.** For a solvent account whose surplus is
+4. **Full close at a reduced bonus.** Take a solvent account whose surplus is
    too small for the base bonus (`hf·BPS < (BPS + base)·p`, roughly
-   `(C − D)/D < base`), the estimate is the whole debt at bonus
+   `(C − D)/D < base`). The estimate is then the whole debt at bonus
    `max(cap, 0) < base` (`estimate_full_close_of_low_cap`). `cap < 0`
    (`hf < p`) can happen with `C ≥ D` only through rounding (for example
    `C = D`, where `p` is rounded up and `hf` down). Then the bonus is `0` and
@@ -199,14 +199,14 @@ meets its documented contract. Observations:
   `EstDomain` and the necessity counterexample are proved. Inputs with
   negative fields, `D > 10^36` or `max > 10^8` are not characterised.
 * **Does the full-close quote exceed collateral backing?** In the `cap < base`
-  branch, rounding of `p` and `hf` may make `D·(1 + cap)` exceed `C` by a few
-  units. Not stated. The plan handles any shortfall in
+  branch, rounding of `p` and `hf` can make `D·(1 + cap)` exceed `C`. The
+  excess is a few units. Not stated. The plan handles any shortfall in
   `release_unbacked_repayment`, which is not extracted.
 * **Error codes** are not modelled (an abort is an abort).
 
 ## Axioms
 
 `#assert_standard_axioms` (end of `ControllerAeneas.lean`) covers the four
-files: the build fails unless every theorem depends only on `propext`,
-`Classical.choice` and `Quot.sound`, which rules out `sorry`, `admit` and
+files. The build fails unless every theorem depends only on `propext`,
+`Classical.choice` and `Quot.sound`. This rules out `sorry`, `admit` and
 added axioms.

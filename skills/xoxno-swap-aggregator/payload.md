@@ -2,7 +2,7 @@
 
 The wire format the quote server puts in `routeXdr`, how the router decodes and executes it, what it authorizes, what it charges, and how to verify a payload before signing. Request/response fields are in [api.md](api.md); embedding a payload in a lending transaction or your own contract is in [composition.md](composition.md); router addresses in [../xoxno-lending/addresses.md](../xoxno-lending/addresses.md); lending-side signatures in [../xoxno-lending-contracts/abi.md](../xoxno-lending-contracts/abi.md); error resolution by contract id in [../xoxno-lending-troubleshooting/SKILL.md](../xoxno-lending-troubleshooting/SKILL.md).
 
-Sources: `rs-lending-xlm/contracts/swap-aggregator/src/{lib,types,program,execute/mod,execute/residual,fees,constants,vault,venues/mod,venues/auth}.rs`, `interfaces/swap-aggregator/src/lib.rs`, `common/src/token.rs`, `arb-algo/stellar-indexer/src/transaction/abi.rs` (commit `54de209a`), `sdk-js/src/sdk/stellar/{swap,scval-encode}.ts` (1.0.228).
+Sources: `rs-lending-xlm/contracts/swap-aggregator/src/{lib,types,program,execute/mod,execute/residual,fees,constants,vault,venues/mod,venues/auth}.rs`, `interfaces/swap-aggregator/src/lib.rs`, `common/src/token.rs`, and the swap encoder in the [pinned SDK](../xoxno-lending/SKILL.md#verified-against).
 
 ## Entry point and contract surface
 
@@ -21,8 +21,8 @@ The router decodes it before execution. Decoding failure raises
 Use the quote's `amountIn`. The return value is output after output-side fees.
 
 The snippet shows only `execute_strategy`. The
-[interface](../../interfaces/swap-aggregator/src/lib.rs) lists every aggregator method. The
-[router implementation](../../contracts/swap-aggregator/src/lib.rs) also exports the
+[interface](https://github.com/XOXNO/rs-lending-xlm/blob/main/interfaces/swap-aggregator/src/lib.rs) lists every aggregator method. The
+[router implementation](https://github.com/XOXNO/rs-lending-xlm/blob/main/contracts/swap-aggregator/src/lib.rs) also exports the
 `stellar_access::ownable::Ownable` entrypoints `get_owner`, `transfer_ownership`, and
 `accept_ownership`. It does not export `renounce_ownership`.
 
@@ -54,7 +54,7 @@ SDK encoder emit the same layout. The aggregator's
 
 ## Packed program (`ops`) — VERSION 1
 
-Byte layout from `program.rs` (contract) and `abi.rs` (encoder), pinned on both sides by tests.
+Byte layout from `program.rs`. Tests pin the layout on the contract side and in the quote-server encoder.
 
 | Offset | Size | Field | Meaning |
 |---|---|---|---|
@@ -194,13 +194,13 @@ See [composition.md](composition.md).
 | Referral id range | `u64` on-chain (`referral_counter` increments from 1), `u32` on the wire; the quote server rejects `referral_id > 4_294_967_295` |
 | Claims | `claim_referral_fees(id, tokens)` pays the referral's `owner` and has no auth gate (anyone may trigger it); `claim_admin_fees` and `sweep_balance` are owner-only |
 
-The quote server mirrors this in `quote/fee.rs::compute_fee` (`net_after_fees`, `gross_for_net_fees`) so `amountIn` is already gross and `amountOut`/`amountOutMin` already net.
+The quote server applies the same fee formula, so `amountIn` is already gross and `amountOut`/`amountOutMin` already net.
 
 ## Router errors
 
 Use the contract that panicked to select the namespace; controller and router numeric
 codes overlap. The canonical enum is
-[`errors.rs`](../../contracts/swap-aggregator/src/errors.rs).
+[`errors.rs`](https://github.com/XOXNO/rs-lending-xlm/blob/main/contracts/swap-aggregator/src/errors.rs).
 
 | Code | Error | Meaning |
 |---|---|---|
@@ -214,10 +214,10 @@ codes overlap. The canonical enum is
 | 13 | `InvalidRouteXdr` | Strategy map or packed program malformed |
 | 20 / 21 / 22 | `NotAdmin` / `FeeTooHigh` / `ReferralNotFound` | `admin()` found no owner; a fee above `FEE_CAP`; an unknown referral id in an owner setter or `claim_referral_fees`. Owner-only calls fail with `stellar_access` errors, not `NotAdmin` |
 | 25 | `SameToken` | Program input/output or a hop pair is identical |
-| 26 | `LpTokenMismatch` | Aquarius `share_id` differs from the declared LP token; see [`assert_share_token`](../../contracts/swap-aggregator/src/venues/aquarius/pool.rs) |
+| 26 | `LpTokenMismatch` | Aquarius `share_id` differs from the declared LP token; see [`assert_share_token`](https://github.com/XOXNO/rs-lending-xlm/blob/main/contracts/swap-aggregator/src/venues/aquarius/pool.rs) |
 | 27 / 28 | `MinSharesNotMet` / `MinAmountsNotMet` | LP mint or burn floor failed; `28` also when the burn-floor run is shorter than the pool's token count |
 | 29 | `ExcessiveResidual` | A leftover exceeds the per-token residual allowance |
-| 30 | `InternalInvariant` | Fee-reservation accounting reached an impossible state and failed closed; see [`storage.rs`](../../contracts/swap-aggregator/src/storage.rs) and report it |
+| 30 | `InternalInvariant` | Fee-reservation accounting reached an impossible state and failed closed; see [`storage.rs`](https://github.com/XOXNO/rs-lending-xlm/blob/main/contracts/swap-aggregator/src/storage.rs) and report it |
 
 ## Verify `routeXdr` before signing
 
@@ -243,7 +243,7 @@ transaction before signing.
 
 ## Public SDK helpers
 
-Verified public exports in `@xoxno/sdk-js` version `1.0.228`:
+Verified public exports in the [pinned SDK](../xoxno-lending/SKILL.md#verified-against):
 
 | Export | Use |
 | --- | --- |

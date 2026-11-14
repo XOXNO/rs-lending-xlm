@@ -105,9 +105,9 @@ let allowed = floor(floor(supply_value_ray) * max_utilization_ray / RAY);
 let passes = ceil(debt_value_ray) <= allowed;
 ```
 
-Debt value rounds up and the allowed side rounds down, so rounding cannot
-admit utilization above the ceiling; debt against a zero floored supply value
-fails it. Zero supplied shares and zero debt value skip the gate. A debt mint
+Debt value rounds up and the allowed side rounds down. Rounding therefore
+cannot admit utilization above the ceiling. Debt against a zero floored supply
+value fails the gate. Zero supplied shares and zero debt value skip the gate. A debt mint
 (borrow or strategy opening) is checked at every ceiling: at 100% it requires
 debt value at most supply value. A withdrawal or revenue claim skips a 100%
 ceiling, because cash already bounds it.
@@ -141,26 +141,36 @@ let utilization_ray = if supply_value_ray == 0 { 0 }
     else { half_up(debt_value_ray * RAY / supply_value_ray) };
 ```
 
-Only a debt value below the supply value is divided, so the quotient cannot
-overflow and the result is always in `[0, RAY]`: dust supply against residual
-debt cannot stop accrual. Rate selection also caps utilization at one RAY.
-The annual borrow curve has three joined
-linear regions: base plus slope1 up to mid utilization, slope2 up to optimal,
-then slope3 up to full utilization. Each slope contribution is one half-up
-multiply-divide, `slope * excess / width`, so each region ends exactly on its
-slope and the rate never falls as utilization rises. The result cannot exceed the
+Only a debt value below the supply value is divided. The quotient therefore
+cannot overflow, and the result is always in `[0, RAY]`. Dust supply against
+residual debt cannot stop accrual. Rate selection also caps utilization at one
+RAY.
+
+The annual borrow curve has three joined linear regions:
+
+1. base plus slope1 up to mid utilization;
+2. slope2 up to optimal;
+3. slope3 up to full utilization.
+
+Each slope contribution is one half-up multiply-divide,
+`slope * excess / width`. Each region therefore ends exactly on its slope, and
+the rate never falls as utilization rises. The result cannot exceed the
 configured maximum, which is limited to 200% APR. Parameter validation requires
 `base + slope1 + slope2 + slope3 <= max`, so the maximum never cuts the curve
-before full utilization. It also requires the curve not to flatten at a kink:
-each slope is the rise across its whole segment, so validation compares
-steepness per unit of utilization, `slope1 / mid <= slope2 / (optimal - mid) <=
-slope3 / (RAY - optimal)`, exactly and without division
+before full utilization.
+
+Validation also requires that the curve does not flatten at a kink. Each slope
+is the rise across its whole segment. Validation therefore compares steepness
+per unit of utilization:
+`slope1 / mid <= slope2 / (optimal - mid) <= slope3 / (RAY - optimal)`. It
+compares exactly and without division
 (`slope1 * (optimal - mid) <= slope2 * mid`, and the same at optimal). Equal
 steepness is allowed, so a straight line through a kink passes. Slopes must
 also be non-negative, at most the max rate, and `slope1` at least the base rate.
-Together these imply `base + slope1 + slope2 < max`, so the segment above
-optimal always has room below the cap: a positive `slope3` leaves it, and
-`slope3 = 0` forces `slope1 = slope2 = 0`, where `max > base` does.
+Together these imply `base + slope1 + slope2 < max`. The segment above
+optimal therefore always has room below the cap. A positive `slope3` leaves
+that room. `slope3 = 0` forces `slope1 = slope2 = 0`, and then `max > base`
+leaves it.
 
 Accrual uses the per-millisecond rate `per_ms`. Pool borrow and deposit rate
 views return annual RAY fractions from stored indexes, without first accruing
@@ -195,10 +205,10 @@ the new supply index and capped by remaining total-supply share headroom. This
 last floor and cap can leave reward value unrepresented by revenue shares.
 Exact conservation of booked supplier and revenue value is not guaranteed.
 
-Accrual does not overflow on a market value. Each chunk measures the room the
-larger of total debt value and total supply value (both half-up) has below the
-value ceiling, and caps the borrow index so borrower interest is at most that
-room:
+Accrual does not overflow on a market value. Each chunk takes the larger of
+total debt value and total supply value, both half-up. It measures the room
+that this value has below the value ceiling. It caps the borrow index so
+borrower interest is at most that room:
 
 ```rust
 let room = max(0, MAX_MARKET_VALUE_RAY - max(debt_value_ray, supply_value_ray));
@@ -280,7 +290,7 @@ stale     = stale_a || stale_b || spread_too_wide
 
 `high` and `low` are the larger and the smaller leg. A ratio that overflows
 also sets `deviation`. The last term of `stale` applies only when the two
-legs are market sources: it is true when their timestamps are more than
+legs are market sources. It is true when their timestamps are more than
 `MAX_LEG_AGE_SPREAD_SECONDS` (3600) apart. A leg sum that overflows `i128`
 gives a zero price.
 
@@ -368,8 +378,8 @@ stable-swap invariant:
 price_wad = floor(D * min(price_a_wad, price_b_wad) / share_supply_wad)
 ```
 
-`D` comes from Newton-Raphson with `Ann = amp * 2`, a start value of the
-reserve sum, a stop at a step of 1 or less, and at most 255 iterations.
+`D` comes from Newton-Raphson with `Ann = amp * 2`. It starts at the reserve
+sum and stops at a step of 1 or less, after at most 255 iterations.
 `amp` must be in `[MIN_AMP, MAX_AMP]`, 1 to 1,000,000, and each upscaled
 reserve at most `MAX_NORMALIZED_RESERVE_WAD`, 10^34. A reserve, price or
 share supply that is not positive, or a limit breach, fails with
@@ -429,8 +439,8 @@ let ideal = if H <= weighted_seizure || target_debt <= W { backed_max }
 ```
 
 The base bonus averages the stored collateral bonuses by half-up-valued USD
-weight: it sums each leg's `value * bonus_bps` exactly and divides by total
-collateral once, rounding half-up. It is bounded by
+weight. It sums each leg's `value * bonus_bps` exactly. It then divides by
+total collateral once, rounding half-up. It is bounded by
 `floor(BPS * (BPS - t) / t)`, where
 `t = clamp(ceil(p * BPS / WAD), 1, BPS)`. Zero `p` gives a zero threshold bonus
 bound; zero collateral also gives a zero base bonus.
@@ -445,14 +455,15 @@ let curve = base + half_up(f * half_up((max - base) * s / WAD) / BPS);
 ```
 
 The ramp starts at `H`, not at `HF = 1`. An account becomes liquidatable only
-below `HF = 1`, so its first bonus is already about
+below `HF = 1`. Its first bonus is therefore already about
 `base + f * (max - base) * (H - 1) / (H - K)`. The maximum comes only from the
 blended threshold, not from the listed `liquidation_bonus`: `LT = 6000` gives
-`max = 6666`. With `H = 1.10`, `K = 0.80`, `f = 10000` and `base = 500`, the
-bonus is about 2555 BPS just below `HF = 1` and 4611 BPS at `HF = 0.90`. Size
-`H`, `K` and `f` from the bonus at `HF = 1` and at `K`, not from the listed
-bonus. The [Liqvid bonus curve](runbooks/liqvid-listing-params.md#4-the-bonus-curve)
-shows a full table.
+`max = 6666`. Take `H = 1.10`, `K = 0.80`, `f = 10000` and `base = 500`. The
+bonus is then about 2555 BPS just below `HF = 1` and 4611 BPS at `HF = 0.90`.
+Size `H`, `K` and `f` from the bonus at `HF = 1` and at `K`, not from the
+listed bonus. For example, `LT = 5300` gives `max = 8867`. The curve
+`H = 1.06`, `K = 0.90`, `f = 598` with `base = 500` then gives a bonus of
+about 688 BPS just below `HF = 1` and 1000 BPS at `HF = 0.90` and below.
 
 The HF-preserving cap above limits the result. With a
 positive `p`, insolvency or a cap below base bypasses the target formula:
@@ -464,87 +475,33 @@ let quote = if p > 0 && C < D { (min(D, floor(C * WAD / (WAD + base))), base) } 
 ```
 
 In the band the quote is the full debt at the cap, and any smaller payment is
-accepted. A partial repayment `x` seizes `x * (1 + cap)`, at most `x * C / D`,
-so `C / D` and the health factor do not fall; the BPS floor of the cap can
-raise them slightly.
+accepted. A partial repayment `x` seizes `x * (1 + cap)`, at most
+`x * C / D`. `C / D` and the health factor therefore do not fall. The BPS
+floor of the cap can raise them slightly.
 
 When the curve bonus is above the cap and the cap is at least base, the
 target formula runs at the cap. There `p * (1 + b)` is about `HF`, so the
-formula gives about `D`: the quote is the whole debt, the seizure is about
-`C`, and the bonus is about `C - D`, the borrower's whole equity
+formula gives about `D`. The quote is the whole debt, and the seizure is about
+`C`. The bonus is about `C - D`, the borrower's whole equity
 ([borrower protection](../explanation/threat-model.md#price-integrity-and-availability)).
-On the mainnet Stables & FX spoke (curve 1.02/0.80/10000), an account with one
-collateral leg gets a whole-debt quote below about HF 0.93 to 0.97, depending
-on the leg's threshold and base bonus, down to insolvency.
+Take a spoke with the curve 1.02/0.80/10000 and an account with one collateral
+leg. The account gets a whole-debt quote below about HF 0.93 to 0.97, down to
+insolvency. The exact HF depends on the leg's threshold and base bonus.
 
 Insolvency is the exact unweighted comparison `C < D`. With positive `p`, the
-insolvency branch quotes the repayment the collateral backs at the base bonus,
-floored, so an offer above it is trimmed and the liquidator never pays more
-than it seizes. On an insolvent account the trim rounds each kept leg down to
-whole base units of its token, so the kept
-value never exceeds the quote. A leg whose kept amount rounds to zero is
-dropped and its whole offer refunded; if no leg remains, `liquidate` reverts
-with `InvalidPayments` (16) and the estimate shows a zero payment. This insolvency
+insolvency branch quotes the repayment that the collateral backs at the base
+bonus, floored. An offer above it is trimmed, so the liquidator never pays
+more than it seizes. On an insolvent account the trim rounds each kept leg
+down to whole base units of its token. The kept value therefore never exceeds
+the quote. A leg whose kept amount rounds to zero is dropped, and its whole
+offer is refunded. If no leg remains, `liquidate` reverts with
+`InvalidPayments` (16), and the estimate shows a zero payment. This insolvency
 branch does not promote the quote to full debt; bad-debt cleanup takes the unbacked
 residue. With `p == 0`, the target formula and dust promotion below apply instead.
 
-A partial seizure leg below 3 decimals takes whole units only. One whole unit
-is one base unit of the token, `10^-d` of a token for `d` decimals. When the
-repayment covers the whole debt, the leg rounds up to the next whole unit,
-capped at the held balance, and the debt closes. Otherwise it rounds down: the dropped fraction's USD value,
-divided by `1 + bonus` and floored, is trimmed from the repayment and
-refunded, kept amounts rounding up, so the liquidator pays for the units it
-receives, and a plan that then seizes nothing reverts with `InvalidPayments`
-(16). Neither applies when an insolvent account's repayment reaches the
-collateral-backed quote: that call seizes every unit. Such a leg is its
-account's only supply position, so it is the whole collateral and the seizure
-stays proportional. A borrow, withdrawal or account strategy that leaves debt
-needs at least 2 whole units in it. A liquidation can leave fewer, and a
-`Credit` receiver's units are not checked at credit.
-
-The controller can change a partial quote for such a leg. All of these
-conditions must be true: the account is solvent (`C >= D`), the curve quote is
-below `D`, the leg is the account's only supply position, and the leg holds at
-least one whole unit. Let `U` be the WAD USD value of one whole unit, `b` the
-bonus and `m = max(floor(U / 1e6), 1)` in raw WAD. Let `R` be the sum, over the
-account's debt legs, of the USD value of one base unit of that debt token. `R`
-is the per-leg ceiling rounding that a full close can record. The controller
-applies the first rule that matches:
-
-1. If `floor(U / (1 + b)) >= D + R`, the quote becomes `D`. The plan closes in
-   full and the leg rounds up to one whole unit. The liquidator repays all
-   debt and receives one unit.
-2. If the curve quote seizes less than `U + m`, and
-   `ceil((U + m) / (1 + b)) < D`, the quote rises to
-   `ceil((U + m) / (1 + b))`. The seizure takes one unit. It refunds the
-   margin that it does not seize, rounded down to whole debt-token units.
-3. Otherwise the curve quote stays.
-
-The raised quote is a ceiling, not a floor. A smaller offer is not raised. An
-offer that backs less than one whole unit seizes nothing and reverts with
-`InvalidPayments` (16). An offer between `U / (1 + b)` and the raised quote
-still takes one unit. Size offers for such a leg from
-`get_liquidation_estimate`, not from the curve formula.
-
-The HF-preserving bonus cap keeps `1 + b <= C / D`, so the sale of one unit does
-not lower `C / D`. Thus a solvent account whose only supply leg is below 3
-decimals and holds a whole unit stays liquidatable below `HF = 1`, by a
-one-unit sale or by a full close. There is one exception. While
-`floor(U / (1 + b)) - R < D <= ceil((U + m) / (1 + b))`, neither rule 1 nor
-rule 2 applies. If the curve quote then backs less than one unit, every offer
-reverts until accrual or a price move ends that state.
-
-A rule-1 full close pays the liquidator one unit worth `U` for `D`. Its
-effective bonus is `U / D - 1`, not `b`. With `k` held units and liquidation
-threshold `LT`, `HF < 1` gives `k * U * LT < D`, so the effective bonus is at
-most about `1 / (k * LT) - 1`. The borrower loses `U - D * (1 + b)` above the
-normal bonus. `bonus_rate_bps` in the estimate and `bonus_bps` in
-`LiquidationEvent` show only `b`. A listing below 3 decimals has no liquidation
-fee, so no protocol fee applies to that excess.
-
-For positive `p`, `HF / p` approximates `C / D`, but `HF` floors and `p` rounds
-half-up, so an account at
-`C == D`, or a few raw WAD units above it, can compute a cap of `-1`. Such a
+For positive `p`, `HF / p` approximates `C / D`. `HF` floors and `p` rounds
+half-up, however. An account at `C == D`, or a few raw WAD units above it, can
+therefore compute a cap of `-1`. Such a
 covered account takes the band quote with the cap clamped to zero. A full close
 repays all of `D`, so no debt is left to socialize. Seizure floors to whole
 token units, so it takes `C` less at most one token unit per collateral leg.
@@ -552,19 +509,106 @@ That unit stays with the account as collateral. Bad-debt cleanup does not
 sweep it, because the account has no debt.
 
 An ideal residual debt strictly between zero and $5 also promotes the quote to
-full debt, without requiring full funding. A raised whole-unit quote is not
+full debt, without requiring full funding. A [raised whole-unit quote](#raised-partial-quote) is not
 promoted to full debt, so it can leave debt below $5. Each input is capped at
 its leg's ceiling-rounded debt, and the excess is listed as a refund. A partial quote
 also trims the inputs above the quote from the last leg backward before tokens
 are pulled, and execution pulls the trimmed amount. On a solvent account the
 trim floors the refund, so the kept amount can round up by one token unit. A
-full-debt quote trims nothing: the per-leg ceilings can exceed `D` by unit
-rounding, but a leg paid at its ceiling is credited only the floor value of
-the debt it clears, so the rounded-up fraction buys no collateral. Execution then pulls
-each merged offered amount and the pool refunds what exceeds each leg's debt,
-which is exactly the listed refund. Neither a full-debt quote nor the target
+full-debt quote trims nothing. The per-leg ceilings can exceed `D` by unit
+rounding. A leg paid at its ceiling is credited only the floor value of the
+debt it clears, so the rounded-up fraction buys no collateral. Execution then
+pulls each merged offered amount. The pool refunds what exceeds each leg's
+debt, which is exactly the listed refund. Neither a full-debt quote nor the target
 health factor guarantees an executed full close after rounding or
 under-delivery.
+
+### Whole-unit collateral below 3 decimals
+
+A collateral leg whose token has fewer than 3 decimals seizes whole units
+only. One whole unit is one base unit of the token, `10^-d` of a token for `d`
+decimals.
+
+A partial seizure of such a leg rounds as follows:
+
+- When the repayment covers the whole debt, the leg rounds up to the next
+  whole unit, capped at the held balance. The debt closes.
+- Otherwise the leg rounds down. The dropped fraction's USD value, divided by
+  `1 + bonus` and floored, is trimmed from the repayment and refunded.
+- Kept amounts round up, so the liquidator pays for the units it receives.
+- A plan that then seizes nothing reverts with `InvalidPayments` (16).
+
+Neither rounding rule applies when an insolvent account's repayment reaches
+the collateral-backed quote. That call seizes every unit. Such a leg is its
+account's only supply position, so it is the whole collateral and the seizure
+stays proportional.
+
+A borrow, withdrawal or account strategy that leaves debt needs at least 2
+whole units in the leg. A liquidation can leave fewer, and a `Credit`
+receiver's units are not checked at credit.
+
+#### Raised partial quote
+
+The controller can change a partial quote for such a leg. All of these
+conditions must be true:
+
+- the account is solvent (`C >= D`);
+- the curve quote is below `D`;
+- the leg is the account's only supply position;
+- the leg holds at least one whole unit.
+
+The rules use these values, in raw WAD:
+
+- `U` is the USD value of one whole unit.
+- `b` is the bonus.
+- `m = max(floor(U / 1e6), 1)`.
+- `R` is the sum, over the account's debt legs, of the USD value of one base
+  unit of that debt token. `R` is the per-leg ceiling rounding that a full
+  close can record.
+
+The controller applies the first rule that matches:
+
+1. If `floor(U / (1 + b)) >= D + R`, the quote becomes `D`. The plan closes in
+   full and the leg rounds up to one whole unit. The liquidator repays all
+   debt and receives one unit.
+2. If the curve quote seizes less than `U + m`, and
+   `ceil((U + m) / (1 + b)) < D`, the quote rises. The new quote is
+   `ceil((U + m) / (1 + b))`. The seizure takes one unit. It refunds the
+   margin that it does not seize, rounded down to whole debt-token units.
+3. Otherwise the curve quote stays.
+
+Size offers for such a leg from `get_liquidation_estimate`, not from the
+curve formula:
+
+- The raised quote is a ceiling, not a floor. A smaller offer is not raised.
+- An offer that backs less than one whole unit seizes nothing and reverts
+  with `InvalidPayments` (16).
+- An offer between `U / (1 + b)` and the raised quote still takes one unit.
+
+#### Liquidatability of a whole-unit leg
+
+The HF-preserving bonus cap keeps `1 + b <= C / D`, so the sale of one unit
+does not lower `C / D`. Take a solvent account whose only supply leg is below
+3 decimals and holds a whole unit. It stays liquidatable below `HF = 1`, by a
+one-unit sale or by a full close.
+
+There is one exception. While
+`floor(U / (1 + b)) - R < D <= ceil((U + m) / (1 + b))`, neither rule 1 nor
+rule 2 applies. If the curve quote then backs less than one unit, every offer
+reverts until accrual or a price move ends that state.
+
+#### Effective bonus of a rule-1 full close
+
+- A rule-1 full close pays the liquidator one unit worth `U` for `D`. Its
+  effective bonus is `U / D - 1`, not `b`.
+- Take `k` held units and liquidation threshold `LT`. `HF < 1` then gives
+  `k * U * LT < D`. The effective bonus is therefore at most about
+  `1 / (k * LT) - 1`.
+- The borrower loses `U - D * (1 + b)` above the normal bonus.
+- `bonus_rate_bps` in the estimate and `bonus_bps` in `LiquidationEvent` show
+  only `b`.
+- A listing below 3 decimals has no liquidation fee, so no protocol fee
+  applies to that excess.
 
 ### Seizure and fees
 
@@ -573,12 +617,12 @@ is the capped seizure minus the floor-divided uncapped principal, bounded below
 by zero. A collateral cap below principal leaves no bonus to charge.
 
 Partial seizure floors the token amount and seized shares. Full seizure uses
-the half-up token amount to request a full pool withdrawal and takes the exact
-held shares for Credit mode; the pool payout still floors the supply claim.
+the half-up token amount to request a full pool withdrawal. For Credit mode it
+takes the exact held shares. The pool payout still floors the supply claim.
 In Transfer mode the pool treats any request at or above the half-up held
-balance as a full close. When the held fraction is below half a unit, a
-partial request equal to the floored balance therefore burns every share and
-pays that floored balance, the amount the plan priced. The fraction stays in
+balance as a full close. Take a held fraction below half a unit. A partial
+request equal to the floored balance then burns every share. It pays that
+floored balance, the amount the plan priced. The fraction stays in
 the pool as cash that no share claims.
 Bonus shares floor at the supply index and cannot exceed seized shares.
 Zero-share or zero-token planned seizure legs are omitted.
@@ -606,8 +650,8 @@ let credited_shares = seized_shares - credit_fee_shares;
 
 Under-delivery floor-scales seizure amounts, transfer fees, seized shares and
 bonus shares by measured/planned repayment USD. The transfer amount is also
-capped at the floor asset value of the scaled shares, and the fee at that
-amount; a leg below 3 decimals reverts ([INV-LIQ-03](invariants.md#inv-liq-03)).
+capped at the floor asset value of the scaled shares. The fee is capped at
+that amount. A leg below 3 decimals reverts ([INV-LIQ-03](invariants.md#inv-liq-03)).
 Credit fees are recomputed from the scaled bonus shares.
 
 Bad-debt cleanup has separate eligibility: ceil risk debt must exceed half-up
@@ -682,7 +726,7 @@ saturates at `i128::MAX` (`calculate_scaled_cap`), so the entry check fails
 open instead of trapping. A saturated scaled cap does not enforce the
 configured asset-unit limit. An admitted cap saturates only at an index below
 an eighth of one RAY. Only a bad-debt write-down moves the supply index below
-one RAY; at its floor (`RAY / 1000`), a supply cap above about 1/125 of the
+one RAY. At its floor (`RAY / 1000`), a supply cap above about 1/125 of the
 admitted maximum saturates. The pool's entry ceiling still bounds such a
 market's share count. The borrow index never falls below one RAY, so an
 admitted borrow cap cannot saturate. Position conversion still rejects
@@ -705,37 +749,40 @@ fee; see [its settlement invariant](invariants.md#inv-strat-04).
 
 The admitted cap maximum is the market entry ceiling in asset units,
 `MAX_MARKET_ENTRY_RAY / 10^(27-d)`, a factor 8 below the value ceiling. One
-year at the 200% APR maximum multiplies debt by less than `e^2 < 8`, so a
-market filled to the admitted cap accrues for at least a year before interest
-is held; at 20% APR, about ten years.
+year at the 200% APR maximum multiplies debt by less than `e^2 < 8`. A market
+filled to the admitted cap therefore accrues for at least a year before
+interest is held. At 20% APR, it accrues for about ten years.
 
-Supply, borrow, strategy openings and flash loans check the entry ceiling on
-the market's totals after they raise one: total supply and total debt, each as
-a share count and as a half-up value. Above it they fail with
-`MarketCeilingReached` (136). The share count is checked because a supply
+Supply, borrow, strategy openings and flash loans check the entry ceiling
+after they raise one of the market's totals. The check covers total supply
+and total debt, each as a share count and as a half-up value. Above the
+ceiling these operations fail with `MarketCeilingReached` (136). The share count is checked because a supply
 index at its floor mints 1,000 shares per unit of value. Exits never check
-it. A market that interest has taken above the entry ceiling takes no new
-entry until exits bring it back under; it keeps accruing, repaying,
+it. Interest can take a market above the entry ceiling. That market takes no
+new entry until exits bring it back under. It keeps accruing, repaying,
 withdrawing and liquidating.
 
-Accrual does not revert on a market value: at the value ceiling, as at the
-borrow-index ceiling, further accrual produces no borrower interest, and the
-value ceiling emits `MarketValueCeilingEvent`
+Accrual does not revert on a market value. At the value ceiling, as at the
+borrow-index ceiling, further accrual produces no borrower interest. The value
+ceiling emits `MarketValueCeilingEvent`
 ([INV-IDX-06](invariants.md#inv-idx-06)).
 
-These are arithmetic limits, not recommended market sizes or deployment proofs.
+These are arithmetic limits, not recommended market sizes.
 
 ### Liquidation fixture
 
-These $5 repayment fixtures use ample collateral, selected USD prices and the
-decimals, bonus and fee of one mainnet listing each. They illustrate native
-arithmetic, excluding network fees and slippage. The prices are not live
-quotes; five rows sit at their listing's `max_sanity_price_wad`. The results
-do not guarantee profitability. The fixture tests also run each row at its
-listing's `max_sanity_price_wad`. The fixture models at most two token-unit
-rounding costs per collateral leg; that is not a universal execution bound.
+This fixture shows the native arithmetic of a $5 repayment. Each row takes
+the decimals, bonus and fee of one mainnet listing, with ample collateral.
 
-| Collateral | Fixture USD price | Seized token units | Fee units | Profit USD (rounded) |
+The USD prices are illustrative values chosen for the fixture, not live
+market prices. For example, SolvBTC at 120,000 and XAUM at 6,000 are test
+inputs. Five rows sit at their listing's `max_sanity_price_wad`. The fixture
+tests also run each row at its listing's `max_sanity_price_wad`.
+
+The profit column excludes network fees and slippage. The fixture models at
+most two token-unit rounding costs per collateral leg.
+
+| Collateral | Illustrative USD price | Seized token units | Fee units | Profit USD (rounded) |
 |---|---:|---:|---:|---:|
 | SolvBTC | 120,000 | 4,541 | 45 | 0.3952 |
 | xSolvBTCSolvBTC_LP | 12,000 | 4,583 | 41 | 0.4504 |

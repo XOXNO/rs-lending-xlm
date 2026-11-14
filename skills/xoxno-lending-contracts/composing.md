@@ -56,12 +56,12 @@ Route bytes come from the quote service; do not construct
 
 A route that breaks these emptiness rules fails `InvalidPayments`. These
 branches are enforced by
-[`strategies/multiply.rs`](../../contracts/controller/src/strategies/multiply.rs),
-[`strategies/swap.rs`](../../contracts/controller/src/strategies/swap.rs),
-[`strategies/swap_debt.rs`](../../contracts/controller/src/strategies/swap_debt.rs),
-[`strategies/swap_collateral.rs`](../../contracts/controller/src/strategies/swap_collateral.rs),
+[`strategies/multiply.rs`](https://github.com/XOXNO/rs-lending-xlm/blob/main/contracts/controller/src/strategies/multiply.rs),
+[`strategies/swap.rs`](https://github.com/XOXNO/rs-lending-xlm/blob/main/contracts/controller/src/strategies/swap.rs),
+[`strategies/swap_debt.rs`](https://github.com/XOXNO/rs-lending-xlm/blob/main/contracts/controller/src/strategies/swap_debt.rs),
+[`strategies/swap_collateral.rs`](https://github.com/XOXNO/rs-lending-xlm/blob/main/contracts/controller/src/strategies/swap_collateral.rs),
 and
-[`strategies/repay_debt_with_collateral.rs`](../../contracts/controller/src/strategies/repay_debt_with_collateral.rs).
+[`strategies/repay_debt_with_collateral.rs`](https://github.com/XOXNO/rs-lending-xlm/blob/main/contracts/controller/src/strategies/repay_debt_with_collateral.rs).
 Quote sizing and payload checks are in
 [`../xoxno-swap-aggregator/composition.md`](../xoxno-swap-aggregator/composition.md).
 
@@ -91,7 +91,7 @@ For `Credit(0)`, store and renew the returned account ID locally. Do not infer
 the receiving ID from NFT enumeration or events.
 
 The plan/apply implementation is under
-[`positions/liquidation/`](../../contracts/controller/src/positions/liquidation/).
+[`positions/liquidation/`](https://github.com/XOXNO/rs-lending-xlm/tree/main/contracts/controller/src/positions/liquidation/).
 
 ## Keeper threshold updates
 

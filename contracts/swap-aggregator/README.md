@@ -107,6 +107,30 @@ with `InternalInvariant`.
 | `is_whitelisted(token)`, `whitelisted_tokens()` | Fee whitelist |
 | `admin_fee_balance(token)`, `referral_fee_balance(id, token)` | Accrued fees |
 
+## Storage and TTL
+
+All keys are variants of `DataKey` in [`src/types.rs`](src/types.rs).
+
+| Key | Tier | Holds |
+| --- | --- | --- |
+| `StaticFeeBps` | instance | Static fee, in BPS |
+| `WhitelistedTokens` | instance | Preferred fee tokens |
+| `ReferralCounter` | instance | Highest referral id issued |
+| OpenZeppelin `Ownable` owner | instance | The admin |
+| `Referral(id)` | persistent | `ReferralConfig` |
+| `AdminFee(token)`, `ReferralFee(id, token)` | persistent | Fee buckets, in token amount |
+| `ReservedTotal(token)` | persistent | Sum of that token's fee buckets |
+
+The constructor and every state-changing entrypoint renew the instance TTL
+with `renew_instance`. A persistent entry is extended with
+`TTL_THRESHOLD_SHARED` and `TTL_BUMP_SHARED` when it is read and when a fee
+bucket changes. An emptied fee bucket is removed.
+
+## Events
+
+The contract defines no custom events. Ownership changes publish the stock
+OpenZeppelin `Ownable` events. See [events](../../docs/reference/events.md).
+
 ## Layout
 
 ```text
@@ -128,5 +152,5 @@ tests/unit/       unit tests, mounted by #[path] from lib.rs
 ## References
 
 - Errors: [`docs/reference/errors.md`](../../docs/reference/errors.md)
-- Events: only the `Ownable` ownership events. See
-  [`docs/reference/events.md`](../../docs/reference/events.md)
+- Events: [`docs/reference/events.md`](../../docs/reference/events.md)
+- Curve fixtures: [`tests/fixtures/curve/README.md`](tests/fixtures/curve/README.md)

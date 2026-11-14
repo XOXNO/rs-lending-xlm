@@ -1,17 +1,25 @@
 # Runtime invariants
 
-These properties describe the constraints enforced by protocol operations and
-the limits of those checks. Use them with the [architecture](architecture.md),
-[threat model](../explanation/threat-model.md) and [exact arithmetic](formulas.md).
+Each `INV-…` heading names one property that protocol operations enforce at
+runtime. The id is stable, and the evidence for a property cites it by id:
 
-Runtime checks, tests and formal specifications provide different evidence; a
-listed invariant is not a completed proof. Deployment wiring, configuration,
-external contracts and archived-state recovery require integration verification.
+| Evidence | Where it cites the id |
+|---|---|
+| Unit and integration tests | Test comments in `contracts/*/tests/` and `tests/test-harness/tests/` |
+| Certora rules | Rule comments in `certora/` |
+| Aeneas proofs | Lean proofs and notes in `verification/aeneas/`, indexed by the [Aeneas README](../../verification/aeneas/README.md) |
+| Permissionless entrypoints | Justification lines in `scripts/permissionless_entrypoints.txt` |
+
+Search the repository for an id to find its evidence. `make access-control-check`
+fails when a cited id is not a heading here. Each section states the property,
+the code that enforces it and, where one exists, its limit. Deployment wiring,
+configuration and external contracts are checked at deployment time. Read these
+properties with the [architecture](architecture.md),
+[threat model](../explanation/threat-model.md) and [exact arithmetic](formulas.md).
 
 ## Authority
 
 <a id="inv-auth-01"></a>
-<a id="inv-auth-01--one-ownership-chain"></a>
 
 ### INV-AUTH-01 — Pool mutation requires its owner
 
@@ -24,7 +32,6 @@ establish that chain. Authorized controller ownership changes and code upgrades
 can change the wider authority boundary.
 
 <a id="inv-auth-02"></a>
-<a id="inv-auth-02--risk-reducing-authority-is-explicit"></a>
 
 ### INV-AUTH-02 — Account spending authority is explicit
 
@@ -38,7 +45,6 @@ under another owner but can reactivate if the NFT returns, unless an intervening
 owner overwrites or purges the grant.
 
 <a id="inv-auth-03"></a>
-<a id="inv-auth-03--permissionless-actions-do-not-create-foreign-risk"></a>
 
 ### INV-AUTH-03 — Third-party supply cannot create a foreign asset slot
 
@@ -65,7 +71,6 @@ relaxation indefinitely. The oracle role's immediate `set_sanity_band` can
 only keep or narrow a band.
 
 <a id="inv-auth-05"></a>
-<a id="inv-auth-05--governance-delay-cannot-be-shortened"></a>
 
 ### INV-AUTH-05 — Delay updates cannot shorten the minimum below its floor
 
@@ -92,7 +97,6 @@ the same spoke.
 ## Accounting and cash
 
 <a id="inv-acct-01"></a>
-<a id="inv-acct-01--supply-revenue-and-debt-shares-are-non-negative"></a>
 
 ### INV-ACCT-01 — Revenue shares remain part of total supply
 
@@ -115,7 +119,6 @@ and debits reject insufficient reserves. Outbound token transfer and cash
 bookkeeping remain separate actions.
 
 <a id="inv-acct-03"></a>
-<a id="inv-acct-03--credit-equals-measured-receipt"></a>
 
 ### INV-ACCT-03 — Token-funded credit uses measured receipt
 
@@ -143,7 +146,6 @@ can leave residual claims requiring recapitalization; see the
 [backing calculation](formulas.md#backing-and-cash-constraints).
 
 <a id="inv-acct-05"></a>
-<a id="inv-acct-05--positive-value-must-change-shares"></a>
 
 ### INV-ACCT-05 — Positive position settlement requires shares
 
@@ -169,7 +171,6 @@ debt. These checks do not establish full backing. The [payout formula](formulas.
 defines the burn calculation.
 
 <a id="inv-acct-07"></a>
-<a id="inv-acct-07--borrow-draws-leave-a-liquidation-cash-buffer"></a>
 
 ### INV-ACCT-07 — Borrow draws reserve a cash buffer
 
@@ -181,7 +182,6 @@ Exits do not preserve this buffer. It does not guarantee enough cash for every
 subsequent liquidation.
 
 <a id="inv-acct-08"></a>
-<a id="inv-acct-08--utilization-stays-below-the-market-ceiling"></a>
 
 ### INV-ACCT-08 — Selected operations enforce the utilization ceiling
 
@@ -203,7 +203,6 @@ Liquidation withdrawal skips the gate. Accrual and bad-debt writeoff can exceed
 the ceiling; it is not a market-wide bound maintained by every operation.
 
 <a id="inv-acct-09"></a>
-<a id="inv-acct-09--exits-cannot-leave-debt-without-supply"></a>
 
 ### INV-ACCT-09 — Selected exits cannot leave debt without supply
 
@@ -305,7 +304,6 @@ hide a writeoff behind intervening interest. Each pool seizure writes only its
 identified market. See the [write-down calculation](formulas.md#bad-debt).
 
 <a id="inv-idx-04"></a>
-<a id="inv-idx-04--accrual-is-time-consistent"></a>
 
 ### INV-IDX-04 — Accrual shares one bounded-step calculation
 
@@ -320,7 +318,6 @@ monotonic partition results or an exact continuous-exponential bound. See
 [accrual cadence](formulas.md#accrual-cadence).
 
 <a id="inv-idx-05"></a>
-<a id="inv-idx-05--accrued-interest-is-fully-assigned"></a>
 
 ### INV-IDX-05 — Interest allocation retains explicit rounding limits
 
@@ -360,7 +357,6 @@ operation produces. See
 ## Oracle validity
 
 <a id="inv-oracle-01"></a>
-<a id="inv-oracle-01--valuation-fails-closed"></a>
 
 ### INV-ORACLE-01 — Required valuations fail closed
 
@@ -384,7 +380,6 @@ disagreement. Separately admitted single-source configurations retain freshness,
 positivity and sanity checks.
 
 <a id="inv-oracle-03"></a>
-<a id="inv-oracle-03--one-transaction-sees-one-snapshot"></a>
 
 ### INV-ORACLE-03 — A context retains fetched prices
 
@@ -397,7 +392,6 @@ provide identical observation timestamps across sources or a transaction-wide
 snapshot shared by independent contexts.
 
 <a id="inv-oracle-04"></a>
-<a id="inv-oracle-04--future-dated-feeds-are-not-accepted"></a>
 
 ### INV-ORACLE-04 — Observation timestamps have a bounded future allowance
 
@@ -696,7 +690,6 @@ checks metadata only, without checking the NFT.
 ## Flash loans and reentrancy
 
 <a id="inv-flash-01"></a>
-<a id="inv-flash-01--flash-repayment-is-exact"></a>
 
 ### INV-FLASH-01 — Cash flash repayment is exact
 
@@ -708,7 +701,6 @@ A direct callback push fails; extra allowance is allowed. Cash flash loans
 create no account debt and use their own settlement checks.
 
 <a id="inv-flash-02"></a>
-<a id="inv-flash-02--monetary-reentrancy-is-blocked"></a>
 
 ### INV-FLASH-02 — Protected monetary entry rejects callback reentry
 
@@ -724,7 +716,6 @@ external-host execution.
 ## Account strategies
 
 <a id="inv-strat-01"></a>
-<a id="inv-strat-01--router-authority-is-narrowly-scoped"></a>
 
 ### INV-STRAT-01 — Controller router authority binds one input transfer
 
@@ -737,7 +728,6 @@ The controller ignores the router's return value, rejects input-balance growth
 and rejects measured spending above `amount_in`.
 
 <a id="inv-strat-02"></a>
-<a id="inv-strat-02--strategy-settlement-is-measured-and-solvent"></a>
 
 ### INV-STRAT-02 — Account strategies settle measured flows and final risk
 
@@ -757,7 +747,6 @@ accounts skip those three numerical gates. Cash flash loans settle separately;
 ordinary supply and repayment do not universally apply that final account gate.
 
 <a id="inv-strat-03"></a>
-<a id="inv-strat-03--external-integrations-run-against-an-allowlist"></a>
 
 ### INV-STRAT-03 — Blend migration requires an approved pool
 
@@ -769,7 +758,6 @@ The router's separate token whitelist selects fee placement. It does not admit
 tokens, venues or pools for migration.
 
 <a id="inv-strat-04"></a>
-<a id="inv-strat-04--flash-position-cannot-round-trip-to-a-closed-account"></a>
 
 ### INV-STRAT-04 — Flash position retains debt and supply
 
@@ -786,8 +774,8 @@ uncredited if in neither list. Refunds cover only positive callback balance
 changes.
 
 An already healthy account can support new debt with little additional
-collateral. An open solvent position does not prove that the receiver spent
-the borrowing on collateral.
+collateral. The controller checks the declared minima, not how the receiver
+spends the borrowing.
 
 ## Sources
 

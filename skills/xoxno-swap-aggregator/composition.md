@@ -5,10 +5,9 @@ One quote yields one `routeXdr`. Where it ends up decides how you quote. Wire fo
 router addresses (`controller`, `pool`, `aggregator` in `configs/networks.json`) in
 [../xoxno-lending/addresses.md](../xoxno-lending/addresses.md).
 
-Sources: `arb-algo/scripts/check-stellar-{lending,lp}-composition.ts`,
-`rs-lending-xlm/contracts/controller/src/strategies/{swap,legs,multiply,swap_debt,swap_collateral,repay_debt_with_collateral}.rs`,
+Sources: `rs-lending-xlm/contracts/controller/src/strategies/{swap,legs,multiply,swap_debt,swap_collateral,repay_debt_with_collateral}.rs`,
 `contracts/swap-aggregator/src/{execute/mod,program}.rs`, `common/src/token.rs`,
-`sdk-js/src/sdk/stellar/{lending,scval-encode,swap,repay-swap,quote,prepare}.ts` (1.0.228).
+and the strategy builders in the [pinned SDK](../xoxno-lending/SKILL.md#verified-against).
 
 ## Standalone or composed
 
@@ -50,14 +49,14 @@ export async function quoteForComposition(
 ```
 
 `routeXdr` is present when `slippage` was sent (always for swaps; optional for
-`convertLiquidity`; `pipeline.rs` clears it when `slippage` is absent). Use the checked `steps` returned above. The builders convert the route to
+`convertLiquidity`; the server omits it when `slippage` is absent). Use the checked `steps` returned above. The builders convert the route to
 Soroban `Bytes`. The controller forwards the bytes without decoding them.
 Set `referralId` on the quote request: the server encodes it into `routeXdr`, and the
 builders cannot add it later.
 
 ### Exact-out status
 
-At aggregator commit `54de209a`, reverse quotes preserve the requested output
+Reverse quotes preserve the requested output
 as a minimum. Slippage increases the output used to size input.
 Check the encoded floor against the caller's requested output.
 Withdraw the returned `amountIn`.
@@ -116,7 +115,7 @@ non-empty route into a same-token swap would also fail inside the router with
 - Repay debt with collateral (same-token aware, exact-out variant):
   [../xoxno-lending-sdk/strategies.md#complete-example-repay-usdc-debt-with-xlm-collateral-same-token-aware](../xoxno-lending-sdk/strategies.md#complete-example-repay-usdc-debt-with-xlm-collateral-same-token-aware)
 - Multiply quoted net of the flash-loan fee, built with the gross amount:
-  [../xoxno-lending-sdk/strategies.md#complete-example-3-long-on-xlm-funded-by-usdc-debt](../xoxno-lending-sdk/strategies.md#complete-example-3-long-on-xlm-funded-by-usdc-debt)
+  [the SDK Multiply example](../xoxno-lending-sdk/strategies.md#complete-example-3-xlm-in-multiply-mode-funded-by-usdc-debt)
 
 ## Budget: why `maxSplits: 1`, `maxHops: 2`
 
@@ -153,7 +152,7 @@ The controller credits its measured output balance increase.
 `strategy_finalize` applies the same LTV and health-factor checks as manual
 borrowing, plus the applicable collateral minimums. The
 `swap_tokens` auth and measurement sequence is in
-[`strategies/swap.rs`](../../contracts/controller/src/strategies/swap.rs).
+[`strategies/swap.rs`](https://github.com/XOXNO/rs-lending-xlm/blob/main/contracts/controller/src/strategies/swap.rs).
 
 ## Your own contract as `sender`
 
@@ -161,6 +160,6 @@ Use the contract-sender flow in
 [payload.md#authorization-model](payload.md#authorization-model), then credit the
 measured output-balance delta. Quote without `sender`; the bytes arrive as an argument.
 Rust reference: `swap_tokens` in
-[`strategies/swap.rs`](../../contracts/controller/src/strategies/swap.rs). Token-pull
+[`strategies/swap.rs`](https://github.com/XOXNO/rs-lending-xlm/blob/main/contracts/controller/src/strategies/swap.rs). Token-pull
 rules:
 [../xoxno-lending-contracts/composing.md#token-pull-ordering](../xoxno-lending-contracts/composing.md#token-pull-ordering).

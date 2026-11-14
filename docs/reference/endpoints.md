@@ -1,8 +1,8 @@
 # Endpoint reference
 
-This reference lists the callable interfaces and authorization rules for the eight protocol contracts. For component responsibilities, start with [architecture](architecture.md). Use [errors](errors.md) to interpret failures and [events](events.md) to decode transaction output.
+This reference lists the callable interfaces and authorization rules for the nine protocol contracts. For component responsibilities, start with [architecture](architecture.md). Use [errors](errors.md) to interpret failures and [events](events.md) to decode transaction output.
 
-Soroban supplies `Env`, so signatures omit it. Constructors run at deployment; test, mock and Certora hooks are excluded. Signatures use Rust ABI types. Named contract structs encode as maps; tuple structs encode as vectors.
+Soroban supplies `Env`, so signatures omit it. Constructors run at deployment. Test, mock and Certora hooks are excluded. Signatures use Rust ABI types. Named contract structs encode as maps; tuple structs encode as vectors.
 
 | Value | Unit |
 | --- | --- |
@@ -13,11 +13,11 @@ Soroban supplies `Env`, so signatures omit it. Constructors run at deployment; t
 
 `HubAssetKey` is `{hub_id: u32, asset: Address}`. The same token in two hubs represents two markets.
 
-“Owner” means the contract owner. “NFT owner/delegate” means the position's current NFT owner or an active registered manager delegated by that owner. Open views require no signature, but can renew storage time to live (TTL) and invoke external contracts.
+“Owner” means the contract owner. “NFT owner/delegate” means the position's current NFT owner, or an active registered manager that owner delegated. Open views require no signature. They can renew storage time to live (TTL) and invoke external contracts.
 
 ## Controller
 
-Every user mutation below requires the named caller, payer or liquidator to authorize. In the Pause column, “gated” requires an unpaused controller; “open” remains callable during global pause. Both can still enforce asset-level restrictions. Monetary calls reject execution during a flash callback; account renewal and delegate writes do not use that guard.
+Every user mutation below requires the named caller, payer or liquidator to authorize. In the Pause column, “gated” requires an unpaused controller. “Open” remains callable during global pause. Both can still enforce asset-level restrictions. Monetary calls reject execution during a flash callback. Account renewal and delegate writes do not use that guard.
 
 | Endpoint (parameters → return) | Additional authority | Pause | Effect |
 | --- | --- | --- | --- |
@@ -44,15 +44,15 @@ Every user mutation below requires the named caller, payer or liquidator to auth
 
 ### Accounts and authorization
 
-Account id `0` creates an account on `supply`, `multiply`, `flash_position`, `migrate_from_blend`, and liquidation with `Credit(0)`. An account's spoke binding is permanent. `multiply` and `flash_position` require Multiply, Long or Short mode, and an existing account must match the requested mode. Blend migration creates a Normal account; an existing destination need not be Normal.
+Account id `0` creates an account on `supply`, `multiply`, `flash_position`, `migrate_from_blend`, and liquidation with `Credit(0)`. An account's spoke binding is permanent. `multiply` and `flash_position` require Multiply, Long or Short mode. An existing account must match the requested mode. Blend migration creates a Normal account. An existing destination need not be Normal.
 
-Delegates belong to the granting owner. An NFT transfer disables that owner's grants; a transfer back can reactivate them unless a later owner has replaced or deleted the list. NFT ownership, including control of collateral and the debt obligation, transfers atomically.
+Delegates belong to the granting owner. An NFT transfer disables that owner's grants. A transfer back reactivates them, unless a later owner has replaced or deleted the list. NFT ownership, including control of collateral and the debt obligation, transfers atomically.
 
-Ordinary payment lists sum duplicate markets in first-appearance order and reject negative amounts. `supply`, `borrow` and `repay` reject zero. In `withdraw`, zero means the full balance; a zero and a positive amount for the same market fail with `InvalidPayments`. Flash-position declaration lists reject duplicates.
+Ordinary payment lists sum duplicate markets in first-appearance order and reject negative amounts. `supply`, `borrow` and `repay` reject zero. In `withdraw`, zero means the full balance. A zero and a positive amount for the same market fail with `InvalidPayments`. Flash-position declaration lists reject duplicates.
 
 ### Risk checks and pause flags
 
-After pool accounting, `borrow`, `withdraw` and the six account strategies require LTV-weighted collateral to cover debt and health factor (HF) to be at least 1. If debt remains, LTV-weighted collateral must also meet the minimum-borrow floor. Ordinary `supply` and `repay` skip these checks; repayment loads debt positions only. Liquidation uses separate admission and sizing rules. See [formulas](formulas.md) for the calculations.
+After pool accounting, `borrow`, `withdraw` and the six account strategies run two checks. LTV-weighted collateral must cover debt. Health factor (HF) must be at least 1. If debt remains, LTV-weighted collateral must also meet the minimum-borrow floor. Ordinary `supply` and `repay` skip these checks. Repayment loads debt positions only. Liquidation uses separate admission and sizing rules. See [formulas](formulas.md) for the calculations.
 
 | Listing flag | Restriction |
 | --- | --- |
@@ -64,13 +64,13 @@ Seizure checks only `no_seize`. Liquidators cannot choose a different collateral
 
 ### Liquidation results
 
-Credit liquidation transfers supply shares without moving collateral tokens. The receiver must differ from the target, share its spoke and use Normal mode. `Credit(0)` can create a receiver in a deprecated spoke. Position limits apply to an existing receiver; a `Credit(0)` receiver is exempt, so a lowered limit cannot block the seizure. Collateral permissions and supply caps do not gate this credit.
+Credit liquidation transfers supply shares without moving collateral tokens. The receiver must differ from the target, share its spoke and use Normal mode. `Credit(0)` can create a receiver in a deprecated spoke. Position limits apply to an existing receiver. A `Credit(0)` receiver is exempt, so a lowered limit cannot block the seizure. Collateral permissions and supply caps do not gate this credit.
 
-Liquidation estimates report gross seizure before protocol fees. Transfer-mode seizure and fees use token units; Credit-mode seizure and fees use RAY shares. `refunds` use debt-token units. Execution can differ from an estimate because prices, indexes and measured token delivery can change. Same-call dust cleanup can write down a `Credit` receiver's shares after the estimate ([INV-LIQ-02](invariants.md#inv-liq-02)).
+Liquidation estimates report gross seizure before protocol fees. Transfer-mode seizure and fees use token units. Credit-mode seizure and fees use RAY shares. `refunds` use debt-token units. Execution can differ from an estimate because prices, indexes and measured token delivery can change. Same-call dust cleanup can write down a `Credit` receiver's shares after the estimate ([INV-LIQ-02](invariants.md#inv-liq-02)).
 
 ### Strategy payments and callbacks
 
-For `multiply`, an initial payment in collateral joins the supply; a payment in debt joins the main swap. Another payment asset requires `convert_swap`. Same-market `repay_debt_with_collateral` requires empty swap bytes. With `close_position`, the call fails if any debt remains; if none remains, all remaining collateral is withdrawn to the caller.
+For `multiply`, an initial payment in collateral joins the supply. A payment in debt joins the main swap. Another payment asset requires `convert_swap`. Same-market `repay_debt_with_collateral` requires empty swap bytes. With `close_position`, the call fails if any debt remains. If no debt remains, the call withdraws all remaining collateral to the caller.
 
 `flash_position` requires a debt market with flash loans enabled and a deployed Wasm receiver other than the controller or pool. Its collateral declarations must meet all of these conditions:
 
@@ -81,7 +81,14 @@ For `multiply`, an initial payment in collateral joins the supply; a payment in 
 
 Pool supply measures receipts again. Borrow and supply caps are checked when each pool result merges into the account. Supply and the declared debt position must remain open after finalization.
 
-Refund assets must be unique, listed in the debt hub and account spoke, disjoint from collateral declarations, and bounded by the maximum supply-position count. Refund eligibility requires an active spoke and an existing listing; it does not check collateralizable, borrowable, paused or frozen flags. Only positive balance changes above pre-callback balances return to the caller. The debt token can be a refund asset, but refunding it does not repay the minted debt.
+Refund assets must meet all of these conditions:
+
+- Each asset is unique.
+- Each asset is listed in the debt hub and the account spoke.
+- No asset appears in the collateral declarations.
+- The list does not exceed the maximum supply-position count.
+
+Refund eligibility requires an active spoke and an existing listing. It does not check collateralizable, borrowable, paused or frozen flags. Only positive balance changes above pre-callback balances return to the caller. The debt token can be a refund asset, but refunding it does not repay the minted debt.
 
 Undeclared callback assets receive neither credit nor refunds. There is no controller sweep endpoint. Refunds produce token transfer events, without a dedicated controller refund event.
 
@@ -118,7 +125,7 @@ Undeclared callback assets receive neither credit nor refunds. There is no contr
 
 ### Controller administration
 
-Constructor `(admin: Address)` initializes the controller and starts it paused. Administration requires the contract owner, normally governance, except that `accept_ownership` authenticates the pending owner. `get_app_version` is open. The controller exports only the ownership methods listed here.
+Constructor `(admin: Address)` initializes the controller and starts it paused. Administration requires the contract owner, normally governance. `accept_ownership` authenticates the pending owner instead. `get_app_version` is open. The controller exports only the ownership methods listed here.
 
 | Endpoint |
 | --- |
@@ -156,11 +163,11 @@ Constructor `(admin: Address)` initializes the controller and starts it paused. 
 
 `force_socialize_bad_debt` requires debt greater than unweighted collateral and bypasses the $5 collateral cap. Follow the [force-socialize runbook](runbooks/force-socialize-bad-debt.md) before scheduling this irreversible operation.
 
-`set_spoke_asset_flags` and `edit_asset_in_spoke` can set flags but cannot clear them. `set_spoke_asset_flags` also rejects a call that changes no flag with `SpokeAssetFlagsUnchanged`. `relax_spoke_asset_flags` writes any flag combination, clearing included, only when `expected_epoch` equals the listing's flags epoch. Listing creation, every successful `set_spoke_asset_flags` call, every `relax_spoke_asset_flags` call, and an edit that changes a flag advance that epoch; removing a listing keeps it. Upgrade pauses the controller before replacing its code. Migration requires a strictly increasing version.
+`set_spoke_asset_flags` and `edit_asset_in_spoke` can set flags but cannot clear them. `set_spoke_asset_flags` also rejects a call that changes no flag with `SpokeAssetFlagsUnchanged`. `relax_spoke_asset_flags` writes any flag combination, clearing included, only when `expected_epoch` equals the listing's flags epoch. These writes advance that epoch: listing creation, every successful `set_spoke_asset_flags` call, every `relax_spoke_asset_flags` call, and an edit that changes a flag. Removing a listing keeps the epoch. Upgrade pauses the controller before replacing its code. Migration requires a strictly increasing version.
 
 ## Pool
 
-Constructor `(admin: Address)` sets its owner; normal deployment passes the controller. Every mutator requires that owner; end users enter through controller. No ownership-transfer endpoint is exported.
+Constructor `(admin: Address)` sets its owner. Normal deployment passes the controller. Every mutator requires that owner. End users enter through the controller. No ownership-transfer endpoint is exported.
 
 | Mutator |
 | --- |
@@ -196,7 +203,7 @@ Constructor `(admin: Address)` sets its owner; normal deployment passes the cont
 
 Constructor `(admin: Address, min_delay: u32)` initializes the owner, access-control admin, five operational roles and a nonzero minimum delay. Scheduled operations use the interface's `AdminOperation` variants.
 
-`execute` must match a scheduled operation hash and predecessor and run within its execution window. Anyone can execute a ready operation: execution takes no caller and checks no role.
+`execute` must match a scheduled operation hash and predecessor and run within its execution window. Anyone can execute a ready operation. Execution takes no caller and checks no role.
 
 | Endpoint | Authority / effect |
 | --- | --- |
@@ -231,11 +238,11 @@ Constructor `(admin: Address, min_delay: u32)` initializes the owner, access-con
 
 Governance exports no generic `grant_role`, `revoke_role`, `renounce_ownership`, `get_owner`, `schedule`, or `update_delay` endpoint. Role, owner, delay and upgrade changes go through `AdminOperation` handlers. The exceptions are `revoke_role_immediate`, the canceller reset and `accept_ownership`.
 
-`AdminOperation::RelaxSpokeAssetFlags(RelaxSpokeAssetFlagsArgs)` schedules controller `relax_spoke_asset_flags` on the Standard delay tier. `propose` rejects it with `SpokeFlagsEpochMismatch` when `expected_epoch` differs from the listing's live flags epoch; execution checks the epoch again.
+`AdminOperation::RelaxSpokeAssetFlags(RelaxSpokeAssetFlagsArgs)` schedules controller `relax_spoke_asset_flags` on the Standard delay tier. `propose` rejects it with `SpokeFlagsEpochMismatch` when `expected_epoch` differs from the listing's live flags epoch. Execution checks the epoch again.
 
 ## Position NFT
 
-Account ids are NFT token ids: the NFT uses `u32`, and the controller exposes them as `u64`. Constructor `(controller: Address, uri: String, name: String, symbol: String)` reserves id 0 and stores the controller and metadata. The exported methods include the dependency defaults for NonFungibleToken and NonFungibleEnumerable.
+Account ids are NFT token ids. The NFT uses `u32`, and the controller exposes them as `u64`. Constructor `(controller: Address, uri: String, name: String, symbol: String)` reserves id 0 and stores the controller and metadata. The exported methods include the dependency defaults for NonFungibleToken and NonFungibleEnumerable.
 
 | Endpoint | Authority / effect |
 | --- | --- |
@@ -258,15 +265,15 @@ Account ids are NFT token ids: the NFT uses `u32`, and the controller exposes th
 | `get_owner_token_id(owner: Address, index: u32) -> u32` | Open view |
 | `get_token_id(index: u32) -> u32` | Open view |
 
-`token_uri` reads stored base URI, appends token id and `?isStatic=true&chain=STELLAR`; it requires an existing token. No generic metadata setter, ownership setter or Burnable burn_from is exported.
+`token_uri` reads the stored base URI and appends the token id and `?isStatic=true&chain=STELLAR`. It requires an existing token. No generic metadata setter, ownership setter or Burnable burn_from is exported.
 
-Nonzero approval expiries must be no earlier than the current ledger and cannot exceed its maximum live-until ledger; `0` revokes an approval.
+A nonzero approval expiry must be no earlier than the current ledger. It cannot exceed the maximum live-until ledger. `0` revokes an approval.
 
 ## Swap aggregator
 
-Constructor `(admin: Address)` sets the router owner. The sender authorizes `execute_strategy`. Its XDR payload carries a validated, packed instruction stream of swaps and Aquarius LP burns and mints. A Curve swap leg also mints LP when its output is the pool, and burns LP to one coin when its input is the pool. The router applies fees, checks its output balance against the route minimum, then transfers and returns the payout amount.
+Constructor `(admin: Address)` sets the router owner. The sender authorizes `execute_strategy`. Its XDR payload carries a validated, packed instruction stream of swaps and Aquarius LP burns and mints. A Curve swap leg also mints LP when its output is the pool, and burns LP to one coin when its input is the pool. The router applies fees and checks its output balance against the route minimum. It then transfers and returns the payout amount.
 
-Recipient receipt is not remeasured, so taxed payout tokens can deliver less than the return value. Controller strategies measure positive swap receipts but do not independently enforce the route minimum. Fees require an active nonzero referral. The whitelist selects which side pays the fee; it does not restrict permitted tokens.
+Recipient receipt is not remeasured, so taxed payout tokens can deliver less than the return value. Controller strategies measure positive swap receipts but do not independently enforce the route minimum. Fees require an active nonzero referral. The whitelist selects which side pays the fee. It does not restrict permitted tokens.
 
 Lending governance has no router-upgrade operation. The router owner controls upgrades and administration.
 
@@ -323,13 +330,13 @@ Constructor `(owner: Address)` sets owner and emits OwnershipTransferCompleted.
 | `set_tolerance(key: PriceKey, tolerance: OracleTolerance)` | Owner |
 | `upgrade(new_wasm_hash: BytesN<32>)` | Owner |
 
-`quotes` handles individual price-resolution failures as status; it is not a guarantee against host, storage, budget or cross-contract traps. `prices` fails on invalid status. `set_sanity_band` tightens only. Price aggregation has no ownership-transfer ABI.
+`quotes` returns individual price-resolution failures as status. Host, storage, budget and cross-contract traps still abort it. `prices` fails on invalid status. `set_sanity_band` tightens only. Price aggregation has no ownership-transfer ABI.
 
 ## XOXNO oracle
 
-Constructor `(admin: Address, signers: Vec<Address>, threshold: u32, resolution: u32) -> Result<(), Error>` initializes the owner and signing quorum. Each submission authenticates one registered signer. A quorum of fresh stored submissions within the allowed timestamp cluster produces the lower-median aggregate. A cluster with fewer than `2 * (signers - threshold) + 1` entries must also satisfy `max * 10000 <= min * (10000 + max_cluster_spread_bps)`; otherwise the round is a quorum miss. A successful submission need not produce an aggregate.
+Constructor `(admin: Address, signers: Vec<Address>, threshold: u32, resolution: u32) -> Result<(), Error>` initializes the owner and signing quorum. Each submission authenticates one registered signer. A quorum of fresh stored submissions within the allowed timestamp cluster produces the lower-median aggregate. A cluster with fewer than `2 * (signers - threshold) + 1` entries must also satisfy `max * 10000 <= min * (10000 + max_cluster_spread_bps)`. Otherwise the round is a quorum miss. A successful submission need not produce an aggregate.
 
-Prices use 8 decimals. Package and aggregate-write timestamps use milliseconds; freshness and resolution parameters and Reflector timestamps use seconds.
+Prices use 8 decimals. Package and aggregate-write timestamps use milliseconds. Freshness and resolution parameters and Reflector timestamps use seconds.
 
 | Endpoint | Authority / behavior |
 | --- | --- |
@@ -365,9 +372,9 @@ Prices use 8 decimals. Package and aggregate-write timestamps use milliseconds; 
 | `submit_prices(signer: Address, feed_ids: Vec<String>, prices: Vec<i128>, package_timestamp: u64) -> Result<(), Error>` | Registered signer signature |
 | `upgrade(new_wasm_hash: BytesN<32>)` | Owner |
 
-The [three ownership methods](#router-and-xoxno-oracle-ownership) are also exported here. The configured Ownable owner administers this oracle; lending governance has no XOXNO-oracle scheduling variants.
+The [three ownership methods](#router-and-xoxno-oracle-ownership) are also exported here. The configured Ownable owner administers this oracle. Lending governance has no XOXNO-oracle scheduling variants.
 
-Threshold, submission-age, relative-skew and cluster-spread setters do not recompute aggregates. The owner can call `recompute_feeds` in bounded batches. `remove_signer` deletes that signer's submissions and recomputes affected feeds. When quorum is absent, ordinary submissions retain the previous aggregate, while owner recomputation or signer removal clears it.
+Threshold, submission-age, relative-skew and cluster-spread setters do not recompute aggregates. The owner can call `recompute_feeds` in bounded batches. `remove_signer` deletes that signer's submissions and recomputes affected feeds. When quorum is absent, ordinary submissions keep the previous aggregate. Owner recomputation or signer removal clears it.
 
 Ordinary reads check aggregate freshness without reevaluating quorum. Package timestamps permit 60 seconds of future skew after flooring milliseconds to seconds. Equal timestamps from the same signer are accepted.
 
@@ -383,10 +390,76 @@ Constructor takes `asset: Address` and `init_args: Vec<Val> = [controller: Addre
 | `balance(from: Address) -> Result<i128, DeFindexStrategyError>` | Open; vault collateral balance, zero if no live account |
 | `withdraw(amount: i128, from: Address, to: Address) -> Result<i128, DeFindexStrategyError>` | from signature; positive amount <= balance, pay to, return remaining balance |
 
+## Curator
+
+Constructor `(governance: Address)` stores the governance contract that owns this registry. The curator address holds the governance `CURATOR`, `PROPOSER`, and `CANCELLER` roles. Registrar calls reach the controller through those governance roles. See the [curator README](../../contracts/curator/README.md) for cap grants and the governance control table.
+
+Registrar calls require `caller` to authorize. The caller must be the registrar admin or hold a role bit the call names. The admin holds every role bit. An unknown registrar fails with `UnknownRegistrar`. A suspended registrar fails with `RegistrarSuspended`.
+
+| Role bit | Value | Grants |
+| --- | --- | --- |
+| `ROLE_MARKET` | 1 | Markets, cap grants, listing and rate proposals, cancellation |
+| `ROLE_SPOKE` | 2 | Hub and spoke creation |
+| `ROLE_FLAGS` | 4 | Flag tightening, flag-relaxation proposals, cancellation |
+
+| Registrar endpoint | Authority | Effect |
+| --- | --- | --- |
+| `set_admin(caller: Address, registrar: u32, new_admin: Address)` | Registrar admin | Replace the admin; void every role and cap grant the registrar gave |
+| `set_roles(caller: Address, registrar: u32, account: Address, bits: u32)` | Registrar admin | Replace `account`'s role bits; zero removes the account. Bits outside the role mask fail with `RoleBits` |
+| `create_hub(caller: Address, registrar: u32) -> u32` | `ROLE_SPOKE` | Immediate; create a hub through governance and bind it to `registrar` |
+| `add_spoke(caller: Address, registrar: u32) -> u32` | `ROLE_SPOKE` | Immediate; create a spoke through governance and bind it to `registrar` |
+| `create_market(caller: Address, registrar: u32, hub_id: u32, params: MarketParamsRaw) -> Address` | `ROLE_MARKET`; owned hub | Immediate; register `params.asset_id` on the pool under `hub_id` |
+| `tighten_flags(caller: Address, registrar: u32, spoke_id: u32, hub_asset: HubAssetKey, paused: bool, frozen: bool, no_seize: bool)` | `ROLE_FLAGS` | Immediate, tightening only. See the flag rules below |
+| `set_cap_grant(caller: Address, registrar: u32, grantee: u32, hub_id: u32, spoke_id: u32, asset: Address, grant: CapGrant)` | `ROLE_MARKET`; owned hub | Store the grant. The grantee must be active and own `spoke_id`. Negative caps fail with `GrantExceeded` |
+| `revoke_cap_grant(caller: Address, registrar: u32, grantee: u32, hub_id: u32, spoke_id: u32, asset: Address)` | `ROLE_MARKET`; owned hub | Immediate; delete the grant |
+| `propose(caller: Address, registrar: u32, op: AdminOperation, salt: BytesN<32>) -> BytesN<32>` | `ROLE_MARKET`, or `ROLE_FLAGS` for `RelaxSpokeAssetFlags` | Queue the operation on the governance timelock; return its operation id. See the proposal rules below |
+| `cancel_proposal(caller: Address, registrar: u32, op_id: BytesN<32>)` | `ROLE_MARKET` or `ROLE_FLAGS`; owned hub or spoke | Immediate; cancel a queued operation this contract proposed |
+
+| Governance endpoint | Authority | Effect |
+| --- | --- | --- |
+| `register_registrar(admin: Address) -> u32` | Governance; owner-proposed sensitive `RegisterCuratorRegistrar` | Open a registrar and return its id |
+| `force_set_admin(registrar: u32, admin: Address)` | Governance; owner-proposed sensitive `SetCuratorRegistrarAdmin` | Replace the admin; void every role and cap grant the registrar gave |
+| `set_registrar_suspended(registrar: u32, suspended: bool)` | Governance; sensitive `SuspendCuratorRegistrar`, or immediate `suspend_curator_registrar` for suspension | Suspend or resume a registrar |
+| `reassign_hub(hub_id: u32, registrar: Option<u32>)` | Governance; owner-proposed sensitive `ReassignCuratorHub` | Bind the hub to an active registrar, or unbind it with `None` |
+| `reassign_spoke(spoke_id: u32, registrar: Option<u32>)` | Governance; owner-proposed sensitive `ReassignCuratorSpoke` | Bind the spoke to an active registrar, or unbind it with `None` |
+| `upgrade(wasm_hash: BytesN<32>)` | Governance; owner-proposed sensitive `UpgradeCurator` | Replace the Wasm; a zero hash fails with `InvalidWasmHash` |
+
+| Open view | Result |
+| --- | --- |
+| `governance() -> Address` | Owning governance contract |
+| `registrar_admin(registrar: u32) -> Option<Address>` | Admin, suspended or not |
+| `registrar_suspended(registrar: u32) -> bool` | Suspension state |
+| `roles(registrar: u32, account: Address) -> u32` | Stored role bits; the admin holds every bit even when this is zero |
+| `hub_registrar(hub_id: u32) -> Option<u32>` | Owning registrar |
+| `spoke_registrar(spoke_id: u32) -> Option<u32>` | Owning registrar |
+| `cap_grant(grantee: u32, hub_id: u32, spoke_id: u32, asset: Address) -> Option<CapGrant>` | Live grant; `None` after the grantor's admin changes |
+
+### Curator flag rules
+
+- The spoke owner sets any flag on a listing in its spoke.
+- The spoke owner cannot add `paused` to a listing of a hub asset that another registrar owns. The call fails with `ForeignPause`.
+- The hub owner sets only `frozen` on a listing of its asset in another registrar's spoke. The listing keeps its stored `paused` and `no_seize`.
+- The controller rejects clearing a set flag and a call that sets no new flag.
+
+### Curator proposal rules
+
+`propose` accepts only `AddAssetToSpoke`, `EditAssetInSpoke`, `UpgradeLiquidityPoolParams`, and `RelaxSpokeAssetFlags`. Other variants fail with `Unsupported`.
+
+| Operation | Condition |
+| --- | --- |
+| `AddAssetToSpoke`, `EditAssetInSpoke` in an owned spoke | An owned hub passes. A foreign hub asset needs a live grant, and the listing must fit it (`GrantExceeded`). A foreign hub listing cannot gain `paused` (`ForeignPause`) |
+| `EditAssetInSpoke` in a spoke the registrar does not own | The registrar owns the hub. The edit lowers the supply cap or the borrow cap only. Every other field equals the live listing (`NotCapLowering`) |
+| `UpgradeLiquidityPoolParams` | The registrar owns the hub |
+| `RelaxSpokeAssetFlags` | The registrar owns the spoke. A foreign hub asset needs a live grant. A foreign hub listing cannot gain `paused` (`ForeignPause`) |
+
+A live grant has a grantor that still owns the hub, is not suspended, and has the admin that gave the grant. The curator stores the hub and spoke each operation names. `cancel_proposal` reads them: the caller's registrar must own one of them (`ProposalForeign`). An operation the curator did not queue fails with `ProposalUnknown`.
+
+Grants, ownership, and suspension are checked when proposing. Execution does not check them again. Cancel a queued operation to apply a later revocation, reassignment, or admin change.
+
 ## Source map
 
 - [Controller ABI](../../interfaces/controller/src/lib.rs), [administration](../../interfaces/controller/src/admin.rs), [implementation](../../contracts/controller/src/lib.rs), [account auth](../../contracts/controller/src/account.rs), [risk gates](../../contracts/controller/src/risk/validation.rs).
 - [Pool ABI](../../interfaces/pool/src/lib.rs), [implementation](../../contracts/pool/src/lib.rs); [governance ABI](../../interfaces/governance/src/lib.rs), [implementation](../../contracts/governance/src/api.rs), [immediate authority](../../contracts/governance/src/timelock/immediate.rs).
 - [NFT implementation](../../contracts/position-nft/src/contract.rs); [router ABI](../../interfaces/swap-aggregator/src/lib.rs), [implementation](../../contracts/swap-aggregator/src/lib.rs); [price ABI](../../interfaces/price-aggregator/src/lib.rs).
-- [XOXNO oracle](../../contracts/xoxno-oracle/src/lib.rs), [admin](../../contracts/xoxno-oracle/src/admin.rs), [reads](../../contracts/xoxno-oracle/src/reads.rs), [submit](../../contracts/xoxno-oracle/src/submit.rs); [adapter](../../contracts/defindex-strategy/src/lib.rs).
+- [XOXNO oracle](../../contracts/xoxno-oracle/src/lib.rs), [admin](../../contracts/xoxno-oracle/src/admin.rs), [reads](../../contracts/xoxno-oracle/src/reads.rs), [submit](../../contracts/xoxno-oracle/src/submit.rs); [adapter](../../contracts/defindex-strategy/src/lib.rs); [curator entrypoints](../../contracts/curator/src/api.rs), [registrar rules](../../contracts/curator/src/ops.rs).
 - Generated NFT/default ownership semantics use OpenZeppelin stellar-contracts release 0.8.0, pinned in [Cargo.toml](../../Cargo.toml).

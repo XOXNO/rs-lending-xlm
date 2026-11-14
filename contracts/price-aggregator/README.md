@@ -58,76 +58,117 @@ pool_value_wad = floor(price_wad * total_supply() / 1e18)
 
 Curve supplies the invariant/share calculation, including amplification ramps
 and active reserve accounting. The aggregator resolves every constituent's
-`PriceKey::Token` oracle, uses the oldest timestamp, and enforces the existing
-freshness, depth, cycle and LP sanity-band rules. The pool value must meet
-`min_pool_value_wad`. This is conservative gross value, not a guarantee of
-one-coin redemption proceeds; collateral risk parameters must allow for fees
-and liquidation liquidity.
+`PriceKey::Token` oracle and uses the oldest timestamp. It enforces the
+existing freshness, depth, cycle and LP sanity-band rules. The pool value must
+meet `min_pool_value_wad`.
 
-To list: upgrade governance and the price aggregator for the new ABI, configure
-all coin oracles first, then configure the LP token with `asset_decimals: 18`
-and exactly one `CurveStableLp` source. Its fields are `pool`, `coins` (exact
-pool order), `wasm_hash` (64 hexadecimal characters in CLI JSON), and
-`min_pool_value_wad`. The pool address is also the LP token address. Create the
-18-decimal lending market and enable collateral in the desired spoke normally.
-LP sources (Aquarius or Curve) are collateral-only: keep LP markets at
-`can_be_borrowed: false`; Curve's lowest-coin price understates an LP debt.
-`validateConfigs` rejects a spoke listing that makes an LP market borrowable,
-and `addAssetToSpoke` / `editAssetInSpoke` refuse one before proposing.
-Prices are keyed by asset address, so the check covers every market (any hub
-or name) sharing the LP's address, and a market whose `Scaled` quote (a Token
-or a reference) is LP-priced.
-Set the LP's `min_sanity_price_wad` at or below the smallest coin
-`min_sanity_price_wad` times the lowest expected virtual price / WAD, so the
-LP band never trips before the coin bands.
+This is conservative gross value, not a guarantee of one-coin redemption
+proceeds. Collateral risk parameters must allow for fees and liquidation
+liquidity.
 
-Governance must review the pinned executable and underlying tokens for plain
-pool semantics. Each read rechecks its hash, ordered coins, live decimals and
-fixed rates `10^(36 - coin_decimals)`. Rate-bearing/rebasing pools and metapools
-are outside this admission policy; metadata alone cannot establish their safety.
-An executable change makes the source unpriceable until reviewed and reconfigured.
+### Admission policy
 
-Record each reviewed executable in `configs/<network>/curve_reviewed_pools.json`
-as `{"pools": [{wasm_hash, source_repo, source_commit, review, expected_factory}]}`
-(lowercase 64-hex hash, every field non-empty; write `unknown` rather than guess).
-On mainnet, `unknown` is refused: `source_commit` must be a 40-hex git commit,
-`source_repo` must name the reviewed source (a value that is `?` or contains
-`TODO`, `TBD` or `n/a`, in any case, is refused), and `expected_factory` must
-be the factory's contract address (`^C[A-Z2-7]{55}$`). `validateConfigs` and the direct `configureMarketOracle` proposal both
-reject a `CurveStableLp` source whose `wasm_hash` is not listed for that
-network. The mainnet list is empty: no Curve pool executable
-has been reviewed for mainnet. The testnet list holds the two fixture
-executables, whose upstream source is unknown (see the
-[fixture README](../swap-aggregator/tests/fixtures/curve/README.md)).
+- Only plain pools qualify. Rate-bearing/rebasing pools and metapools are
+  outside this policy; metadata alone cannot establish their safety.
+- Each read rechecks the executable hash, ordered coins, live decimals and
+  fixed rates `10^(36 - coin_decimals)`. An executable change makes the source
+  unpriceable until it is reviewed and reconfigured.
+- LP sources (Aquarius or Curve) are collateral-only. Curve's lowest-coin price
+  understates an LP debt.
+- `MAX_CURVE_COINS` is 3. Larger pools need their own code and
+  transaction-resource validation.
+- The mainnet reviewed list is empty: no Curve pool executable has been
+  reviewed for mainnet. The testnet list holds the two fixture executables,
+  whose upstream source is unknown (see the
+  [fixture README](../swap-aggregator/tests/fixtures/curve/README.md)).
 
-LP value depends on the amplification coefficient A whenever the pool is
-imbalanced, and the pool factory's admin can ramp A. The source pins the
-executable, not the factory, so governance must treat the factory admin as
-trusted, as it does an Aquarius stable pool's admin. On an imbalanced pool a
-ramp can move the mark either way, but never above the normalized reserves per
-share times the lowest coin price. Each coin's issuer is trusted as
-for a directly listed token (clawback, freeze, upgrade, decimals change).
+Trust assumptions:
 
-`MAX_CURVE_COINS` is 3. Real-WASM fixtures cover 2 and 3 coins, and the harness
-liquidates `POSITION_LIMIT_MAX` 3-coin LP legs within the default Soroban budget
-(about 55M CPU; see the [threat model](../../docs/explanation/threat-model.md#numeric-and-resource-limits)).
-That figure is a lower bound: native controller and feed, SAC coins,
-single-source coin oracles and one debt leg. With every contract on the path as
-WASM, custom-WASM coins, two-source coin oracles and 5 debt legs, the worst case
-measured 107.7M CPU and 15.1M memory (`curve_lp_liquidation_worst_case_all_wasm`).
-That bench uses `mock_redstone.wasm` for both feed providers (the RedStone
-primary and the Chainlink anchor) and the minimal `production_fixture.wasm`
-token for every coin and debt asset. It asserts all eight fixture resource
-ceilings recorded in `MAINNET_LIMITS`.
-Re-measure with the production RedStone adapter, Chainlink proxy and listed
-token executables before treating the figure as a production bound. Live
-mainnet limits read on 2026-11-02 (`stellar network settings`):
-`tx_max_instructions` 400,000,000, `tx_memory_limit` 41,943,040,
-`tx_max_footprint_entries` 400, `tx_max_disk_read_entries` 200,
-`tx_max_write_ledger_entries` 200.
-Larger pools require their own code and transaction-resource validation.
-The generic production-fixture runner rejects Curve sources; Curve tests use
-the real pool WASMs.
+- LP value depends on the amplification coefficient A whenever the pool is
+  imbalanced, and the pool factory's admin can ramp A.
+- The source pins the executable, not the factory. Governance must treat the
+  factory admin as trusted, as it does an Aquarius stable pool's admin.
+- On an imbalanced pool a ramp can move the mark either way. It never moves it
+  above the normalized reserves per share times the lowest coin price.
+- Each coin's issuer is trusted as for a directly listed token (clawback,
+  freeze, upgrade, decimals change).
+
+### Listing a Curve pool
+
+1. Review the pinned executable and underlying tokens for plain pool semantics.
+2. Record the reviewed executable in `configs/<network>/curve_reviewed_pools.json`.
+   See [Reviewed-pool record](#reviewed-pool-record).
+3. Configure every coin oracle.
+4. Set the LP's `min_sanity_price_wad` at or below the smallest coin
+   `min_sanity_price_wad` times the lowest expected virtual price / WAD. The LP
+   band then never trips before the coin bands.
+5. Configure the LP token with `asset_decimals: 18` and exactly one
+   `CurveStableLp` source.
+6. Set the source fields: `pool`, `coins` (exact pool order), `wasm_hash` (64
+   hexadecimal characters in CLI JSON) and `min_pool_value_wad`. The pool
+   address is also the LP token address.
+7. Create the 18-decimal lending market with `can_be_borrowed: false`.
+8. Enable collateral in the desired spoke.
+9. If the pool sits near the [resource limits](#curve-resource-bench), measure
+   the production RedStone adapter, Chainlink proxy and listed token
+   executables first.
+
+The operator scripts enforce two of these rules before proposing:
+
+- `validateConfigs` and the direct `configureMarketOracle` proposal reject a
+  `CurveStableLp` source whose `wasm_hash` is not listed for that network.
+- `validateConfigs` rejects a spoke listing that makes an LP market borrowable.
+  `addAssetToSpoke` / `editAssetInSpoke` refuse one before proposing.
+
+Prices are keyed by asset address. The borrowable check therefore covers every
+market (any hub or name) sharing the LP's address. It also covers a market
+whose `Scaled` quote (a Token or a reference) is LP-priced.
+
+#### Reviewed-pool record
+
+The file holds
+`{"pools": [{wasm_hash, source_repo, source_commit, review, expected_factory}]}`.
+
+- `wasm_hash` is a lowercase 64-hex hash.
+- Every field is non-empty. Write `unknown` rather than guess.
+- On mainnet, `unknown` is refused.
+- On mainnet, `source_commit` must be a 40-hex git commit.
+- On mainnet, `source_repo` must name the reviewed source. A value that is `?`
+  or contains `TODO`, `TBD` or `n/a`, in any case, is refused.
+- On mainnet, `expected_factory` must be the factory's contract address
+  (`^C[A-Z2-7]{55}$`).
+
+### Curve resource bench
+
+Curve tests use the real pool WASMs; the generic production-fixture runner
+rejects Curve sources. Real-WASM fixtures cover 2 and 3 coins.
+
+- **Native case.** The harness liquidates `POSITION_LIMIT_MAX` 3-coin LP legs
+  within the default Soroban budget, about 55M CPU (see the
+  [threat model](../../docs/explanation/threat-model.md#numeric-and-resource-limits)).
+  The controller and feed run natively, with SAC coins, single-source coin
+  oracles and one debt leg.
+- **Worst case.** `curve_lp_liquidation_worst_case_all_wasm` runs every
+  contract on the path as WASM, with custom-WASM coins, two-source coin oracles
+  and 5 debt legs. It uses `mock_redstone.wasm` for both feed providers and
+  `production_fixture.wasm` for every coin and debt asset.
+
+The bench asserts all eight resource ceilings in `MAINNET_LIMITS`, which mirror
+the mainnet transaction limits:
+
+| Limit | Mainnet ceiling | Worst case measured |
+| --- | --- | --- |
+| `tx_max_instructions` | 400,000,000 | 107.7M |
+| `tx_memory_limit` | 41,943,040 | 15.1M |
+| `tx_max_footprint_entries` | 400 | — |
+| `tx_max_disk_read_entries` | 200 | — |
+| `tx_max_write_ledger_entries` | 200 | — |
+| `tx_max_disk_read_bytes` | 200,000 | — |
+| `tx_max_write_bytes` | 132,096 | — |
+| `tx_max_contract_events_size_bytes` | 16,384 | — |
+
+The production RedStone adapter, Chainlink proxy and listed token executables
+can cost more than the fixtures.
 
 ## Entrypoints
 
@@ -152,6 +193,24 @@ the timelocked `ConfigureAssetOracle` operation, which calls `set_oracle`.
 or attestation. They exist only under `cfg(test)` or the `testing` feature,
 never in a release build.
 
+## Storage and TTL
+
+| Key | Tier | Holds |
+| --- | --- | --- |
+| `AggregatorKey::Oracle(PriceKey)` | persistent | One `AssetOracle` configuration |
+| `AggregatorKey::OracleKeys` | instance | Index of every registered `PriceKey` |
+| OpenZeppelin `Ownable` owner | instance | Governance |
+
+Every entrypoint, views included, renews the instance TTL with
+`renew_instance`. Every read and write of an `Oracle` entry extends it with
+`TTL_THRESHOLD_SHARED` and `TTL_BUMP_SHARED`.
+
+## Events
+
+`set_oracle`, `set_sanity_band` and `set_tolerance` publish
+`UpdateAssetOracleEvent` (`["config", "asset_oracle"]`) with the committed
+configuration. See [events](../../docs/reference/events.md#price-aggregator-events).
+
 ## Layout
 
 ```text
@@ -170,5 +229,5 @@ providers/      # aquarius + curve (LP) + chainlink + multi_feed (bulk) + reflec
 ## References
 
 - Errors: [`docs/reference/errors.md`](../../docs/reference/errors.md)
-- Events: [`docs/reference/events.md`](../../docs/reference/events.md)
+- Events: [`docs/reference/events.md`](../../docs/reference/events.md#price-aggregator-events)
 - Formal proofs: [`certora/README.md`](../../certora/README.md) (price system)

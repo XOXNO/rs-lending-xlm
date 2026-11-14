@@ -16,7 +16,7 @@ and conventions: [../README.md](../README.md), [../WRITING-PROOFS.md](../WRITING
   `i128` and the upscale overflow branch.
 * `Ray` wrappers: `mul_floor`, `mul_ceil`, `div_floor`, `div_ceil`,
   `div_floor_saturating`, `to_asset_floor`, `to_asset_ceil`.
-* The other directed-rounding typed wrappers added by #224
+* The other directed-rounding typed wrappers
   (`Ray::mul_wad_ratio_floor`, `Wad::div_ceil`, `Wad::mul_floor_saturating`,
   `Wad::mul_ratio_floor`, `Wad::apply_ratio_to_amount_floor`,
   `Bps::from_fraction_floor`, `Bps::from_fraction_ceil`, `Bps::apply_to_ceil`,
@@ -32,7 +32,7 @@ and conventions: [../README.md](../README.md), [../WRITING-PROOFS.md](../WRITING
 
 All statements are total correctness (`f ⦃ r => P r ⦄`: the call returns, does
 not abort, and `P` holds). Specifications never divide: `IsFloor n d q` is
-`q*d ≤ n < q*d + d` and the new `IsCeil n d q` is `n ≤ q*d < n + d` (for
+`q*d ≤ n < q*d + d` and `IsCeil n d q` is `n ≤ q*d < n + d` (for
 `d > 0`, mirrored for `d < 0`), in `lean/FixedPoint/FloorCeilSpec.lean`.
 
 Notation in the table: `RAY = 10^27`, `k = 27 - decimals`,
@@ -41,7 +41,7 @@ Notation in the table: `RAY = 10^27`, `k = 27 - decimals`,
 
 ## Trusted base
 
-No additions (#224 added no external declaration to this library). These proofs use only the generated code, the existing
+No additions. These proofs use only the generated code, the
 `FunsExternal.lean` / `TypesExternal.lean` meanings (host `I256`,
 `checked_pow`, `abs_diff`, `Option` combinators) and the Aeneas standard
 library. No `sorry`, `admit` or `axiom`. Every theorem below was checked with
@@ -86,7 +86,7 @@ Files are under `lean/RatesAeneas/Proofs/`.
 | `ray_mul_ceil_spec` | `math::fp::Ray::mul_ceil` | `⌈a*b/RAY⌉` | result fits | ADR-0003 |
 | `ray_div_floor_spec` | `math::fp::Ray::div_floor` | `⌊a*RAY/b⌋` | `b ≠ 0`, result fits | ADR-0003 |
 | `ray_div_ceil_spec` | `math::fp::Ray::div_ceil` | `⌈a*RAY/b⌉` | `b ≠ 0`, result fits | ADR-0003 |
-| `ray_div_floor_saturating_spec` (new, #224) | `math::fp::Ray::div_floor_saturating` | Never aborts; `clamp(⌊a*RAY/b⌋)` (exact floor when it fits) | `b ≠ 0` | INV-HALT-03 |
+| `ray_div_floor_saturating_spec` | `math::fp::Ray::div_floor_saturating` | Never aborts; `clamp(⌊a*RAY/b⌋)` (exact floor when it fits) | `b ≠ 0` | INV-HALT-03 |
 | `ray_to_asset_floor_spec` | `math::fp::Ray::to_asset_floor` | Never aborts; floor of `a/10^k` for `a ≥ 0`, ceiling for `a < 0` | `decimals ≤ 27` | INV-RISK-02 |
 | `ray_to_asset_ceil_spec` | `math::fp::Ray::to_asset_ceil` | Never aborts; `⌈a/10^k⌉` | `decimals ≤ 27` | INV-RISK-02 |
 | `IsFloor.nest`, `IsCeil.nest` | — | `⌊⌊n/a⌋/b⌋ = ⌊n/(a*b)⌋`, same for ceilings (`a, b > 0`) | — | — |
@@ -95,9 +95,9 @@ Files are under `lean/RatesAeneas/Proofs/`.
 | **`calculate_scaled_borrow_floor_spec`** | `rates::scaling::calculate_scaled_borrow_floor` | `⌊A*RAY/index⌋` (partial repay burns round down) | same | ADR-0003 |
 | **`unscale_supply_floor_spec`** | `rates::scaling::unscale_supply_floor` | A single floor: `⌊scaled*index/P⌋` (the two floors compose) | `decimals ≤ 27`, `scaled*index ≥ 0`, `⌊scaled*index/RAY⌋` fits | ADR-0003, INV-ACCT-06 |
 | **`unscale_borrow_ceil_spec`** | `rates::scaling::unscale_borrow_ceil` | A single ceiling: `⌈scaled*index/P⌉` | `decimals ≤ 27`, `⌈scaled*index/RAY⌉` fits | ADR-0003, INV-RISK-02 |
-| **`calculate_scaled_cap_spec`** | `rates::scaling::calculate_scaled_cap` | Never aborts past `from_asset`; returns `clamp(⌊C*RAY/index⌋)`, `C = cap*10^k` (fails open by saturating). Statement unchanged by #224; proof now goes through `ray_div_floor_saturating_spec` | `decimals < 27`, `index ≠ 0`, `C` fits | INV-HALT-03 |
+| **`calculate_scaled_cap_spec`** | `rates::scaling::calculate_scaled_cap` | Never aborts past `from_asset`; returns `clamp(⌊C*RAY/index⌋)`, `C = cap*10^k` (fails open by saturating). Proved through `ray_div_floor_saturating_spec` | `decimals < 27`, `index ≠ 0`, `C` fits | INV-HALT-03 |
 
-### Typed wrappers added by #224 (`TypedWrappers.lean`)
+### Typed wrappers (`TypedWrappers.lean`)
 
 Each is one call into a core proved above (or in `MulDiv.lean`), with the
 wrapper's constant substituted (`WAD = 10^18`, `BPS = 10_000`).
@@ -120,7 +120,7 @@ wrapper's constant substituted (`WAD = 10^18`, `BPS = 10_000`).
 | `wad_try_from_token_upscale_spec` | `math::fp::Wad::try_from_token_upscale` | Never aborts; `None` for `amount < 0` or `decimals > 18`; otherwise `Some(amount*10^(18-decimals))` when it fits, `None` exactly when it does not | none | — |
 | `wad_val`, `wad_decimals_val` | constants | `WAD = 10^18`, `WAD_DECIMALS = 18` | — | — |
 
-The half-up wrappers of #224 (`Ray::try_div`, `Bps::div`,
+The half-up typed wrappers (`Ray::try_div`, `Bps::div`,
 `Bps::try_from_fraction`, `Bps::from_weighted_sum`,
 `Wad::try_value_of_token`) are in
 [rates-half-up-curve-index.md](rates-half-up-curve-index.md).
@@ -140,7 +140,7 @@ The half-up wrappers of #224 (`Ray::try_div`, `Bps::div`,
 | **`resolve_net_settle_spec`** | `rates::scaling::resolve_net_settle` | Returns. With `F = ⌊ss*si/P⌋`, `D = ⌈ds*bi/P⌉`: `0 ≤ burned_supply ≤ ss`, `0 ≤ burned_debt ≤ ds`, `settled ≥ 0`; a positive settlement is `≤ amount`, `≤ F`, `≤ D`; zero settlement burns nothing; `settled = F` burns all supply, `settled = D` burns all debt; partial burns are directed: `settled*10^k*RAY ≤ burned_supply*si` (ceiling) and `burned_debt*bi ≤ settled*10^k*RAY` (floor). The `min(_, position)` caps are never binding | `decimals < 27`, `0 < si`, `0 < bi`, `0 ≤ ss`, `0 ≤ ds`, `⌊ss*si/RAY⌋` and `⌈ds*bi/RAY⌉` fit (all other fits derived) | ADR-0003, INV-ACCT-05 |
 | `ray_min_spec` | derived `Ord::min` on `Ray` | Minimum of the raw values | none | — |
 | `i128_saturating_sub_val` | `i128::saturating_sub` (Aeneas library) | Exact difference when it fits | — | — |
-| **`protocol_fee_shares_spec`** | `rates::index::protocol_fee_shares` | Never aborts; result `r = min(⌊fee*RAY/index⌋, i128::MAX - supplied)`, so `r ≥ 0` and `supplied + r ≤ i128::MAX` (cannot overflow). Statement unchanged by #224; proof now goes through `ray_div_floor_saturating_spec` | `0 ≤ fee`, `0 < index`, `0 ≤ supplied` | INV-IDX-05, INV-ACCT-01 |
+| **`protocol_fee_shares_spec`** | `rates::index::protocol_fee_shares` | Never aborts; result `r = min(⌊fee*RAY/index⌋, i128::MAX - supplied)`, so `r ≥ 0` and `supplied + r ≤ i128::MAX` (cannot overflow). Proved through `ray_div_floor_saturating_spec` | `0 ≤ fee`, `0 < index`, `0 ≤ supplied` | INV-IDX-05, INV-ACCT-01 |
 
 ### Withdrawal resolver (`Withdrawal.lean`)
 
@@ -179,9 +179,9 @@ full-withdrawal outcome, not a loss.
   (INV-ACCT-05); the protocol fee is the reserve-factor share of non-negative
   accrued interest.
 * "Fits `i128`" hypotheses: when they fail, production aborts with
-  `MathOverflow` (the theorems are total-correctness, so they say nothing in
-  that case except where an abort theorem is given, e.g.
-  `rescale_up_overflow`).
+  `MathOverflow`. The theorems are total correctness, so they say nothing in
+  that case. The exception is an explicit abort theorem, such as
+  `rescale_up_overflow`.
 
 ## Rebuild
 
@@ -203,33 +203,13 @@ reason as `MulDiv.lean`. All of them are imported by `RatesAeneas.lean`, so
 
 ## Not covered
 
-* Pre-#224 `Wad` wrappers (`Wad::mul_floor`, `mul_ceil`, `div_floor`,
-  `div_floor_saturating`, `to_token_floor`) and `Ray::to_wad_floor`/
-  `to_wad_ceil`, `Ray::mul_ratio_ceil`: they are one-line calls into the
-  proved cores (`mul_div_*`, `rescale_*`) and follow the same pattern as the
-  `Ray` wrappers, but were not requested and are not stated here. (The
-  wrappers *added* by #224 are covered, see above.)
+* The `Wad` wrappers `Wad::mul_floor`, `mul_ceil`, `div_floor`,
+  `div_floor_saturating` and `to_token_floor`, and `Ray::to_wad_floor`,
+  `to_wad_ceil` and `Ray::mul_ratio_ceil`. Each is a one-line call into a
+  proved core (`mul_div_*`, `rescale_*`), in the same pattern as the `Ray`
+  wrappers. No theorem states them.
 * Error codes (`DivisionByZero` vs `MathOverflow`) are not modelled
   (see README "Trusted base", item 3).
-
-## Changes after #224 (typed fixed-point boundary)
-
-Commit 8f476115 made `fp_core` private and routed callers through typed
-wrappers in `common/src/math/fp.rs`. `fp_core.rs` itself is unchanged, so
-every core theorem (`mul_div_ceil_spec`, `mul_div_floor_saturating_spec`,
-`rescale_*`) carried over untouched. What changed in the proofs:
-
-* `calculate_scaled_cap` and `protocol_fee_shares` now call
-  `Ray::div_floor_saturating` instead of
-  `fp_core::mul_div_floor_saturating(_, RAY, _)` on raw values. New
-  `ray_div_floor_saturating_spec` (`FloorCeilScaling.lean`) and the two
-  proofs use it. **Statements unchanged**: the wrapper computes exactly what
-  the inlined call computed, so the production semantics did not change.
-* New specs for every directed-rounding / checked wrapper #224 added that is
-  in this extraction (table above, `TypedWrappers.lean`).
-* All proof files are now imported from `RatesAeneas.lean`.
-
-No previously proved property was lost and no theorem statement changed.
 
 ## Observations on the production code
 

@@ -99,10 +99,9 @@ Rules to follow:
   source of truth. Change it first, then copy the address here.
 - **A market must be listed here or it is never read.** When an asset is listed
   in `configs/<network>/markets.json`, add it here in the same commit.
-- **Spoke ids are the on-chain ids, not the config ids.** The ids in
-  `configs/<network>/spokes.json` differ on mainnet, because one deferred spoke
-  shifted every later id down by one. `configs/networks.json` holds the map
-  between them.
+- **Spoke ids are the on-chain ids, not the config ids.** On mainnet the ids
+  in `configs/<network>/spokes.json` differ from the on-chain ids.
+  `spoke_ids` in `configs/networks.json` maps one to the other.
 - **Give every hub and spoke a name.** A missing name shows on the dashboard as
   a bare `Spoke 7`. A test fails if a name is missing.
 - `symbol`, `hubs` and `spoke_names` are display labels only.
@@ -111,8 +110,8 @@ Rules to follow:
 - `contracts.xoxno_oracle_adapter` is validated at startup, but no scrape reads
   it.
 
-Mainnet reads 25 of the 31 markets in `configs/mainnet/markets.json`. The six it
-skips are the `SPIKO*` markets, which are disabled and not deployed.
+Do not list a market that has `enabled: false` in
+`configs/<network>/markets.json`. It is not deployed, so every read of it fails.
 
 ### Environment variables
 
@@ -152,24 +151,32 @@ by accident. Add both scrape jobs from `ops/prometheus.example.yml` to
 Prometheus. Every series except `lending_exporter_simulations_total` carries a
 `network` label.
 
-Deploy a Chainlink-aware exporter before configuring a Chainlink source, then
-upgrade governance and the price aggregator with `make <network> upgradeAll`.
-After a Chainlink config is stored, revert that config before downgrading any of
-these three components to a pre-Chainlink release.
+Order for a Chainlink oracle source:
+
+1. Deploy an exporter release that decodes Chainlink sources.
+2. Upgrade governance and the price aggregator with `make <network> upgradeAll`.
+3. Configure the Chainlink source.
+
+Before you downgrade any of these three components to a release without
+Chainlink support, remove the stored Chainlink config.
 
 ### Dashboard
 
 Import `ops/grafana-dashboard.json` into Grafana. Its sections are Health
 status, Protocol, Markets, Oracles, Spokes, Exporter health, and Alerting.
 
-The dashboard uses no template variables, because public dashboards reject
-them. Every query outside the Alerting section is therefore pinned to
-`network="mainnet"`; five Alerting panels show every network. Every query panel
-is pinned to the production datasource UID `cfgw0aa7mups0d`, because public
-dashboards also reject panels without a fixed datasource.
+Public dashboards reject template variables and panels without a fixed
+datasource. The dashboard therefore has these fixed values:
 
-To reuse it elsewhere, replace that UID. For a testnet copy, also replace
-`network="mainnet"` with `network="testnet"` and change the `uid` and `title`.
+- Every query outside the Alerting section filters on `network="mainnet"`.
+  The Alerting panels show every network.
+- Every query panel names one Prometheus datasource UID.
+
+To import it into your Grafana:
+
+1. Replace the committed datasource UID with `<your-prometheus-datasource-uid>`.
+2. For a testnet copy, replace `network="mainnet"` with `network="testnet"`.
+3. For a testnet copy, change the dashboard `uid` and `title`.
 
 No panel names an asset, so a newly listed market appears on its own once the
 exporter reads it.

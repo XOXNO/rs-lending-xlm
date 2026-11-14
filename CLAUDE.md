@@ -20,7 +20,7 @@ the other documents do not say.
 | `tests/fuzz/` | Separate workspace. Excluded from the root workspace |
 | `certora/` | Sunbeam specs. Each spec tree is mounted **into** its crate (controller, pool, price-aggregator, common) — see Traps |
 | `skills/` | Published integration skill set for downstream consumers; router at `skills/xoxno-lending/SKILL.md`. Not dev tooling |
-| `docs/` | Reference, decision records (ADR-0001..0021), threat model, runbooks |
+| `docs/` | Reference, decision records (ADR-0001..0023), threat model, runbooks |
 | `vendor/` | Patched `cvlr-soroban` and `cvlr-log`. See the comment in `Cargo.toml` |
 | `services/` | Keeper and lending exporter. Separate Cargo workspaces; `make test` does not cover them |
 
@@ -50,9 +50,6 @@ Heavier evidence, only for the surface that needs it: `make miri-common`,
 target fails on an empty `PATTERN`. A target without such a guard ignores a
 variable it does not read, so a misnamed filter runs the entire suite.
 
-**This repo is driven from zsh.** Write `--include='*.rs'` with quotes.
-Unquoted, zsh fails the command with `no matches found`.
-
 **Controller internal module paths are load-bearing.** `contracts/controller/src/lib.rs`
 mounts the Certora spec with `#[path = "../../../certora/controller/spec/mod.rs"]`,
 and the spec calls internals by exact path (`crate::positions::process_borrow`,
@@ -65,14 +62,6 @@ the out-of-crate consumers before you move or narrow anything.
 `crate::external::position_nft::nft_mint_call(env, ...)`, not
 `common::ttl::renew_instance(e)`. Import at the top of the file, then call bare
 or module-qualified. Inline paths hide a file's dependency surface.
-
-**The codebase-memory graph stops at every contract boundary.** Its `CALLS`
-edges do not cross Soroban contracts, and the 3 `Route` nodes are git
-dependency URLs, not endpoints. `trace_path(mode='cross_service')` and
-`cross-repo-intelligence` return empty here — that means "wrong tool", not "no
-cross-contract calls". Cypher also rejects `NOT f.is_test`; write
-`f.is_test = false`. Use the `endpoint-tracer` agent instead; it encodes the
-boundary dictionary and the verified query set.
 
 **Certora `cvlr-soroban` is vendored on purpose.** Upstream still pins
 `soroban-sdk` 26.1.0, which puts two majors in the graph and breaks the
@@ -141,24 +130,13 @@ gate starts to read a new file, add that file to the filter.
 | Numeric domains and limits | [docs/reference/formulas.md#numeric-limits](docs/reference/formulas.md#numeric-limits) |
 | Errors and events | [docs/reference/errors.md](docs/reference/errors.md), [docs/reference/events.md](docs/reference/events.md) |
 | Formal verification | [certora/README.md](certora/README.md) |
-
-## Agents and skills in this repo
-
-| Name | Use it for |
-|---|---|
-| `endpoint-tracer` | Ground-truth cross-contract trace of an endpoint. Call it **before** any bug hunt |
-| `soroban-invariant-auditor` | Judge a traced path against protocol invariants |
-| `certora-spec-writer` | Write or repair a CVL rule |
-| `test-reviewer` | Review test quality after writing tests |
-| `/verify` | Run the check ladder against the current diff |
-| `/deploy-preflight` | Read-only pre-deploy audit. Never run a deploy without it |
+| Any document, README or skill | [CONTRIBUTING.md#writing-rules](CONTRIBUTING.md#writing-rules) |
 
 ## Do not
 
 - Do not claim a check passed without running it. Report the exact command and
   its output.
 - Do not weaken a lint, test, or gate to make verification pass.
-- Do not commit hunks you did not write. Other sessions share this checkout —
-  run `git diff` and stage by path.
+- Do not commit hunks you did not write. Run `git diff` and stage by path.
 - Do not touch `configs/`, run any `deploy-*` or `upgrade-*` target, or spend
   a signer without the user asking in this session.

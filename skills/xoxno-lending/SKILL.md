@@ -80,3 +80,19 @@ and simulate the action before signing.
 For generic Stellar storage, auth, and contract testing, use the `stellar-dev`
 `smart-contracts` skill. For wallet signing and submission, use its `dapp`
 skill; for RPC or Horizon access, use its `data` skill.
+
+## Verified against
+
+These pins apply to every `xoxno-*` skill. Other skills say "the pinned SDK"
+and link here.
+
+- SDK: `@xoxno/sdk-js` version `1.0.228`. SDK claims, export names, and code
+  samples target this release.
+- Off-chain services: the XOXNO public API (`api.xoxno.com`) and the swap quote
+  server (`stellar-swap.xoxno.com`), as used by that SDK release.
+- Contract crate: `xoxno-contract-sdk` at the version named in
+  [xoxno-lending-contracts](../xoxno-lending-contracts/SKILL.md).
+- Contracts: the `main` branch of
+  [rs-lending-xlm](https://github.com/XOXNO/rs-lending-xlm).
+
+Re-check the affected skills after a release of any of these.

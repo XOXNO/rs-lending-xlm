@@ -41,6 +41,28 @@ Full semantics are in the crate rustdoc (`src/lib.rs`).
 | `recompute_feeds` | owner | Rebuilds aggregates after a signer, threshold, freshness or spread change, in footprint-sized batches |
 | `set_resolution`, `upgrade` | owner | Admin |
 
+## Storage and TTL
+
+All keys are variants of `DataKey` in [`src/storage/mod.rs`](src/storage/mod.rs).
+
+| Key | Tier | Holds |
+| --- | --- | --- |
+| `Signers`, `Threshold`, `MaxStaleSeconds`, `MaxSubmissionAgeSeconds`, `MaxRelativeSkewSeconds`, `MaxClusterSpreadBps`, `Resolution` | instance | Configuration |
+| `LatestSubmission(feed_id, signer)` | persistent | A signer's latest `SignerSubmission` for a feed |
+| `SignerFeeds(signer)` | persistent | Feed ids a signer submitted for |
+| `CurrentAggregate(feed_id)`, `History(feed_id)` | persistent | Latest median and its history |
+| `FeedMapping(asset)`, `FeedOwner(feed_id)` | persistent | SEP-40 asset to feed id, and back |
+| `AssetCount`, `AssetAt`, `AssetIndex`, `FeedCount`, `FeedAt`, `FeedIndex` | persistent | Swap-remove indexed asset and feed lists |
+
+Submissions, owner calls and `upgrade` renew the instance TTL with
+`renew_instance`. Reads do not. Each persistent write, and each read of an
+aggregate, extends the entry with `TTL_THRESHOLD_SHARED` and `TTL_BUMP_SHARED`.
+
+## Events
+
+The contract defines no custom events. Ownership changes publish the stock
+OpenZeppelin `Ownable` events. See [events](../../docs/reference/events.md).
+
 ## Layout
 
 ```text
