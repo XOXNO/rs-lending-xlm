@@ -14,7 +14,9 @@ Use one of these channels:
 - To claim a bounty, submit the report through the
   [XOXNO bug bounty on Immunefi](https://immunefi.com/bug-bounty/xoxno/information/).
 - For other reports, email [security@xoxno.com](mailto:security@xoxno.com).
-  Encrypt sensitive details with our PGP key: `<PGP fingerprint>`.
+  Encrypt sensitive details with our
+  [PGP key](.github/security-pgp-key.asc), fingerprint
+  `E6CD 3011 03A0 CF06 96C4 57F5 35F6 978D 1310 C877`.
 
 A useful report includes:
 
