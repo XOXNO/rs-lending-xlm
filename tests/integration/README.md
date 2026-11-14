@@ -1,9 +1,12 @@
 # E2E release gate
 
-Live execution is manual or release-only, on Stellar testnet. PRs run offline
-harness, RPC-fixture and operator regressions. Release ordering is canonical
-build → offline/contract checks → thirteen live lanes → publication of those exact
-files. A passing smoke or a mapped ABI is not release acceptance.
+End-to-end tests that deploy the candidate contracts to Stellar testnet and
+drive them through live transactions. Live runs are manual or release-only.
+Pull requests run the offline harness, RPC-fixture and operator regressions.
+
+The release order is: canonical build, offline and contract checks, every
+live lane in `RELEASE_LANES`, then publication of those exact files. A passing
+smoke or a mapped ABI is not release acceptance.
 
 Builds use `stellar contract build --optimize --out-dir` and consume that
 optimized output. Cargo's target WASM remains raw. Production artifacts are
@@ -18,8 +21,6 @@ governance upgrade proof is a same-hash upgrade of that build. The candidate
 `governance.wasm` is covered by the native tests only. The fixture carries a
 `timelock` contract-meta stamp; `artifacts.py check` fails on a candidate
 governance that carries it, so it cannot be deployed or published by mistake.
-Removing the old second optimization pass changes some artifact hashes, so
-earlier live proofs do not certify the new build outputs.
 
 Release packaging records all 26 published files in `distribution.json` and its
 E2E proof: production/SDK WASM, checksum files, SDK/candidate manifests, and the
@@ -43,7 +44,7 @@ set -o pipefail
 cargo test --workspace --no-fail-fast 2>&1 | tee controlled-tests.log
 python3 tests/integration/controlled.py controlled-tests.log artifacts/wasm/deploy
 
-# Thirteen fresh independent worlds; default caps: 95m per lane, 150m CI job.
+# Every release lane, each in a fresh world; default caps: 95m per lane, 150m CI job.
 NETWORK=testnet RUN_TS="local-$(date +%Y%m%d-%H%M%S)" \
   bash tests/integration/scenarios/parallel_e2e.sh
 
@@ -68,8 +69,7 @@ read-only `curl`, `sdk/balances.mjs`) first take one of `E2E_RPC_READ_SLOTS`
 A slot caps processes, not requests. A CLI view makes 2 to 3 requests in about
 0.4 s; a CLI send makes about 6 in about 4 s. So 6 read slots and 6 sends give
 about 40 requests per second at median latency, under the gateway limit of
-about 65 per second measured from one IP (Inferred from the
-`local-full2-063501` attempt timings). Record per-second request counts in a
+about 65 per second from one IP. Record per-second request counts in a
 live run before you raise either default. Each wait of 1 s or more is logged to
 `runs/<run>/rpc-wait.tsv`.
 
@@ -136,28 +136,29 @@ negative cases distinguish simulation rejection from a submitted failed receipt;
 a simulation rollback check is not a committed-transaction rollback proof.
 
 Mutations use `--send=yes`; reads use `--send=no`. CLI calls use native
-`--instruction-leeway 20000000`. Both earlier 1M and 2M policies produced
-submitted Credit 5+5 instruction failures. Controlled replay of the four exact
-WASMs from release run 36137339149 measured 40,637,121 instructions at zero
-elapsed time and 52,480,186 five seconds later: 11,843,065 additional instructions
-for index projection/accrual. The regression uses one fixture provider and
-source-account authorization; live dual-provider proofs remain required.
-The 20M policy covers that measured delta with additional margin. The original
-runs remain failed; maximum dimensions and the 10% resource headroom gate remain
-unchanged. A fixed margin does not guarantee every future state transition.
-SDK-prepared envelopes are not patched. Retry is
-limited to classified transient failures without a signed hash, and to the one
-exception below. After a hash exists, reconcile that hash; never rebuild the
-mutation while its outcome is unknown. A submitted Trapped/ResourceLimitExceeded
-failure remains fatal, except for the Reflector round race: the committed FAILED
-receipt shows the testnet Reflector CEX contract reading one of its own round
-keys outside the footprint. For that case only, `inv` and `sdk_inv` rebuild the
-same call once and record the failed transaction as `retry` with
-`rejected_transaction` evidence. `gate.py` then requires the next action with the
-same label to be a successful transaction with the same source, contract,
-function and arguments, an unchanged read-write footprint, and a read-only
-footprint that differs only by Reflector round entries, including the missing
-one (`receipts.py footprint_drift`).
+`--instruction-leeway 20000000`. This covers the instruction growth from index
+projection and accrual between simulation and inclusion, with margin. A fixed
+margin does not cover every future state transition. The 10% resource
+headroom gate still applies. SDK-prepared envelopes are not patched.
+
+Retry is limited to classified transient failures without a signed hash, and
+to the one exception below. After a hash exists, reconcile that hash. Never
+rebuild the mutation while its outcome is unknown.
+
+A submitted Trapped/ResourceLimitExceeded failure is fatal, except for the
+Reflector round race. In that race the committed FAILED receipt shows the
+testnet Reflector CEX contract reading one of its own round keys outside the
+footprint. For that case only, `inv` and `sdk_inv` rebuild the same call once.
+They record the failed transaction as `retry` with `rejected_transaction`
+evidence. `gate.py` then requires the next action with the same label to be a
+successful transaction with:
+
+- the same source, contract, function and arguments;
+- an unchanged read-write footprint;
+- a read-only footprint that differs only by Reflector round entries,
+  including the missing one (`receipts.py footprint_drift`).
+
+Every other storage-footprint failure stays fatal.
 If the CLI loses a successful response, recovery verifies the signed envelope,
 host operation and receipt return/event hash before recovering the result;
 the original CLI status and output remain in attempt evidence.
@@ -202,66 +203,62 @@ projected view indexes. Full liquidation closes distinguish ceiling-rounded
 cash payment from floor-valued debt-share credit; principal floors in WAD
 before conversion to RAY. Exact balance and share assertions remain required.
 
-## Controlled time and acceptance limits
+## Controlled time
 
-`controlled-cases.json` labels long-idle interest, HF boundaries, governance
-expiry/recovery, dust-close footprint stability, account TTL and host auto-restore. These are controlled-ledger
-proofs, not multiweek testnet observations. The long-idle test compares paths
-sharing the accrual routine; it is not independent reference arithmetic.
-The collector checks native test names/results and stamps the supplied candidate
-metadata. It does not attest per-test WASM consumption; loaders may use native
-contracts or raw release images, and the curator image is outside this stamp.
+`controlled-cases.json` labels the cases that need a controlled ledger clock:
+long-idle interest, HF boundaries, governance expiry and recovery, dust-close
+footprint stability, account TTL and host auto-restore. Native tests prove
+them; testnet does not observe them over weeks. The long-idle test compares
+paths that share the accrual routine; it is not independent reference
+arithmetic.
+
+`controlled.py` checks native test names and results and stamps the supplied
+candidate metadata. It does not attest which WASM each test loaded. Loaders
+may use native contracts or raw release images, and the curator image is
+outside this stamp.
+
 `integration-sdk-validate` tests native RPC restore preparation, a refreshed
-source sequence and malformed simulations offline. It does not claim live
-archival/restoration or automatic restore orchestration by the published SDK.
+source sequence and malformed simulations offline. It makes no claim about
+live archival, restoration, or automatic restore orchestration by the
+published SDK.
 
-Production fixture checks preserve enabled policy, caps, fees, rates, decimals,
-hub/spoke relationships and composition. Fixture-backed checks do not prove
-real external-provider availability. Current upgrade evidence explicitly records
-identical baseline/candidate controller hashes and `executable_differs=false`; controller/pool/NFT/price-aggregator/governance and oracle history preservation are checked; no v1.0.0
-storage migration claim is made.
+## Acceptance
 
-Final acceptance still requires two fresh complete thirteen-lane runs on the final
-candidate SHA and a release-workflow dry run. Release dispatch defaults to `dry_run=true`; a branch can run the complete gate
-without publication. `inject_e2e_failure=true` deliberately stops the E2E job
-before deployment and must leave publication skipped. A successful dry run still
-requires all thirteen live lanes. Local publication regressions inject failed lanes
-and wrong artifacts. The injected-failure dry run at
-[3d4153e0](https://github.com/XOXNO/rs-lending-xlm/actions/runs/36127604894)
-passed build/checks, failed E2E deliberately, and skipped publication. A successful
-full dry run remains outstanding.
-Published SDK 1.0.219 returned null for `AmountMustBePositive` (#14). SDK
-1.0.220 fixed that mapping; 1.0.221 adds native preparation instruction leeway.
-The harness pins 1.0.221 and checks all four published ESM/CJS root/lending
-entrypoints for the native 20M request, returned resources/fee, unsigned output,
-and unchanged invocation. Error mapping is checked offline and live. Local SDK substitutions remain forbidden.
+Production fixture checks preserve enabled policy, caps, fees, rates,
+decimals, hub/spoke relationships and composition. Fixture-backed checks do not
+prove real external-provider availability.
 
-The 2026-11-06 local run `audit-20261106-204146` passed all thirteen lane
-gates and the final collector: 114 case executions covering all 60 manifest
-cases. It used a frozen snapshot with uncommitted harness changes. Final-SHA
-and release-workflow acceptance remain outstanding.
+Upgrade evidence records identical baseline and candidate controller hashes
+and `executable_differs=false`. It checks that controller, pool, NFT,
+price-aggregator, governance and oracle history survive the upgrade. It makes
+no claim about storage migration from a different executable.
 
-Submitted Reflector
-storage-footprint races (for example release run 36260155105, attempt 2,
-`sdk_borrow`) are retried once under the rule above; every other
-storage-footprint failure stays sticky. Fresh complete runs
-must demonstrate all required cases; an
-ABI map, successful offline regression, or partial smoke cannot certify them.
-An aggregation smoke caught a real dust-close footprint failure: accrued
-interest made a zero-token native withdrawal become one stroop at inclusion,
-but simulation had omitted the recipient account. Preserve that failed receipt
-when validating the pool fix; a fresh run must prove the corrected path.
-The pool now sends a zero-value SAC transfer when positive shares are fully
-burned for a zero-token payout. This reserves writable recipient state; empty
-withdrawals and other zero refunds remain no-ops. Dust recipients must have a
-valid account/authorized trustline. Custom tokens may implement zero transfers
-differently; this fix does not guarantee every state-dependent footprint.
-Another live failure exposed a same-ledger `update_indexes` simulation that
-recorded pool state as read-only. Inclusion advanced time and interest accrual
-needed a write. Index updates now always commit state; a frozen-footprint
-regression preserves the original failure and verifies the later-ledger write.
-Current-schema upgrades deliberately record same-bytecode baselines and make
-no claim about migration from a different executable.
+A release run must demonstrate every required case on fresh worlds. An ABI
+map, an offline regression, or a partial smoke cannot certify them.
+
+Release dispatch defaults to `dry_run=true`, so a branch can run the complete
+gate without publication. A dry run still requires every live lane.
+`inject_e2e_failure=true` stops the E2E job before deployment and must leave
+publication skipped. Local publication regressions inject failed lanes and
+wrong artifacts.
+
+The harness pins published SDK 1.0.221. It checks all four published ESM/CJS
+root and lending entrypoints for the native 20M leeway request, returned
+resources and fee, unsigned output, and unchanged invocation. Error mapping is
+checked offline and live. Local SDK substitutions are forbidden.
+
+## Resource budgets
+
+Live reports carry no budget numbers. `tests/integration/appendix.md` points
+at the native tests that print them, and the scenario scripts append it to
+each `report.md`.
+
+```bash
+# Per-call CPU and memory, with CPU split by host cost type.
+cargo test -p test-harness --test meta budget_breakdown -- --nocapture
+# Ledger footprint sizes against the mainnet limits.
+cargo test -p test-harness --test meta footprints_fit_mainnet_limits -- --nocapture
+```
 
 ## Extending
 

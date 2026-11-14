@@ -33,45 +33,33 @@ npx skills add https://github.com/XOXNO/rs-lending-xlm
 
 Ship the whole set: every skill assumes `xoxno-lending` is available.
 
+## Verified against
+
+The version pins for the SDK, the off-chain services, and the contract crate
+are in one place:
+[xoxno-lending/SKILL.md](xoxno-lending/SKILL.md#verified-against).
+
 ## Source of truth and verification
 
-- Contract claims are verified against this repository (`interfaces/`, `common/`,
-  `contracts/`, `docs/reference/`). `scripts/check_doc_symbols.py` flags selected
-  backticked Rust-looking identifiers absent from its source/config text and
-  allowlists; it does not resolve symbols. It skips `xoxno-lending-data/` and
-  `xoxno-swap-aggregator/`, which document services in other repositories.
-- `xoxno-lending/addresses.md` is generated: `python3 scripts/gen_skill_addresses.py`
-  (`--check` fails when it is stale). Never edit it by hand.
-- `xoxno-lending-contracts` claims about the `xoxno-contract-sdk` crate are verified against
-  its public repository at the crate version named in that skill.
-- Verify SDK claims against the named `sdk-js` release. Verify API claims
-  against `xoxno-api-v2`. Verify aggregator claims against `arb-algo`. Re-check them after a release of any of those.
-- `evals/scenarios/<skill>/` holds task scenarios in the stellar-dev-skill format, each
-  encoding a mistake an agent makes without the skill. Run them before publishing a change.
+- `scripts/check_doc_symbols.py` flags backticked Rust-style identifiers that
+  are absent from source, configuration, and its allowlists. It does not
+  resolve symbols.
+- The symbol check skips `xoxno-lending-data/` and `xoxno-swap-aggregator/`.
+  Those skills document off-chain services.
+- `xoxno-lending/addresses.md` is generated. Regenerate it with
+  `python3 scripts/gen_skill_addresses.py`. The `--check` flag fails when the
+  file is stale. Never edit it by hand.
+- `evals/scenarios/<skill>/` holds task scenarios in the stellar-dev-skill
+  format. Each scenario encodes a mistake that an agent makes without the
+  skill. Run them before you publish a change.
 
 ## Contributing
 
-A skill change is complete when its affected `evals/` scenario is updated,
-every `SKILL.md` remains under about 450 lines, and task-specific depth is
-disclosed through a companion file from the routing table.
+A skill change is complete when these conditions are true:
 
-## Writing rules
+- The affected `evals/` scenario is updated.
+- Every `SKILL.md` stays under about 450 lines.
+- Task-specific depth lives in a companion file named in the routing table.
 
-Apply the ASD-STE100 writing principles throughout each skill and companion
-reference. The skills use the full editorial profile. The public Mintlify
-docs use a separate, selective profile.
-
-1. Use one term for one technical meaning.
-2. Use active voice and direct instructions.
-3. Give one action per procedure step.
-4. Put conditions before the action they control.
-5. Keep procedural sentences at 20 words or fewer where possible.
-6. Keep descriptive sentences at 25 words or fewer where possible.
-7. Split long explanations into short paragraphs, lists, or tables.
-8. Preserve exact code names, types, units, and error namespaces.
-9. Describe the current interface only. Remove superseded examples and paths.
-10. Verify safety conditions against committed source and published exports.
-
-Technical names are necessary vocabulary. Code and formulas keep their exact
-syntax. These rules do not certify compliance with the official ASD-STE100
-dictionary; that dictionary was not available for this review.
+Apply the [writing rules](../CONTRIBUTING.md#writing-rules) to every skill and
+companion reference. The skills use the full editorial profile.

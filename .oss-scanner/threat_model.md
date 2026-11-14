@@ -1,4 +1,4 @@
-# Threat model: XOXNO Lending (rs-lending-xlm)
+# Scanner brief: XOXNO Lending (rs-lending-xlm)
 
 XOXNO Lending is a lending protocol of Stellar Soroban contracts, live on
 mainnet. This file sets the scanner's scope, the execution model it must
@@ -10,7 +10,7 @@ before you start.
 - [docs/reference/formulas.md](../docs/reference/formulas.md): the exact arithmetic, rounding direction at each boundary, and numeric limits.
 - [docs/reference/endpoints.md](../docs/reference/endpoints.md): every entrypoint, its authority, and its pause behaviour.
 - [docs/explanation/threat-model.md](../docs/explanation/threat-model.md): trust roots, assumptions, residual risks, STRIDE register.
-- [docs/explanation/decisions.md](../docs/explanation/decisions.md): why each design is the way it is (ADR-0001..0021).
+- [docs/explanation/decisions.md](../docs/explanation/decisions.md): why each design is the way it is (ADR-0001..0023).
 - `scripts/permissionless_entrypoints.txt`: every entrypoint any address may call, with the reason it is safe.
 
 ## Components
@@ -26,7 +26,9 @@ In scope, most important first:
 4. `contracts/price-aggregator`, `contracts/xoxno-oracle`: source admission,
    dual-source agreement, staleness, sanity bands, signer quorum.
 5. `contracts/governance`: operation tiers, delays, roles, emergency ratchet.
-6. `contracts/position-nft`, `contracts/swap-aggregator`,
+6. `contracts/curator`: registrar roles, hub and spoke ownership, cap grants,
+   proposals queued through governance.
+7. `contracts/position-nft`, `contracts/swap-aggregator`,
    `contracts/defindex-strategy`, `interfaces/`.
 
 Out of scope: `mock/`, `tests/`, `certora/`, `vendor/`, `services/`,

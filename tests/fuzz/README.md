@@ -88,6 +88,7 @@ cargo +nightly fuzz run --fuzz-dir . flow_e2e --sanitizer=thread -Zbuild-std -- 
 | `prop_multiply_succeeds_with_safe_hf_and_clean_router` / `prop_swap_collateral_conserves_position_delta` | Strategy success, exact deltas, HF, allowance, and flash-guard cleanup. |
 | `prop_migrate_blend_reconciles_same_asset` / `prop_migrate_blend_cap_too_low_reverts` | `migrate_from_blend` reconciliation, and the revert when the cap is below the Blend liability. |
 | `prop_liquidation_matches_bigrational_reference` / `prop_below_base_liquidation_matches_reference_and_never_loses_the_liquidator_money` | Liquidation vs `BigRational` reference, including accounts whose HF-preserving cap is below the base bonus. |
+| `prop_whole_unit_liquidation_holds_the_documented_bounds` | Whole-unit liquidation of a collateral leg below 3 decimals against the documented rules. |
 
 ## Corpus And Regressions
 
@@ -126,7 +127,8 @@ cargo +nightly fuzz tmin --fuzz-dir . <target> artifacts/<target>/crash-<hash>
 ```
 
 Proptest stores minimized failures in
-`tests/test-harness/tests/fuzz/*.proptest-regressions`. The files are
+`tests/test-harness/tests/fuzz/*.proptest-regressions` and
+`tests/test-harness/tests/proptest-regressions/*.txt`. The files are
 committed, so each stored case replays on every run. The two seed-adjusted cash
 properties do not persist failures.
 

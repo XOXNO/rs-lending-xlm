@@ -12,13 +12,13 @@ exports the callback.
 Authoritative sources:
 
 - cash settlement:
-  [`contracts/pool/src/ops/flash.rs`](../../contracts/pool/src/ops/flash.rs)
+  [`contracts/pool/src/ops/flash.rs`](https://github.com/XOXNO/rs-lending-xlm/blob/main/contracts/pool/src/ops/flash.rs)
 - position settlement:
-  [`contracts/controller/src/strategies/flash_position.rs`](../../contracts/controller/src/strategies/flash_position.rs)
+  [`contracts/controller/src/strategies/flash_position.rs`](https://github.com/XOXNO/rs-lending-xlm/blob/main/contracts/controller/src/strategies/flash_position.rs)
 - compiled callback fixtures:
-  [`mock/flash-loan-receiver/src/lib.rs`](../../mock/flash-loan-receiver/src/lib.rs)
+  [`mock/flash-loan-receiver/src/lib.rs`](https://github.com/XOXNO/rs-lending-xlm/blob/main/mock/flash-loan-receiver/src/lib.rs)
   and
-  [`mock/flash-position-receiver/src/lib.rs`](../../mock/flash-position-receiver/src/lib.rs)
+  [`mock/flash-position-receiver/src/lib.rs`](https://github.com/XOXNO/rs-lending-xlm/blob/main/mock/flash-position-receiver/src/lib.rs)
 
 The mocks are test fixtures, not deployable production receivers. A
 production receiver adds trusted-invoker gates, instance TTL renewal, payload

@@ -10,7 +10,7 @@ Do not open a public issue, pull request, discussion, or social-media post for
 a suspected vulnerability.
 
 Email [security@xoxno.com](mailto:security@xoxno.com). Encrypt sensitive
-details when possible; a PGP key is available on request.
+details with our PGP key: `<PGP fingerprint>`.
 
 A useful report includes:
 
@@ -35,6 +35,11 @@ enough evidence to demonstrate impact.
 | Coordinated disclosure | 90 days from report, unless we agree otherwise |
 
 We may credit reporters in release notes with their consent.
+
+## Bug bounty
+
+`<Bounty terms: platform, reward range by severity, or "This project has no
+bug bounty program.">`
 
 ## Scope
 
@@ -77,21 +82,20 @@ this policy and:
 This policy does not authorize activity that violates law, targets third-party
 systems, or places user assets or data at risk.
 
-## Audit status
+## Audits
 
-Published audit material, when available, is linked with the relevant release.
-Repository documentation describes the current design and threat model; it is
-not a substitute for independent review of deployed contracts and active
-configuration.
+| Auditor | Scope | Commit | Date | Report |
+|---|---|---|---|---|
+| Runtime Verification | `<contracts in scope>` | `<commit>` | `<date>` | `<link>` |
 
-## Dependency maintenance
+Each finding has a fix or a recorded decision:
 
-Reviewed 2026-10-09: accept and track RUSTSEC-2024-0436 for `paste` 1.0.15
-in the root and fuzz lockfiles. It is an unmaintained build-time proc-macro
-pulled in by the Soroban SDK dependency tree, with no fixed release. Recheck
-this exception when upgrading the SDK or when an upstream replacement becomes
-available.
+- Code fixes carry regression tests in `tests/test-harness/tests/`.
+- Accepted design trade-offs are recorded as ADRs in
+  [design decisions](docs/explanation/decisions.md). Example:
+  [ADR-0022](docs/explanation/decisions.md#adr-0022) for finding R-23.
+- The [Aeneas proofs](verification/aeneas/README.md) cite the finding IDs that
+  their theorems cover.
 
-Run workflow audits with `zizmor .github`. This scopes the scan to this
-repository's active workflows and Dependabot configuration; workflow files
-under `vendor/` are upstream source and GitHub does not execute them here.
+An audit covers the commit in its scope. Compare that commit with the release
+that you use.

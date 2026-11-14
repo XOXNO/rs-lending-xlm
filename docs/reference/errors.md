@@ -6,7 +6,7 @@ SDK `try_` calls distinguish contract errors from host, authorization, storage, 
 
 ## Shared lending errors
 
-[Shared error definitions](../../common/src/errors.rs) group lending failures by domain. Gaps in the numeric ranges are reserved. The tables describe failure conditions; the checks a call reaches depend on its execution path.
+[Shared error definitions](../../common/src/errors.rs) group lending failures by domain. Gaps in the numeric ranges are reserved. The tables describe failure conditions. The checks a call reaches depend on its execution path.
 
 ### Generic errors (1–55)
 
@@ -232,6 +232,28 @@ Reflector runtime TWAP errors, including 212, 219 and 222, make the source leg u
 | 462 `ArithmeticError` | Declared without a production construction in this source tree. | Decode propagated shared arithmetic errors in their own domain. |
 | 463 `AccountLookupFailed` | Controller account-existence query failed | Resolve downstream failure; a failure must not erase vault mapping. |
 
+### Curator
+
+| Code / variant | Condition | Response |
+| --- | --- | --- |
+| 801 `UnknownRegistrar` | The registrar id has no admin. | Use an opened registrar. |
+| 802 `RoleMissing` | The caller is not the registrar admin and holds no role bit the call accepts. | Sign as the admin or an account with the required role. |
+| 803 `RoleBits` | `set_roles` names bits outside `ROLE_MARKET`, `ROLE_SPOKE`, and `ROLE_FLAGS`. | Pass only known role bits. |
+| 804 `HubOwned` | A newly created hub id is already bound to a registrar. | Report the inconsistent binding to governance. |
+| 805 `HubUnowned` | The hub is bound to no registrar. | Ask governance to bind the hub with `ReassignCuratorHub`. |
+| 806 `SpokeOwned` | A newly created spoke id is already bound to a registrar. | Report the inconsistent binding to governance. |
+| 807 `SpokeUnowned` | The spoke is bound to no registrar. | Ask governance to bind the spoke with `ReassignCuratorSpoke`. |
+| 808 `NotHubRegistrar` | Another registrar owns the hub. | Act only on an owned hub. |
+| 809 `NotSpokeRegistrar` | Another registrar owns the spoke, or a hub owner's `tighten_flags` in a foreign spoke sets anything other than `frozen` alone. | Act only on an owned spoke, or set only `frozen`. |
+| 812 `GrantMissing` | A foreign hub listing, edit, or relaxation has no live grant. | Ask the hub owner for a grant. |
+| 813 `GrantExceeded` | The listing exceeds the grant, or `set_cap_grant` passes a negative cap. | Stay within the grant. |
+| 814 `Unsupported` | `propose` names an operation other than `AddAssetToSpoke`, `EditAssetInSpoke`, `UpgradeLiquidityPoolParams`, or `RelaxSpokeAssetFlags`. | Ask governance to propose it. |
+| 815 `RegistrarSuspended` | The caller's registrar, or the grantor of the grant used, is suspended. | Ask governance to resume the registrar. |
+| 816 `ProposalUnknown` | `cancel_proposal` names an operation this contract did not queue. | Cancel it through a governance `CANCELLER`. |
+| 817 `ProposalForeign` | The caller's registrar owns neither the hub nor the spoke the queued operation names. | Cancel from the owning registrar. |
+| 818 `ForeignPause` | A spoke owner tries to pause a listing of a hub asset that another registrar owns. | Freeze or halt seizure instead. |
+| 819 `NotCapLowering` | A hub owner's edit in a spoke it does not own changes a field other than lowering the supply or borrow cap. | Change only the caps, and only downward. |
+
 ## Relevant inherited errors
 
 OpenZeppelin stellar-contracts release 0.8.0 supplies the NFT, authorization and timelock helpers. A deployed contract can raise both its own errors and these overlapping inherited codes. An error declaration does not make an unexported extension callable.
@@ -250,4 +272,4 @@ OpenZeppelin stellar-contracts release 0.8.0 supplies the NFT, authorization and
 
 - [Account authorization](../../contracts/controller/src/account.rs), [risk](../../contracts/controller/src/risk/validation.rs), [liquidation](../../contracts/controller/src/positions/liquidation/mod.rs), [pool guards](../../contracts/pool/src/guards.rs).
 - [Shared validation](../../common/src/validation.rs), [rate validation](../../common/src/types/pool.rs), [price resolution](../../contracts/price-aggregator/src/engine.rs).
-- [Router errors](../../contracts/swap-aggregator/src/errors.rs), [XOXNO oracle](../../contracts/xoxno-oracle/src/lib.rs), [DeFindex](../../contracts/defindex-strategy/src/lib.rs), [dependency pins](../../Cargo.toml).
+- [Router errors](../../contracts/swap-aggregator/src/errors.rs), [XOXNO oracle](../../contracts/xoxno-oracle/src/lib.rs), [DeFindex](../../contracts/defindex-strategy/src/lib.rs), [curator](../../contracts/curator/src/lib.rs), [dependency pins](../../Cargo.toml).

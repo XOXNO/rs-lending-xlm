@@ -1,5 +1,5 @@
-//! Liqvid listing parameters for a daily-NAV deal share with 0 decimals
-//! (`docs/reference/runbooks/liqvid-listing-params.md`): LTV 50%, LT 53%,
+//! Liqvid listing parameters for a daily-NAV deal share with 0 decimals:
+//! LTV 50%, LT 53%,
 //! base bonus 5%, a spoke curve with target HF 1.06, the full bonus at
 //! HF 0.90 and factor 598 bps, and one Xoxno NAV feed whose sanity band is
 //! [0.849, 1.03] x the reference NAV with a 93,600 s staleness budget. The

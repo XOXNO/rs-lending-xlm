@@ -12,31 +12,40 @@ named Rust function. Overview and conventions: [../README.md](../README.md),
 * `oracle::lp::isqrt_of_product`: exact `⌊√(a·b)⌋` for **every** pair of
   `u128` inputs, including termination of its Newton loop. The Certora rule
   `isqrt_is_the_integer_floor_of_the_root` cannot check this
-  ([certora/README.md](../../../certora/README.md), "Known prover limits"), so
-  this closes that gap, and for the full `u128` domain rather than the rule's
-  `u64` inputs.
+  ([certora/README.md](../../../certora/README.md), "Known prover limits").
+  This proof closes that gap, for the full `u128` domain instead of the
+  rule's `u64` inputs.
 * `oracle::lp::fair_lp_price_wad` and its helper `reserve_value_wad`:
-  degenerate inputs rejected, leg-swap symmetry, the exact price formula,
-  balanced-pool agreement with `reserve_value_wad`, and fail-closed behaviour
-  (never aborts; every error is `InvalidPrice`).
+  * degenerate inputs rejected;
+  * leg-swap symmetry;
+  * the exact price formula;
+  * balanced-pool agreement with `reserve_value_wad`;
+  * fail-closed behaviour (never aborts; every error is `InvalidPrice`).
 * `oracle::observation::{try_amount_to_wad, try_u256_to_i128}`,
   `math::fp_core::try_mul_div_half_up`, and the typed wrappers the oracle
-  code reaches it through since #224 (`math::fp::Wad::{try_value_of_token,
+  code reaches it through (`math::fp::Wad::{try_value_of_token,
   try_from_token_upscale, try_mul}`): exact semantics over the whole domain.
-* `oracle::lp_stable::{solve_stable_d, fair_stable_lp_price_wad}`: structural
-  properties that hold for every input (leg-swap symmetry, only the cheaper
-  leg's price matters, out-of-range amplification and out-of-range reserves
-  rejected, degenerate inputs rejected); **trap freedom of the Newton loop**
-  on every input the guards admit, with an inductive bound `1 ≤ d ≤ 2(x+y)` on
-  every iterate; an **accuracy bound** on the returned invariant
-  (`D* − 1 < D ≤ D* + 5`, `D*` the exact real root); and the stable price
-  formula `⌊D·min_price/S⌋` with fail-closed behaviour for every input. Not
-  proved: that the loop always stops before its 255-round cap (see "Not
+* `oracle::lp_stable::{solve_stable_d, fair_stable_lp_price_wad}`:
+  * structural properties for every input: leg-swap symmetry, only the
+    cheaper leg's price matters, and out-of-range amplification, out-of-range
+    reserves and degenerate inputs are rejected;
+  * **trap freedom of the Newton loop** on every input the guards admit, with
+    an inductive bound `1 ≤ d ≤ 2(x+y)` on every iterate;
+  * an **accuracy bound** on the returned invariant: `D* − 1 < D ≤ D* + 5`,
+    with `D*` the exact real root;
+  * the stable price formula `⌊D·min_price/S⌋`, with fail-closed behaviour
+    for every input.
+
+  Not proved: that the loop always stops before its 255-round cap (see "Not
   covered").
 
-All statements are total correctness (`f ⦃ r => P r ⦄`: the call returns, does
-not abort, and `P` holds) or equalities of whole computations (`f x = f y`:
-same value, same error, or the same abort). Specifications never divide; they
+Every statement has one of two forms:
+
+* total correctness (`f ⦃ r => P r ⦄`): the call returns, does not abort,
+  and `P` holds;
+* equality of whole computations (`f x = f y`): same value, same error, or
+  the same abort.
+ Specifications never divide; they
 are in `Proofs/Spec.lean`:
 
 * `IsFloorPos n d q`: `q*d ≤ n < q*d + d` (`q = ⌊n/d⌋`, `d > 0`);
@@ -61,7 +70,7 @@ Included **verbatim** through `#[path]`:
 | `oracle::lp_stable` | `common/src/oracle/lp_stable.rs` |
 | `oracle::observation` | `common/src/oracle/observation.rs` (whole file; it extracts without trouble) |
 | `math::fp` | `common/src/math/fp.rs` (whole file: `Ray`, `Wad`, `Bps`; the oracle code calls `Wad::from`, `Wad::raw`, `Wad::try_value_of_token`, `Wad::try_from_token_upscale`) |
-| `math::fp_core` | `common/src/math/fp_core.rs` (private module, as in production since #224) |
+| `math::fp_core` | `common/src/math/fp_core.rs` (private module, as in production) |
 | `constants` | `common/src/constants/mod.rs` (and its `pool`/`shared` submodules) |
 
 Hand-written stand-ins:
@@ -71,17 +80,18 @@ Hand-written stand-ins:
   included files raise, with the codes of `common/src/errors.rs`. `fp.rs`
   raises only `GenericError::MathOverflow`, so it needed no new variant.
 * `shim/` (crate `aeneas-oracle-shim`, renamed to `soroban-sdk`): a copy of the
-  rates shim (`Env`, `Error`, `I256`, `panic_with_error!`) extended with
-  `U256` (`from_u32`, `from_u128`, `to_u128`, `add`, `sub`, `mul`, `div`,
-  `checked_mul`, `Clone`, `PartialEq`, `PartialOrd`, the subset of
-  soroban-sdk 28.0.0 `src/num.rs` the code calls) and `assert_with_error!`
-  (as in soroban-sdk 28.0.0 `src/lib.rs`). Every shim item is opaque to
-  Aeneas.
+  rates shim (`Env`, `Error`, `I256`, `panic_with_error!`), with two
+  additions. Every shim item is opaque to Aeneas.
+  * `U256`: `from_u32`, `from_u128`, `to_u128`, `add`, `sub`, `mul`, `div`,
+    `checked_mul`, `Clone`, `PartialEq`, `PartialOrd`. This is the subset of
+    soroban-sdk 28.0.0 `src/num.rs` the code calls.
+  * `assert_with_error!`, as in soroban-sdk 28.0.0 `src/lib.rs`.
 
 `oracle/providers/` (contract clients) is not used by the LP code and is
 not included. `fp.rs` is included whole, so its other methods are extracted
-too (and `Ray::to_wad_floor`/`to_wad_ceil`, `pub(crate)` and unused here, draw
-a dead-code warning); only the wrappers listed above carry theorems. The test-only
+too. `Ray::to_wad_floor` and `to_wad_ceil` are `pub(crate)` and unused here,
+so they draw a dead-code warning. Only the wrappers listed above carry
+theorems. The test-only
 `solve_stable_y` in `lp_stable.rs` lives in `#[cfg(test)]` and is not
 compiled, so it is not extracted.
 
@@ -89,37 +99,47 @@ compiled, so it is not extracted.
 
 `lean/OracleAeneas/TypesExternal.lean` and `FunsExternal.lean`:
 
-* **Host `U256` as `Nat`** (new). Every value comes from `from_u32`,
+* **Host `U256` as `Nat`**. Every value comes from `from_u32`,
   `from_u128` or an operation that traps unless its exact result is in
-  `[0, 2^256)`: `add` and `mul` trap above `2^256 - 1`, `sub` traps on
-  underflow, `div` traps on a zero divisor and otherwise rounds down,
-  `checked_mul` returns `None` instead of trapping, `to_u128` is `Some`
-  exactly below `2^128`, `Clone` is the identity, comparisons are the order
-  of the naturals. This follows soroban-sdk 28.0.0 `src/num.rs`, which calls
-  the host's `U256.add`/`U256.sub`/`U256.mul`/`U256.div` (trapping) and
+  `[0, 2^256)`:
+  * `add` and `mul` trap above `2^256 - 1`;
+  * `sub` traps on underflow;
+  * `div` traps on a zero divisor and otherwise rounds down;
+  * `checked_mul` returns `None` instead of trapping;
+  * `to_u128` is `Some` exactly below `2^128`;
+  * `Clone` is the identity, and comparisons are the order of the naturals.
+
+  This follows soroban-sdk 28.0.0 `src/num.rs`. It calls the host's
+  `U256.add`/`U256.sub`/`U256.mul`/`U256.div` (trapping) and
   `U256.checked_mul` (returning void on overflow).
 * **Host `I256` as `Int`**: copied unchanged from
   `RatesAeneas/FunsExternal.lean` (used by `fp_core`'s widened path).
-* **Rust core** (new): `bool::then_some` (`if b then Some(t) else None`),
-  `u128::isqrt` (`Nat.sqrt`, "rounded down" per the Rust docs),
-  `u128::pow` (exact, failing on overflow; only used for the constant
-  `10u128.pow(34)`), and `RangeInclusive::contains` (`start <= item &&
-  item <= end`, end exclusive once exhausted, per
-  `RangeInclusive::end_bound`). Including `fp.rs` (#224) added no external
-  declaration: `Wad::from`'s `Into<i128>` is the Aeneas library's
-  `IntoFrom`/`FromSame` (identity), `Option::map` is the library's. `i128::checked_pow`, `u32::abs_diff`,
+* **Rust core**:
+  * `bool::then_some`: `if b then Some(t) else None`;
+  * `u128::isqrt`: `Nat.sqrt`, "rounded down" per the Rust docs;
+  * `u128::pow`: exact, failing on overflow. It is used only for the
+    constant `10u128.pow(34)`;
+  * `RangeInclusive::contains`: `start <= item && item <= end`, end
+    exclusive once exhausted, per `RangeInclusive::end_bound`.
+
+  `fp.rs` needs no external declaration of its own. `Wad::from`'s
+  `Into<i128>` is the Aeneas library's `IntoFrom`/`FromSame` (identity), and
+  `Option::map` is the library's. `i128::checked_pow`, `u32::abs_diff`,
   `Option::{unwrap_or_else, and_then}` and `?` on `Option` are copied from
   the rates library.
 
-`panic_with_error!` aborts (Aeneas failure), as in the rates library; error
-codes of aborts are not modelled, but returned `Err` values are (the
-`OracleError` enum is extracted).
+`panic_with_error!` aborts (Aeneas failure), as in the rates library. Error
+codes of aborts are not modelled. Returned `Err` values are modelled,
+because the `OracleError` enum is extracted.
 
 ## Theorems
 
 Files are under `lean/OracleAeneas/Proofs/`. Every theorem has been checked
 with `#print axioms`: each depends only on `propext`, `Classical.choice`,
 `Quot.sound`. No `sorry`, `admit` or `axiom`.
+
+`Fp.lean` proves the `Wad` wrappers on their own. The `Lp.lean` specs are
+derived from them.
 
 | Lean name | File | Rust function | Claim | Hypotheses | Invariants | Certora rule |
 |---|---|---|---|---|---|---|
@@ -132,8 +152,8 @@ with `#print axioms`: each depends only on `propext`, `Classical.choice`,
 | `Wad_try_value_of_token_spec` | `Fp.lean` | `common/src/math/fp.rs::Wad::try_value_of_token` | Never aborts; `Some w` with `IsHalfUp (amount·price) (10^dec) w` (one rounding, the amount is not normalised first), or `None` only on `10^dec` overflow, a negative input, or a value `≥ 2^127` | none | INV-RISK-02 (rounding is explicit) | — |
 | `Wad_try_from_token_upscale_spec` | `Fp.lean` | `fp.rs::Wad::try_from_token_upscale` | Never aborts; `Some(amount·10^(18−dec))` exactly, only if `amount ≥ 0`, `dec ≤ 18`; `None` only if `amount < 0`, `dec > 18` or the product `≥ 2^127` | none | INV-ORACLE-01 | — |
 | `Wad_try_mul_spec` | `Fp.lean` | `fp.rs::Wad::try_mul` | Never aborts; `Some w` with `IsHalfUp (x·y) WAD w`, or `None` only for a negative operand or a product `≥ 2^127` (not called by the oracle code; proved because it is the third `Option`-returning `Wad` wrapper) | none | INV-RISK-02 | — |
-| `try_amount_to_wad_spec` | `Lp.lean` | `observation.rs::try_amount_to_wad` | Never aborts; `Ok(amount·10^(18−dec))` only if `amount ≥ 0`, `dec ≤ 18`; `Err(InvalidPrice)` only if `amount < 0`, `dec > 18` or overflow. **Changed (#224):** the function lost its `env` argument, so the theorem did too; the claim is unchanged | none | INV-ORACLE-01 | — |
-| `reserve_value_wad_spec` | `Lp.lean` | `lp.rs::reserve_value_wad` | Never aborts; `Ok(v)` with `IsHalfUp (reserve·price) (10^dec) v`, or `Err(InvalidPrice)` only on `10^dec` overflow, a negative input, or a value `≥ 2^127`. Unchanged by #224 (now via `Wad::try_value_of_token`, same computation) | none | INV-ORACLE-01, INV-RISK-02 | — |
+| `try_amount_to_wad_spec` | `Lp.lean` | `observation.rs::try_amount_to_wad` | Never aborts; `Ok(amount·10^(18−dec))` only if `amount ≥ 0`, `dec ≤ 18`; `Err(InvalidPrice)` only if `amount < 0`, `dec > 18` or overflow | none | INV-ORACLE-01 | — |
+| `reserve_value_wad_spec` | `Lp.lean` | `lp.rs::reserve_value_wad` | Never aborts; `Ok(v)` with `IsHalfUp (reserve·price) (10^dec) v`, or `Err(InvalidPrice)` only on `10^dec` overflow, a negative input, or a value `≥ 2^127`. Computed by `Wad::try_value_of_token`, which does not normalise the reserve to WAD first, so there is one half-up rounding | none | INV-ORACLE-01, INV-RISK-02 | — |
 | `fair_lp_price_wad_rejects_degenerate` | `Lp.lean` | `lp.rs::fair_lp_price_wad` | `= ok (Err InvalidPrice)` (rejects, does not abort) | a reserve, price or the share supply `≤ 0` (any decimals) | INV-ORACLE-01 | `lp_price_rejects_degenerate_inputs` |
 | `fair_lp_price_wad_rejects_share_decimals` | `Lp.lean` | same | Returns (no abort) `Err(InvalidPrice)` for every reserve, price and share amount | share `decimals > 18` | INV-ORACLE-01 | `lp_price_rejects_share_decimals_past_wad` |
 | `fair_lp_price_wad_symmetric` | `Lp.lean` | same | `fair(a, b, s) = fair(b, a, s)` as computations | none (no input bounds) | — | `lp_price_is_symmetric_under_leg_swap` |
@@ -156,9 +176,9 @@ with `#print axioms`: each depends only on `propext`, `Classical.choice`,
 
 Why the hypotheses hold in production: `fair_lp_price_wad_value` /
 `fair_lp_price_wad_balanced` take the helper results as hypotheses; `reserve_value_wad_spec`
-and `try_amount_to_wad_spec` say exactly when those are `Ok`, and
+and `try_amount_to_wad_spec` say exactly when those are `Ok`.
 `try_amount_to_wad_pos` (`Lp.lean`) proves `S > 0` whenever the share supply
-is positive, so the `share_supply_wad <= 0` branch in both pricers is
+is positive. So the `share_supply_wad <= 0` branch in both pricers is
 unreachable. `fair_lp_price_wad_fails_closed` combines all cases with no
 hypothesis. The Certora symmetry and cheaper-leg rules bound reserves, prices
 and shares; the Lean statements need no bounds.
@@ -198,7 +218,7 @@ Newton's step for `G` (`stableNewton`). The code stops with `Ok(d')` when
 Upper half (`newton_upper`): the Newton quotient is a weighted mediant of
 `a·S/(a−1) ≤ 2S` (as `a ≥ 2`) and `2d/3 ≤ 2S`. Lower half
 (`newton_lower`): for `K·p ≤ d³` (true for the rounded `p`,
-`stable_p_bounds`), every `s` above the real quotient has `G(s) > 0`; this
+`stable_p_bounds`), every `s` above the real quotient has `G(s) > 0`. This
 is the tangent-line argument in polynomial form,
 `d·G(s) > d·s³ − K·p·(3s − 2d) ≥ d·(s − d)²·(s + 2d) ≥ 0`. With `s = d' + 1`
 it gives `d' ≥ ⌊D*⌋`, and `⌊D*⌋ ≥ 1` because `G(1) < 0`.
@@ -219,10 +239,10 @@ and since `G(d) − G(d−4) = 12d² − 48d + 64 + 4K(a−1)`,
 `G(d − 4) ≤ −(3d − 8)² − 3K(a − 2) ≤ 0`. So `d ≤ D* + 4` and the returned
 `D ≤ d + 1 ≤ D* + 5`; with the lower half, **`D* − 1 < D ≤ D* + 5`**
 (stated without reals as `G(D + 1) > 0` and `G(D − 5) ≤ 0`). Also
-`D ≤ 2S`. Sampling 400 000 admitted inputs (all amplifications, ratios up to
-the `checked_mul` limit) found `D ∈ {⌊D*⌋, ⌊D*⌋ + 1}` every time and never an
-iterate above `S`; the proved window is wider because the proof does not
-track the sign of the last step.
+`D ≤ 2S`. A sample of 400 000 admitted inputs covered all amplifications and
+ratios up to the `checked_mul` limit. It found `D ∈ {⌊D*⌋, ⌊D*⌋ + 1}` every
+time and never an iterate above `S`. The proved window is wider because the
+proof does not track the sign of the last step.
 
 **Rounds.** The loop is a `0..255` range loop, so it always terminates;
 the proof makes no claim about how many rounds are used. On the same
@@ -234,39 +254,6 @@ were reached the code returns `Err(InvalidPrice)`, which
 `fair_stable_lp_price_wad` then multiplies `D ≤ 2(xa + xb) ≤ 4·10^34` by
 `min_price < 2^127` (product `< 2^256`) and divides by the share supply
 `S > 0`, so it never traps either.
-
-## Changes after #224 (typed fixed-point boundary)
-
-Commit 8f476115 made `fp_core` private and routed the oracle code through the
-`Wad` newtype in `fp.rs`:
-
-* `reserve_value_wad` now calls `Wad::from(price).try_value_of_token(env,
-  reserve, decimals)`. That method computes `10^decimals` with
-  `checked_pow` and then `try_mul_div_half_up(reserve, price, 10^decimals)`,
-  the same two steps, with the same argument order, as the old body. It does
-  **not** normalise the reserve to WAD first, so there is still a single
-  half-up rounding: the exact value is unchanged and `reserve_value_wad_spec`,
-  `fair_lp_price_wad_value` and `fair_lp_price_wad_balanced` keep their
-  statements.
-* `try_amount_to_wad(env, amount, decimals)` became
-  `try_amount_to_wad(amount, decimals)` over `Wad::try_from_token_upscale`
-  (sign check, `checked_sub`, `checked_pow`, `checked_mul`) instead of
-  `try_mul_div_half_up(amount, 10^(18−decimals), 1)`. For a non-negative
-  amount the half-up quotient by 1 is the exact product and both fail exactly
-  when it exceeds `i128::MAX`; a negative amount and `decimals > 18` give
-  `Err(InvalidPrice)` in both (only the order of the checks changed, which is
-  not observable). Same results on every input; the theorems
-  (`try_amount_to_wad_spec`, `try_amount_to_wad_cases`, `try_amount_to_wad_pos`) only lost the `env` argument.
-  `try_normalize_positive_price` likewise now calls
-  `Wad::try_from_token_upscale` (no theorem covers it).
-* The extraction crate now includes `fp.rs` verbatim and keeps `fp_core`
-  private; no stand-in or trusted-base change was needed. The new
-  `Fp.lean` proves the wrappers on their own (`Wad_try_value_of_token_spec`,
-  `Wad_try_from_token_upscale_spec`, `Wad_try_mul_spec`) and the `Lp.lean`
-  specs are now derived from them.
-
-No previously proved property fails after the refactor, and no production
-behaviour change was found.
 
 ## Rebuilding
 
@@ -294,22 +281,27 @@ from the committed ones once they are tracked (`ALLOW_DRIFT=1` overrides).
 
 * **That `solve_stable_d` always stops before its 255-round cap.** Trap
   freedom, the iterate bound and the accuracy of every returned `D` are
-  proved (`solve_stable_d_spec`), but a round count needs a quantitative
-  convergence argument (geometric decrease far from the root, about
-  `log_{3/2}(S/D*) ≤ 195` rounds, then a no-cycle argument near it) that is
-  not formalised. So `Err(InvalidPrice)` from cap exhaustion is not excluded
-  by a proof; sampling found at most 53 rounds (see the loop section).
-* **A sharper accuracy window.** The proof gives `D* − 1 < D ≤ D* + 5`;
-  sampling only ever found `D ∈ {⌊D*⌋, ⌊D*⌋ + 1}`, and never an iterate above
-  `S` (the proof only bounds iterates by `2S`).
+  proved (`solve_stable_d_spec`). A round count needs a quantitative
+  convergence argument, which is not formalised. That argument is a
+  geometric decrease far from the root (about `log_{3/2}(S/D*) ≤ 195`
+  rounds), then a no-cycle argument near it. So no proof excludes
+  `Err(InvalidPrice)` from cap exhaustion. Sampling found at most 53 rounds
+  (see the loop section).
+* **A sharper accuracy window.** The proof gives `D* − 1 < D ≤ D* + 5`.
+  Sampling only ever found `D ∈ {⌊D*⌋, ⌊D*⌋ + 1}`, and never an iterate above
+  `S`. The proof only bounds iterates by `2S`.
 * **`solve_stable_y`** is test-only (`#[cfg(test)]`), not compiled into the
   extraction, so nothing is stated about it (and so not the unit test
   `swap_cannot_move_the_price`).
-* **Error codes of aborts** are not modelled (as in the rates library);
-  returned `Err(OracleError::…)` values are.
+* **`try_normalize_positive_price`.** It calls `Wad::try_from_token_upscale`,
+  which is proved, but no theorem covers the function itself.
+* **Error codes of aborts** are not modelled (as in the rates library).
+  Returned `Err(OracleError::…)` values are.
 
-No production defect was found. Remarks: the `share_supply_wad <= 0` checks
-in both pricers are unreachable (`try_amount_to_wad_pos`); the Certora
-counterexample for `isqrt_is_the_integer_floor_of_the_root`
-(`a = 0x55555555555556, b = 3`) is a prover-model artifact, since
-`isqrt_of_product_spec` holds for every input.
+No production defect was found. Remarks:
+
+* The `share_supply_wad <= 0` checks in both pricers are unreachable
+  (`try_amount_to_wad_pos`).
+* The Certora counterexample for `isqrt_is_the_integer_floor_of_the_root`
+  (`a = 0x55555555555556, b = 3`) is a prover-model artifact, because
+  `isqrt_of_product_spec` holds for every input.

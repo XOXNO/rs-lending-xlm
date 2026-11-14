@@ -48,7 +48,7 @@ reusing a wallet body. These TTLs do not bound total age across indexing,
 oracle state, metadata, and HTTP caches. Ownership is indexed, not live.
 
 Public types, schemas, and the optional pagination client are exported from
-`@xoxno/sdk-js/stellar-lending/read` in SDK `1.0.228`. The published
+`@xoxno/sdk-js/stellar-lending/read` in the pinned SDK. The published
 [API reference](https://xoxno.com/docs/stellar-lending/dev/integrator-api)
 defines every field and missing-data rule. Build supply synchronously in the
 SDK, then prepare with RPC; there is no supply API endpoint.
@@ -115,6 +115,7 @@ omitted event payloads. Use an archival event source for those tasks.
 import json
 import urllib.parse
 import urllib.request
+from datetime import datetime, timedelta, timezone
 
 BASE = "https://api.xoxno.com"
 
@@ -145,16 +146,18 @@ asset = "C..."
 spoke_id = 1
 hub_id = 1
 market = market_for(asset, spoke_id, hub_id)
+
+# The last 90 days, as UTC calendar dates (yyyy-MM-dd).
+today = datetime.now(timezone.utc).date()
+window = {"from": (today - timedelta(days=90)).isoformat(), "to": today.isoformat(), "bin": "1d"}
+
 graph = get(
     f"/stellar-lending/reserves/{spoke_id}/{hub_id}/{urllib.parse.quote(asset, safe='')}/graph",
-    **{"from": "2026-01-01", "to": "2026-10-01", "bin": "1d"},
+    **window,
 )
-borrow_apy = [(point["timestamp"], point["borrowApy"]) for point in graph["points"]
-dimensions = get(
-    "/stellar-lending/defillama",
-    **{"from": "2026-01-01", "to": "2026-10-01", "bin": "1d"},
-)["points"]
+borrow_apy = [(point["timestamp"], point["borrowApy"]) for point in graph["points"]]
+dimensions = get("/stellar-lending/defillama", **window)["points"]
 ```
 
-Source: `xoxno-api-v2` commit `8d891f562b0322d659c6ea0ccc3a1f168afb4d03`.
-Public types: `@xoxno/sdk-js` version `1.0.228`.
+Public types come from the pinned SDK; see
+[Verified against](../xoxno-lending/SKILL.md#verified-against).

@@ -1,6 +1,13 @@
 # test-harness
 
-In-process Soroban integration layer for the rs-lending-xlm protocol. Inside a `soroban-sdk` test `Env` it registers the controller natively (`env.register(controller::Controller, …)`) and deploys the pool and position-nft from built WASM, wires mock oracles and aggregators, and exposes a fluent API for supply/borrow/liquidation/strategy flows used by integration and property tests. Because the controller is native, these tests do not exercise its compiled artifact or its WASM-level ABI.
+In-process Soroban integration layer for the lending protocol. It runs inside a `soroban-sdk` test `Env`:
+
+- It registers the controller natively (`env.register(controller::Controller, …)`).
+- It deploys the pool and position-nft from built WASM.
+- It wires mock oracles and aggregators.
+- It exposes a fluent API for supply, borrow, liquidation and strategy flows.
+
+The controller is native, so these tests do not exercise its compiled artifact or its WASM-level ABI.
 
 Build contract WASM first: `make build` from the repo root — the pool and position-nft `.wasm` files must exist.
 The [Curve collateral tests](tests/curve_collateral.rs) also load the production price-aggregator and swap-aggregator WASM; `PRICE_AGGREGATOR_WASM_PATH` and `SWAP_AGGREGATOR_WASM_PATH` override their default build paths.

@@ -5,7 +5,7 @@ uses integers. Apply `floor`, `ceil`, or `half_up` to the complete fraction
 `x * y / d`. Keep intermediate values exact: `I256` on-chain or `BigInt`
 off-chain. Do not use floating-point `Number` for transaction arithmetic.
 
-Sources: [`docs/reference/formulas.md`](../../docs/reference/formulas.md), `common/src/{constants,math,rates}`, `contracts/{pool,controller}`; every worked number was recomputed from them with exact integer arithmetic.
+Sources: [`docs/reference/formulas.md`](https://github.com/XOXNO/rs-lending-xlm/blob/main/docs/reference/formulas.md), `common/src/{constants,math,rates}`, `contracts/{pool,controller}`; every worked number was recomputed from them with exact integer arithmetic.
 
 ## Units
 
@@ -41,7 +41,7 @@ half_up(x, y, d) = ⌊(x·y + ⌊d/2⌋) / d⌋          // x, y ≥ 0, d > 0
 
 ## Shares and token amounts
 
-Positions store shares (`scaled_amount`, RAY); value = shares × index, and two rounding steps sit between shares and a token transfer ([formulas.md#shares-and-token-amounts](../../docs/reference/formulas.md#shares-and-token-amounts)). Rounding per boundary (`common/src/rates/scaling.rs`, `contracts/pool/src/cache/scale.rs`):
+Positions store shares (`scaled_amount`, RAY); value = shares × index, and two rounding steps sit between shares and a token transfer ([formulas.md#shares-and-token-amounts](https://github.com/XOXNO/rs-lending-xlm/blob/main/docs/reference/formulas.md#shares-and-token-amounts)). Rounding per boundary (`common/src/rates/scaling.rs`, `contracts/pool/src/cache/scale.rs`):
 
 | Boundary | Function | Direction |
 |---|---|---|
@@ -518,7 +518,7 @@ alone.
 
 ## Bad-debt socialization
 
-Eligibility (`is_socializable_bad_debt`): `total_debt > total_collateral` and `total_collateral ≤ 5 WAD` for permissionless `clean_bad_debt` and the check after `liquidate`; owner-only `force_socialize_bad_debt` drops the collateral cap. `contracts/pool/src/interest.rs::apply_bad_debt_to_supply_index` then lowers only the affected market's supply index ([formulas.md#bad-debt](../../docs/reference/formulas.md#bad-debt)). Example: 2,000,000 USDC of shares at index 1.083 (`total_supply_ray = 2_166_000e27`), bad debt 30,000 USDC:
+Eligibility (`is_socializable_bad_debt`): `total_debt > total_collateral` and `total_collateral ≤ 5 WAD` for permissionless `clean_bad_debt` and the check after `liquidate`; owner-only `force_socialize_bad_debt` drops the collateral cap. `contracts/pool/src/interest.rs::apply_bad_debt_to_supply_index` then lowers only the affected market's supply index ([formulas.md#bad-debt](https://github.com/XOXNO/rs-lending-xlm/blob/main/docs/reference/formulas.md#bad-debt)). Example: 2,000,000 USDC of shares at index 1.083 (`total_supply_ray = 2_166_000e27`), bad debt 30,000 USDC:
 
 ```text
 reduction = 986_149_584_487_534_626_038_781_163   // 0.98615
@@ -527,7 +527,7 @@ index 1.083e27 → 1_067_999_999_999_999_999_999_999_999   // ≈ 1.068
 
 ## Liquidation buffer
 
-Every debt mint (`borrow` and strategy openings, gross of any fee) keeps 200 bps of the floored supplied token value in cash (INV-ACCT-07, `contracts/pool/src/guards.rs::require_liquidation_buffer`, `InsufficientLiquidity`; the backing-shortfall gate on supply entry is [formulas.md#backing-and-cash-constraints](../../docs/reference/formulas.md#backing-and-cash-constraints)):
+Every debt mint (`borrow` and strategy openings, gross of any fee) keeps 200 bps of the floored supplied token value in cash (INV-ACCT-07, `contracts/pool/src/guards.rs::require_liquidation_buffer`, `InsufficientLiquidity`; the backing-shortfall gate on supply entry is [formulas.md#backing-and-cash-constraints](https://github.com/XOXNO/rs-lending-xlm/blob/main/docs/reference/formulas.md#backing-and-cash-constraints)):
 
 ```text
 reserved    = ceil(floor_supply_tokens × 200 / BPS)
@@ -573,7 +573,7 @@ fee = half_up(principal × fee_bps / BPS);  if fee_bps > 0 and fee == 0: fee = 1
 
 ## Numeric limits
 
-Arithmetic bounds (decimals, index ceiling and floor, rate cap, token→RAY input maximum, overflow behaviour): [formulas.md#numeric-limits](../../docs/reference/formulas.md#numeric-limits). Controller limits:
+Arithmetic bounds (decimals, index ceiling and floor, rate cap, token→RAY input maximum, overflow behaviour): [formulas.md#numeric-limits](https://github.com/XOXNO/rs-lending-xlm/blob/main/docs/reference/formulas.md#numeric-limits). Controller limits:
 
 | Bound | Value | Consequence |
 |---|---|---|

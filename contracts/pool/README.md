@@ -8,20 +8,9 @@ arithmetic and liquidity.
 | --- | --- |
 | Owner | Controller, fixed at construction. No transfer, accept or renounce |
 | Called by | Controller only; users never call the pool. Integrators use [`contracts/controller`](../controller/README.md) |
-| Client | [`interfaces/pool`](../../interfaces/pool) |
-
-Full signatures are in the `LiquidityPoolInterface` trait,
-[`interfaces/pool/src/lib.rs`](../../interfaces/pool/src/lib.rs); the generated
-client drops the `Env` argument.
+| Client | `LiquidityPoolInterface` in [`interfaces/pool/src/lib.rs`](../../interfaces/pool/src/lib.rs); the client drops the `Env` argument |
 
 ## Model
-
-Each market has two persistent keys. There is no per-user storage.
-
-```text
-PoolKey::Params(HubAssetKey)   # InterestRateModel, asset id, decimals
-PoolKey::State(HubAssetKey)    # supplied, borrowed, revenue, indexes, timestamp, cash
-```
 
 Balances are scaled shares. Value = shares × index, so interest reaches every
 holder without a per-user write:
@@ -33,7 +22,7 @@ supply value = supplied * supply_index      debt value = borrowed * borrow_index
 Positions come in as arguments (`ScaledPositionRaw`) and go out as return
 values (`PoolPositionMutation`). The controller holds the per-account ledger.
 
-## Trust
+## Authorization
 
 The controller deploys the pool with itself as the constructor argument
 (`deploy_v2(wasm_hash, (env.current_contract_address(),))`). There is no
@@ -69,7 +58,7 @@ error, not a contract code. Error numbers are from `common/src/errors.rs`.
 | `__constructor(admin)` | — | Sets the Ownable owner, once | — |
 | `create_market(hub_id, params)` | — | Verifies params, writes state with both indexes at `RAY` | `AssetAlreadySupported` (2), `MarketParamsRaw::verify` |
 | `update_params(hub_asset, model)` | — | Accrues on the **old** curve, then writes the new model | `InterestRateModel::verify` |
-| `update_indexes(hub_assets)` | — | Accrues each market; writes only if time elapsed | — |
+| `update_indexes(hub_assets)` | — | Accrues each market and always commits, so the write is in the footprint | — |
 | `supply(entries)` | in | Mints supply shares, credits cash | 14, `PoolInsolvent` (123), `SupplyRoundsToZeroShares` (51), `MarketCeilingReached` (136) |
 | `borrow(receiver, entries)` | out | Mints debt shares, debits cash, transfers | 14 (zero too), `InsufficientLiquidity` (112), `BorrowRoundsToZeroShares` (47), `UtilizationAboveMax` (127), 136 |
 | `withdraw(receiver, is_liquidation, entries)` | out | Burns supply shares, keeps the liquidation fee, transfers the net | 14, `WithdrawRoundsToZeroShares` (49), `WithdrawLessThanFee` (115), 112, 127 (non-liquidation), 123, `InternalError` (34) |
@@ -278,7 +267,10 @@ after creation.
 
 **`withdraw`** returns `actual_amount = gross`; the receiver gets
 `gross − protocol_fee`. The fee is minted back as protocol shares and the cash
-stays. `actual_amount` is not the amount received.
+stays. `actual_amount` is not the amount received. When a withdrawal burns
+the last shares for a zero-token payout, the pool attempts a zero-value
+transfer to the receiver. This keeps the receiver's account or trustline in
+the footprint. Other zero payouts move no tokens.
 
 **`net_settle`** moves no tokens and is not withdraw + repay. It settles
 `min(requested, floor(supply), ceil(debt))`. When `ceil(debt)` is one unit
@@ -306,6 +298,32 @@ claimable; if they pass, the call returns `actual_amount = 0`, moves no tokens
 and emits a snapshot. Always read `actual_amount` from the returned
 `PoolAmountMutation`.
 
+## Storage and TTL
+
+| Key | Tier | Holds |
+| --- | --- | --- |
+| `PoolKey::Params(HubAssetKey)` | persistent | `InterestRateModel`, asset id, decimals |
+| `PoolKey::State(HubAssetKey)` | persistent | Supplied, borrowed, revenue, indexes, timestamp, cash |
+| OpenZeppelin `Ownable` owner | instance | The controller |
+
+There is no per-user storage. Persistent entries renew on every read, views
+included, with `TTL_THRESHOLD_SHARED` (30 days) and `TTL_BUMP_SHARED` (180
+days). The instance renews at the start of each mutator.
+
+## Events
+
+| Event | When |
+| --- | --- |
+| `PoolMarketStateBatchEvent` | Any state change |
+| `PoolMarketParamsBatchEvent` | Market creation and model change |
+| `StrategyFeeEvent` | A non-zero strategy fee |
+| `MarketValueCeilingEvent` | An accrual held interest at the value ceiling |
+
+Read [pool events](../../docs/reference/events.md#pool-events) before you
+write a decoder. Batch events carry single-value data.
+`PoolMarketStateEvent` rows are 9-entry vectors in fixed order, and
+`PoolMarketParamsEvent` rows are maps.
+
 ## Layout
 
 ```text
@@ -328,30 +346,10 @@ Shared math is in [`common`](../../common): `math/fp.rs` (`Ray`, `Wad`, `Bps`),
 `math/fp_core.rs` (`i128` mul-div, `I256` only on overflow), `rates/` (curve,
 compound, index, scaling, simulate) and `types/pool.rs` (ABI types, `verify`).
 
-**TTL.** Persistent entries renew on every read; the instance renews at the
-start of each mutator. `TTL_THRESHOLD_SHARED` is 30 days, `TTL_BUMP_SHARED`
-180 days.
-
-**Events.** `PoolMarketStateBatchEvent` on state change,
-`PoolMarketParamsBatchEvent` on create and model change, `StrategyFeeEvent`
-only for a non-zero strategy fee, `MarketValueCeilingEvent` when an accrual
-held interest at the value ceiling. Read "Pool events" in
-[`docs/reference/events.md`](../../docs/reference/events.md) before you write a
-decoder: batch events carry single-value data, `PoolMarketStateEvent` rows are
-9-entry vectors in fixed order, and `PoolMarketParamsEvent` rows are maps.
-
-## Verification
-
-```bash
-make test-pool        # pool unit tests
-make test             # whole workspace, harness included
-make miri-common      # fp_core Miri tests, for common/src/math changes
-make clippy
-```
-
 ## References
 
 - Errors: [`docs/reference/errors.md`](../../docs/reference/errors.md)
-- Events: [`docs/reference/events.md`](../../docs/reference/events.md)
+- Events: [`docs/reference/events.md`](../../docs/reference/events.md#pool-events)
 - Formulas: [`docs/reference/formulas.md`](../../docs/reference/formulas.md)
 - Formal proofs: [`certora/pool/spec`](../../certora/pool/spec/README.md)
+- Tests: `make test-pool` for unit tests; `make miri-common` after a `common/src/math` change

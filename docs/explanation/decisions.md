@@ -1,13 +1,39 @@
-# Protocol design rationale
+# Design decisions
 
-These explanations connect protocol rules to their trade-offs for maintainers
-and auditors. Read [Architecture](../reference/architecture.md) first for the
-component model. [Invariants](../reference/invariants.md),
-[Formulas](../reference/formulas.md), and the [Threat model](threat-model.md)
-define exact properties, arithmetic, and risks.
+Each decision record states a protocol rule and its trade-off. Read
+[Architecture](../reference/architecture.md) first for the component model.
+[Invariants](../reference/invariants.md), [Formulas](../reference/formulas.md)
+and the [Threat model](threat-model.md) define the exact properties, arithmetic
+and risks.
 
-The numbered anchors provide stable references across documentation. Sections
-describe implemented behavior.
+ADR numbers are stable anchors. The records are grouped by topic, so the
+numbers are not in sequence.
+
+| ADR | Decision | Topic |
+|---|---|---|
+| [0001](#adr-0001) | Governance, controller, and pool authority | Authority |
+| [0002](#adr-0002) | Central custody, separate market books | Accounting |
+| [0003](#adr-0003) | Indexed shares and directed rounding | Accounting |
+| [0004](#adr-0004) | Dual-source agreement | Prices |
+| [0005](#adr-0005) | Fail-closed valuation | Prices |
+| [0006](#adr-0006) | Typed proposals and bound execution | Authority |
+| [0007](#adr-0007) | Emergency ratchet | Authority |
+| [0008](#adr-0008) | Independent halt flags | Authority |
+| [0009](#adr-0009) | Immutable spoke binding | Authority |
+| [0010](#adr-0010) | Cash flash-loan repayment | Execution |
+| [0011](#adr-0011) | Measure router settlement | Execution |
+| [0012](#adr-0012) | Supplier-index loss allocation | Accounting |
+| [0013](#adr-0013) | Credit measured receipts | Accounting |
+| [0014](#adr-0014) | Governed source admission | Prices |
+| [0015](#adr-0015) | Literal asset-unit caps | Accounting |
+| [0016](#adr-0016) | Millisecond rates and chunked accrual | Accounting |
+| [0017](#adr-0017) | Verification and deployment artifacts | Verification |
+| [0018](#adr-0018) | Compact route instructions | Execution |
+| [0019](#adr-0019) | Liquidation share credit | Execution |
+| [0020](#adr-0020) | Zero-fee flash-position callback | Execution |
+| [0021](#adr-0021) | Gross-debt cleanup accounting | Accounting |
+| [0022](#adr-0022) | Liquidator payoff at collateral equal to debt | Accounting |
+| [0023](#adr-0023) | Delegated listing authority through the curator | Authority |
 
 ## Authority and emergency control
 
@@ -85,6 +111,34 @@ existing debt into another risk regime by changing an argument. Governance can
 change listings, and any caller can refresh an account's stored risk values
 with `update_account_threshold`. No path rebinds the account.
 
+<a id="adr-0023"></a>
+
+### ADR-0023: Delegated listing authority through the curator
+
+The curator contract lets independent registrars run their own hubs and
+spokes. Governance stays the controller owner. The curator holds the
+governance `CURATOR`, `PROPOSER` and `CANCELLER` roles.
+
+Each registrar has an admin and members with role bits:
+
+| Role | Allows |
+|---|---|
+| `ROLE_MARKET` | Register markets, set cap grants, queue listings, listing edits and rate changes |
+| `ROLE_SPOKE` | Create hubs and spokes |
+| `ROLE_FLAGS` | Tighten listing flags, queue a flag relaxation |
+
+Changes that expose no funds are immediate: `create_hub`, `add_spoke`,
+`create_market` and `tighten_flags`. A new market takes no supply or debt until
+a spoke lists it. Listings, listing edits, rate changes and flag relaxations go
+through `propose`, so they wait for the governance timelock. A registrar can cancel a queued operation only for a hub or spoke
+that it owns. A hub owner can thus stop a listing queued under a grant that
+it later revoked.
+
+The trade-off: registrars add listings without a governance proposal of their
+own, but they cannot skip the timelock. The
+[curator README](../../contracts/curator/README.md) lists each entrypoint and
+its boundary.
+
 ## Accounting and loss allocation
 
 <a id="adr-0002"></a>
@@ -155,6 +209,46 @@ recapitalization must be interpreted on that basis.
 
 The [bad-debt section](threat-model.md#bad-debt-and-liquidation) explains the financial
 consequences.
+
+<a id="adr-0022"></a>
+
+### ADR-0022: Liquidator payoff at collateral equal to debt
+
+Audit finding R-23 noted that the liquidator profit jumps where collateral `C`
+falls below debt `D`. The protocol keeps this payoff shape.
+
+Let `x = C / D` and let `b` be the base bonus:
+
+| Region | Liquidator profit | Lender loss |
+|---|---|---|
+| `1 <= x < 1 + b` (band) | `C - D` | 0 |
+| `x < 1` (insolvent) | `C * b / (1 + b)` | `D - C / (1 + b)` |
+
+At `b = 5 %` the profit goes from 0.50 % of `D` at `x = 1.005` to 4.74 % of `D`
+at `x = 0.995`. The jump is the same for 7-decimal and 0-decimal collateral.
+
+Each alternative is worse:
+
+- A payoff that never rises as `x` falls must pay 0 below `x = 1`. Then no
+  liquidator closes an insolvent account, and more bad debt stays open.
+- A continuous insolvent bonus lets a liquidator earn more by splitting one
+  liquidation into many parts. The Certora rule
+  `split_liq_chain_bound_holds_when_health_never_recovers` depends on a
+  constant insolvent bonus.
+- A band quote of `floor(C / (1 + b))` leaves debt with no collateral. At
+  `x = 1.005` that is 4.29 % of `D`.
+
+A liquidator cannot push an account across `x = 1`. The HF-preserving cap keeps
+`1 + bonus <= C / D` on a solvent account, so only a price move or interest
+moves `x`. A liquidator that waits for `x < 1` gives up the larger payoff at the
+band top (`b * D`). The gain from waiting is at most `D * b / (1 + b)` per
+account. To reduce that bound on a listing, governance lowers its base bonus.
+
+Two tests pin the payoff shape:
+`the_liquidator_payoff_jumps_where_collateral_falls_below_debt` and
+`zdc_liquidator_payoff_jumps_where_collateral_falls_below_debt`. A change to the
+payoff must update both tests and
+[formulas](../reference/formulas.md#bonus-and-target-repayment).
 
 ## Price validation
 
@@ -257,7 +351,7 @@ gross LiqSeize from net LiqCredit.
 Controller account-isolation proofs exempt the declared receiver and frame a
 third account. The receiver-credit bound does not prove pool fee allocation
 because the model summarizes that call; see
-[model boundaries](certora-sunbeam-prover-tuning.md#model-boundaries).
+[model boundaries](../../certora/README.md#model-boundaries).
 
 <a id="adr-0020"></a>
 
@@ -289,5 +383,5 @@ fixtures directory, so the released governance Wasm is the one candidate the
 network run does not execute; native tests cover it. The build stamps a
 `timelock` contract-meta entry, and the candidate check fails on a governance
 candidate that carries it. Formal results also depend on their harness and external-call
-assumptions. The [proof guide](certora-sunbeam-prover-tuning.md) explains how to
-interpret that evidence.
+assumptions. [Reading a Sunbeam verdict](../../certora/README.md#reading-a-sunbeam-verdict)
+explains how to interpret that evidence.

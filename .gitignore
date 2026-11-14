@@ -92,10 +92,12 @@ superpowers
 # Certora local prover run reports
 **/emv-*-certora-*/
 
-# The codebase-memory-mcp graph in .codebase-memory/ is tracked, so CI and
-# other clones load the code graph without a full reindex.
-# .codebase-memory/.gitattributes marks graph.db.zst as `binary merge=ours`,
-# which requires `git config merge.ours.driver true`.
+# Local agent notes
+CLAUDE.local.md
+
+# Local codebase-memory-mcp graph (`make cbm-index`).
+.codebase-memory/
+.cbmignore
 target-mutants/
 target-fixtures/
 .cursor/settings.json

@@ -64,8 +64,7 @@ freshness, depth, cycle and LP sanity-band rules. The pool value must meet
 one-coin redemption proceeds; collateral risk parameters must allow for fees
 and liquidation liquidity.
 
-To list: upgrade governance and the price aggregator for the new ABI, configure
-all coin oracles first, then configure the LP token with `asset_decimals: 18`
+To list: configure all coin oracles first, then configure the LP token with `asset_decimals: 18`
 and exactly one `CurveStableLp` source. Its fields are `pool`, `coins` (exact
 pool order), `wasm_hash` (64 hexadecimal characters in CLI JSON), and
 `min_pool_value_wad`. The pool address is also the LP token address. Create the
@@ -108,26 +107,39 @@ ramp can move the mark either way, but never above the normalized reserves per
 share times the lowest coin price. Each coin's issuer is trusted as
 for a directly listed token (clawback, freeze, upgrade, decimals change).
 
-`MAX_CURVE_COINS` is 3. Real-WASM fixtures cover 2 and 3 coins, and the harness
-liquidates `POSITION_LIMIT_MAX` 3-coin LP legs within the default Soroban budget
-(about 55M CPU; see the [threat model](../../docs/explanation/threat-model.md#numeric-and-resource-limits)).
-That figure is a lower bound: native controller and feed, SAC coins,
-single-source coin oracles and one debt leg. With every contract on the path as
-WASM, custom-WASM coins, two-source coin oracles and 5 debt legs, the worst case
-measured 107.7M CPU and 15.1M memory (`curve_lp_liquidation_worst_case_all_wasm`).
-That bench uses `mock_redstone.wasm` for both feed providers (the RedStone
-primary and the Chainlink anchor) and the minimal `production_fixture.wasm`
-token for every coin and debt asset. It asserts all eight fixture resource
-ceilings recorded in `MAINNET_LIMITS`.
-Re-measure with the production RedStone adapter, Chainlink proxy and listed
-token executables before treating the figure as a production bound. Live
-mainnet limits read on 2026-11-02 (`stellar network settings`):
-`tx_max_instructions` 400,000,000, `tx_memory_limit` 41,943,040,
-`tx_max_footprint_entries` 400, `tx_max_disk_read_entries` 200,
-`tx_max_write_ledger_entries` 200.
-Larger pools require their own code and transaction-resource validation.
-The generic production-fixture runner rejects Curve sources; Curve tests use
-the real pool WASMs.
+`MAX_CURVE_COINS` is 3. Larger pools need their own code and
+transaction-resource validation. Curve tests use the real pool WASMs; the
+generic production-fixture runner rejects Curve sources.
+
+Real-WASM fixtures cover 2 and 3 coins. The harness liquidates
+`POSITION_LIMIT_MAX` 3-coin LP legs within the default Soroban budget, about
+55M CPU (see the [threat model](../../docs/explanation/threat-model.md#numeric-and-resource-limits)).
+That case runs the controller and feed natively, with SAC coins, single-source
+coin oracles and one debt leg.
+
+The worst case, `curve_lp_liquidation_worst_case_all_wasm`, runs every contract
+on the path as WASM, with custom-WASM coins, two-source coin oracles and 5 debt
+legs. It measures 107.7M CPU and 15.1M memory. It uses `mock_redstone.wasm`
+for both feed providers and `production_fixture.wasm` for every coin and debt
+asset.
+
+The bench asserts all eight resource ceilings in `MAINNET_LIMITS`, which mirror
+the mainnet transaction limits:
+
+| Limit | Value |
+| --- | --- |
+| `tx_max_instructions` | 400,000,000 |
+| `tx_memory_limit` | 41,943,040 |
+| `tx_max_footprint_entries` | 400 |
+| `tx_max_disk_read_entries` | 200 |
+| `tx_max_write_ledger_entries` | 200 |
+| `tx_max_disk_read_bytes` | 200,000 |
+| `tx_max_write_bytes` | 132,096 |
+| `tx_max_contract_events_size_bytes` | 16,384 |
+
+The production RedStone adapter, Chainlink proxy and listed token executables
+can cost more than the fixtures. Measure them before you list a pool near
+these limits.
 
 ## Entrypoints
 
@@ -152,6 +164,24 @@ the timelocked `ConfigureAssetOracle` operation, which calls `set_oracle`.
 or attestation. They exist only under `cfg(test)` or the `testing` feature,
 never in a release build.
 
+## Storage and TTL
+
+| Key | Tier | Holds |
+| --- | --- | --- |
+| `AggregatorKey::Oracle(PriceKey)` | persistent | One `AssetOracle` configuration |
+| `AggregatorKey::OracleKeys` | instance | Index of every registered `PriceKey` |
+| OpenZeppelin `Ownable` owner | instance | Governance |
+
+Every entrypoint, views included, renews the instance TTL with
+`renew_instance`. Every read and write of an `Oracle` entry extends it with
+`TTL_THRESHOLD_SHARED` and `TTL_BUMP_SHARED`.
+
+## Events
+
+`set_oracle`, `set_sanity_band` and `set_tolerance` publish
+`UpdateAssetOracleEvent` (`["config", "asset_oracle"]`) with the committed
+configuration. See [events](../../docs/reference/events.md#price-aggregator-events).
+
 ## Layout
 
 ```text
@@ -170,5 +200,5 @@ providers/      # aquarius + curve (LP) + chainlink + multi_feed (bulk) + reflec
 ## References
 
 - Errors: [`docs/reference/errors.md`](../../docs/reference/errors.md)
-- Events: [`docs/reference/events.md`](../../docs/reference/events.md)
+- Events: [`docs/reference/events.md`](../../docs/reference/events.md#price-aggregator-events)
 - Formal proofs: [`certora/README.md`](../../certora/README.md) (price system)

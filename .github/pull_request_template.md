@@ -22,8 +22,8 @@ call-site policy").
 - Affected invariants (cite file:function or test):
 - Specific impact (solvency, oracle, liquidation, flash-loan, storage, etc.):
 
-See [CONTRIBUTING.md](../CONTRIBUTING.md), contract rustdoc, and
-[`skills/xoxno-lending/SKILL.md`](../skills/xoxno-lending/SKILL.md).
+See [CONTRIBUTING.md](../CONTRIBUTING.md), the contract README and its rustdoc,
+and the [invariants](../docs/reference/invariants.md).
 
 ## Verification
 

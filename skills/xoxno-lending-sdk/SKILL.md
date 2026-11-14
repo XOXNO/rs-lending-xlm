@@ -7,8 +7,8 @@ argument-hint: "[read | positions | transaction | strategy | frontend]"
 
 # XOXNO Lending SDK
 
-This skill targets the published `@xoxno/sdk-js@1.0.228` surface and
-`@stellar/stellar-sdk@16.3.0`. Builders return unsigned, unprepared XDR. The host
+This skill targets the published `@xoxno/sdk-js` surface at the
+[pinned SDK](../xoxno-lending/SKILL.md#verified-against) and `@stellar/stellar-sdk@16.3.0`. Builders return unsigned, unprepared XDR. The host
 application owns RPC preparation, signing, submission, confirmation, and
 state reconciliation.
 

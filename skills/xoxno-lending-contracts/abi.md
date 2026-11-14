@@ -9,15 +9,15 @@ use the sources below.
   generated from the WASM the crate embeds (see
   [SKILL.md](SKILL.md#dependencies))
 - Controller signatures:
-  [`interfaces/controller/src/lib.rs`](../../interfaces/controller/src/lib.rs)
+  [`interfaces/controller/src/lib.rs`](https://github.com/XOXNO/rs-lending-xlm/blob/main/interfaces/controller/src/lib.rs)
 - Controller admin signatures:
-  [`interfaces/controller/src/admin.rs`](../../interfaces/controller/src/admin.rs)
+  [`interfaces/controller/src/admin.rs`](https://github.com/XOXNO/rs-lending-xlm/blob/main/interfaces/controller/src/admin.rs)
 - Pool, NFT, router, and price signatures:
-  [`interfaces/`](../../interfaces/)
+  [`interfaces/`](https://github.com/XOXNO/rs-lending-xlm/tree/main/interfaces/)
 - Shared contract types:
-  [`common/src/types`](../../common/src/types/)
+  [`common/src/types`](https://github.com/XOXNO/rs-lending-xlm/tree/main/common/src/types/)
 - Canonical error names, namespaces, causes, and remedies:
-  [`docs/reference/errors.md`](../../docs/reference/errors.md)
+  [`docs/reference/errors.md`](https://github.com/XOXNO/rs-lending-xlm/blob/main/docs/reference/errors.md)
 
 Generated clients pass arguments by reference. Use the crate's types as
 described in [SKILL.md](SKILL.md#dependencies); duplicating a
@@ -84,7 +84,7 @@ position. New supply/debt markets count against position limits.
 
 `update_account_threshold(caller, has_risks, account_ids)` iterates the input
 without an explicit length bound in
-[`risk/params.rs`](../../contracts/controller/src/risk/params.rs). A keeper
+[`risk/params.rs`](https://github.com/XOXNO/rs-lending-xlm/blob/main/contracts/controller/src/risk/params.rs). A keeper
 must use conservative batches, simulate every batch successfully, and only
 submit a batch whose footprint and budget fit.
 
@@ -96,7 +96,7 @@ bound to other views; simulate their batches.
 
 Do not maintain a local per-entrypoint error list. Decode the failing contract
 first because controller/router and oracle/NFT codes collide numerically, then
-use [`docs/reference/errors.md`](../../docs/reference/errors.md).
+use [`docs/reference/errors.md`](https://github.com/XOXNO/rs-lending-xlm/blob/main/docs/reference/errors.md).
 
 Integration failures often missed by a code-only error lookup:
 

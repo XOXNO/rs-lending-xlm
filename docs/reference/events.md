@@ -2,7 +2,7 @@
 
 Use this reference to decode protocol events and interpret their amounts, shares and configuration snapshots. Match both the emitting contract and the ordered topic vector.
 
-The contracts define 37 custom event types: controller 21, pool 4, governance 2, curator 8, price aggregator 1 and DeFindex adapter 1. The position NFT, swap aggregator and XOXNO oracle define no custom events, but their inherited OpenZeppelin events remain observable. Subscribe to both controller and pool events to track account and market changes.
+The controller, pool, governance, curator, price aggregator and DeFindex adapter define custom event types. The position NFT, swap aggregator and XOXNO oracle define no custom events. Their inherited OpenZeppelin events remain observable. Subscribe to both controller and pool events to track account and market changes.
 
 ## Wire rules and units
 
@@ -11,8 +11,8 @@ The decoder must preserve the following encoding rules:
 - Explicit custom topics below are ordered Soroban Symbols. Custom events have no dynamic topic fields. Inherited events do, as listed separately.
 - `map` payloads use Symbol field-name keys sorted alphabetically. `vec` uses declaration order. `single-value` is the field value itself without a wrapper. Named contract structs are maps; tuple structs are vectors.
 - Only integer enums with explicit discriminants encode as u32 here (`PositionAction`, `EventPositionMode`). Ordinary enum variants encode as `[Symbol(variant), payload...]`, including unit variants such as `["Market"]`. `Option<T>` is T for Some and Void for None.
-- `i128` amounts/fees/cash use raw token decimals unless marked otherwise. `*_wad` fields use 10^18; indexes, annual rates, utilization and share balances use 10^27; risk parameters and fees marked BPS use 10,000. Pool timestamps use milliseconds. Oracle staleness and observation timestamps use seconds. Ledger deadlines are sequence numbers.
-- For shares S, RAY index I and token decimals d, underlying RAY is the protocol-rounded `S * I / RAY`, then raw token units rescale by `10^(27-d)` with the path’s floor/ceil rounding. Multiplying shares by index alone does **not** produce raw token units. See [formulas](formulas.md).
+- `i128` amounts/fees/cash use raw token decimals unless marked otherwise. `*_wad` fields use 10^18. Indexes, annual rates, utilization and share balances use 10^27. Risk parameters and fees marked BPS use 10,000. Pool timestamps use milliseconds. Oracle staleness and observation timestamps use seconds. Ledger deadlines are sequence numbers.
+- For shares S, RAY index I and token decimals d, underlying RAY is the protocol-rounded `S * I / RAY`. Raw token units then rescale by `10^(27-d)` with the path’s floor/ceil rounding. Multiplying shares by index alone does **not** produce raw token units. See [formulas](formulas.md).
 
 ## Custom events
 
@@ -62,7 +62,7 @@ Field lists use exact Rust types. Map key order is alphabetical, regardless of d
 
 ### Curator events
 
-Every registry write publishes one event from the storage setter that makes it, so the event payload is the stored value. Forwarded calls (`create_hub`, `add_spoke`, `create_market`, `tighten_flags`) are observed through the governance and controller events they cause; `ProposedEvent` is the only record of which registrar queued a governance operation.
+Every registry write publishes one event from the storage setter that makes it. The event payload is the stored value. Forwarded calls (`create_hub`, `add_spoke`, `create_market`, `tighten_flags`) appear through the governance and controller events they cause. `ProposedEvent` is the only record of which registrar queued a governance operation. `CancelledEvent` names the registrar that cancelled one.
 
 | Event / ordered topics | Format and fields | Emission / interpretation |
 | --- | --- | --- |
@@ -89,7 +89,7 @@ Every registry write publishes one event from the storage setter that makes it, 
 
 ## Position batches
 
-`UpdatePositionBatchEvent` encodes as `[account_id, account_attributes, deposits, borrows]`. The last two entries are vectors of tuple records. `scaled_amount` is the resulting share balance; `amount` is the account’s movement in raw token units. Deposit risk parameters use BPS.
+`UpdatePositionBatchEvent` encodes as `[account_id, account_attributes, deposits, borrows]`. The last two entries are vectors of tuple records. `scaled_amount` is the resulting share balance. `amount` is the account’s movement in raw token units. Deposit risk parameters use BPS.
 
 | Tuple type | Ordered elements with types |
 | --- | --- |
@@ -121,9 +121,9 @@ Every registry write publishes one event from the storage setter that makes it, 
 
 Liquidation emits controller events in this order: `LiquidationEvent`, the target position batch, an optional Credit receiver batch, then optional bad-debt cleanup. Pool, NFT and token events can occur between these controller events. The receiver batch contains only supply credits and omits zero-net credits.
 
-`LiqSeize.amount` is gross and `LiqCredit.amount` is net. Both use raw token units, including in Credit mode. Their difference can include conversion rounding; compute the exact share fee from share deltas and the [seizure calculation](formulas.md).
+`LiqSeize.amount` is gross and `LiqCredit.amount` is net. Both use raw token units, including in Credit mode. Their difference can include conversion rounding. Compute the exact share fee from share deltas and the [seizure calculation](formulas.md).
 
-`Credit(0)` emits an inherited NFT `Mint` when it creates an account. There is no controller AccountCreated event. Track NFT lifecycle events as well as position batches: an operation that records no deltas emits no batch. Account deletion burns the NFT; `repay` never deletes an account, even when it clears the last debt.
+`Credit(0)` emits an inherited NFT `Mint` when it creates an account. There is no controller AccountCreated event. Track NFT lifecycle events as well as position batches. An operation that records no deltas emits no batch. Account deletion burns the NFT. `repay` never deletes an account, even when it clears the last debt.
 
 ## Market and configuration records
 
@@ -153,11 +153,15 @@ Timestamp uses milliseconds and cash uses raw token units. Indexes and supplied,
 | `CurveStableLpSource` | `pool: Address, coins: Vec<Address>, wasm_hash: BytesN<32>, min_pool_value_wad: i128` |
 | `OracleTolerance` | `upper_ratio_bps: u32, lower_ratio_bps: u32` |
 
-Rate fields `base_borrow_rate`, `max_borrow_rate` and `slope1/2/3` use annual RAY. Slopes are additive segment increments; `max_utilization` is an operation limit. See [formulas](formulas.md) for the curve and rounding. Reserve factor and flash-loan fee use BPS; asset decimals describe raw token units. Spoke caps use raw token units; position limits and entry counts are counts.
+Rate fields `base_borrow_rate`, `max_borrow_rate` and `slope1/2/3` use annual RAY. Slopes are additive segment increments. `max_utilization` is an operation limit. See [formulas](formulas.md) for the curve and rounding. Reserve factor and flash-loan fee use BPS. Asset decimals describe raw token units. Spoke caps use raw token units. Position limits and entry counts are counts.
 
 Spoke flags and deprecation affect admission differently for entry, exit and seizure. See [risk checks and pause flags](endpoints.md#risk-checks-and-pause-flags) and [Credit liquidation](endpoints.md#liquidation-results) for these restrictions.
 
-`CapGrant` in `CapGrantEvent` is a map: `supply_cap: i128, borrow_cap: i128` in raw token units of the hub asset, `can_collateral: bool, can_borrow: bool`, and the BPS ceilings `ltv: u32, threshold: u32, bonus: u32, liquidation_fees: u32` that a grantee listing may not exceed.
+`CapGrant` in `CapGrantEvent` is a map with these fields:
+
+- `supply_cap: i128, borrow_cap: i128` in raw token units of the hub asset.
+- `can_collateral: bool, can_borrow: bool`.
+- `ltv: u32, threshold: u32, bonus: u32, liquidation_fees: u32`, BPS ceilings that a grantee listing may not exceed.
 
 ## Oracle enum payloads
 
@@ -171,7 +175,7 @@ Spoke flags and deprecation affect admission differently for entry, exit and sei
 | FeedNature | `["Market"]`, `["Fundamental"]` |
 | IndependencePolicy | `["RequireDisjoint"]`, `["AllowShared", Vec<Address>]` |
 
-All `*_seconds` fields are seconds; `*_wad` prices/factors are WAD. Feed `decimals` describes provider output; reserve/asset decimals describe token amounts. OracleTolerance ratios use BPS; only upper ratio is consulted at read time, with lower reciprocal validated at configuration.
+All `*_seconds` fields are seconds. `*_wad` prices/factors are WAD. Feed `decimals` describes provider output. Reserve/asset decimals describe token amounts. OracleTolerance ratios use BPS. Reads consult only the upper ratio. Configuration checks that the lower ratio is the reciprocal of the upper ratio.
 
 ## Inherited events
 
@@ -198,9 +202,9 @@ OpenZeppelin release 0.8.0 and Soroban SDK 28.0.0 determine these shapes. Topic 
 | Governance: OperationExecuted | `["operation_executed", <id: BytesN<32>>, <target: Address>]` | `function: Symbol, args: Vec<Val>, predecessor: BytesN<32>, salt: BytesN<32>` | execute/execute_self/execute_canceller_reset |
 | Governance: OperationCancelled | `["operation_cancelled", <id: BytesN<32>>]` | `{}` | cancel |
 
-The governance ABI does not expose role-admin changes or admin renunciation, so it does not emit RoleAdminChanged or AdminRenounced. Ownable `set_owner` emits nothing: router, XOXNO oracle and pool constructors use this silent path. Controller, price-aggregator and governance constructors explicitly emit ownership events. Direct `update_current_contract` calls define no custom upgrade event.
+The governance ABI does not expose role-admin changes or admin renunciation, so it does not emit RoleAdminChanged or AdminRenounced. Ownable `set_owner` emits nothing. Router, XOXNO oracle and pool constructors use this silent path. Controller, price-aggregator and governance constructors explicitly emit ownership events. Direct `update_current_contract` calls define no custom upgrade event.
 
-Underlying token contracts emit their own transfer and approval events. Decode them under the token's standard; NFT events are not SEP-41 events, and token transfers are not protocol custom events.
+Underlying token contracts emit their own transfer and approval events. Decode them under the token's standard. NFT events are not SEP-41 events. Token transfers are not protocol custom events.
 
 XOXNO price submissions have no custom submission event. Router swaps have no custom route or fee event, although the router emits inherited ownership events. Use [endpoint semantics](endpoints.md) when an action has no dedicated event.
 

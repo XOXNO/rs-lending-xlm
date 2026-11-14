@@ -19,16 +19,16 @@ fixed at creation. Check the owner, mode, and spoke before you reuse an ID.
   not reused.
 
 See
-[`contracts/controller/src/account.rs`](../../contracts/controller/src/account.rs),
-[`positions/supply.rs`](../../contracts/controller/src/positions/supply.rs),
+[`contracts/controller/src/account.rs`](https://github.com/XOXNO/rs-lending-xlm/blob/main/contracts/controller/src/account.rs),
+[`positions/supply.rs`](https://github.com/XOXNO/rs-lending-xlm/blob/main/contracts/controller/src/positions/supply.rs),
 and
-[`positions/debt.rs`](../../contracts/controller/src/positions/debt.rs).
+[`positions/debt.rs`](https://github.com/XOXNO/rs-lending-xlm/blob/main/contracts/controller/src/positions/debt.rs).
 
 ## Canonical local account pointer
 
 Your contract must store and renew its account ID. These helpers implement
 the procedure from
-[`resolve_vault_account`](../../contracts/defindex-strategy/src/lib.rs):
+[`resolve_vault_account`](https://github.com/XOXNO/rs-lending-xlm/blob/main/contracts/defindex-strategy/src/lib.rs):
 
 ```rust
 use soroban_sdk::{contracterror, contracttype, panic_with_error, Env};

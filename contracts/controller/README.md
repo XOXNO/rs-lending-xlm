@@ -164,10 +164,49 @@ Owner only, except `accept_ownership` (pending owner).
 | `migrate(new_version)` | Set the app version; must be higher than the current one |
 | `transfer_ownership(new_owner, live_until_ledger)`, `accept_ownership()` | Two-step ownership transfer |
 
+## Storage and TTL
+
+All persistent keys are variants of `ControllerKey` in
+[`common/src/types/controller.rs`](../../common/src/types/controller.rs).
+
+| Keys | Tier | TTL window |
+| --- | --- | --- |
+| `Pool`, `SwapAggregator`, `PriceAggregator`, `PositionNft`, `Accumulator`, `PositionLimits`, `MinBorrowCollateralUsd`, `AppVersion`, `LastHubId`, `LastSpokeId` | instance | `TTL_THRESHOLD_INSTANCE` / `TTL_BUMP_INSTANCE`, renewed by state-changing calls |
+| `Hub`, `Spoke`, `SpokeAsset`, `SpokeUsage`, `SpokeFlagsEpoch`, `PositionManager`, `BlendPoolAllowed` | persistent | `TTL_THRESHOLD_SHARED` / `TTL_BUMP_SHARED`, on read and write |
+| `AccountMeta`, `SupplyPositions`, `BorrowPositions`, `Delegates` | persistent | `TTL_THRESHOLD_USER` / `TTL_BUMP_USER`, on read and write; `renew_account` extends them on demand |
+| `FlashLoanOngoing` | temporary | Set only for the duration of a guarded external call |
+
+The account owner lives in the position NFT, not here. See
+[`../position-nft/README.md`](../position-nft/README.md#storage-and-ttl).
+
+## Events
+
+The controller publishes account, market and configuration events. See
+[controller events](../../docs/reference/events.md#controller-events) for the
+fields and scales.
+
+## Layout
+
+```text
+contracts/controller/src/
+  lib.rs          # entrypoints and owner gates
+  positions/      # supply, borrow, repay, withdraw, liquidation
+  strategies/     # flash loan, flash position, multiply, swaps, Blend migration
+  risk/           # health factor, LTV, risk parameters, validation
+  config/         # hubs, spokes, listings, registry settings
+  storage/        # typed accessors; the only place ControllerKey is read or written
+  external/       # pool, position NFT, price aggregator and Blend calls
+  events/         # account, market and configuration events
+  account.rs, payments.rs, markets.rs, governance.rs, views.rs, context.rs
+```
+
+Internal module paths are load-bearing: the Certora spec and unit tests call
+items such as `crate::positions::supply::process_supply` by exact path.
+
 ## References
 
 - Errors: [`docs/reference/errors.md`](../../docs/reference/errors.md)
-- Events, fields and scales: [`docs/reference/events.md`](../../docs/reference/events.md)
+- Events, fields and scales: [`docs/reference/events.md`](../../docs/reference/events.md#controller-events)
 - Formulas: [`docs/reference/formulas.md`](../../docs/reference/formulas.md)
 - Integration model: [`skills/xoxno-lending/SKILL.md`](../../skills/xoxno-lending/SKILL.md)
 - Formal proofs: [`certora/controller/spec`](../../certora/controller/spec/README.md)

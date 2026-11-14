@@ -17,22 +17,27 @@ Contract-level scenarios for the lending protocol, executed in-process via the `
 | `composition` | `composition/` | One contract, as the top-level caller, chains controller verbs in a single invocation |
 | `fuzz` | `fuzz/` | Proptest properties — see [`fuzz/README.md`](fuzz/README.md) |
 | `meta` | `meta/` | Footprint, budget breakdown, chaos/stress sims, invariants, reentrancy, TTL |
-| `astra_audit` | `astra_audit.rs` | Exact scaled-share reconciliation across every position NFT, including credit-mode receivers |
-| `pool_money_flow_audit` | `pool_money_flow_audit.rs` | Pool-layer money paths under a mocked owner: books, shared token custody, recapitalization refunds |
+| `astra_audit` | `astra_audit.rs` | Regression tests for external audit findings: exact scaled-share reconciliation across every position NFT, including credit-mode receivers |
+| `pool_money_flow_audit` | `pool_money_flow_audit.rs` | Regression tests for external audit findings: pool-layer money paths under a mocked owner (books, shared token custody, recapitalization refunds) |
+| `curve_collateral` | `curve_collateral.rs` | Curve LP collateral against the production price-aggregator and router WASMs and the real Curve pool executables, under mainnet resource limits |
+| `custom_account_auth` | `custom_account_auth.rs` | A contract account authorizes the controller directly through the host |
 | `poc_multiply_reentrancy` | `poc_multiply_reentrancy.rs` | An initial-payment token that re-enters the controller during `multiply` aborts the call; no collateral or USDC moves |
 | `strategy_origination_fee_parity` | `strategy_origination_fee_parity.rs` | `flash_position` opens the same position as `multiply` without the strategy origination fee |
 | `strategy_solvency_gate_rollback` | `strategy_solvency_gate_rollback.rs` | A solvency-gate rejection in `flash_position` reverts every earlier token transfer |
 | `zz_storage_sizing` | `zz_storage_sizing.rs` | Prints the XDR size of the per-account storage entries (`print_storage_sizes`) |
 
 `tests/test-harness/Cargo.toml` declares no `[[test]]` sections, so cargo
-discovers every `tests/*.rs` and `tests/<domain>/main.rs`. All fifteen binaries
-run under `cargo test -p test-harness`.
+discovers every `tests/*.rs` and `tests/<domain>/main.rs`.
+`cargo test -p test-harness` runs every binary.
 
 ## Module inventory
 
 ### `controller/`
 
-`account`, `admin`, `admin_config`, `audit_borrow_withdraw_liquidate_stale_anchor_blend`, `audit_liquidate_and_clean_stale_leg`, `audit_liquidate_dust_fee_dos`, `audit_supply_stale_shield`, `bad_debt_index`, `bad_debt_netting_and_exit_timing`, `borrow`, `bulk_indexes`, `decimal_diversity`, `deprecated_spoke_liquidation_liveness`, `dust_threshold_and_decimal_floor`, `events`, `extreme_amount_inputs`, `flash_loan`, `flash_loan_adversarial`, `force_socialize_refuses_solvent_accounts`, `governance_change_between_legs`, `keeper`, `large_positions_and_long_horizons`, `liquidation`, `liquidation_accrual_timing`, `liquidation_and_borrow_exact_boundaries`, `liquidation_band_full_close`, `liquidation_band_signed_auth`, `liquidation_boundary`, `liquidation_coverage`, `liquidation_extreme`, `liquidation_math`, `liquidation_mixed_decimal`, `liquidation_ratchet`, `liquidation_seize_modes`, `liquidation_under_delivering_debt_token`, `max_utilization`, `min_borrow_collateral`, `multi_hub`, `outbound_transfer_measurement`, `ownership`, `position_limit_lowering_keeps_topups`, `position_nft`, `position_nft_ttl_and_ownership_reads`, `recipient_is_protocol_contract`, `repay`, `round_trip_exactness_and_loop_drift`, `same_market_bad_debt_cleanup_arithmetic`, `security_audit`, `security_audit_extended`, `shared`, `spoke`, `spoke_caps`, `spoke_liquidation_combo`, `spoke_usage_tracks_positions`, `supply`, `third_party_supply_and_risk_restamp`, `validation_admin`, `views`, `withdraw`
+`account`, `admin`, `admin_config`, `audit_borrow_withdraw_liquidate_stale_anchor_blend`, `audit_liquidate_and_clean_stale_leg`, `audit_liquidate_dust_fee_dos`, `audit_supply_stale_shield`, `bad_debt_index`, `bad_debt_netting_and_exit_timing`, `borrow`, `bulk_indexes`, `decimal_diversity`, `deprecated_spoke_liquidation_liveness`, `dust_threshold_and_decimal_floor`, `events`, `extreme_amount_inputs`, `flash_loan`, `flash_loan_adversarial`, `force_socialize_refuses_solvent_accounts`, `governance_change_between_legs`, `keeper`, `large_positions_and_long_horizons`, `liquidation`, `liquidation_accrual_timing`, `liquidation_and_borrow_exact_boundaries`, `liquidation_band_full_close`, `liquidation_band_signed_auth`, `liquidation_boundary`, `liquidation_coverage`, `liquidation_extreme`, `liquidation_math`, `liquidation_mixed_decimal`, `liquidation_ratchet`, `liquidation_seize_modes`, `liquidation_under_delivering_debt_token`, `liqvid_listing_params`, `liqvid_oracle_deviation_bounds`, `liqvid_rwa_collateral`, `ltv_restamp_events`, `max_utilization`, `min_borrow_collateral`, `multi_hub`, `outbound_transfer_measurement`, `ownership`, `position_limit_lowering_keeps_topups`, `position_nft`, `position_nft_ttl_and_ownership_reads`, `recipient_is_protocol_contract`, `repay`, `round_trip_exactness_and_loop_drift`, `same_market_bad_debt_cleanup_arithmetic`, `security_audit`, `security_audit_extended`, `shared`, `spoke`, `spoke_caps`, `spoke_liquidation_combo`, `spoke_usage_tracks_positions`, `supply`, `third_party_supply_and_risk_restamp`, `validation_admin`, `views`, `withdraw`, `zero_decimal_collateral`
+
+Modules named `audit_*` and `security_audit*` are regression tests for
+external audit findings.
 
 #### Liquidation modules (roles)
 
@@ -68,11 +73,11 @@ run under `cargo test -p test-harness`.
 
 ### `strategy/`
 
-`adversarial`, `core`, `cross_hub_same_asset_loop`, `extreme_amount_inputs`, `flash_position`, `flash_position_adversarial`, `flash_position_callback_ownership_transfer`, `flash_position_mode_and_asset_edges`, `happy`, `helpers`, `migrate_blend`, `migrate_blend_account_ownership`, `rogue_hop_pool_transfer_joins_caller_auth_tree`, `router`, `strategy_solvency_gate_on_low_value_router_output`, `edge/` (`multiply`, `pause_bypass`, `rejections`, `swap`)
+`adversarial`, `core`, `cross_hub_same_asset_loop`, `edge/` (`multiply`, `pause_bypass`, `rejections`, `swap`), `extreme_amount_inputs`, `flash_position`, `flash_position_adversarial`, `flash_position_callback_ownership_transfer`, `flash_position_mode_and_asset_edges`, `happy`, `helpers`, `migrate_blend`, `migrate_blend_account_ownership`, `rdwc_close_footprint`, `rogue_hop_pool_transfer_joins_caller_auth_tree`, `router`, `strategy_solvency_gate_on_low_value_router_output`
 
 ### `composition/`
 
-`atomic_revert_all_legs`, `contract_caller_runs_every_verb`, `delegate_revocation_between_legs`, `helpers`, `nft_transfer_between_legs`, `repeated_loops_never_extract_value`, `supplier_exit_before_socialization_is_bounded_by_utilization`
+`atomic_revert_all_legs`, `contract_caller_runs_every_verb`, `delegate_revocation_between_legs`, `helpers`, `last_created_opened_by_a_sentinel_supply`, `nft_transfer_between_legs`, `repeated_loops_never_extract_value`, `supplier_exit_before_socialization_is_bounded_by_utilization`
 
 ### `meta/`
 
@@ -80,7 +85,7 @@ run under `cargo test -p test-harness`.
 
 ### `fuzz/`
 
-`accounting_conservation`, `config`, `liquidation_vs_reference`, `migrate_blend`, `ops`, `privileged_auth_rejects`, `strategy_helpers`, `strategy_multiply_budget`, `strategy_router_invariants`
+`accounting_conservation`, `config`, `liquidation_vs_reference`, `migrate_blend`, `ops`, `privileged_auth_rejects`, `strategy_helpers`, `strategy_multiply_budget`, `strategy_router_invariants`, `whole_unit_liquidation`
 
 These inventories are generated from the `mod` declarations in each
 `tests/<domain>/main.rs`. Regenerate them after adding or removing a module:
@@ -151,7 +156,8 @@ make proptest-one TEST=prop_accounting_conservation PROPTEST_CASES=1000
 PROPTEST_CASES=10000 cargo test --release -p test-harness --test fuzz -- --test-threads=1
 ```
 
-Minimized failure seeds are committed as `fuzz/*.proptest-regressions`.
+Minimized failure seeds are committed as `fuzz/*.proptest-regressions` and
+`proptest-regressions/*.txt`.
 
 ## Fixtures
 

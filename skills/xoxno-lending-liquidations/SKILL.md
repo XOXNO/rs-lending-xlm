@@ -18,8 +18,8 @@ Canonical references:
 - Contract signatures: [contracts ABI](../xoxno-lending-contracts/abi.md)
 - Transaction lifecycle: [SDK transactions](../xoxno-lending-sdk/transactions.md)
 - Liquidation arithmetic: [math](../xoxno-lending/math.md#liquidation-bonus-close-amount-seizure-fees)
-- Error definitions: [error reference](../../docs/reference/errors.md)
-- Event shapes and order: [event reference](../../docs/reference/events.md)
+- Error definitions: [error reference](https://github.com/XOXNO/rs-lending-xlm/blob/main/docs/reference/errors.md)
+- Event shapes and order: [event reference](https://github.com/XOXNO/rs-lending-xlm/blob/main/docs/reference/events.md)
 - Operational failure diagnosis: [troubleshooting](../xoxno-lending-troubleshooting/SKILL.md)
 
 ## 1. Discover candidates
@@ -263,7 +263,7 @@ and reconcile:
 Events are operational evidence, not complete state truth. Missing zero-delta
 batches and interleaved pool/NFT/token events are expected; compare events with
 post-transaction views. Use the canonical ordering and payload definitions in
-[events](../../docs/reference/events.md).
+[events](https://github.com/XOXNO/rs-lending-xlm/blob/main/docs/reference/events.md).
 
 ## Bad debt
 

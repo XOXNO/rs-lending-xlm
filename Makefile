@@ -230,8 +230,8 @@ release-artifacts:
 # and its soroban-sdk summaries by demangled function name, and the release
 # profile's strip = "symbols" removes the WASM name section that carries them.
 # Without names the prover inlines the limb arithmetic of every i128 multiply
-# and divide instead (docs/explanation/certora-sunbeam-prover-tuning.md,
-# "Check the artifact before tuning").
+# and divide instead (certora/README.md, "Function names must survive the
+# build").
 certora-wasm:
 	@set -euo pipefail; \
 	mkdir -p $(CERTORA_WASM_DIR) $(CERTORA_BUILD_DIR); \
@@ -2457,7 +2457,7 @@ help-all:
 
 
 
-CBM_PROJECT := Users-mihaieremia-GitHub-rs-lending-xlm
+CBM_PROJECT ?= $(subst /,-,$(patsubst /%,%,$(CURDIR)))
 CBM_ROOT := $(CURDIR)
 
 .PHONY: cbm-reindex cbm-index

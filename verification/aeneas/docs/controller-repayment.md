@@ -57,22 +57,22 @@ remaining excess `rem` (initially `E`). In plain words, at index `k`
 1. **Shape** (`ExcessShape`): the first `k` legs are exactly the input's;
    every leg from `k` on has been visited and has a *fate* (`LegFate`):
    * *kept*: unchanged, no refund (amount `≤ 0` or value `0` is skipped);
-   * *trimmed*: amount lowered to `a ∈ (0, amount]`, value lowered to
-     `u ∈ [0, usd]`, hub asset, feed and index snapshot unchanged, one refund
-     of exactly `amount − a` of the leg's asset;
+   * *trimmed*: amount lowered to `a ∈ (0, amount]` and value lowered to
+     `u ∈ [0, usd]`. Hub asset, feed and index snapshot are unchanged. One
+     refund of exactly `amount − a` of the leg's asset;
    * *removed*: one refund of exactly its (positive) amount.
 
-   The current list is the untouched prefix followed by what is left of the
-   visited legs, in their original order; the refunds are the initial ones
-   followed by the visited legs' refunds, last leg first.
+   The current list is the untouched prefix, then what is left of the
+   visited legs, in their original order. The refunds are the initial ones,
+   then the visited legs' refunds, last leg first.
 2. `rem ≥ 0`, and the recorded total never grew: `usdSum(cur) ≤ usdSum(L)`.
 3. Without `keep_within_quote`: the value removed so far is at most
-   `E − rem` (`usdSum L − E + rem ≤ usdSum cur`): a removed leg takes its
-   value off `rem`; a trim keeps the *ceiling* of the backed tokens, so its
+   `E − rem` (`usdSum L − E + rem ≤ usdSum cur`). A removed leg takes its
+   value off `rem`. A trim keeps the *ceiling* of the backed tokens. So its
    kept value is at least `usd − rem`, and then `rem` becomes `0`.
 4. With `keep_within_quote`: the value removed so far is at least `E − rem`
-   (`usdSum cur ≤ usdSum L − E + rem`): a trim keeps the *floor* of the backed
-   tokens, so its kept value is at most `usd − rem`.
+   (`usdSum cur ≤ usdSum L − E + rem`). A trim keeps the *floor* of the
+   backed tokens, so its kept value is at most `usd − rem`.
 5. While excess remains (`rem > 0`) every visited leg still present was
    skipped (non-positive amount or zero value).
 
@@ -118,11 +118,11 @@ Helpers (all proved, doc comments in the files): `rp_huD_*`, `shape_*`,
 * **`ExcessLegOK keep e`** (per leg of `process_excess_payment`): `usd ≥ 0`;
   a leg with positive amount and value has a positive price, `dec ≤ 18`,
   `usd·W ≤ (2^127−1)·p`, `amount·S < 2^127`, `tokUsd(amount) < 2^127`, and
-  (without `keep`) `usd ≤ tokUsd(amount)`. For the legs
-  `calculate_repayment_amounts` records, `entry_excess_ok` derives all of it
-  from REP (controller.md) plus `RepayLegTrimOK` (positive price, the
-  quotient and the kept amount's value fit `i128`); the backing condition is
-  `legUsd_le_tokUsd`. Oracle prices are positive; `usd·W/p` is about the
+  (without `keep`) `usd ≤ tokUsd(amount)`. For the legs that
+  `calculate_repayment_amounts` records, `entry_excess_ok` derives all of it.
+  It uses REP (controller.md) plus `RepayLegTrimOK`: a positive price, and
+  the quotient and the kept amount's value fit `i128`. The backing condition
+  is `legUsd_le_tokUsd`. Oracle prices are positive; `usd·W/p` is about the
   token amount scaled to 18 decimals, far below `2^127`.
 * **`|L| < 2^32`**: the host `Vec` length is a `u32`.
 * **`E ≥ 0`**: `normalize_repayment_plan` passes `total − ideal` only when
@@ -130,11 +130,14 @@ Helpers (all proved, doc comments in the files): `rp_huD_*`, `shape_*`,
 * **`EstDomain`**: see controller-estimate.md (validated curve, bonus bounds,
   consistent snapshot, `D ≤ 10^36`).
 * **`hwu`** (the whole-unit raise returns a non-negative value): discharged
-  by `whole_unit_returns` on `WholeUnitAcctDom`: `D ≤ 10^33` WAD (10^15 USD,
-  so that `quote·(1 + bonus)` fits for every bonus up to `BPS·(BPS−1)`),
-  fewer than `2^32` supply legs, each served by the context (`load_markets`
-  runs first) with `dec ≤ 18`, price `≤ 10^36` and a RAY value that fits,
-  every debt asset priced, `D + Σ unit < 2^127`.
+  by `whole_unit_returns` on `WholeUnitAcctDom`:
+  * `D ≤ 10^33` WAD (10^15 USD), so that `quote·(1 + bonus)` fits for every
+    bonus up to `BPS·(BPS−1)`;
+  * fewer than `2^32` supply legs;
+  * each leg served by the context (`load_markets` runs first) with
+    `dec ≤ 18`, price `≤ 10^36` and a RAY value that fits;
+  * every debt asset priced;
+  * `D + Σ unit < 2^127`.
 * **`hrep`**: `repays_every_debt_leg` is opaque (uninterpreted); the theorem
   assumes it returns. Its Rust body is a lookup loop that can abort only where
   `cached_market_index` (a pool fetch for an uncached key) or
@@ -145,15 +148,16 @@ Helpers (all proved, doc comments in the files): `rp_huD_*`, `shape_*`,
 ### Certora claims checked
 
 * `liquidation_does_not_increase_repaid_debt` (liquidation_rules, bounded,
-  one leg): the repaid amount per leg never exceeds the ceiling-rounded debt
-  — proved for every leg and every input (`repayment_plan_spec`, item 1).
+  one leg): the repaid amount per leg never exceeds the ceiling-rounded debt.
+  This is proved for every leg and every input (`repayment_plan_spec`,
+  item 1).
 * `split_liq_*` (liquidation_rules) assume that a partial plan accepts at
   most the ideal amount on an insolvent account and trims the excess:
   `normalize_repayment_plan_spec` proves `repay_usd ≤ q` on an insolvent
   partial plan. On a solvent partial plan the kept amount is rounded *up* to
-  whole token units, so the kept value may exceed the ideal by less than one
-  token unit of the trimmed leg (the theorem proves the lower bound
-  `repay_usd ≥ min(Σ legUsd, I)`).
+  whole token units. So the kept value can exceed the ideal by less than one
+  token unit of the trimmed leg. The theorem proves the lower bound
+  `repay_usd ≥ min(Σ legUsd, I)`.
 * boundary_rules, consistency_rules and position_rules have no claim about
   these functions (they cover bad-debt gates and the supply/borrow paths).
 
@@ -161,10 +165,10 @@ Helpers (all proved, doc comments in the files): `rp_huD_*`, `shape_*`,
 
 No counterexample to an intended property was found. Observations:
 
-* **Zero refunds.** Without `keep_within_quote`, when the remaining excess is
-  smaller than the value of one native unit of the trimmed leg, the ceiling
-  keeps the whole amount and the loop appends a refund of `0` tokens (and
-  releases nothing). Example: USDC-like leg, `dec = 6`, `p = 10^18`,
+* **Zero refunds.** This case needs no `keep_within_quote`, and a remaining
+  excess smaller than the value of one native unit of the trimmed leg. Then
+  the ceiling keeps the whole amount. The loop appends a refund of `0`
+  tokens and releases nothing. Example: USDC-like leg, `dec = 6`, `p = 10^18`,
   `amount = 100`, `usd = 10^14`, `rem = 1`: `kept = 10^14 − 1`,
   `floor = 99`, not covered, so `new_amount = min(100, 100) = 100`, refund
   `0`, value unchanged. Refunds of a partial plan are only reported (never
@@ -172,38 +176,40 @@ No counterexample to an intended property was found. Observations:
   `a = amount`).
 * **Dead branch with `keep_within_quote`.** The kept value is at most
   `usd − rem` (`keep_amount_arith`), so `removed_usd ≥ remaining_excess_usd`
-  always holds and the `else` branch (`remaining − removed`) is never taken;
-  the loop proof shows it by contradiction. Harmless.
-* **Solvent trim rounds toward the liquidator.** As documented in the Rust
-  comment, the solvent trim keeps the ceiling of the backed tokens; the
-  released value can be below the excess by up to one native unit's value
-  (`release_unbacked_repayment` likewise releases *at most* the unbacked
-  part).
+  always holds. The `else` branch (`remaining − removed`) is never taken; the
+  loop proof shows it by contradiction. Harmless.
+* **Solvent trim rounds toward the liquidator.** As the Rust comment
+  documents, the solvent trim keeps the ceiling of the backed tokens. The
+  released value can be below the excess by up to one native unit's value.
+  `release_unbacked_repayment` likewise releases *at most* the unbacked
+  part.
 
 ## Not covered
 
 * **Exact abort conditions of `process_excess_payment`**: only sufficient
-  conditions (`ExcessLegOK`) are proved; outside them (e.g. a zero price on a
-  leg with positive value, or a negative recorded value) the call can abort.
+  conditions (`ExcessLegOK`) are proved. Outside them the call can abort,
+  for example on a zero price for a leg with positive value, or on a
+  negative recorded value.
 * **Lower bound of the released value** (release `≥ E − one unit`) is not
   stated; only `≤ E` (and exact token conservation) is.
 * **The `held_units ≥ 1` condition** of `whole_unit_repayment` is not part of
-  `WholeUnitRaised` (a raise implies it, but the statement does not record
-  it), nor are the values of the `quote`-returning branches characterised
+  `WholeUnitRaised`. A raise implies it, but the statement does not record
+  it. The values of the `quote`-returning branches are not characterised
   beyond `r = quote`.
 * **`repays_every_debt_leg`** and therefore the `repays_all_debt` flag
   (opaque, see controller.md).
 * **`seize_all`**: only `seize_all → C < D` is proved, not its exact value.
 * **Consistency with the seizure budget** passed to
   `release_unbacked_repayment` (the `unseized_usd` of
-  `calculate_seized_collateral`): proved only that at most that value is
-  released; the per-leg seizure loop is the seizure-side proof's subject.
+  `calculate_seized_collateral`). The proof shows only that at most that
+  value is released. The per-leg seizure loop is proved on the seizure side
+  ([controller-seizure.md](controller-seizure.md)).
 * **`aggregate_positive_payments`** is taken as given (a hypothesis naming
   the merged list), as in controller.md.
 
 ## Axioms
 
 `#assert_standard_axioms` (end of `ControllerAeneas.lean`) covers all 76
-theorems of the four files: the build fails unless every one depends only
-on `propext`, `Classical.choice` and `Quot.sound`, which rules out `sorry`,
+theorems of the four files. The build fails unless every one depends only
+on `propext`, `Classical.choice` and `Quot.sound`. This rules out `sorry`,
 `admit` and added axioms.

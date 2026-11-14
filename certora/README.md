@@ -186,6 +186,69 @@ included, so a low bound cuts the search without an error.
   reproduce in Rust. The conf is in `heavy` only because every conf must be in
   a profile.
 
+- The utilization bound is proved as two rules over
+  `0 <= borrowed <= supplied <= 100 * RAY`, `supplied >= 1`.
+  `utilization_bounded_when_borrowed_lte_supplied_native` covers inputs where
+  `borrowed * RAY + supplied / 2` fits `i128`.
+  `utilization_bounded_when_borrowed_lte_supplied_widened` covers the rest.
+  The split keeps each half on one arithmetic branch. On a stripped artifact,
+  the unsplit rule gave a counterexample without operand values. The likely
+  cause is the bit-level limb arithmetic described in
+  [Function names must survive the build](#function-names-must-survive-the-build).
+
+<a id="model-boundaries"></a>
+
+## Reading a Sunbeam verdict
+
+Read the rule, its fixture, its feature path and every summary it reaches
+before you use the verdict. An assertion that repeats a summary assumption
+does not prove the arithmetic behind that summary.
+
+### Model boundaries
+
+| Surface | What to check |
+|---|---|
+| Controller risk totals | Health and solvency features compile the real risk arithmetic. Other controller families use a nondeterministic summary, unless the rule calls the real function. |
+| Controller position books | Health, solvency and some fixtures constrain stored positions. Frame rules can keep arbitrary state on purpose. Read the pre-state and well-formedness assumptions. |
+| Controller position limits | Fixture arrays derive from the limit. A compile-time assertion pins `POSITION_LIMIT_MAX == 5`. |
+| Pool summaries | Rate fields stay in the validated domain. Controller ghost caches reconcile index reads per market. The summaries are proof premises. |
+| Pool configuration | State-invariant and seize/settle fixtures vary decimals and reserve factor over the domain that governance admits. Their rate curve is fixed. The symbolic decimal domain is 3–18. |
+| Amount and price bounds | Families use different limits. A bound below the representable ceiling is narrower than the production domain. |
+| Local CI | The default selection covers the common and price-aggregator confs. Controller and pool rules run on the hosted prover. |
+
+The [controller fixtures](controller/spec/fixture.rs),
+[shared summaries](shared/summaries/mod.rs) and
+[pool fixtures](pool/spec/fixture.rs) define these premises.
+
+### Storage, context and external calls
+
+- Storage starts as arbitrary maps keyed by storage type and key. A read of an
+  absent entry traps. An unwritten fixture book can hold arbitrary entries.
+- Ledger timestamp and sequence are symbolic values, fixed at rule start. A
+  rule reasons about one call, not about a sequence of transactions.
+- The model does not implement cross-contract calls, `require_auth_for_args`
+  or TTL extension. Explicit summaries model the pool, oracle and position
+  NFT. Token and swap aggregator calls have no summary.
+
+### Stopping conditions
+
+Run one rule per job. Record the source revision, artifact fingerprint, conf,
+CLI version, verdict, sanity result and runtime.
+
+| Result | Next step |
+|---|---|
+| Counterexample | Read the operands and the failed assertion. Replay the values against the Rust code before you change the rule. |
+| `SANITY_FAILED` | Check fixture reachability and the rule shape. A revert-shaped rule needs its satisfy twin. |
+| Loop-unwind failure | Compare the loop with `loop_iter` and the witness bound. Keep `optimistic_loop` false. |
+| Transformation, command or block limit | Find the source of the expansion. A larger solver timeout does not fix it. |
+| Per-query timeout | Measure the split leaves before you change `smt_timeout`. |
+| Wrapper kill or missing verdict | Keep the logs. This result is not a proof and not a counterexample. |
+
+Change one setting at a time, on the same artifact and domain.
+`multi_assert_check` and `independent_satisfy` change the formula as well as
+its cost. `SOROBAN_CONF_KEYS` in `certora/scripts/check_orphans.py` lists the
+conf keys that the pinned CLI accepts.
+
 ## What a verdict does not prove
 
 - Pool rules check the accounting before token transfers. They do not model
@@ -234,7 +297,6 @@ weakening the property.
 
 ## References
 
-- [Tuning and proof limits](../docs/explanation/certora-sunbeam-prover-tuning.md)
 - [Protocol invariants](../docs/reference/invariants.md)
 - [Threat model](../docs/explanation/threat-model.md)
 - [Sunbeam documentation](https://docs.certora.com/en/latest/docs/sunbeam/index.html)

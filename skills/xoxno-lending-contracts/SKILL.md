@@ -22,7 +22,7 @@ protocol model, units, and deployed addresses in
   [testing.md](testing.md)
 - Interface locations and integration-specific ABI interpretation: [abi.md](abi.md)
 - Canonical error names, codes, and remedies:
-  [`../../docs/reference/errors.md`](../../docs/reference/errors.md)
+  [`docs/reference/errors.md`](https://github.com/XOXNO/rs-lending-xlm/blob/main/docs/reference/errors.md)
 - Route payload construction:
   [`../xoxno-swap-aggregator/composition.md`](../xoxno-swap-aggregator/composition.md)
 
@@ -70,8 +70,8 @@ controller user, keeper, and view functions, and read-only views of the pool,
 the NFT, and the price aggregator. The crate has no swap router client; see
 [`../xoxno-swap-aggregator/payload.md`](../xoxno-swap-aggregator/payload.md).
 The source signatures are the traits under
-[`../../interfaces/`](../../interfaces/), especially
-[`ControllerInterface`](../../interfaces/controller/src/lib.rs).
+[`interfaces/`](https://github.com/XOXNO/rs-lending-xlm/tree/main/interfaces/), especially
+[`ControllerInterface`](https://github.com/XOXNO/rs-lending-xlm/blob/main/interfaces/controller/src/lib.rs).
 
 Resolve the controller and position NFT addresses from
 [`../xoxno-lending/addresses.md`](../xoxno-lending/addresses.md) and pass them,
@@ -134,7 +134,7 @@ instance or persistent extension to the network maximum entry TTL.
 The complete local pointer renew/reconcile pattern is in
 [positions.md](positions.md#canonical-local-account-pointer). Production code
 using the same pattern is
-[`contracts/defindex-strategy/src/lib.rs`](../../contracts/defindex-strategy/src/lib.rs).
+[`contracts/defindex-strategy/src/lib.rs`](https://github.com/XOXNO/rs-lending-xlm/blob/main/contracts/defindex-strategy/src/lib.rs).
 
 ## Minimal call shape
 

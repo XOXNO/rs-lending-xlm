@@ -62,9 +62,9 @@ Each TTL tick discovers:
 The controller defines no access-control roles. Governance role keys are
 discovered from the governance `ExistingRoles` entry. Governance defines the
 roles `PROPOSER`, `CANCELLER`, `ORACLE`, and `GUARDIAN`
-(`contracts/governance/src/access.rs`). The controller/pool/governance boundary
-and role model live in the contract rustdoc and
-[`skills/xoxno-lending/SKILL.md`](../../skills/xoxno-lending/SKILL.md).
+(`contracts/governance/src/access.rs`). The contract rustdoc and
+[`skills/xoxno-lending/SKILL.md`](../../skills/xoxno-lending/SKILL.md) describe
+the controller/pool/governance boundary and the role model.
 
 ## Market Configuration
 
@@ -117,21 +117,18 @@ schedule:
 When `contracts.governance` is set, keeper also keeps governance alive.
 Governance stores `Controller`, `PriceAggregator`, ownable `Owner`,
 access-control `Admin`, and timelock `MinDelay` in instance storage, so the
-governance instance bump covers them. `RoleAdmin` is persistent
-(`stellar-access` `access_control/storage.rs:518-520`); the keeper renews it with
-the other access-control keys.
+governance instance bump covers them. `RoleAdmin` is persistent storage in
+`stellar-access`. The keeper renews it with the other access-control keys.
 
 Timelock `OperationLedger(BytesN<32>)` keys are persistent but not enumerable
 from contract storage, so the keeper skips them. Event tracking would be needed
 to renew them directly.
 
-Cancel removes the entry. Execute keeps it: it rewrites the entry to the
-`DONE_LEDGER` sentinel
-(`stellar-governance` `timelock/storage.rs:341-342`, `:381-382`). An executed
-operation therefore leaves a permanent persistent entry that nothing renews.
-That entry is what `is_operation_done` reads, and `execute` rejects a chained
-operation with `UnexecutedPredecessor` when its predecessor is not done
-(`timelock/storage.rs:337-338`). If the done-marker of a predecessor has
+Cancel removes the entry. Execute keeps it: `stellar-governance` rewrites the
+entry to the `DONE_LEDGER` sentinel. An executed operation therefore leaves a
+permanent persistent entry that nothing renews. `is_operation_done` reads that
+entry. `execute` rejects a chained operation with `UnexecutedPredecessor` when
+its predecessor is not done. If the done-marker of a predecessor has
 archived, the chained operation is blocked until the marker is restored. Pending
 operations also need TTL coverage through their tier-specific delay and execution
 window; becoming ready neither executes nor renews them. The keeper does not
@@ -248,14 +245,7 @@ cargo test
 cargo build --release
 ```
 
-Dry run against testnet with Azure Key Vault:
-
-```bash
-AZURE_TENANT_ID=... AZURE_CLIENT_ID=... AZURE_CLIENT_SECRET=... \
-  cargo run --release -- --config config/testnet-fast.yaml --dry-run
-```
-
-Local development without Azure credentials (use a dev mnemonic only):
+Local development with a dev mnemonic (never a funded key):
 
 ```bash
 KEEPER_MNEMONIC="<dev mnemonic>" cargo run --release -- \
@@ -270,20 +260,45 @@ read-only audit.
 
 ## CLI Flags and Environment
 
-Every `keeper-bot` flag has an environment fallback (`src/main.rs:24-41`).
+Every `keeper-bot` flag has an environment fallback.
 
 | Flag | Env var | Default | Required |
 | --- | --- | --- | --- |
 | `--config`, `-c` | `KEEPER_CONFIG` | `/etc/keeper/testnet.yaml` | no |
 | `--dry-run` | `KEEPER_DRY_RUN` | `false` | no |
-| `--mnemonic` | `KEEPER_MNEMONIC` | none | no; falls back to Key Vault |
+| `--mnemonic` | `KEEPER_MNEMONIC` | none | no; without it the keeper loads the signer from Key Vault |
 | `--skip-role-check` | `KEEPER_SKIP_ROLE_CHECK` | `false` | no |
 
-Key Vault credentials are read by `mx-keyvault` (`mx-keyvault-0.1.0/src/lib.rs:45-51`).
-When all three `AZURE_*` credential variables are set, it uses the client-secret
-credential. Otherwise it falls back to the Azure CLI login, then the Azure
-Developer CLI login. The distroless image contains neither CLI, so a container
-needs all three variables.
+## Optional KMS backend: Azure Key Vault
+
+When `--mnemonic` is not set, the keeper reads its mnemonic from an Azure Key
+Vault secret. It derives the signer at `signer.derivation_path`. The `keyvault`
+block is required in every config file, also when you pass `--mnemonic`:
+
+```yaml
+keyvault:
+  url: https://<your-vault-name>.vault.azure.net
+  secret_name: <your-secret-name>   # secret value: a BIP-39 mnemonic
+
+signer:
+  derivation_path: "m/44'/148'/<index>'"
+```
+
+Dry run against testnet with Key Vault credentials:
+
+```bash
+AZURE_TENANT_ID=<tenant-id> AZURE_CLIENT_ID=<client-id> AZURE_CLIENT_SECRET=<client-secret> \
+  cargo run --release -- --config config/testnet-fast.yaml --dry-run
+```
+
+The `mx-keyvault` crate reads the credentials:
+
+- When all three `AZURE_*` credential variables are set, it uses the
+  client-secret credential.
+- Otherwise it falls back to the Azure CLI login, then the Azure Developer CLI
+  login.
+- The distroless image contains neither CLI. A container needs all three
+  variables.
 
 | Env var | Meaning | Default | Required |
 | --- | --- | --- | --- |
@@ -292,6 +307,8 @@ needs all three variables.
 | `AZURE_CLIENT_SECRET` | Azure client secret | none | yes, unless a CLI login is used |
 | `AZURE_IDENTITY_DISABLE_MANAGED_IDENTITY_CREDENTIAL` | `1` or `true` (any case) forbids the CLI fallback, so a missing credential variable fails the boot | unset (fallback allowed) | no |
 
+## Other Environment Variables
+
 `prepay_rent` reads one more variable:
 
 | Env var | Meaning | Default | Required |
@@ -299,9 +316,9 @@ needs all three variables.
 | `PREPAY_SECRET` | `S...` seed that funds and signs the prepay transactions. The variable name itself is `--secret-env`. | name defaults to `PREPAY_SECRET`; the value has no default | yes, also with `--dry-run` |
 
 `RUST_LOG` overrides `log.level` from the YAML config when it is set and parses
-as a filter directive; otherwise `log.level` applies. A value that does not
+as a filter directive. Otherwise `log.level` applies. A value that does not
 parse on either side falls back to `info,keeper=debug` rather than failing
-startup (`log_filter_directive` in `src/main.rs`). The sibling
+startup. The sibling
 `lending-exporter` also lets a `RUST_LOG` that parses override `log.level`, but
 it has no fixed fallback filter.
 
@@ -367,7 +384,7 @@ PREPAY_SECRET=S... cargo run --release --bin prepay_rent -- \
 - SIGTERM/SIGINT: stops new ticks, then waits up to 30 seconds for the running
   tick and the metrics server to finish.
 
-Other registered metrics (`src/metrics.rs`):
+Other registered metrics:
 
 | Metric | Type | Labels | Meaning |
 | --- | --- | --- | --- |
@@ -392,11 +409,12 @@ required, because the Dockerfile uses cargo cache mounts:
 DOCKER_BUILDKIT=1 docker build -t keeper-bot:latest services/keeper
 ```
 
-The image sets `KEEPER_CONFIG=/etc/keeper/mainnet.yaml` and `RUST_LOG=info`.
-Both take effect (see CLI Flags and Environment). A container started without
-an explicit `KEEPER_CONFIG` therefore runs against mainnet and spends the
-mainnet signer, so a testnet container must set the variable, as the example
-Compose file does.
+> **Caution: the default image targets mainnet.** The image sets
+> `KEEPER_CONFIG=/etc/keeper/mainnet.yaml` and `RUST_LOG=info`. A container
+> started without its own `KEEPER_CONFIG` runs against mainnet and spends
+> fees from the mainnet signer. Set `KEEPER_CONFIG` for every testnet
+> container, as the example Compose file does.
+
 The example Compose file publishes testnet on host port `9091` and mainnet on
 host port `9090`.
 
@@ -406,7 +424,7 @@ Compose example:
 docker compose -f services/keeper/docker-compose.example.yaml up -d
 ```
 
-## Open Items
+## Known Limitations
 
 - The per-user scan reads the position-NFT sequential counter, which counts ids
   ever minted, not live accounts. Burned ids are still scanned; their keys read

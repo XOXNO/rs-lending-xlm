@@ -1,10 +1,11 @@
 # Controller seizure and post-liquidation health (Aeneas + Lean)
 
-Machine-checked Lean 4 proofs about the seizure side of the liquidation plan
-in `contracts/controller/src/positions/liquidation/math.rs`
+Machine-checked Lean 4 proofs about two subjects. The first is the seizure
+side of the liquidation plan in
+`contracts/controller/src/positions/liquidation/math.rs`
 (`calculate_seized_collateral`, `get_account_bonus_params`,
-`calculate_seizure_proportions`) and about the health factor of the account
-after the executed plan. Every theorem about code is about the generated
+`calculate_seizure_proportions`). The second is the health factor of the
+account after the executed plan. Every theorem about code is about the generated
 `lean/ControllerAeneas/Funs.lean`, library `ControllerAeneas`. Extraction,
 trusted base (Map/Context/Vec models) and the theorems these build on:
 [controller.md](controller.md), [controller-estimate.md](controller-estimate.md).
@@ -20,7 +21,7 @@ Conventions: [../WRITING-PROOFS.md](../WRITING-PROOFS.md).
 | `rates::scaling::resolve_withdrawal` | value form re-proved on this extraction (`sz_resolve_withdrawal_val`) |
 | post-liquidation health factor | **headline**: post-HF ≥ pre-HF − explicit rounding at the HF-preserving bonus; post-HF ≥ curve target − explicit rounding on the target branch; counterexample that the rounding term is needed |
 
-No extraction was re-run; all functions were already in `Funs.lean`.
+All these functions are in the controller extraction (`Funs.lean`).
 
 Files (all plain, non-`module` Lean files under `lean/ControllerAeneas/Proofs/`):
 
@@ -42,14 +43,14 @@ Build: `lake build ControllerAeneas.Proofs.HealthAfter` (imports all the others)
 
 `R = 10^27`, `W = 10^18`, `BPS = 10^4`, `K = R·10^9·W = 10^54` (the scale of
 an exact value `s·i·p`). `huD n d` = `n/d` rounded half up, `n / d` = floor,
-`clD n d` = ceiling (`Totals.lean`; specifications are stated with these
-closed forms, which `isHalfUp_eq`/`isFloor_eq`/`isCeil_eq` tie to the
-division-free `IsHalfUp`/`IsFloor`/`IsCeil`). `fv`, `huv`, `cv`: the floor,
+`clD n d` = ceiling (`Totals.lean`). Specifications are stated with these
+closed forms. `isHalfUp_eq`/`isFloor_eq`/`isCeil_eq` tie them to the
+division-free `IsHalfUp`/`IsFloor`/`IsCeil`. `fv`, `huv`, `cv`: the floor,
 half-up and ceiling valuation chains of `position_value*`.
 
 For one supply leg (`SzLeg`): scaled shares `s`, supply index `i`, price `p`,
-decimals `dec`, fee rate `f`; plan: total collateral `C`, budget `B`,
-`opb = W + bonus·10^14`, flags `rad` (`repays_all_debt`), `sa`
+decimals `dec`, fee rate `f`. For the plan: total collateral `C`, budget `B`,
+`opb = W + bonus·10^14`, and the flags `rad` (`repays_all_debt`) and `sa`
 (`seize_all`). `Dd = 10^(27−dec)`.
 
 | Closed form | Code |
@@ -121,22 +122,26 @@ carry doc comments in the files.
   values; supply index ≥ its floor (`0 < i`); oracle prices are positive
   (`0 < p`); `MAX_ASSET_DECIMALS = 18`; stamped fee rates are validated below
   100%. `s ≤ 2^126` and `s·i ≤ 2^126·R` ask that held shares and their RAY
-  value fit `i128` with a factor-2 margin (about `8.5·10^10` tokens, the same
-  order as the `Ray::mul` limit every valuation already has). `VD` is the
+  value fit `i128` with a factor-2 margin. That is about `8.5·10^10` tokens,
+  the same order as the `Ray::mul` limit every valuation already has. `VD` is the
   totals' value domain. `C` is `calculate_account_risk_totals`' half-up
   total over the same legs, so `V ≤ C`. `W ≤ opb` since the bonus is
   non-negative.
 * **`B·W ≤ 2^126·p` (budget in tokens fits).** This is the only hypothesis
-  that is not a plain type/validation fact: `Wad::div(seizure_for_asset_usd, price)`
-  aborts exactly when `huD(L·W, p) ≥ 2^127` (`mul_div_half_up_returns_iff`),
-  i.e. when the leg's request exceeds about `1.7·10^20` tokens. The request is
-  about `(B/C)·held`, and every branch of the estimate keeps `B ≲ C`
-  (insolvent: `repay ≤ C/(1 + base)`; solvent: the cap `(1 + b)·p ≤ hf`
-  gives `(1 + b)·D ≤ C`; whole-unit repayment raises the quote to one unit of
-  a leg that holds at least one unit). So the request is at most the held
-  amount plus rounding, far below the limit. The hypothesis is stated rather
-  than derived because the plan-level `B ≲ C` goes through
-  `normalize_repayment_plan` (proved by another work stream).
+  that is not a plain type/validation fact.
+  `Wad::div(seizure_for_asset_usd, price)` aborts exactly when
+  `huD(L·W, p) ≥ 2^127` (`mul_div_half_up_returns_iff`). That is when the
+  leg's request exceeds about `1.7·10^20` tokens. The request is about
+  `(B/C)·held`, and every branch of the estimate keeps `B ≲ C`:
+  * insolvent: `repay ≤ C/(1 + base)`;
+  * solvent: the cap `(1 + b)·p ≤ hf` gives `(1 + b)·D ≤ C`;
+  * whole-unit repayment raises the quote to one unit of a leg that holds at
+    least one unit.
+
+  So the request is at most the held amount plus rounding, far below the
+  limit. The hypothesis is stated, not
+  derived, because the plan-level `B ≲ C` goes through
+  `normalize_repayment_plan` ([controller-repayment.md](controller-repayment.md)).
 * **`Σ Uns < 2^127`.** Each `Uns ≤ L ≤ B` (`UnsL`, `LB`).
 * **Bonus `≤ 10^8`.** `max ≤ BPS·(BPS−1)` (`max_bonus_for_threshold_bound`) and
   the plan's bonus is at most `max`.
@@ -145,19 +150,21 @@ carry doc comments in the files.
   (credit mode). The pool's repay burns `resolve_repay`'s
   `⌊a·10^(27−dec)·R/ib⌋` shares on a partial repayment and the whole
   position on a full one (`RatesAeneas` `resolve_repay_spec`). The credited
-  USD of a leg is `usd_value_wad(a)` (`calculate_repayment_amounts_spec`) or
-  less after trimming (`process_excess_payment` takes `min(…, usd)`), and the
+  USD of a leg is `usd_value_wad(a)` (`calculate_repayment_amounts_spec`), or
+  less after trimming (`process_excess_payment` takes `min(…, usd)`). The
   plan's `repay_usd = Σ usd_wad` (`LiquidationPlan::validate`,
-  `sum_repaid_usd_spec`); one repayment per debt key (payments are merged by
-  `aggregate_positive_payments`). The borrow index lies in `[RAY, 10^36]`.
+  `sum_repaid_usd_spec`). There is one repayment per debt key, because
+  `aggregate_positive_payments` merges the payments. The borrow index lies in `[RAY, 10^36]`.
 
 ## The post-liquidation health factor, in plain words
 
-Let `C`, `Wc`, `D` be the production totals before the liquidation
-(half-up collateral, threshold-weighted floor collateral, ceiling debt),
-`hf = ⌊Wc·W/D⌋`, `p = huD(Wc·W, C)` the seizure proportion, and `Wc'`, `D'`
-the production totals after the plan (both from
-`calculate_account_risk_totals_spec`).
+Notation, with all totals from `calculate_account_risk_totals_spec`:
+
+* `C`, `Wc`, `D`: the production totals before the liquidation (half-up
+  collateral, threshold-weighted floor collateral, ceiling debt);
+* `hf = ⌊Wc·W/D⌋`;
+* `p = huD(Wc·W, C)`: the seizure proportion;
+* `Wc'`, `D'`: the production totals after the plan.
 
 **At the HF-preserving bonus** (`(BPS + b)·p ≤ hf·BPS`, which
 `estimate_liquidation_amount_contract` guarantees on a solvent liquidatable
@@ -173,20 +180,22 @@ collateral:
 * debt side, `Ed/(2K) = Σ_debt (1.5 + 3·p_j/W)`: the floor burn and the
   ceiling valuation, at most 1.5 units plus 3 token-wei at the leg's price per
   debt leg;
-* collateral side, `ErrC` = `rep·opb/(2W²) + 1/2` (half-up budget and
-  proportion) `+ B·(n + Ev/(K·BPS))/C` (half-up vs floor valuation of each leg,
-  about `(2 + 4·p_i/W)` units per leg scaled by `B/C ≲ 1`)
-  `+ (B + W)·Σ LT/(2W·BPS)` (half-up share and leg budget: half a unit per leg
-  plus a `10^-18` relative share of the budget) `+ (Es/2 + Ec)/(BPS·K)`
-  (the per-leg seizure slack: half a token-wei and half a RAY unit, a whole
-  token on the whole-unit round-up branch, plus the floor of the post value)
-  `+ n` (the weighting floor, one unit per supply leg).
+* collateral side, `ErrC`, the sum of five terms:
+  * `rep·opb/(2W²) + 1/2`: half-up budget and proportion;
+  * `B·(n + Ev/(K·BPS))/C`: half-up vs floor valuation of each leg, about
+    `(2 + 4·p_i/W)` units per leg scaled by `B/C ≲ 1`;
+  * `(B + W)·Σ LT/(2W·BPS)`: half-up share and leg budget, half a unit per
+    leg plus a `10^-18` relative share of the budget;
+  * `(Es/2 + Ec)/(BPS·K)`: the per-leg seizure slack. That is half a
+    token-wei and half a RAY unit, a whole token on the whole-unit round-up
+    branch, plus the floor of the post value;
+  * `n`: the weighting floor, one unit per supply leg.
 
-For a realistic account all of this is below `10^-15` USD per leg, except the
-whole-unit round-up branch (`repays_all_debt` on a leg below 3 decimals),
-where the allowance includes one whole token per such leg: the code then
-deliberately seizes up to one whole unit more, and the debt is fully repaid
-(post-HF is `i128::MAX`), so the bound is irrelevant there.
+For a realistic account all of this is below `10^-15` USD per leg. The
+exception is the whole-unit round-up branch (`repays_all_debt` on a leg below
+3 decimals). There the allowance includes one whole token per such leg,
+because the code seizes up to one whole unit more on purpose. The debt is
+then fully repaid (post-HF is `i128::MAX`), so the bound is irrelevant there.
 
 **On the curve-target branch** (`HitsTarget D Wc p T b r` from
 `estimate_hits_curve_target`, and the plan repays at least the quote,
@@ -194,25 +203,28 @@ deliberately seizes up to one whole unit more, and the debt is fully repaid
 
 `W·Wc' ≥ T·D' − (T·Ed/(2K) + (T − δ + W)/2 + rep/2 + W·ErrC)`,
 
-i.e. the post-liquidation health factor is at least the target `T/W` up to:
-the estimate's own target slack (`≤ 5.5` units), half a unit per repaid unit
-for using the rounded seizure rate `δ = huD(p·opb, W)` instead of the exact
-`p·opb/W` (a `5·10^-19` relative error on the repayment), and the same
-rounding as above. Repaying more than the quote only helps, since `δ < T`.
+i.e. the post-liquidation health factor is at least the target `T/W`, up to:
+
+* the estimate's own target slack (`≤ 5.5` units);
+* half a unit per repaid unit, for using the rounded seizure rate
+  `δ = huD(p·opb, W)` instead of the exact `p·opb/W` (a `5·10^-19` relative
+  error on the repayment);
+* the same rounding as above.
+ Repaying more than the quote only helps, since `δ < T`.
 Only the lower bound is proved (no overshoot bound).
 
-**Counterexample: the allowance is needed** (`ha_counterexample`). One
-supply leg, USD 1100 at threshold 50% (18 decimals, price 1, index `RAY`),
-one debt leg USD 1000 (same), so `C = 1100 W`, `Wc = 550 W`, `D = 1000 W`,
-`hf = 0.55 W`, `p = 0.5 W`, and the cap is exactly 1000 BPS with no slack:
-`(BPS + 1000)·p = hf·BPS`. Repaying 1001 raw units at that bonus: budget
+**Counterexample: the allowance is needed** (`ha_counterexample`). Take one
+supply leg of USD 1100 at threshold 50% (18 decimals, price 1, index `RAY`).
+Take one debt leg of USD 1000 (same parameters). So `C = 1100 W`,
+`Wc = 550 W`, `D = 1000 W`, `hf = 0.55 W` and `p = 0.5 W`. The cap is exactly
+1000 BPS with no slack: `(BPS + 1000)·p = hf·BPS`. Repaying 1001 raw units at that bonus: budget
 `huD(1001·1.1) = 1101`, seized shares `1101·10^9`, debt shares burned
 `1001·10^9`. Then `Wc' = 550 W − 551` and `D' = 1000 W − 1001`, so
 `Wc'·D < Wc·D'`, and the production HF goes from `550000000000000000` to
 `549999999999999999`. The half-up budget seizes 1101 instead of the exact
 1100.1, and the weighting floor loses the remaining half unit. The drop is
-one `10^-18` HF unit, within the allowance, and is not exploitable (the
-liquidator pays at least the value it takes, up to that unit), but
+one `10^-18` HF unit, within the allowance. It is not exploitable: the
+liquidator pays at least the value it takes, up to that unit. But
 "post-HF ≥ pre-HF" holds only up to rounding.
 
 ## Findings
@@ -222,12 +234,12 @@ No production bug. Observations:
 1. **Post-HF can fall by rounding at the HF-preserving cap** (counterexample
    above, one `10^-18` unit). The intended property holds with the explicit
    allowance of `health_after_hf_preserving`.
-2. **Seizure rounding is half up at four steps** (`Wad::mul` for the budget,
-   `Wad::div` for the share, `Wad::mul` for the leg budget, `Wad::div` by the
-   price), so a leg can seize more than its exact pro-rata budget: by at most
-   half a token-wei at its price and half a RAY unit
-   (`seized_value_le_budget`), and the total by at most `n·(B + W)/(2W)`
-   units above `B` (`seized_total_le_budget`). The whole-unit round-up branch
+2. **Seizure rounding is half up at four steps**: `Wad::mul` for the budget,
+   `Wad::div` for the share, `Wad::mul` for the leg budget, and `Wad::div` by
+   the price. So a leg can seize more than its exact pro-rata budget. The
+   excess is at most half a token-wei at its price and half a RAY unit
+   (`seized_value_le_budget`). The total is at most `n·(B + W)/(2W)` units
+   above `B` (`seized_total_le_budget`). The whole-unit round-up branch
    seizes up to one whole token more, as documented in INV-LIQ-02.
 3. **The `Wad::div` by the price can abort** when the requested amount
    exceeds about `1.7·10^20` tokens. The code's comment only mentions the
@@ -242,16 +254,18 @@ No production bug. Observations:
 
 ## Not covered
 
-* **Exact abort set of the loop.** Non-abort is proved on `SzLegOK`; the
-  hypotheses are sufficient, not necessary (`B·W ≤ 2^126·p` is the sufficient
-  form of the abort condition `huD(L·W, p) < 2^127`).
+* **Exact abort set of the loop.** Non-abort is proved on `SzLegOK`. The
+  hypotheses are sufficient, not necessary. `B·W ≤ 2^126·p` is the sufficient
+  form of the abort condition `huD(L·W, p) < 2^127`.
 * **Plan-level derivation of `B ≲ C` and of the post-account domain.**
   `rep = Σ u_j` and `0 ≤ rep` are derived from the production plan
-  (`plan_credits_sum`, used by `health_after_executed_plan`). Still taken as
-  hypotheses: that every supply leg is in `SzLegOK` (which needs the budget
-  near the collateral, `B ≲ C`) and that the post account is in the totals
-  domain (follows from `s' ≤ s`, `t' ≤ t`; `ha_debt_leg` proves
-  `0 ≤ t' ≤ t`, not assembled).
+  (`plan_credits_sum`, used by `health_after_executed_plan`). Two facts are
+  still hypotheses:
+  * every supply leg is in `SzLegOK`, which needs the budget near the
+    collateral (`B ≲ C`);
+  * the post account is in the totals domain. This follows from `s' ≤ s`
+    and `t' ≤ t`. `ha_debt_leg` proves `0 ≤ t' ≤ t`, but the pieces are not
+    assembled.
 * **`health_after_target` for the production plan** is not restated the way
   `health_after_executed_plan` restates the cap theorem; the same
   `plan_credits_sum` discharges its plan hypotheses.
@@ -259,12 +273,13 @@ No production bug. Observations:
   (`scaled_amount` subtracted exactly). Transfer mode burns
   `⌈amount·Dd·R/i⌉ ≤ Seized + 1` shares via the pool's withdrawal; the extra
   share is not modelled.
-* **The full-close-at-low-cap branch with `cap < 0`** (bonus 0, HF not
-  preserved, finding 4 of controller-estimate.md) and **seize-all**
-  (insolvent, all collateral taken) are outside the health theorems.
+* **The full-close-at-low-cap branch with `cap < 0`** and **seize-all** are
+  outside the health theorems. The first has bonus 0 and does not preserve
+  HF (finding 4 of controller-estimate.md). The second is insolvent and takes
+  all collateral.
 * **Upper bound on the target branch** (post-HF does not overshoot the target
-  by more than rounding): would need lower bounds on every seizure rounding
-  and the held-balance cap; not attempted.
+  by more than rounding). It needs lower bounds on every seizure rounding and
+  the held-balance cap. No theorem states it.
 * **`apply_liquidation_seizures`, `apply_liquidation_share_credit`, the pool
   repay**: their effects are modelled by `SupplyAfter`/`DebtAfter`, not
   proved from the (external) calls.

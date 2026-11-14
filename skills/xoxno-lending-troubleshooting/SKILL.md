@@ -37,9 +37,9 @@ argument-hint: "[error string, hash, or test setup]"
 Canonical catalogs:
 
 - All error variants and conditions:
-  [docs/reference/errors.md](../../docs/reference/errors.md)
+  [docs/reference/errors.md](https://github.com/XOXNO/rs-lending-xlm/blob/main/docs/reference/errors.md)
 - All event topics, payloads, units, and ordering:
-  [docs/reference/events.md](../../docs/reference/events.md)
+  [docs/reference/events.md](https://github.com/XOXNO/rs-lending-xlm/blob/main/docs/reference/events.md)
 
 This skill keeps only operational interpretation and failure-handling rules.
 
@@ -211,8 +211,10 @@ make test-match PATTERN=<substring>
 status 2 when `PATTERN` is empty.
 
 For testnet, resolve the controller and pool addresses and the on-chain hub
-and spoke ids from `configs/networks.json`, and asset addresses from
-`configs/testnet/markets.json` or [addresses](../xoxno-lending/addresses.md).
+and spoke ids from [`configs/networks.json`](https://github.com/XOXNO/rs-lending-xlm/blob/main/configs/networks.json).
+Resolve asset addresses from
+[`configs/testnet/markets.json`](https://github.com/XOXNO/rs-lending-xlm/blob/main/configs/testnet/markets.json) or
+[addresses](../xoxno-lending/addresses.md).
 Asset identity is the contract address plus explicit hub and spoke context,
 never the first display-symbol or search result.
 

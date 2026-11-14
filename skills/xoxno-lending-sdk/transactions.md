@@ -57,7 +57,7 @@ Soroban resource fee.
 
 The exact controller signatures, option encoding, and return types are in
 [../xoxno-lending-contracts/abi.md](../xoxno-lending-contracts/abi.md).
-Controller methods without a dedicated 1.0.228 builder can use the exported
+Controller methods without a dedicated SDK builder can use the exported
 `buildTx(opts, method, params)` with ScVals encoded by the host's
 `@stellar/stellar-sdk`; verify the ABI first.
 

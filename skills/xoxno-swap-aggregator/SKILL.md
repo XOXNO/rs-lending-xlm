@@ -1,6 +1,6 @@
 ---
 name: xoxno-swap-aggregator
-description: "Use when swapping tokens on Stellar through the XOXNO swap aggregator (arb-algo, stellar-swap.xoxno.com, GET /api/v1/quote), reading a quote's output, minimum received, price impact, route or fee, executing execute_strategy on the router, or obtaining a routeXdr to embed in a lending strategy (multiply, swap collateral, swap debt, repay debt with collateral) or in your own Soroban contract."
+description: "Use when swapping tokens on Stellar through the XOXNO swap aggregator (stellar-swap.xoxno.com, GET /api/v1/quote), reading a quote's output, minimum received, price impact, route or fee, executing execute_strategy on the router, or obtaining a routeXdr to embed in a lending strategy (multiply, swap collateral, swap debt, repay debt with collateral) or in your own Soroban contract."
 user-invocable: true
 argument-hint: "[swap or route task]"
 ---
@@ -12,8 +12,8 @@ Soroban DEX liquidity and returns a route. The router executes the route
 atomically through `execute_strategy(sender, total_in, swap_xdr)`.
 Standalone swaps and lending strategies use the same route format.
 
-Sources: `arb-algo` commit `54de209a` (verified source), `@xoxno/sdk-js` 1.0.228 with
-`@stellar/stellar-sdk` ^16, `rs-lending-xlm` at this skill's commit.
+Sources: the XOXNO swap quote server, the [pinned SDK](../xoxno-lending/SKILL.md#verified-against) with
+`@stellar/stellar-sdk` ^16, and the router contract in `rs-lending-xlm`.
 
 ## Related skills
 - Shared model, addresses, hub/spoke ids → [../xoxno-lending/SKILL.md](../xoxno-lending/SKILL.md)
