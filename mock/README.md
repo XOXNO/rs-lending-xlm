@@ -1,7 +1,7 @@
 # Test doubles
 
-Test-only contracts for the harness, unit tests and live testnet coverage.
-None of them is a deployable protocol contract. None of them gates its caller.
+Test-only contracts for the harness, unit tests and live testnet coverage. None
+is a deployable protocol contract or gates its caller.
 
 | Directory | Purpose |
 | --- | --- |

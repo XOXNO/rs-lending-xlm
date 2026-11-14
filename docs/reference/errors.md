@@ -1,166 +1,168 @@
 # Error reference
 
-Use the failing contract and its numeric code together to identify an error. Codes overlap between shared lending errors, contract-local errors and inherited helpers.
+Identify an error by contract and numeric code together: shared lending, contract-local and inherited codes overlap.
 
-SDK `try_` calls distinguish contract errors from host, authorization, storage, budget and conversion failures. Some APIs return `Result` or `Option` instead of panicking. Downstream token, venue and callback errors can propagate. The [endpoint reference](endpoints.md) lists each call's authorization and input requirements.
+SDK `try_` calls separate contract errors from host, authorization, storage, budget and conversion failures. Some APIs return `Result` or `Option` instead of panicking. Downstream token, venue and callback errors can propagate. [Endpoints](endpoints.md) lists each call's authorization and inputs.
+
+Unless a row adds a response, correct the named input or wait for governance to configure the missing item. "Report" marks an internal inconsistency.
 
 ## Shared lending errors
 
-[Shared error definitions](../../common/src/errors.rs) group lending failures by domain. Gaps in the numeric ranges are reserved. The tables describe failure conditions. The checks a call reaches depend on its execution path.
+[Shared error definitions](../../common/src/errors.rs) group failures by domain; gaps in the ranges are reserved. The checks a call reaches depend on its execution path.
 
 ### Generic errors (1–55)
 
-| Code / variant | Condition | Response |
-| --- | --- | --- |
-| 2 `AssetAlreadySupported` | A market already exists for this hub asset. | Use the existing market. |
-| 5 `PoolAlreadyDeployed` | The singleton pool, controller, or price aggregator address is already recorded. | Use the recorded deployment. |
-| 6 `InvalidAsset` | The token reports no decimals or symbol, or the declared decimals fall outside 0–18 (`MIN_ASSET_DECIMALS`..=`MAX_ASSET_DECIMALS`) or differ from the listed decimals: the stored oracle's `asset_decimals` when the price aggregator holds an oracle for the token, else the token's live decimals. | Pass a real token and its listed decimals. |
-| 7 `AssetsAreTheSame` | A prohibited same-market pair is used (Long/Short also reject the same underlying token across hubs), or a Blend migration repeats a debt asset. | Choose an allowed distinct market/token pair. |
-| 8 `WrongToken` | `params.asset_id` does not equal the asset the market is being created for. | Make `params.asset_id` match the asset. |
-| 10 `InvalidWasmHash` | The supplied Wasm hash is all zero bytes. | Pass the hash of an uploaded Wasm. |
-| 13 `AccountNotInMarket` | Account metadata is missing or caller fails the explicit NFT-owner check. | Use a live account; owner must authorize renewal/delegate writes. |
-| 14 `AmountMustBePositive` | Negative input, forbidden zero, or nonpositive measured receipt. Withdrawal zero and zero flash collateral minima are allowed exceptions. | Use valid amounts and a token that delivers funds. |
-| 16 `InvalidPayments` | Required list/route empty, forbidden route nonempty, input bound exceeded, duplicate/overlapping flash declarations, a withdrawal mixing a zero (withdraw-all) and a positive amount for one market, a pool `supply`/`borrow`/`withdraw`/`repay` batch that repeats a market. Empty flash collateral list reaches this code, as does a liquidation whose trimmed plan keeps no repayment leg, or whose debt token under-delivers while a seized leg is below 3 decimals. | Correct request shape and declared asset sets. |
-| 18 `NotSmartContract` | The supplied address is not a deployed Wasm contract. | Pass a contract address, not an account. |
-| 24 `AccountNotFound` | Required account or its NFT owner cannot be resolved; account id exceeds NFT u32 domain. | Use a live valid id. Some views return empty/zero instead. |
-| 25 `AccountModeMismatch` | The account's position mode differs from the mode the call requires, or a liquidation receiver is not in normal mode. | Use an account in the matching mode. |
-| 27 `AggregatorNotSet` | The swap aggregator or price aggregator address has not been configured. | Wait for governance to set the aggregator. |
-| 29 `PositionLimitsNotSet` | No position limits are stored in controller instance storage. | Wait for governance to set position limits. |
-| 30 `PoolNotInitialized` | The pool or controller address is unset, or the market's params or state record does not exist. | Wait for the market to be created. |
-| 32 `OwnerNotSet` | A required owner is absent. | Report it; constructors set the owner and no contract exports `renounce_ownership`. |
-| 33 `MathOverflow` | Checked arithmetic, conversion or rescale fails. | Check amount/decimal domains; report impossible state. |
-| 34 `InternalError` | An internal invariant fails: an expected value is absent, liquidation math is inconsistent, a timelock target is wrong, or a migration version does not increase. | Report it; the inputs are inconsistent. |
-| 36 `InvalidPositionLimits` | A supply or borrow position limit is zero or above `POSITION_LIMIT_MAX`. | Use limits inside the allowed range. |
-| 38 `SpotOnlyNotProductionSafe` | Both available source paths contain an unsmoothed market leg, or the only source does. | Configure a permitted smoothed or fundamental source composition. |
-| 39 `InvalidTimelockDelay` | Constructor delay is zero; a delay update is zero, above `TIMELOCK_MAX_DELAY_LEDGERS`, or below both the current minimum and `TIMELOCK_MIN_DELAY_LEDGERS`. | Use a nonzero constructor delay and an allowed update. |
-| 40 `TimelockOperationExpired` | The scheduled operation's grace period has already elapsed. | Propose the operation again. |
-| 41 `InvalidRole` | The role symbol is not a known governance role, the role is not held on revoke, or an immediate revoke names a role other than guardian, oracle or curator. | Use a valid role assignment. |
-| 42 `BlendPoolNotApproved` | The target Blend pool is not on the controller's approved list. | Ask governance to approve the pool. |
-| 43 `HubNotActive` | The hub id does not exist or has been deactivated. | Use an active hub. |
-| 44 `NotAuthorized` | NFT owner/delegate authorization fails, including a third-party supply to a market the account does not hold; a delegate grant names an inactive manager; a revocation targets the owner or its proposer; or a non-owner proposes an owner-only operation. | Use eligible authority and an allowed governance target. |
-| 45 `RegistryCapReached` | The account already has `MAX_DELEGATES` delegates. | Remove a delegate first. |
-| 46 `OperationNotCancellable` | The operation is a recovery operation, or the canceller is the account the operation would revoke. | Recovery operations cannot be cancelled; a revocation needs a different canceller. |
-| 47 `BorrowRoundsToZeroShares` | A positive borrow amount mints zero scaled debt shares. | Borrow a larger amount. |
-| 48 `CannotRemoveLastProposer` | Revoking the role would leave the proposer role with no holders. | Grant another proposer first. |
-| 49 `WithdrawRoundsToZeroShares` | A positive withdrawal burns zero scaled supply shares. | Withdraw a larger amount. |
-| 50 `NetSettleRoundsToZeroShares` | A positive net settlement burns zero supply or debt shares. | Settle a larger amount. |
-| 51 `SupplyRoundsToZeroShares` | A positive supply amount mints zero scaled shares. | Supply a larger amount. |
-| 52 `RepayRoundsToZeroShares` | A positive net repayment burns zero scaled debt shares. | Repay a larger amount. |
-| 53 `PositionNftNotSet` | The position-NFT contract address is unset in controller storage. | Wait for governance to deploy the position NFT. |
-| 54 `PositionNftAlreadyDeployed` | A position-NFT contract address is already recorded. | Use the recorded deployment. |
-| 55 `DivisionByZero` | A fixed-point multiply-divide received a zero denominator. Distinct from `MathOverflow`, which the same operations raise when the result does not fit `i128`. | Report it; a zero index or denominator is an internal inconsistency. |
+| Code / variant | Condition and response |
+| --- | --- |
+| 2 `AssetAlreadySupported` | A market already exists for this hub asset. |
+| 5 `PoolAlreadyDeployed` | The singleton pool, controller, or price aggregator is already recorded. |
+| 6 `InvalidAsset` | Token reports no decimals or symbol, or decimals outside 0–18 (`MIN_ASSET_DECIMALS`..=`MAX_ASSET_DECIMALS`) or unequal to the listed decimals (the stored oracle's `asset_decimals` if one exists, else live decimals). |
+| 7 `AssetsAreTheSame` | Prohibited same-market pair (Long/Short also reject one token across hubs), or a Blend migration repeats a debt asset. |
+| 8 `WrongToken` | `params.asset_id` differs from the listed asset. |
+| 10 `InvalidWasmHash` | Wasm hash is all zeros. |
+| 13 `AccountNotInMarket` | Account metadata missing, or caller fails the NFT-owner check (renewal and delegate writes need the owner). |
+| 14 `AmountMustBePositive` | Negative input, forbidden zero, or nonpositive measured receipt. Zero withdrawal and zero flash collateral minima are allowed. |
+| 16 `InvalidPayments` | Required list/route empty, forbidden route nonempty, input bound exceeded, duplicate/overlapping flash declarations, empty flash collateral list, a withdrawal mixing zero (withdraw-all) and a positive amount for one market, or a pool `supply`/`borrow`/`withdraw`/`repay` batch repeating a market. Also a liquidation whose trimmed plan keeps no repayment leg, or whose debt token under-delivers while a seized leg is below 3 decimals. |
+| 18 `NotSmartContract` | Address is not a deployed Wasm contract. |
+| 24 `AccountNotFound` | Account or NFT owner unresolvable, or id beyond NFT u32. Some views return empty/zero instead. |
+| 25 `AccountModeMismatch` | Account mode differs from the call's, or a liquidation receiver is not Normal. |
+| 27 `AggregatorNotSet` | Swap or price aggregator unset. |
+| 29 `PositionLimitsNotSet` | No position limits stored. |
+| 30 `PoolNotInitialized` | Pool or controller unset, or market params/state missing. |
+| 32 `OwnerNotSet` | Owner absent. Report: constructors set it and no contract exports `renounce_ownership`. |
+| 33 `MathOverflow` | Checked arithmetic, conversion or rescale failed. Check amount/decimal domains; report impossible state. |
+| 34 `InternalError` | Expected value absent, inconsistent liquidation math, wrong timelock target, or non-increasing migration version. Report. |
+| 36 `InvalidPositionLimits` | Position limit zero or above `POSITION_LIMIT_MAX`. |
+| 38 `SpotOnlyNotProductionSafe` | Every source path has an unsmoothed market leg. Use a smoothed or fundamental composition. |
+| 39 `InvalidTimelockDelay` | Zero constructor delay; or an update that is zero, above `TIMELOCK_MAX_DELAY_LEDGERS`, or below both the current minimum and `TIMELOCK_MIN_DELAY_LEDGERS`. |
+| 40 `TimelockOperationExpired` | Grace period elapsed. Propose again. |
+| 41 `InvalidRole` | Unknown role, revoke of an unheld role, or immediate revoke of a role other than guardian, oracle or curator. |
+| 42 `BlendPoolNotApproved` | Blend pool not approved. |
+| 43 `HubNotActive` | Hub missing or deactivated. |
+| 44 `NotAuthorized` | NFT owner/delegate auth fails (incl. third-party supply to a market the account lacks); delegate grant to an inactive manager; revocation of the owner or its proposer; or a non-owner proposing an owner-only operation. |
+| 45 `RegistryCapReached` | Account already has `MAX_DELEGATES` delegates. |
+| 46 `OperationNotCancellable` | Recovery operation, or the canceller is the account it would revoke. |
+| 47 `BorrowRoundsToZeroShares` | Positive borrow mints zero debt shares. |
+| 48 `CannotRemoveLastProposer` | Revoke would leave no proposer. Grant another first. |
+| 49 `WithdrawRoundsToZeroShares` | Positive withdrawal burns zero supply shares. |
+| 50 `NetSettleRoundsToZeroShares` | Positive net settlement burns zero supply or debt shares. |
+| 51 `SupplyRoundsToZeroShares` | Positive supply mints zero shares. |
+| 52 `RepayRoundsToZeroShares` | Positive net repayment burns zero debt shares. |
+| 53 `PositionNftNotSet` | Position-NFT address unset. |
+| 54 `PositionNftAlreadyDeployed` | Position-NFT address already recorded. |
+| 55 `DivisionByZero` | Fixed-point multiply-divide got a zero denominator (`MathOverflow` is the non-fitting-result case). Report. |
 
 ### Collateral and market errors (100–136)
 
-| Code / variant | Condition | Response |
-| --- | --- | --- |
-| 100 `InsufficientCollateral` | A post-pool risk gate finds LTV collateral below debt or HF below 1 WAD. | Increase collateral or reduce debt; ordinary supply and repayment do not run this gate. |
-| 101 `HealthFactorTooHigh` | The account has no debt, or its health factor is at or above 1 WAD. | Liquidate only an eligible unhealthy position. |
-| 102 `HealthFactorTooLow` | A full risk-parameter refresh (`has_risks`) lowers the health factor below both 1.05 WAD (`THRESHOLD_UPDATE_MIN_HF_RAW`) and its value before the refresh. | Improve the health factor first. |
-| 104 `NotCollateral` | The spoke listing does not allow the asset to be used as collateral. | Choose a collateral-enabled asset. |
-| 107 `AssetNotBorrowable` | The spoke listing does not allow the asset to be borrowed. | Choose a borrow-enabled asset. |
-| 109 `PositionLimitExceeded` | The new supply or borrow position would push the account past its configured position count, or place a supply leg below 3 decimals beside another supply position. | Close or consolidate positions. |
-| 111 `InvalidPositionMode` | The requested position mode is not Multiply, Long, or Short. | Use Multiply, Long, or Short. |
-| 112 `InsufficientLiquidity` | Market cash is below the requested draw, or the draw would break the liquidation buffer. | Reduce the amount or wait for liquidity. |
-| 113 `InvalidLiqThreshold` | The liquidation fee is at or above BPS, the threshold is at or below the LTV or above BPS, or threshold times (BPS plus bonus) exceeds BPS squared. | Fix the risk bounds in the proposal. |
-| 114 `CannotCleanBadDebt` | Debt does not exceed collateral, or permissionless cleanup has collateral above `BAD_DEBT_USD_THRESHOLD` (5 USD, WAD). | Liquidate further; governance force-socialization bypasses only the collateral dust cap. |
-| 115 `WithdrawLessThanFee` | Liquidation protocol fee exceeds gross withdrawal. | Re-estimate; caller cannot select individual collateral legs. |
-| 116 `InvalidBorrowParams` | A cap or floor is negative, a cap exceeds the asset's decimal domain, or the flash-loan fee is above the maximum. A market below 3 decimals is listed borrowable, flash-loanable, or with a liquidation fee. | Use non-negative, in-range parameters. |
-| 117 `InvalidUtilRange` | `mid_utilization` is nonpositive, `optimal_utilization` is not above it, or `max_utilization` is below optimal or above RAY. | Order the utilization breakpoints correctly. |
-| 118 `OptUtilTooHigh` | Optimal utilization is at or above RAY, that is 100%. | Set optimal utilization below 100%. |
-| 119 `InvalidReserveFactor` | The reserve factor is at or above BPS, that is 100%. | Set the reserve factor below 100%. |
-| 120 `DebtPositionNotFound` | The account has no debt position for the referenced hub asset, or bad-debt cleanup targets an account with no debt. | Reference an asset the account owes. |
-| 121 `CollateralPositionNotFound` | The account has no supply position for the referenced hub asset. | Reference an asset the account supplied. |
-| 122 `CannotCloseWithRemainingDebt` | `repay_debt_with_collateral` sets `close_position` while borrow positions remain open. | Repay all debt before closing. |
-| 123 `PoolInsolvent` | Supplier claims exceed cash plus outstanding debt, or supply is zero while debt remains. | Recapitalize or clean bad debt first. |
-| 126 `MinBorrowCollateralNotMet` | LTV-weighted collateral is below the configured USD floor, or a collateral leg below 3 decimals holds under 2 whole units, while the account still has debt. | Supply more collateral or repay in full. |
-| 127 `UtilizationAboveMax` | Utilization after the operation exceeds the market's `max_utilization`. A borrow or strategy opening is also refused at a 100% ceiling when it would take debt value above supply value. | Reduce the borrow or withdrawal size. |
-| 128 `BaseRateNegative` | The base borrow rate is negative. | Use a non-negative base rate. |
-| 129 `SlopeNonMonotonic` | Parameters violate base <= slope1, a slope is negative or above max, the rate at full utilization (base + slope1 + slope2 + slope3) exceeds max, or the curve's steepness per unit of utilization falls at a kink: slope1 / mid <= slope2 / (optimal - mid) <= slope3 / (RAY - optimal) fails. Slopes remain additive increments in pricing, so a segment's steepness is its slope divided by its width. | Raise the later slope or move the kinks until each segment is at least as steep as the one before, or raise max to at least the full-utilization rate. |
-| 130 `MaxRateBelowBase` | The max borrow rate is not strictly above the base rate. | Raise the max above the base rate. |
-| 131 `MaxBorrowRateTooHigh` | The max borrow rate exceeds `MAX_BORROW_RATE_RAY`. | Lower the max borrow rate. |
-| 132 `AssetDecimalsTooHigh` | Market decimals exceed 18, or a cap-rescale helper is given decimals above 27. | Use the supported market decimal domain. |
-| 133 `SelfLiquidationNotAllowed` | Credit receiver id equals the liquidated account id. | Choose another receiver; owner self-liquidation is otherwise allowed. |
-| 134 `InvalidLiquidationCurve` | The target HF is outside (1 WAD, `MAX_LIQUIDATION_TARGET_HF_WAD`], the max-bonus HF is outside (0, target HF), or the bonus factor is outside (0, BPS]. | Fix the curve bounds in the proposal. |
-| 136 `MarketCeilingReached` | A supply, borrow, strategy opening or flash loan would leave the market's total supply or total debt above the pool's entry ceiling (`MAX_MARKET_ENTRY_RAY`, about 21.27 billion whole tokens), as a share count or as a value. | Reduce the amount, or wait for repayments and withdrawals to bring the market back under the ceiling. Exits are never refused by it. |
+| Code / variant | Condition and response |
+| --- | --- |
+| 100 `InsufficientCollateral` | Post-pool risk gate: LTV collateral below debt or HF below 1 WAD. Supply and repayment skip it. |
+| 101 `HealthFactorTooHigh` | No debt, or HF >= 1 WAD. |
+| 102 `HealthFactorTooLow` | A full risk refresh (`has_risks`) lowers HF below both 1.05 WAD (`THRESHOLD_UPDATE_MIN_HF_RAW`) and its prior value. |
+| 104 `NotCollateral` | Listing disallows collateral use. |
+| 107 `AssetNotBorrowable` | Listing disallows borrowing. |
+| 109 `PositionLimitExceeded` | A new position would exceed the account's position limit, or put a supply leg below 3 decimals beside another supply position. |
+| 111 `InvalidPositionMode` | Mode is not Multiply, Long, or Short. |
+| 112 `InsufficientLiquidity` | Cash is below the draw, or the draw breaks the liquidation buffer. |
+| 113 `InvalidLiqThreshold` | Liquidation fee >= BPS, threshold <= LTV or > BPS, or threshold × (BPS + bonus) > BPS². |
+| 114 `CannotCleanBadDebt` | Debt does not exceed collateral, or permissionless cleanup has collateral above `BAD_DEBT_USD_THRESHOLD` (5 USD, WAD). Force-socialization bypasses only the dust cap. |
+| 115 `WithdrawLessThanFee` | Protocol fee exceeds gross withdrawal. Re-estimate; callers cannot pick collateral legs. |
+| 116 `InvalidBorrowParams` | A cap or floor is negative, a cap exceeds the asset's decimal domain, or the flash-loan fee exceeds the maximum; or a market below 3 decimals is listed borrowable, flash-loanable, or with a liquidation fee. |
+| 117 `InvalidUtilRange` | `mid_utilization` <= 0, `optimal_utilization` <= mid, or `max_utilization` below optimal or above RAY. |
+| 118 `OptUtilTooHigh` | Optimal utilization >= RAY (100%). |
+| 119 `InvalidReserveFactor` | Reserve factor >= BPS (100%). |
+| 120 `DebtPositionNotFound` | No debt position for the hub asset, or bad-debt cleanup targets an account with no debt. |
+| 121 `CollateralPositionNotFound` | No supply position for the hub asset. |
+| 122 `CannotCloseWithRemainingDebt` | `repay_debt_with_collateral` sets `close_position` with debt open. |
+| 123 `PoolInsolvent` | Supplier claims exceed cash plus debt, or zero supply with debt. Recapitalize or clean bad debt first. |
+| 126 `MinBorrowCollateralNotMet` | With debt, LTV-weighted collateral below the USD floor, or a sub-3-decimal leg under 2 whole units. |
+| 127 `UtilizationAboveMax` | Post-operation utilization exceeds `max_utilization`. At a 100% ceiling, a borrow or strategy opening also fails when debt value would exceed supply value. |
+| 128 `BaseRateNegative` | Base rate negative. |
+| 129 `SlopeNonMonotonic` | base <= slope1 fails, a slope is negative or above max, base + slope1 + slope2 + slope3 exceeds max, or steepness falls at a kink: slope1 / mid <= slope2 / (optimal - mid) <= slope3 / (RAY - optimal) fails. Slopes are additive increments, so a segment's steepness is its slope divided by its width. |
+| 130 `MaxRateBelowBase` | Max rate not strictly above base. |
+| 131 `MaxBorrowRateTooHigh` | Max rate above `MAX_BORROW_RATE_RAY`. |
+| 132 `AssetDecimalsTooHigh` | Market decimals above 18, or cap-rescale decimals above 27. |
+| 133 `SelfLiquidationNotAllowed` | Credit receiver is the liquidated account. Owner self-liquidation is otherwise allowed. |
+| 134 `InvalidLiquidationCurve` | Target HF outside (1 WAD, `MAX_LIQUIDATION_TARGET_HF_WAD`], max-bonus HF outside (0, target HF), or bonus factor outside (0, BPS]. |
+| 136 `MarketCeilingReached` | Supply, borrow, strategy opening or flash loan would leave total supply or debt above `MAX_MARKET_ENTRY_RAY` (about 21.27 billion whole tokens), as shares or value. Exits never fail it. |
 
 ### Oracle errors (201–237)
 
-| Code / variant | Condition | Response |
-| --- | --- | --- |
-| 201 `InvalidAggregator` | The proposed swap or price aggregator address is not a deployed Wasm contract. | Pass a deployed contract address. |
-| 204 `InvalidOracleTokenType` | A Reflector feed references its asset by string; Reflector accepts only an address or a symbol. | Reference the asset by address or symbol. |
-| 205 `UnsafePriceNotAllowed` | Source deviation or only one usable leg of a configured pair makes the result unsafe. | Wait for consistent fresh sources or correct the configuration. |
-| 206 `PriceFeedStale` | Resolved source/aggregate age exceeds the configured bound, or two Market legs exceed the allowed age spread. Future observations are rejected separately and may become NoLastPrice/UnsafePriceNotAllowed. | Refresh the source; do not infer a future timestamp is stale. |
-| 208 `BadLastTolerance` | A governance tolerance width is outside `MIN_TOLERANCE`..=`MAX_TOLERANCE` (150–2,500 BPS); or an oracle tolerance has an upper ratio outside 10,150–12,500 BPS, a lower ratio outside 7,500–10,000 BPS, or a lower ratio other than BPS² / upper ratio rounded half up. | Use an in-range width, or the ratios `resolve_oracle_tolerance` derives from it. |
-| 210 `NoLastPrice` | No source yields a usable observation, or LP binding/decimals/reserves/share/amp reads fail. | Inspect provider availability and LP configuration; not limited to LP assets. |
-| 211 `NoAccumulator` | No revenue accumulator address is configured on the controller. | Wait for governance to set the accumulator. |
-| 212 `ReflectorHistoryEmpty` | Reflector TWAP helper finds absent/empty history; runtime read converts this to an unusable source. | Wait for provider history. |
-| 216 `OracleNotConfigured` | No oracle is registered for the price key, or the aggregator response omits a requested asset. | Register an oracle for the asset. |
-| 217 `InvalidPrice` | The resolved price is zero or negative, or LP fair-value math produces a non-representable result. | Report it; the feed returned an unusable value. |
-| 218 `InvalidStalenessConfig` | Staleness configuration is outside its bounds or incompatible with source freshness requirements. | Fix the source and aggregate freshness windows. |
-| 219 `TwapInsufficientObservations` | Zero configured records, a record count below the smoothing minimum, excess history, spacing below provider resolution, or a history that does not span the window those records imply. | Configure a record count the provider history can span. A history with a skipped provider round is accepted while it still spans the window. Reflector `Twap` reads compute an equal-weight mean. |
-| 220 `InvalidOracleBase` | A bare Reflector feed does not quote in USD; a `Scaled` factor's Reflector base is not token X for quote key `Token(X)` (a `Ref` quote or a USD base always fails); or an LP source has an invalid binding, key pairing or pool-value floor; or a Curve source has fewer than 2 or more than `MAX_CURVE_COINS` coins. | Match quote/base and LP constraints. |
-| 221 `InvalidOracleDecimals` | The declared decimals do not match what the provider reports, they fall outside the allowed range, or a replacement oracle changes the `asset_decimals` stored for the key. | Declare the provider's real decimals. For a replacement, keep the key's stored `asset_decimals`, even after the token issuer changes its decimals. Governance `ConfigureAssetOracle` already resolves them from the stored oracle; read them with `oracle(key)`. |
-| 222 `InvalidOracleResolution` | The Reflector resolution is below the minimum, above `max_stale_seconds`, or the TWAP span it implies exceeds `max_stale_seconds`. | Match records and `max_stale_seconds` to the feed resolution. |
-| 223 `SanityBoundViolated` | The resolved price falls outside the oracle's stored min/max sanity band. | Wait for the price to return to the band, or ask governance to rebase it. |
-| 224 `InvalidSanityBounds` | The sanity band is not positive and increasing, exceeds `MAX_REASONABLE_PRICE_WAD`, or is narrower than `MIN_SANITY_BAND_BPS`; or a scaled factor has a nonpositive minimum, a maximum below its minimum, or a maximum above `MAX_REASONABLE_PRICE_WAD`. | Use valid bounds. Scaled-factor bounds may be equal and have no minimum width. |
-| 225 `OracleCycleDetected` | The price key is already being resolved higher up the composition chain. | Remove the circular oracle reference. |
-| 226 `SanityBandTooWideForSingleSource` | The band of a single-source oracle, or of a pair whose sources have the same trust set, is wider than `MAX_SINGLE_SOURCE_SANITY_BAND_BPS`; or an LP band is wider than `MAX_LP_SANITY_BAND_BPS`. | Narrow the band. A non-LP pair is exempt only when its sources have different trust sets. |
-| 227 `SanityBandMustTighten` | The immediate `set_sanity_band` call would widen the stored band; only tightening is allowed on that path. | Widen the band through the timelocked `ConfigureAssetOracle` operation. |
-| 228 `TwapRecordsOutOfRange` | The requested TWAP record count is above `MAX_TWAP_RECORDS`. | Request fewer TWAP records. |
-| 229 `OracleDepthExceeded` | The oracle composition nests deeper than `MAX_RESOLUTION_DEPTH`. | Flatten the oracle composition. |
-| 230 `FactorOutOfBounds` | Scaled factor is outside stored bounds. | Inspect feed/config; widening bounds requires authorized reconfiguration. |
-| 231 `SourceCountOutOfRange` | Source count outside 1..2, LP mixed with other sources, or tolerance edit attempted on LP oracle. | Use one LP source or one/two allowed feed sources; no LP tolerance edit. |
-| 232 `IndependenceNotDeclared` | Two sources share a provider contract while the policy requires disjoint sources, or the declared shared set is empty or differs from the actual one. When an upstream key changes, or on a sanity-band edit, a key's declared set need only cover the actual one. | Declare the shared contracts, or use independent sources. |
-| 234 `UnsupportedAquariusPool` | LP attestation finds wrong pool kind, absent stable amp, nonpositive reserves or share supply. | Configure a supported, funded pool. |
-| 235 `InsufficientAquariusLiquidity` | The Aquarius pool's total value is below the source's `min_pool_value_wad` floor. | Wait for deeper pool liquidity. |
-| 236 `UnsupportedCurvePool` | Curve executable hash, LP binding, coin order/count, decimals, `precision` (must be WAD) or normalization rates do not match the configured plain pool, or a `pool_info`/`decimals` read fails. | Review the executable and pool configuration before relisting. |
-| 237 `InsufficientCurveLiquidity` | The Curve pool's conservative total value is below `min_pool_value_wad`. | Wait for deeper pool liquidity. |
+| Code / variant | Condition and response |
+| --- | --- |
+| 201 `InvalidAggregator` | Aggregator address is not deployed Wasm. |
+| 204 `InvalidOracleTokenType` | Reflector asset given as string; only address or symbol allowed. |
+| 205 `UnsafePriceNotAllowed` | Source deviation, or one usable leg of a pair. |
+| 206 `PriceFeedStale` | Source or aggregate too old, or two Market legs too far apart. Future observations are rejected separately, surfacing as `NoLastPrice` or `UnsafePriceNotAllowed`. |
+| 208 `BadLastTolerance` | A governance tolerance width is outside `MIN_TOLERANCE`..=`MAX_TOLERANCE` (150–2,500 BPS); or an oracle tolerance has an upper ratio outside 10,150–12,500 BPS, a lower ratio outside 7,500–10,000 BPS, or a lower ratio other than BPS² / upper ratio rounded half up. Use the ratios `resolve_oracle_tolerance` derives. |
+| 210 `NoLastPrice` | No usable observation, or an LP binding/decimals/reserves/share/amp read failed. Not LP-only. |
+| 211 `NoAccumulator` | No accumulator configured. |
+| 212 `ReflectorHistoryEmpty` | Reflector TWAP history absent or empty; runtime reads treat the source as unusable. |
+| 216 `OracleNotConfigured` | No oracle for the key, or the response omits a requested asset. |
+| 217 `InvalidPrice` | Price not positive, or LP fair-value math unrepresentable. Report. |
+| 218 `InvalidStalenessConfig` | Staleness config out of bounds or incompatible with source freshness. |
+| 219 `TwapInsufficientObservations` | Zero records, count below the smoothing minimum, excess history, spacing below resolution, or history not spanning the window (a skipped round passes if it still spans). `Twap` is an equal-weight mean. |
+| 220 `InvalidOracleBase` | A bare Reflector feed does not quote in USD; a `Scaled` factor's Reflector base is not token X for quote key `Token(X)` (a `Ref` quote or a USD base always fails); an LP source has an invalid binding, key pairing or pool-value floor; or a Curve source has fewer than 2 or more than `MAX_CURVE_COINS` coins. |
+| 221 `InvalidOracleDecimals` | Declared decimals differ from the provider's or are out of range, or a replacement changes the stored `asset_decimals`. Replacements keep it even if the issuer changes decimals; `ConfigureAssetOracle` resolves it from the stored oracle (`oracle(key)`). |
+| 222 `InvalidOracleResolution` | Resolution below minimum or above `max_stale_seconds`, or implied TWAP span above `max_stale_seconds`. |
+| 223 `SanityBoundViolated` | Price outside the stored sanity band. Wait, or have governance rebase the band. |
+| 224 `InvalidSanityBounds` | Band not positive and increasing, above `MAX_REASONABLE_PRICE_WAD`, or narrower than `MIN_SANITY_BAND_BPS`; or scaled-factor minimum <= 0, maximum below minimum or above `MAX_REASONABLE_PRICE_WAD` (factor bounds may be equal; no minimum width). |
+| 225 `OracleCycleDetected` | Key already being resolved up the composition chain. |
+| 226 `SanityBandTooWideForSingleSource` | Single-source or same-trust-set pair band above `MAX_SINGLE_SOURCE_SANITY_BAND_BPS`, or LP band above `MAX_LP_SANITY_BAND_BPS`. Non-LP pairs with differing trust sets are exempt. |
+| 227 `SanityBandMustTighten` | Immediate `set_sanity_band` would widen; use timelocked `ConfigureAssetOracle`. |
+| 228 `TwapRecordsOutOfRange` | Records above `MAX_TWAP_RECORDS`. |
+| 229 `OracleDepthExceeded` | Nesting deeper than `MAX_RESOLUTION_DEPTH`. |
+| 230 `FactorOutOfBounds` | Scaled factor outside stored bounds; widening needs authorized reconfiguration. |
+| 231 `SourceCountOutOfRange` | Source count outside 1..2, LP mixed with others, or tolerance edit on an LP oracle. |
+| 232 `IndependenceNotDeclared` | Sources share a provider under a disjoint policy, or the declared shared set is empty or differs from actual (on an upstream key change or band edit it need only cover actual). |
+| 234 `UnsupportedAquariusPool` | Wrong pool kind, no stable amp, or nonpositive reserves or share supply. |
+| 235 `InsufficientAquariusLiquidity` | Pool value below `min_pool_value_wad`. |
+| 236 `UnsupportedCurvePool` | Executable hash, LP binding, coin order/count, decimals, `precision` (must be WAD) or normalization rates differ from config, or a `pool_info`/`decimals` read failed. |
+| 237 `InsufficientCurveLiquidity` | Conservative pool value below `min_pool_value_wad`. |
 
 ### Spoke errors (300–319)
 
-| Code / variant | Condition | Response |
-| --- | --- | --- |
-| 300 `SpokeNotFound` | The spoke id is zero, or no configuration is stored for it. | Use an existing spoke id. |
-| 301 `SpokeDeprecated` | Ordinary entry or a new listing uses a deprecated spoke, or `remove_spoke` repeats. | Use an active spoke. A `Credit(0)` liquidation can still create its receiver account on a deprecated spoke. |
-| 307 `AssetNotInSpoke` | The hub asset is not listed on that spoke. | List the asset on the spoke first. |
-| 308 `AssetAlreadyInSpoke` | The hub asset is already listed on that spoke. | Use `edit_asset_in_spoke` instead. |
-| 309 `SpokeAssetInUse` | The listing still has non-zero supplied or borrowed usage. | Wait until all positions unwind. |
-| 310 `SpokeMismatch` | The account's spoke id differs from the spoke the call targets, or a liquidation receiver sits on a different spoke. | Use an account on the same spoke. |
-| 311 `SpokeSupplyCapReached` | The supply would push the spoke's tracked supply above its configured cap. | Wait for cap headroom, or supply less. |
-| 312 `SpokeBorrowCapReached` | The borrow would push the spoke's tracked borrows above its configured cap. | Borrow less, or wait for cap headroom. |
-| 315 `SpokeAssetPaused` | Listing paused blocks ordinary entry/exit or liquidation debt repayment. Seizure checks no_seize instead. | Wait for authorized reopening or operate on eligible assets. |
-| 316 `SpokeAssetFrozen` | Listing frozen blocks entry. | Exit remains permitted, subject to other gates. |
-| 317 `SpokeAssetFlagRelaxation` | The immediate guardian call or a listing edit tries to clear `paused`, `frozen`, or `no_seize`. | Clear flags through the timelocked `relax_spoke_asset_flags`. |
-| 318 `SpokeAssetSeizureHalted` | A pro-rata collateral seizure leg has no_seize set. | Wait for authorized flag clearance; liquidation has no collateral-selection argument. |
-| 319 `SpokeFlagsEpochMismatch` | A `RelaxSpokeAssetFlags` proposal or `relax_spoke_asset_flags` names a flags epoch other than the listing's current one: a flag write occurred after the relaxation was prepared. | Read `get_spoke_asset_flags_epoch` and the live flags again, then propose a new relaxation. |
-| 320 `SpokeAssetFlagsUnchanged` | `set_spoke_asset_flags` names the flags the listing already holds. A write that changes nothing does not advance the flags epoch. | Nothing to do: the listing is already at least that tight. Name a flag that is not yet set. |
+| Code / variant | Condition and response |
+| --- | --- |
+| 300 `SpokeNotFound` | Spoke id zero or unconfigured. |
+| 301 `SpokeDeprecated` | Entry or new listing on a deprecated spoke, or repeated `remove_spoke`. `Credit(0)` can still create its receiver there. |
+| 307 `AssetNotInSpoke` | Asset not listed on the spoke. |
+| 308 `AssetAlreadyInSpoke` | Already listed; use `edit_asset_in_spoke`. |
+| 309 `SpokeAssetInUse` | Listing still has usage. |
+| 310 `SpokeMismatch` | Account or liquidation receiver on another spoke. |
+| 311 `SpokeSupplyCapReached` | Supply would exceed the spoke's supply cap. |
+| 312 `SpokeBorrowCapReached` | Borrow would exceed the spoke's borrow cap. |
+| 315 `SpokeAssetPaused` | `paused` blocks entry/exit or liquidation debt repayment; seizure checks `no_seize`. |
+| 316 `SpokeAssetFrozen` | `frozen` blocks entry; exit stays open subject to other gates. |
+| 317 `SpokeAssetFlagRelaxation` | Guardian call or listing edit tries to clear a flag. Use timelocked `relax_spoke_asset_flags`. |
+| 318 `SpokeAssetSeizureHalted` | A pro-rata seizure leg has `no_seize`; liquidation cannot pick collateral. |
+| 319 `SpokeFlagsEpochMismatch` | `RelaxSpokeAssetFlags` or `relax_spoke_asset_flags` names a stale epoch (a flag write landed since). Reread `get_spoke_asset_flags_epoch` and flags, then propose anew. |
+| 320 `SpokeAssetFlagsUnchanged` | `set_spoke_asset_flags` names only held flags; epoch unchanged. The listing is already that tight. |
 
 ### Flash-loan errors (400–412)
 
-| Code / variant | Condition | Response |
-| --- | --- | --- |
-| 400 `FlashLoanOngoing` | A guarded monetary/maintenance call occurs while the controller flash flag is set, including nested flash_loan. | Avoid guarded reentry; renewal/delegate/admin calls are not universally covered. |
-| 401 `FlashloanNotEnabled` | The market's `is_flashloanable` parameter is false. | Choose a flash-loan-enabled market. |
-| 402 `InvalidFlashloanRepay` | The receiver's allowance to the pool is below principal plus fee, or the pool balance differs from the expected amount after payout, callback or repayment. | Hold principal plus fee and approve the pool pull; do not pre-push repayment. |
-| 409 `StrategyFeeExceeds` | The computed flash-loan fee is larger than the borrowed amount. | Report it; the market fee parameter is misconfigured. |
-| 412 `InvalidFlashloanReceiver` | Flash receiver is not deployed Wasm; flash_position receiver is controller/pool; borrow/withdraw recipient is controller/pool. | Use a valid external receiver/recipient. |
+| Code / variant | Condition and response |
+| --- | --- |
+| 400 `FlashLoanOngoing` | Guarded monetary or maintenance call (incl. nested `flash_loan`) while the flash flag is set. Renewal, delegate and admin calls are not universally covered. |
+| 401 `FlashloanNotEnabled` | `is_flashloanable` false. |
+| 402 `InvalidFlashloanRepay` | Receiver allowance below principal plus fee, or pool balance off after payout, callback or repayment. Approve the pull; do not pre-push repayment. |
+| 409 `StrategyFeeExceeds` | Fee exceeds the borrowed amount. Report: fee misconfigured. |
+| 412 `InvalidFlashloanReceiver` | Flash receiver is not deployed Wasm; flash_position receiver is controller/pool; borrow/withdraw recipient is controller/pool. |
 
 ### Strategy errors (500–505)
 
-| Code / variant | Condition | Response |
-| --- | --- | --- |
-| 500 `ConvertStepsRequired` | The initial payment asset is neither the collateral nor the debt asset, and no conversion swap was supplied. | Supply conversion swap steps, or pay in the collateral or debt asset. |
-| 501 `RouterOverspend` | The controller's balance of the input token rose during the swap, or the router spent more than `amount_in`. | Use a route that respects the declared input amount. |
-| 502 `NoSwapOutput` | The swap did not increase the controller's output-token balance. | Check that the route actually produces output. |
-| 503 `CollateralRequired` | Nonempty declared flash collateral list has no positive minimum. | Declare at least one positive collateral minimum; an empty list fails with code 16. |
-| 504 `CollateralMinimumNotMet` | Measured collateral delta misses its minimum or no positive deposit remains. | Make callback deliver declared minima. |
-| 505 `FlashPositionClosed` | Flash position ends without supply or live debt in its declared debt market. | Keep a funded borrow/supply position open. |
+| Code / variant | Condition and response |
+| --- | --- |
+| 500 `ConvertStepsRequired` | Initial payment is neither collateral nor debt, and no conversion swap given. |
+| 501 `RouterOverspend` | Controller input balance rose during the swap, or router spent over `amount_in`. |
+| 502 `NoSwapOutput` | Swap did not raise the controller's output balance. |
+| 503 `CollateralRequired` | Nonempty collateral list with no positive minimum (empty fails with 16). |
+| 504 `CollateralMinimumNotMet` | Measured collateral delta below minimum, or no positive deposit left. |
+| 505 `FlashPositionClosed` | Position ends without supply, or without live debt in its declared market. |
 
 ### Reserved shared codes
 
-The following variants are declared but have no production construction in this source tree. Test or mock use does not establish production reachability.
+These variants have no production construction in this tree; test or mock use does not make them reachable.
 
 | Domain | Code / variant |
 | --- | --- |
@@ -169,104 +171,104 @@ The following variants are declared but have no production construction in this 
 
 ### Price-status failures
 
-Price-aggregator `quotes` returns an invalid `PriceStatus` with an `error_code` for individual resolution failures. Read that code before interpreting other fields: nested errors can zero the remaining fields, including stale and deviation indicators. `prices` and `price_spread` fail on invalid outcomes.
+`quotes` returns an invalid `PriceStatus` with an `error_code` per failed resolution. Read that code first: nested errors can zero the other fields, including the stale and deviation flags. `prices` and `price_spread` fail instead.
 
-Reflector runtime TWAP errors, including 212, 219 and 222, make the source leg unusable. Outer resolution then reports `NoLastPrice`, `UnsafePriceNotAllowed`, or `PriceFeedStale` when the remaining leg is stale. Admission checks can expose their own codes. Host, external-contract and resource failures are not universally caught.
+Runtime Reflector TWAP errors (212, 219, 222) make the leg unusable; outer resolution then reports `NoLastPrice`, `UnsafePriceNotAllowed`, or `PriceFeedStale` when the remaining leg is stale. Admission checks expose their own codes. Host, external-contract and resource failures are not universally caught.
 
 ## Contract-local namespaces
 
 ### Swap aggregator
 
-| Code / variant | Condition | Response |
-| --- | --- | --- |
-| 1 `EmptyBatch` | Empty/over-cap program or over-cap split table | Use a bounded nonempty program. |
-| 3 `InvalidAmount` | Nonpositive amount, overdraft or spend mismatch | Correct funding and amounts. |
-| 4 `BrokenTokenChain` | Prev absent or wrong token; Aquarius `get_tokens` or Curve `pool_info().coins` has fewer than 2 or too many tokens, a duplicate, or the pool itself; Curve `coins` missing or not an address list; hop token missing from pool metadata | Repair the instruction dependency or the pool's constituent list. |
-| 5 `SlippageExceeded` | Nonpositive declared minimum or vault output below minimum before payout | Correct minimum or route. |
-| 7 `ZeroOutput` | Venue yields no usable output | Use a productive route. |
-| 9 `IntegerOverflow` | Checked arithmetic overflow | Reduce amount/domain. |
-| 11 `ZeroSplitPpm` | Split weight zero | Use positive weight. |
-| 12 `SplitPpmMismatch` | Split weight exceeds 1,000,000 | Fix PPM weights. |
-| 13 `InvalidRouteXdr` | XDR/program decode or validation failure | Rebuild payload for this ABI. |
-| 20 `NotAdmin` | Ownable owner missing | Restore valid initialization/configuration. |
-| 21 `FeeTooHigh` | Fee exceeds cap | Reduce fee. |
-| 22 `ReferralNotFound` | Referral missing | Use a registered id. |
-| 25 `SameToken` | Input/output token identical | Use distinct endpoints. |
-| 26 `LpTokenMismatch` | Declared LP token differs from pool share token | Fix pool binding. |
-| 27 `MinSharesNotMet` | Nonpositive mint minimum or minted shares below minimum | Correct route or minimum. |
-| 28 `MinAmountsNotMet` | Invalid burn-minimum span or constituent receipt below minimum | Correct route or minimum. |
-| 29 `ExcessiveResidual` | Residual vault balance above allowance | Fully settle route. |
-| 30 `InternalInvariant` | Internal invariant, including unsupported fee-accounting state | Report and use a supported fresh deployment. |
+| Code / variant | Condition and response |
+| --- | --- |
+| 1 `EmptyBatch` | Empty/over-cap program or over-cap split table |
+| 3 `InvalidAmount` | Nonpositive amount, overdraft or spend mismatch |
+| 4 `BrokenTokenChain` | Prev absent or wrong token; Aquarius `get_tokens` or Curve `pool_info().coins` has fewer than 2 or too many tokens, a duplicate, or the pool itself; Curve `coins` missing or not an address list; hop token missing from pool metadata |
+| 5 `SlippageExceeded` | Nonpositive declared minimum, or vault output below minimum before payout |
+| 7 `ZeroOutput` | Venue yields no usable output |
+| 9 `IntegerOverflow` | Checked arithmetic overflow |
+| 11 `ZeroSplitPpm` | Split weight zero |
+| 12 `SplitPpmMismatch` | Split weight exceeds 1,000,000 |
+| 13 `InvalidRouteXdr` | XDR/program decode or validation failure. Rebuild the payload for this ABI |
+| 20 `NotAdmin` | Ownable owner missing |
+| 21 `FeeTooHigh` | Fee exceeds cap |
+| 22 `ReferralNotFound` | Referral missing |
+| 25 `SameToken` | Input and output token identical |
+| 26 `LpTokenMismatch` | Declared LP token differs from pool share token |
+| 27 `MinSharesNotMet` | Nonpositive mint minimum, or minted shares below minimum |
+| 28 `MinAmountsNotMet` | Invalid burn-minimum span, or constituent receipt below minimum |
+| 29 `ExcessiveResidual` | Residual vault balance above allowance |
+| 30 `InternalInvariant` | Internal invariant, including unsupported fee-accounting state. Report and use a supported fresh deployment |
 
 ### XOXNO oracle
 
-| Code / variant | Condition | Response |
-| --- | --- | --- |
-| 1 `NotAuthorizedSigner` | Signer not registered | Use an approved signer. |
-| 2 `InvalidPrice` | Price <= 0 | Submit a positive 8-decimal price. |
-| 3 `InvalidThreshold` | Threshold zero/above signer count, or constructor duplicate signer | Correct quorum. |
-| 4 `SignerAlreadyRegistered` | Signer already present | Reuse registration. |
-| 5 `SignerNotRegistered` | Removal target absent | Use a registered signer. |
-| 6 `CannotRemoveBelowThreshold` | Removal would drop signer count below threshold | Add replacement or lower threshold first. |
-| 7 `NoDataForFeed` | No aggregate/history for requested feed | Wait for quorum/history. |
-| 8 `StaleData` | Aggregate write timestamp too old | Submit fresh data. |
-| 9 `PriceOutOfRange` | Price above maximum | Correct price scale/value. |
-| 10 `LengthMismatch` | Feed and price vector lengths differ | Align vectors. |
-| 11 `FutureTimestamp` | Package timestamp beyond allowed future skew | Correct millisecond timestamp. |
-| 12 `FeedAlreadyMapped` | Asset/feed already owned by mapping | Use distinct mapping. |
-| 13 `FeedNotMapped` | Asset has no feed mapping | Add mapping first. |
-| 14 `FeedNotKnown` | Feed id unregistered | Register feed first. |
-| 15 `InvalidSubmissionAge` | Submission age below minimum/above stale limit, or stale limit below submission age | Correct bounds. |
-| 16 `StaleSubmission` | Submission too old or package timestamp older than signer’s prior submission | Submit a fresh nondecreasing timestamp; equality is allowed. |
-| 17 `FeedAlreadyRegistered` | Feed id already registered | Reuse it. |
-| 18 `InvalidRelativeSkew` | Relative skew <= permitted future skew or above submission-age maximum | Correct skew bound. |
-| 19 `InvalidClusterSpread` | Cluster spread bound is 0 or above 10000 bps | Use 1..=10000 bps. |
+| Code / variant | Condition and response |
+| --- | --- |
+| 1 `NotAuthorizedSigner` | Signer not registered |
+| 2 `InvalidPrice` | Price <= 0. Submit a positive 8-decimal price |
+| 3 `InvalidThreshold` | Threshold zero or above signer count, or constructor duplicate signer |
+| 4 `SignerAlreadyRegistered` | Signer already present |
+| 5 `SignerNotRegistered` | Removal target absent |
+| 6 `CannotRemoveBelowThreshold` | Removal would drop signer count below threshold. Add a replacement or lower the threshold first |
+| 7 `NoDataForFeed` | No aggregate or history for the feed |
+| 8 `StaleData` | Aggregate write timestamp too old |
+| 9 `PriceOutOfRange` | Price above maximum |
+| 10 `LengthMismatch` | Feed and price vector lengths differ |
+| 11 `FutureTimestamp` | Package timestamp beyond allowed future skew (milliseconds) |
+| 12 `FeedAlreadyMapped` | Asset/feed already owned by a mapping |
+| 13 `FeedNotMapped` | Asset has no feed mapping |
+| 14 `FeedNotKnown` | Feed id unregistered |
+| 15 `InvalidSubmissionAge` | Submission age below minimum or above stale limit, or stale limit below submission age |
+| 16 `StaleSubmission` | Submission too old, or package timestamp older than the signer's prior submission. Equality is allowed |
+| 17 `FeedAlreadyRegistered` | Feed id already registered |
+| 18 `InvalidRelativeSkew` | Relative skew <= permitted future skew or above submission-age maximum |
+| 19 `InvalidClusterSpread` | Cluster spread bound is 0 or above 10000 bps |
 
 ### DeFindex strategy
 
-| Code / variant | Condition | Response |
-| --- | --- | --- |
-| 401 `NotInitialized` | Missing/malformed constructor args or stored config | Initialize correct controller/hub/spoke. |
-| 460 `AmountNotPositive` | Deposit/withdraw amount <= 0 | Use positive amount. |
-| 461 `InsufficientBalance` | No live vault account or withdrawal exceeds balance | Reduce withdrawal. |
-| 462 `ArithmeticError` | Declared without a production construction in this source tree. | Decode propagated shared arithmetic errors in their own domain. |
-| 463 `AccountLookupFailed` | Controller account-existence query failed | Resolve downstream failure; a failure must not erase vault mapping. |
+| Code / variant | Condition and response |
+| --- | --- |
+| 401 `NotInitialized` | Missing/malformed constructor args or stored config |
+| 460 `AmountNotPositive` | Deposit/withdraw amount <= 0 |
+| 461 `InsufficientBalance` | No live vault account, or withdrawal exceeds balance |
+| 462 `ArithmeticError` | No production construction in this source tree. Decode propagated shared arithmetic errors in their own domain |
+| 463 `AccountLookupFailed` | Controller account-existence query failed. A failure must not erase the vault mapping |
 
 ### Curator
 
-| Code / variant | Condition | Response |
-| --- | --- | --- |
-| 801 `UnknownRegistrar` | The registrar id has no admin. | Use an opened registrar. |
-| 802 `RoleMissing` | The caller is not the registrar admin and holds no role bit the call accepts. | Sign as the admin or an account with the required role. |
-| 803 `RoleBits` | `set_roles` names bits outside `ROLE_MARKET`, `ROLE_SPOKE`, and `ROLE_FLAGS`. | Pass only known role bits. |
-| 804 `HubOwned` | A newly created hub id is already bound to a registrar. | Report the inconsistent binding to governance. |
-| 805 `HubUnowned` | The hub is bound to no registrar. | Ask governance to bind the hub with `ReassignCuratorHub`. |
-| 806 `SpokeOwned` | A newly created spoke id is already bound to a registrar. | Report the inconsistent binding to governance. |
-| 807 `SpokeUnowned` | The spoke is bound to no registrar. | Ask governance to bind the spoke with `ReassignCuratorSpoke`. |
-| 808 `NotHubRegistrar` | Another registrar owns the hub. | Act only on an owned hub. |
-| 809 `NotSpokeRegistrar` | Another registrar owns the spoke, or a hub owner's `tighten_flags` in a foreign spoke sets anything other than `frozen` alone. | Act only on an owned spoke, or set only `frozen`. |
-| 812 `GrantMissing` | A foreign hub listing, edit, or relaxation has no live grant. | Ask the hub owner for a grant. |
-| 813 `GrantExceeded` | The listing exceeds the grant, or `set_cap_grant` passes a negative cap. | Stay within the grant. |
-| 814 `Unsupported` | `propose` names an operation other than `AddAssetToSpoke`, `EditAssetInSpoke`, `UpgradeLiquidityPoolParams`, or `RelaxSpokeAssetFlags`. | Ask governance to propose it. |
-| 815 `RegistrarSuspended` | The caller's registrar, or the grantor of the grant used, is suspended. | Ask governance to resume the registrar. |
-| 816 `ProposalUnknown` | `cancel_proposal` names an operation this contract did not queue. | Cancel it through a governance `CANCELLER`. |
-| 817 `ProposalForeign` | The caller's registrar owns neither the hub nor the spoke the queued operation names. | Cancel from the owning registrar. |
-| 818 `ForeignPause` | A spoke owner tries to pause a listing of a hub asset that another registrar owns. | Freeze or halt seizure instead. |
-| 819 `NotCapLowering` | A hub owner's edit in a spoke it does not own changes a field other than lowering the supply or borrow cap. | Change only the caps, and only downward. |
+| Code / variant | Condition and response |
+| --- | --- |
+| 801 `UnknownRegistrar` | Registrar has no admin. |
+| 802 `RoleMissing` | Caller is not the admin and holds no accepted role bit. |
+| 803 `RoleBits` | `set_roles` names bits outside `ROLE_MARKET`, `ROLE_SPOKE`, and `ROLE_FLAGS`. |
+| 804 `HubOwned` | New hub id already bound. Report to governance. |
+| 805 `HubUnowned` | Hub unbound; governance binds it with `ReassignCuratorHub`. |
+| 806 `SpokeOwned` | New spoke id already bound. Report to governance. |
+| 807 `SpokeUnowned` | Spoke unbound; governance binds it with `ReassignCuratorSpoke`. |
+| 808 `NotHubRegistrar` | Hub owned by another registrar. |
+| 809 `NotSpokeRegistrar` | Spoke owned by another registrar, or a hub owner's foreign-spoke `tighten_flags` sets anything but `frozen` alone. |
+| 812 `GrantMissing` | Foreign hub listing, edit or relaxation lacks a live grant from the hub owner. |
+| 813 `GrantExceeded` | Listing exceeds the grant, or `set_cap_grant` passes a negative cap. |
+| 814 `Unsupported` | `propose` names an operation other than `AddAssetToSpoke`, `EditAssetInSpoke`, `UpgradeLiquidityPoolParams`, or `RelaxSpokeAssetFlags`. Ask governance to propose it. |
+| 815 `RegistrarSuspended` | Caller's registrar, or the grant's grantor, is suspended. |
+| 816 `ProposalUnknown` | `cancel_proposal` names an operation this contract did not queue; use a governance `CANCELLER`. |
+| 817 `ProposalForeign` | Caller's registrar owns neither the operation's hub nor spoke. |
+| 818 `ForeignPause` | Spoke owner pausing a listing whose hub another registrar owns. Freeze or halt seizure instead. |
+| 819 `NotCapLowering` | Hub owner's foreign-spoke edit changes anything but lowering supply or borrow cap. |
 
 ## Relevant inherited errors
 
-OpenZeppelin stellar-contracts release 0.8.0 supplies the NFT, authorization and timelock helpers. A deployed contract can raise both its own errors and these overlapping inherited codes. An error declaration does not make an unexported extension callable.
+OpenZeppelin stellar-contracts 0.8.0 supplies the NFT, authorization and timelock helpers. A contract can raise these overlapping codes besides its own. A declared error does not make an unexported extension callable.
 
-| Namespace | Codes and handling |
+| Namespace | Codes and notes |
 | --- | --- |
-| NFT ownership/approval | 200 NonExistentToken: use live id; 201 IncorrectOwner: correct from; 202 InsufficientApproval: authorize spender; 203 InvalidApprover: owner/operator required; 204 InvalidLiveUntilLedger: nonzero expiry must be from the current ledger through its maximum live-until bound; 0 revokes. |
-| NFT accounting/metadata | 205 MathOverflow, 206 TokenIDsAreDepleted: report exhaustion/state; 208 TokenNotFoundInOwnerList, 209 TokenNotFoundInGlobalList: valid index; 210 UnsetMetadata: initialize; 211 BaseUriMaxLenExceeded, 213 NameMaxLenExceeded, 214 SymbolMaxLenExceeded: shorten metadata. 207 InvalidAmount and 212 InvalidRoyaltyAmount belong to unused consecutive/royalty extensions. |
-| Pausable | 1000 EnforcedPause: operation is pause-gated; 1001 ExpectedPause: unpause requires paused state. |
-| Ownable | 2100 OwnerNotSet: missing owner; 2101 TransferInProgress: only `renounce_ownership` raises it, and no contract in this tree exports that call; 2102 OwnerAlreadySet: helper rejects repeated initialization. Role-transfer errors below cover pending-owner state; auth can raise host errors. |
-| RoleTransfer | 2200 NoPendingTransfer: initiate transfer first; 2201 InvalidLiveUntilLedger: use current-to-max valid ledger; 2202 InvalidPendingAccount: cancellation address must match; 2203 TransferExpired: initiate a fresh window. Zero deadline cancels, and acceptance checks the explicit deadline even if storage remains alive. |
-| AccessControl | 2000 Unauthorized, 2001 AdminNotSet, 2002 IndexOutOfBounds, 2003 AdminRoleNotFound, 2004 RoleCountIsNotZero, 2005 RoleNotFound, 2006 AdminAlreadySet, 2007 RoleNotHeld, 2008 RoleIsEmpty, 2009 TransferInProgress, 2010 MaxRolesExceeded. Use valid held roles/admin/membership indices; generic admin APIs are not exported by governance. |
-| Timelock | 4000 OperationAlreadyScheduled: new salt or existing operation; 4001 InsufficientDelay: respect minimum; 4002 InvalidOperationState: wait/check schedule; 4003 UnexecutedPredecessor: execute predecessor; 4004 Unauthorized: eligible role; 4005 MinDelayNotSet: initialize; 4006 OperationNotScheduled: schedule matching hash. |
+| NFT ownership/approval | 200 NonExistentToken, 201 IncorrectOwner, 202 InsufficientApproval, 203 InvalidApprover (owner/operator required), 204 InvalidLiveUntilLedger (nonzero expiry must be from the current ledger through its maximum live-until bound; 0 revokes). |
+| NFT accounting/metadata | 205 MathOverflow, 206 TokenIDsAreDepleted (report), 208 TokenNotFoundInOwnerList, 209 TokenNotFoundInGlobalList, 210 UnsetMetadata, 211 BaseUriMaxLenExceeded, 213 NameMaxLenExceeded, 214 SymbolMaxLenExceeded. 207 InvalidAmount and 212 InvalidRoyaltyAmount belong to unused consecutive/royalty extensions. |
+| Pausable | 1000 EnforcedPause (operation is pause-gated), 1001 ExpectedPause (unpause requires paused state). |
+| Ownable | 2100 OwnerNotSet; 2101 TransferInProgress, raised only by `renounce_ownership`, which no contract in this tree exports; 2102 OwnerAlreadySet (repeated initialization). Pending-owner state uses the RoleTransfer errors; auth can raise host errors. |
+| RoleTransfer | 2200 NoPendingTransfer, 2201 InvalidLiveUntilLedger (current-to-max valid ledger), 2202 InvalidPendingAccount (cancellation address must match), 2203 TransferExpired. Zero deadline cancels; acceptance checks the explicit deadline even if storage remains alive. |
+| AccessControl | 2000 Unauthorized, 2001 AdminNotSet, 2002 IndexOutOfBounds, 2003 AdminRoleNotFound, 2004 RoleCountIsNotZero, 2005 RoleNotFound, 2006 AdminAlreadySet, 2007 RoleNotHeld, 2008 RoleIsEmpty, 2009 TransferInProgress, 2010 MaxRolesExceeded. Governance does not export the generic admin APIs. |
+| Timelock | 4000 OperationAlreadyScheduled (use a new salt), 4001 InsufficientDelay, 4002 InvalidOperationState, 4003 UnexecutedPredecessor, 4004 Unauthorized, 4005 MinDelayNotSet, 4006 OperationNotScheduled (schedule the matching hash). |
 
 ## Source map
 

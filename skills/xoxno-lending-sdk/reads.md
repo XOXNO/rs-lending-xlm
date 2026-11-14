@@ -1,21 +1,14 @@
 # Read positions, assets, and current contract state
 
-Companion to [SKILL.md](SKILL.md). Use the v1 API for ordinary wallet rendering.
-Use contract views when current ledger state is required. Neither read path signs
-or submits a transaction.
+Companion to [SKILL.md](SKILL.md). Use the v1 API for wallet rendering and
+contract views when current ledger state is required. Neither path signs or
+submits.
 
 ## Read arrays with HTTP or the SDK
 
-Both networks serve these routes without an API key:
-
-| Route | Body |
-| --- | --- |
-| `GET /stellar-lending/v1/assets` | `LendingAsset[]`; collateral listings |
-| `GET /stellar-lending/v1/assets?usage=borrow` | `LendingAsset[]`; borrow listings |
-| `GET /stellar-lending/v1/users/{owner}/positions` | `LendingPosition[]`; one item per indexed owned NFT |
-
-Use `https://api.xoxno.com` for mainnet and `https://testnet-api.xoxno.com`
-for testnet. Keep API, RPC, contracts, and signing network aligned.
+Routes, base URLs, query limits, and cache headers are in the
+[HTTP reference](../xoxno-lending-data/api.md#integrator-v1-arrays). Keep API,
+RPC, contracts, and signing network aligned.
 
 ```ts
 import {
@@ -34,23 +27,17 @@ export async function portfolio(owner: string, signal?: AbortSignal) {
 }
 ```
 
-A position includes `supplied`, `borrow`, risk estimates, and `nftImage`.
-Each token leg includes its contract, labels, logo, decimals, raw and formatted
-amounts, APY, price, and USD value. No token-catalog join or balance conversion is
-needed. The exact JSON debt key is `borrow`.
+A position includes `supplied`, `borrow` (the exact JSON debt key), risk
+estimates, and `nftImage`. Each token leg includes its contract, labels, logo,
+decimals, raw and formatted amounts, APY, price, and USD value, so no
+token-catalog join or balance conversion is needed.
 
 The SDK read client collects pages, checks HTTP status and array bodies,
 rejects redirects and links to other endpoints, and detects pagination cycles.
-It does not validate every field against a schema. Public types and JSON schemas
-come from the same read entry; keep them in the SDK.
-
-For direct HTTP positions, follow `Link` with `rel="next"` until absent,
-including after an empty page. Resolve relative links against the current URL.
-Reject links to another endpoint. Reject repeated links. `limit` is 1–100, default 50;
-`cursor` is opaque. An HTTP error is not an empty portfolio.
-
-See the [API reference](https://xoxno.com/docs/stellar-lending/dev/integrator-api)
-for fields, nullable values, capacity semantics, and validation rules.
+It does not schema-validate every field. Public types and JSON schemas come
+from the same read entry; keep them in the SDK. Direct HTTP callers follow the
+[pagination rules](../xoxno-lending-data/api.md#integrator-v1-arrays). An HTTP
+error is not an empty portfolio.
 
 ## Units and missing data
 
@@ -59,36 +46,32 @@ for fields, nullable values, capacity semantics, and validation rules.
 - APYs are fractions: `0.05` means 5%.
 - `priceUsd`, `valueUsd`, and risk values are display estimates.
 - `null` means unavailable, except `healthFactor` is also null without debt.
-  Use `hasDebt === false` to display “No debt”.
+  Display “No debt” only for `hasDebt === false`.
 - Names and symbols are labels. Token identity is `sac`; a market also needs
   `hubId`, and account actions need the selected `spokeId`.
 
-Keep known balances visible when another field is missing. Do not replace
+Keep known balances visible when another field is missing. Never replace
 missing values with zero or treat an NFT image as a balance authority.
 
 ## Freshness and authority
 
-Assets send `Cache-Control: public, s-maxage=10`; positions send `no-store`.
-Backend body caches are 5 seconds for assets and 3 seconds for positions;
-token metadata is cached for 600 seconds. Indexed NFT inventory is queried
-on every wallet request before a position body is reused.
+Cache TTLs ([HTTP reference](../xoxno-lending-data/api.md#integrator-v1-arrays))
+do not bound total data age: indexing, oracle state, market snapshots,
+metadata, and HTTP caches have separate freshness limits. Indexed ownership
+can lag a transfer. Use `owner_of(accountId)` for current ownership and
+simulate mutations before signing.
 
-These TTLs do not bound total data age. Indexing, oracle state, market snapshots,
-metadata, and HTTP caches have separate freshness limits. Indexed ownership can
-lag a transfer. Use `owner_of(accountId)` for current ownership and simulate
-mutations before signing.
-
-Refresh when the wallet or network changes. Refresh after ledger `SUCCESS`.
-Choose a polling interval for the screen's freshness needs. Discard results
-from an old wallet or network selection. After
-success, keep a refreshing state until the indexer catches up; do not repeat the
-transaction because the API still shows the prior snapshot.
+Refresh when the wallet or network changes and after ledger `SUCCESS`; poll at
+the interval the screen needs. Discard results from an old wallet or network
+selection. After success, keep a refreshing state until the indexer catches
+up; do not repeat the transaction because the API still shows the prior
+snapshot.
 
 ## One contract-view simulation helper
 
-Use this helper for all controller and position-NFT views. Callers provide the
-contract id, method, and already-encoded ScVals; view-specific wrappers should
-only encode arguments and decode `retval`.
+Use this helper for all controller and position-NFT views. Callers pass the
+contract id, method, and encoded ScVals; view-specific wrappers only encode
+arguments and decode `retval`.
 
 ```ts
 import {
@@ -137,5 +120,5 @@ Relevant controller views include `get_account_attributes`,
 `get_account_positions`, `get_health_factor`, `get_ltv_collateral_usd`,
 `get_collateral_amount`, `get_borrow_amount`, `is_liquidatable`,
 `get_spoke_asset`, `get_market_indexes_detailed`, and
-`get_min_borrow_collateral_usd`. Exact signatures and ScVal shapes are in
+`get_min_borrow_collateral_usd`. Signature sources and view units:
 [../xoxno-lending-contracts/abi.md](../xoxno-lending-contracts/abi.md).

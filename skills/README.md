@@ -1,14 +1,11 @@
 # XOXNO Lending — agent skills
 
-Agent skills for building on XOXNO Lending. Each `SKILL.md` routes a task to
-companion references loaded on demand, following the
-[Agent Skills specification](https://agentskills.io/specification).
-
-Use directories named `xoxno-*` for integration tasks. Reserve `evals/` for
-testing skill behavior.
-
-Start at [xoxno-lending/SKILL.md](xoxno-lending/SKILL.md), select one task
-skill, and load only the companion reference named for the task.
+Agent skills for building on XOXNO Lending, following the
+[Agent Skills specification](https://agentskills.io/specification). Each
+`xoxno-*/SKILL.md` routes a task to companion references loaded on demand;
+`evals/` tests skill behavior. Start at
+[xoxno-lending/SKILL.md](xoxno-lending/SKILL.md), select one task skill, and
+load only the companion reference named for the task.
 
 | Skill | Load when you are… | Companion files |
 |---|---|---|
@@ -35,31 +32,26 @@ Ship the whole set: every skill assumes `xoxno-lending` is available.
 
 ## Verified against
 
-The version pins for the SDK, the off-chain services, and the contract crate
-are in one place:
+SDK, off-chain service, and contract crate pins:
 [xoxno-lending/SKILL.md](xoxno-lending/SKILL.md#verified-against).
 
 ## Source of truth and verification
 
-- `scripts/check_doc_symbols.py` flags backticked Rust-style identifiers that
-  are absent from source, configuration, and its allowlists. It does not
-  resolve symbols.
-- The symbol check skips `xoxno-lending-data/` and `xoxno-swap-aggregator/`.
-  Those skills document off-chain services.
-- `xoxno-lending/addresses.md` is generated. Regenerate it with
-  `python3 scripts/gen_skill_addresses.py`. The `--check` flag fails when the
-  file is stale. Never edit it by hand.
-- `evals/scenarios/<skill>/` holds task scenarios in the stellar-dev-skill
-  format. Each scenario encodes a mistake that an agent makes without the
-  skill. Run them before you publish a change.
+- `scripts/check_doc_symbols.py` flags backticked Rust-style identifiers
+  absent from source, configuration, and its allowlists; it does not resolve
+  symbols. It skips `xoxno-lending-data/` and `xoxno-swap-aggregator/`, which
+  document off-chain services.
+- `xoxno-lending/addresses.md` is generated: regenerate it with
+  `python3 scripts/gen_skill_addresses.py` (`--check` fails when stale). Never
+  edit it by hand.
+- `evals/scenarios/<skill>/` holds stellar-dev-skill-format scenarios, each
+  encoding a mistake an agent makes without the skill. Run them before
+  publishing a change.
 
 ## Contributing
 
-A skill change is complete when these conditions are true:
-
-- The affected `evals/` scenario is updated.
-- Every `SKILL.md` stays under about 450 lines.
-- Task-specific depth lives in a companion file named in the routing table.
-
-Apply the [writing rules](../CONTRIBUTING.md#writing-rules) to every skill and
-companion reference. The skills use the full editorial profile.
+A skill change is complete when the affected `evals/` scenario is updated,
+every `SKILL.md` stays under about 450 lines, and task-specific depth lives in
+a companion file named in the routing table. Apply the full
+[writing rules](../CONTRIBUTING.md#writing-rules) profile to every skill and
+companion reference.

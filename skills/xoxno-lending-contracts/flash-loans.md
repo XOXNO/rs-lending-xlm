@@ -1,15 +1,14 @@
 # Flash callbacks
 
-Use `flash_loan` for temporary cash repaid through a pool allowance. Use
-`flash_position` to mint debt onto an account and return declared collateral
-to the controller.
+`flash_loan`: temporary cash, repaid through a pool allowance.
+`flash_position`: debt minted onto an account; declared collateral returns to
+the controller.
 
-Implement the callback traits from `xoxno_contract_sdk::lending`:
-`FlashLoanReceiver` and `FlashPositionReceiver`. Each trait fixes the callback
-name and arity, and `#[contractimpl] impl FlashLoanReceiver for MyContract`
-exports the callback.
+Implement `FlashLoanReceiver` and `FlashPositionReceiver` from
+`xoxno_contract_sdk::lending`. Each trait fixes the callback name and arity;
+`#[contractimpl] impl FlashLoanReceiver for MyContract` exports the callback.
 
-Authoritative sources:
+Sources:
 
 - cash settlement:
   [`contracts/pool/src/ops/flash.rs`](https://github.com/XOXNO/rs-lending-xlm/blob/main/contracts/pool/src/ops/flash.rs)
@@ -20,13 +19,12 @@ Authoritative sources:
   and
   [`mock/flash-position-receiver/src/lib.rs`](https://github.com/XOXNO/rs-lending-xlm/blob/main/mock/flash-position-receiver/src/lib.rs)
 
-The mocks are test fixtures, not deployable production receivers. A
-production receiver adds trusted-invoker gates, instance TTL renewal, payload
-validation, and application-specific checks.
+The mocks are test fixtures; production receivers add trusted-invoker gates,
+instance TTL renewal, payload validation, and application checks.
 
 ## Cash flash loan
 
-The pool transfers `amount`, invokes:
+The pool transfers `amount` and invokes:
 
 ```rust
 fn execute_flash_loan(
@@ -40,12 +38,12 @@ fn execute_flash_loan(
 );
 ```
 
-Then it requires the pool balance to still equal its post-payout level,
-checks allowance for `amount + fee`, and calls `transfer_from`. A failed
-balance or allowance check raises `InvalidFlashloanRepay`. Therefore:
+It then requires the pool balance to equal its post-payout level, checks
+allowance for `amount + fee`, and calls `transfer_from`; a failed check raises
+`InvalidFlashloanRepay`. So:
 
 - approve the pool; never transfer repayment directly
-- use the callback `fee`, do not recompute it
+- use the callback `fee`; never recompute it
 - hold at least `amount + fee` when the callback returns
 - use a short-lived allowance and checked addition
 
@@ -88,18 +86,15 @@ impl FlashLoanReceiver for Receiver {
 }
 ```
 
-`approve_flash_repayment` approves the pool to pull `total` from the receiver,
-with an expiration at the next ledger. The receiver calls the token itself, so
-direct invoker auth covers the `approve`; it needs no extra auth entry.
-Balance and profit checks belong before approval. The TTL constants are in
-[SKILL.md](SKILL.md#storage-ttl).
+`approve_flash_repayment` lets the pool pull `total` from the receiver until
+the next ledger; direct invoker auth covers the `approve`. Check balance and
+profit before approving. TTL constants: [SKILL.md](SKILL.md#storage-ttl).
 
-The initiator is never the receiver itself. The pool calls the receiver while the initiator remains on the call stack.
-The host rejects calls to a contract already on that stack.
-See [Reentrancy](#reentrancy). Start
-the loan from an account or from a separate contract, and store its address as
-`cfg.operator`. A contract initiator authorizes its entrypoint against a
-stored address, as in [SKILL.md](SKILL.md#contract-caller-rules) rule 7.
+The initiator is never the receiver: it is still on the call stack when the
+pool calls the receiver, and the host rejects re-entry
+([Reentrancy](#reentrancy)). Start the loan from an account or a separate
+contract stored as `cfg.operator`; a contract initiator authorizes against a
+stored address ([SKILL.md](SKILL.md#contract-caller-rules) rule 6).
 
 ## Flash position
 
@@ -120,9 +115,8 @@ fn execute_flash_position(
 );
 ```
 
-The controller passes `fee` as `0`. The callback does not repay or approve
-debt. It transfers purchased collateral from the receiver to the controller.
-After return, the controller:
+`fee` is `0`. The callback neither repays nor approves debt; it transfers
+purchased collateral to the controller. After return, the controller:
 
 1. measures each declared collateral balance delta
 2. requires every minimum and at least one positive deposit
@@ -131,8 +125,8 @@ After return, the controller:
 5. requires debt and collateral to remain open
 6. runs LTV, health-factor, and minimum borrow collateral checks
 
-An undeclared token left on the controller is neither deposited nor refunded.
-Refunding unused debt tokens does not repay the minted debt.
+Undeclared tokens left on the controller are neither deposited nor refunded.
+Refunded unused debt tokens do not repay the minted debt.
 
 Position callback example:
 
@@ -174,55 +168,49 @@ impl FlashPositionReceiver for Receiver {
 }
 ```
 
-Send the collateral with a plain token `transfer` from the receiver. The
-receiver calls the token itself, so direct invoker auth covers it. Use
-`authorize_transfer_as_current` only for a pull that another contract makes
-inside your next call, such as a controller `supply`. The callback has nine
-parameters, so clippy's `too_many_arguments` lint fires in your crate. The
-`allow` on the method suppresses it for the code the macro generates; an
-`allow` on the `impl` block does not.
+A plain token `transfer` sends the collateral under direct invoker auth.
+`authorize_transfer_as_current` is only for a pull another contract makes in
+your next call, such as controller `supply`. Nine parameters trip clippy's
+`too_many_arguments`; an `allow` on the method covers the macro-generated
+code, one on the `impl` block does not.
 
-The initiator is an account or a separate contract, as for flash loans. A
-contract initiator calls the resolve helper before `flash_position` and the
-store helper with the returned ID afterward; both helpers are in
-[positions.md](positions.md#canonical-local-account-pointer). A new account belongs to the initiator. Reuse requires current NFT ownership
-or an active delegate grant. The receiver does not acquire account ownership
-from the callback.
+As with flash loans, the initiator is an account or a separate contract. A
+contract initiator runs the resolve helper before `flash_position` and the
+store helper on the returned ID
+([positions.md](positions.md#canonical-local-account-pointer)). New accounts
+belong to the initiator; reuse needs current NFT ownership or an active
+delegate grant. The receiver gains no ownership.
 
 ## Callback gate and payload
 
-Callbacks are public. Require authorization from the configured pool or
-controller. Check that the callback address equals the configured address.
-Check the expected initiator, account, and operation before you execute the plan.
+Callbacks are public. Require auth from the configured pool or controller,
+check the callback address equals it, and check initiator, account, and
+operation before executing.
 
-Encode a small `#[contracttype]` plan to XDR. Decode and validate token
-addresses, route, minimums, and expiry before moving funds. Do not trust
-addresses or protocol-computed amounts copied into `data`; use callback
-arguments for those.
+Encode a small `#[contracttype]` plan to XDR; validate token addresses, route,
+minimums, and expiry before moving funds. Take addresses and protocol amounts
+from callback arguments, never from `data`.
 
 ## Reentrancy
 
-The Soroban host rejects a call into a contract that is already on the call
-stack with `Error(Context, InvalidAction)`. A callback therefore cannot call
-the controller, including its views, and a `flash_loan` callback cannot call
-the pool. The controller flash guard is a second layer: it blocks user
-position verbs, strategy verbs, keeper updates, revenue claims, liquidation,
-bad-debt cleanup, and recapitalization. Do not design a callback that calls
-the controller.
+The host rejects a call into a contract already on the stack with
+`Error(Context, InvalidAction)`: a callback cannot call the controller (views
+included), nor a `flash_loan` callback the pool. The controller flash guard
+additionally blocks user position verbs, strategy verbs, keeper updates,
+revenue claims, liquidation, bad-debt cleanup, and recapitalization.
 
-The router is a separate contract and may be called inside a callback with its
-own exact token authorization.
+A callback may call the router (a separate contract) with its own exact token
+authorization.
 
 ## Settlement completion
 
-A callback returning normally is not completion. Require transaction
-simulation and final success of the enclosing call:
+A normal callback return is not completion. Require simulation and final
+success of the enclosing call:
 
-- cash flash loan: pool pulled exactly `amount + fee` and booked the fee
-- flash position: controller measured the declared collateral minimum,
-  deposited it on the expected account, processed refunds, and passed open
-  position plus solvency checks
+- cash flash loan: the pool pulled exactly `amount + fee` and booked the fee
+- flash position: every post-callback controller step in
+  [Flash position](#flash-position) passed
 
-After a successful flash position, verify `account_exists`, NFT owner, mode,
-spoke, and the expected supply/debt positions. Store/renew the local pointer
-only from the returned account ID.
+After a flash position, verify `account_exists`, NFT owner, mode, spoke, and the
+expected supply/debt positions. Store/renew the local pointer only from the returned
+account ID.

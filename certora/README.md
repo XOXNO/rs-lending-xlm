@@ -3,8 +3,8 @@
 Certora Sunbeam rules for the protocol's arithmetic, accounting, solvency,
 liquidation, oracle and strategy properties.
 
-A verdict is valid only for the WASM it ran on. A compile, a submission or an
-older report is not a proof of the current code.
+A verdict holds only for the WASM it ran on; a compile, submission or older
+report proves nothing about current code.
 
 | Directory | Proves |
 |---|---|
@@ -14,8 +14,8 @@ older report is not a proof of the current code.
 | `price-aggregator/` | Source admission, freshness, tolerance, fail-closed pricing |
 | `shared/summaries/` | Cross-contract summaries the controller rules assume |
 
-Each contract directory has confs in `confs/` and rules in `spec/`. To find
-the conf that runs a rule:
+Each directory has confs in `confs/` and rules in `spec/`. Conf that runs a
+rule:
 
     grep -l <rule_name> certora/*/confs/*.conf
 
@@ -31,17 +31,17 @@ the conf that runs a rule:
 | Print the commands of a profile | `./certora/scripts/run_profile.py fast --dry-run` |
 | Prove one rule | `cd certora/common/confs && certoraSorobanProver interest-curve.conf --rule borrow_rate_capped` |
 
-The hosted prover needs `CERTORAKEY` and `certoraSorobanProver` from the
-Certora CLI. `make certora` builds the WASM first; a direct `run_profile.py` or
-prover call does not. Arguments after `--` go to every conf of the profile.
+Hosted runs need `CERTORAKEY` and the Certora CLI's `certoraSorobanProver`.
+Only `make certora` builds the WASM first. Arguments after `--` go to every
+conf of the profile.
 
-A local prover install (Java, Certora CLI dependencies, prover binary) can run
-a profile with `run_profile.py <profile> --local`, or one conf with
-`./certora/scripts/run-rules-local.sh <conf>`. The local runner proves one rule
-at a time with an 8 GB heap, turns off `-splitParallel` and
-`multi_assert_check`, writes logs to `target/certora-local-logs/`, and refuses
-a stale artifact. `CERTORA_JAVA_HEAP`, `-j <n>`,
-`CERTORA_LOCAL_SPLIT_PARALLEL` and `CERTORA_LOCAL_MULTI_ASSERT` change this.
+Locally (Java, Certora CLI dependencies, prover binary):
+`run_profile.py <profile> --local`, or `./certora/scripts/run-rules-local.sh
+<conf>` for one conf. It proves one rule at a time with an 8 GB heap,
+`-splitParallel` and `multi_assert_check` off, logs to
+`target/certora-local-logs/`, and refuses a stale artifact; override with
+`CERTORA_JAVA_HEAP`, `-j <n>`, `CERTORA_LOCAL_SPLIT_PARALLEL`,
+`CERTORA_LOCAL_MULTI_ASSERT`.
 
 ## Profiles
 
@@ -55,42 +55,39 @@ a stale artifact. `CERTORA_JAVA_HEAP`, `-j <n>`,
 | `manual` | `core` + `heavy` |
 | `all` | `sanity` + `fast` + `core` + `heavy` |
 
-`certora/scripts/check_orphans.py` keeps confs, rules and profiles in sync. It
-fails when:
+`certora/scripts/check_orphans.py` fails when:
 
-- no conf runs a rule, or a conf names a rule that does not exist;
-- a rule runs in more than one non-satisfy conf of its layer (move rules, do
-  not copy them);
+- no conf runs a rule, or a conf names a missing rule;
+- a rule runs in two non-satisfy confs of its layer (move rules, do not copy);
 - a conf is in no profile;
-- `rule_sanity` does not match the rule shape, or a revert-shaped rule has no
-  witness;
-- a host-state conf has `loop_iter` below 28, or a conf has no
+- `rule_sanity` mismatches the rule shape, or a revert rule has no witness;
+- a host-state conf has `loop_iter` below 28, or a conf lacks
   `-mediumTimeout` or `-maxCommandCount`.
 
 ## CI
 
 **`certora-local.yml`** runs on pull requests that touch `certora/**`,
-`common/src/**`, `contracts/**/src/**`, `Cargo.toml` or `Cargo.lock`. It proves
-a default set of six confs on the self-hosted runner, 900 s per rule.
+`common/src/**`, `contracts/**/src/**`, `Cargo.toml` or `Cargo.lock`, proving
+six default common and price-aggregator confs on the self-hosted runner, 900 s
+per rule. Controller and pool rules run hosted.
 
-- Fails on: a violation, a loop-unwind failure, `SANITY_FAILED`, a missing or
-  empty rule log, a log with no verdict, a missing conf, or a dispatch rule the
-  conf does not list.
+- Fails on: violation, loop-unwind failure, `SANITY_FAILED`, missing or empty
+  rule log, log without verdict, missing conf, or a dispatch rule the conf
+  does not list.
 - Warns on: solver timeout, solver unknown, wrapper kill.
-- **Stays green with only a warning when the runner has no prover install.**
+- **Stays green, with a warning, when the runner has no prover install.**
   Read the verdict summary in the job log.
-- On failure it uploads `certora-local-prover-logs-<sha>`. The counterexample
-  with its `clog!` values is in `Reports/Report-<rule>-Assertions-example1.html`.
+- On failure it uploads `certora-local-prover-logs-<sha>`; the counterexample
+  with `clog!` values is in `Reports/Report-<rule>-Assertions-example1.html`.
 
 **`certora-fastRules.yml`** and **`certora-verification.yml`** submit hosted
 jobs on manual dispatch only.
 
-- `certora-fastRules.yml` proves the confs of a profile one after another and
-  stops at the first failure. `job_timeout_minutes` caps it (default 720).
-- `certora-verification.yml` runs `sanity`, one job per conf, when `profile` is
-  empty. With a profile it runs one job per (conf, rule) pair and writes a row
-  per rule to the run summary. A GitHub matrix holds at most 256 jobs, so `all`
-  is refused.
+- `certora-fastRules.yml` proves a profile's confs in sequence, stopping at
+  the first failure; `job_timeout_minutes` caps it (default 720).
+- `certora-verification.yml` with empty `profile` runs `sanity`, one job per
+  conf; with a profile, one job per (conf, rule), one summary row per rule.
+  `all` is refused (a GitHub matrix holds at most 256 jobs).
 
 ## Build artifacts
 
@@ -99,34 +96,30 @@ jobs on manual dispatch only.
 | Deploy | Optimized, symbols stripped |
 | Prover | `--optimize=false`, one rule module, `certora` feature on |
 
-The `certora` feature is off in the deploy build, so prover-only code never
-ships. The optimizer is off because optimized bytecode can crash the prover's
-transformations.
+Prover-only code never ships (`certora` off in deploy builds). Optimized
+bytecode can crash the prover's transformations.
 
-`make certora-wasm` writes a manifest that binds each artifact to its source
-fingerprint and features. Rebuild after any change to a contract, rule,
-fixture, summary or dependency, then check:
+`make certora-wasm` writes a manifest binding each artifact to its source
+fingerprint and features. Rebuild after any contract, rule, fixture, summary
+or dependency change, then check:
 
     python3 certora/scripts/check_wasm_artifacts.py
 
 ### Function names must survive the build
 
-The prover build keeps symbols (`CARGO_PROFILE_RELEASE_STRIP=none`). The prover
-applies its compiler-rt summaries (`__muloti4`, `__multi3`, `__divti3`,
-`__udivti3`, `__modti3`) and its soroban-sdk summaries by function name. In a
-stripped module every function is `FunctionIndex_<n>`, no summary applies, and
-each `i128` multiply or divide becomes slow bit-level code that can give a
-false counterexample.
-
-`make certora-wasm` refuses a module without a `name` custom section.
-`check_wasm_artifacts.py` rejects one without that section or without
-`"strip": "none"` provenance.
+The prover build keeps symbols (`CARGO_PROFILE_RELEASE_STRIP=none`): the
+prover applies its compiler-rt summaries (`__muloti4`, `__multi3`, `__divti3`,
+`__udivti3`, `__modti3`) and soroban-sdk summaries by function name. Stripped,
+every function is `FunctionIndex_<n>`, no summary applies, and each `i128`
+multiply or divide becomes slow bit-level code that can give a false
+counterexample. `make certora-wasm` refuses a module without a `name` custom
+section; `check_wasm_artifacts.py` also requires `"strip": "none"`
+provenance.
 
 ## Sanity checking on WASM
 
-On Sunbeam, `rule_sanity: basic` does not run a vacuity check; it is the same
-as `none`. Only `advanced` runs it, at the cost of one extra solve per proved
-rule.
+On Sunbeam, `rule_sanity: basic` equals `none`: no vacuity check. Only
+`advanced` runs one, at one extra solve per proved rule.
 
 | Rule shape | `rule_sanity` |
 |---|---|
@@ -134,22 +127,20 @@ rule.
 | satisfy | `none` (the witness proves reachability) |
 | revert | `none` |
 
-A revert-shaped rule is `call(...); cvlr_assert!(false);`. It proves that a
-gate rejects the call. The vacuity check reports `SANITY_FAILED` on this shape
-even when the rule is correct, so these rules live in a separate
-`<name>-reverts.conf` with the same budgets as the conf they came from.
-
-Without the vacuity check, each revert rule needs a satisfy witness that
-completes the same fixture. `check_orphans.py` accepts one of:
+A revert rule, `call(...); cvlr_assert!(false);`, proves a gate rejects the
+call. The vacuity check reports `SANITY_FAILED` on it even when correct, so
+revert rules live in `<name>-reverts.conf` with their origin conf's budgets,
+and each needs a satisfy witness completing the same fixture.
+`check_orphans.py` accepts:
 
 - a `<rule>_fixture_completes` twin in the sibling `<name>-reverts-sanity.conf`;
-- an existing witness of the module, listed in `EXISTING_WITNESS` in
-  `check_orphans.py`. Add an entry only when the witness drives the same verb
-  or is the only witness of the module.
+- an existing module witness listed in `EXISTING_WITNESS` in
+  `check_orphans.py`, added only if it drives the same verb or is the
+  module's only witness.
 
-A satisfy conf must not use a lower `loop_iter` than its assert twin. The
-prover turns a satisfy rule's asserts into assumes, the loop-unwind assert
-included, so a low bound cuts the search without an error.
+A satisfy conf's `loop_iter` must not be below its assert twin's: the prover
+turns satisfy asserts, loop-unwind included, into assumes, so a low bound
+silently cuts the search.
 
 ## Budgets
 
@@ -162,57 +153,55 @@ included, so a low bound cuts the search without an error.
 `pool-lifecycle` confs are host state at 300 s. Every conf sets its own
 `-maxBlockCount` and `-maxCommandCount`.
 
-- A rule that does not solve in 600 s will not solve in 2000 s. Change the rule
-  shape, not the budget.
-- `-dontStopAtFirstSplitTimeout true` is for satisfy confs and expected
-  counterexamples only, never an assert conf.
+- A rule unsolved in 600 s will not solve in 2000 s: change its shape, not
+  the budget.
+- `-dontStopAtFirstSplitTimeout true` only for satisfy confs and expected
+  counterexamples, never assert confs.
 - `precise_bitwise_ops` is on only in `fp-identities-bv`,
-  `rate-accounting-hard`, `scaled-math` and the three `tolerance-math` confs.
-  Each fixes an observed false counterexample. Do not remove one without a
+  `rate-accounting-hard`, `scaled-math` and the three `tolerance-math` confs,
+  each fixing an observed false counterexample. Remove none without a
   measurement.
 - `multi_assert_check` is on only in the six multi-assert pool confs (see the
-  pool guide). To find which assert fails elsewhere, turn it on for one run.
+  [pool guide](pool/spec/README.md)). To find which assert fails elsewhere,
+  turn it on for one run.
 
 ## Known prover limits
 
-- `pool-lifecycle` and `lp-math-stable` run on the hosted prover only. Locally,
+- `pool-lifecycle` and `lp-math-stable` run hosted only. Locally,
   `market_create_writes_zeroed_state` reports a violation,
-  `accrue_is_noop_when_no_time_elapsed` gives a rule-encoding error, and every
-  `lp-math-stable` rule gives an internal error.
-- `isqrt_is_the_integer_floor_of_the_root` (`lp-math-isqrt.conf`) cannot be
-  proved. The prover compares two U256 values as "equal digests give 0,
-  otherwise any of 1 or -1", so every comparison in `isqrt_of_product` is
+  `accrue_is_noop_when_no_time_elapsed` a rule-encoding error, and every
+  `lp-math-stable` rule an internal error.
+- `isqrt_is_the_integer_floor_of_the_root` (`lp-math-isqrt.conf`) is
+  unprovable: the prover compares U256 values as "equal digests give 0, else
+  any of 1 or -1", so every comparison in `isqrt_of_product` is
   nondeterministic. Its counterexample (a = 0x55555555555556, b = 3) does not
-  reproduce in Rust. The conf is in `heavy` only because every conf must be in
-  a profile.
-
+  reproduce in Rust. The conf is in `heavy` only because every conf needs a
+  profile.
 - The utilization bound is proved as two rules over
-  `0 <= borrowed <= supplied <= 100 * RAY`, `supplied >= 1`.
-  `utilization_bounded_when_borrowed_lte_supplied_native` covers inputs where
-  `borrowed * RAY + supplied / 2` fits `i128`.
-  `utilization_bounded_when_borrowed_lte_supplied_widened` covers the rest.
-  The split keeps each half on one arithmetic branch. On a stripped artifact,
-  the unsplit rule gave a counterexample without operand values. The likely
-  cause is the bit-level limb arithmetic described in
+  `0 <= borrowed <= supplied <= 100 * RAY`, `supplied >= 1`, each on one
+  arithmetic branch: `utilization_bounded_when_borrowed_lte_supplied_native`
+  where `borrowed * RAY + supplied / 2` fits `i128`, and
+  `utilization_bounded_when_borrowed_lte_supplied_widened` for the rest. On a
+  stripped artifact the unsplit rule gave a counterexample without operand
+  values, likely from the bit-level limb arithmetic described in
   [Function names must survive the build](#function-names-must-survive-the-build).
 
 ## Reading a Sunbeam verdict
 
-Read the rule, its fixture, its feature path and every summary it reaches
-before you use the verdict. An assertion that repeats a summary assumption
-does not prove the arithmetic behind that summary.
+Before you use a verdict, read the rule, its fixture, its feature path and
+every summary it reaches. An assertion that repeats a summary assumption does
+not prove the arithmetic behind it.
 
 ### Model boundaries
 
 | Surface | What to check |
 |---|---|
-| Controller risk totals | Health and solvency features compile the real risk arithmetic. Other controller families use a nondeterministic summary, unless the rule calls the real function. |
-| Controller position books | Health, solvency and some fixtures constrain stored positions. Frame rules can keep arbitrary state on purpose. Read the pre-state and well-formedness assumptions. |
-| Controller position limits | Fixture arrays derive from the limit. A compile-time assertion pins `POSITION_LIMIT_MAX == 5`. |
-| Pool summaries | Rate fields stay in the validated domain. Controller ghost caches reconcile index reads per market. The summaries are proof premises. |
-| Pool configuration | State-invariant and seize/settle fixtures vary decimals and reserve factor over the domain that governance admits. Their rate curve is fixed. The symbolic decimal domain is 3–18. |
-| Amount and price bounds | Families use different limits. A bound below the representable ceiling is narrower than the production domain. |
-| Local CI | The default selection covers the common and price-aggregator confs. Controller and pool rules run on the hosted prover. |
+| Controller risk totals | Real risk arithmetic in health and solvency features; elsewhere a nondeterministic summary unless the rule calls the real function. |
+| Controller position books | Health, solvency and some fixtures constrain stored positions; frame rules may keep arbitrary state. Read the pre-state and well-formedness assumptions. |
+| Controller position limits | Fixture arrays derive from the limit; a compile-time assertion pins `POSITION_LIMIT_MAX == 5`. |
+| Pool summaries | Proof premises. Rate fields stay in the validated domain; controller ghost caches reconcile index reads per market. |
+| Pool configuration | Decimals (3–18) and reserve factor are symbolic in some families, the rate curve is fixed; see the [pool fixture domain](pool/spec/README.md#fixture-domain). |
+| Amount and price bounds | Vary by family; a bound below the representable ceiling narrows the production domain. |
 
 The [controller fixtures](controller/spec/fixture.rs),
 [shared summaries](shared/summaries/mod.rs) and
@@ -220,13 +209,13 @@ The [controller fixtures](controller/spec/fixture.rs),
 
 ### Storage, context and external calls
 
-- Storage starts as arbitrary maps keyed by storage type and key. A read of an
-  absent entry traps. An unwritten fixture book can hold arbitrary entries.
-- Ledger timestamp and sequence are symbolic values, fixed at rule start. A
-  rule reasons about one call, not about a sequence of transactions.
+- Storage starts as arbitrary maps keyed by storage type and key; reading an
+  absent entry traps; an unwritten fixture book can hold arbitrary entries.
+- Ledger timestamp and sequence are symbolic, fixed at rule start: one call,
+  not a transaction sequence.
 - The model does not implement cross-contract calls, `require_auth_for_args`
-  or TTL extension. Explicit summaries model the pool, oracle and position
-  NFT. Token and swap aggregator calls have no summary.
+  or TTL extension. Only the summaries in
+  [What a verdict does not prove](#what-a-verdict-does-not-prove) stand in for calls.
 
 ### Stopping conditions
 
@@ -235,63 +224,57 @@ CLI version, verdict, sanity result and runtime.
 
 | Result | Next step |
 |---|---|
-| Counterexample | Read the operands and the failed assertion. Replay the values against the Rust code before you change the rule. |
-| `SANITY_FAILED` | Check fixture reachability and the rule shape. A revert-shaped rule needs its satisfy twin. |
+| Counterexample | Read operands and the failed assertion; replay the values in Rust before changing the rule. |
+| `SANITY_FAILED` | Check fixture reachability and rule shape; a revert rule needs its satisfy twin. |
 | Loop-unwind failure | Compare the loop with `loop_iter` and the witness bound. Keep `optimistic_loop` false. |
-| Transformation, command or block limit | Find the source of the expansion. A larger solver timeout does not fix it. |
-| Per-query timeout | Measure the split leaves before you change `smt_timeout`. |
-| Wrapper kill or missing verdict | Keep the logs. This result is not a proof and not a counterexample. |
+| Transformation, command or block limit | Find the expansion source; a larger solver timeout does not help. |
+| Per-query timeout | Measure the split leaves before changing `smt_timeout`. |
+| Wrapper kill or missing verdict | Keep the logs. Neither proof nor counterexample. |
 
-Change one setting at a time, on the same artifact and domain.
-`multi_assert_check` and `independent_satisfy` change the formula as well as
-its cost. `SOROBAN_CONF_KEYS` in `certora/scripts/check_orphans.py` lists the
-conf keys that the pinned CLI accepts.
+Change one setting at a time, same artifact and domain. `multi_assert_check`
+and `independent_satisfy` change the formula, not just its cost.
+`SOROBAN_CONF_KEYS` in `certora/scripts/check_orphans.py` lists the conf keys
+the pinned CLI accepts.
 
 ## What a verdict does not prove
 
-- Pool rules check the accounting before token transfers. They do not model
-  token behavior, flash callbacks, allowances, reentrancy or rollback.
-- Controller rules assume the pool, oracle and position NFT summaries. A
-  verdict that reaches a summary is conditional on it. Token, swap aggregator,
-  Blend and flash-position receiver calls have no summary, so a verdict says
-  nothing about them.
-- Controller valuation rules assume an accepted price unless the rule models a
+- Pool rules check accounting before token transfers; no token behavior,
+  flash callbacks, allowances, reentrancy or rollback.
+- Controller rules assume the pool, oracle and position NFT summaries; a
+  verdict reaching one is conditional on it. Token, swap aggregator, Blend and
+  flash-position receiver calls have no summary, so verdicts say nothing
+  about them.
+- Controller valuation rules assume an accepted price unless modelling a
   price failure.
-- Long batch loops and multi-year accrual are out of scope where no induction
-  invariant exists.
+- Long batch loops and multi-year accrual, where no induction invariant
+  exists.
 
-Before acting on a result, confirm the artifact fingerprint, then tell apart a
-counterexample, a timeout, a loop-unwind failure and a transformation error.
-A satisfy witness shows reachability only; it does not prove a universal
-property.
+A satisfy witness shows reachability only, not a universal property.
 
 ## Adding a proof
 
 1. State the invariant and the threat.
 2. Put the rule in the right layer: common, pool, controller or
    price-aggregator.
-3. Add a fixture that makes the state reachable, the rule, a conf with the
-   correct `rule_sanity`, and a witness.
+3. Add a fixture reaching the state, the rule, a conf with the correct
+   `rule_sanity`, and a witness.
 4. Run `./certora/compile_all.sh --wasm` and `check_orphans.py`, then the
-   smallest profile or rule that covers it.
+   smallest covering profile or rule.
 5. Update the layer guide when a proof boundary or assumption changes.
 
-Prefer a small lemma to a large stateful rule. Do not fix a timeout by
+Prefer a small lemma to a large stateful rule. Never fix a timeout by
 weakening the property.
 
 ## Troubleshooting
 
 | Symptom | Action |
 |---|---|
-| Provenance check fails | `make certora-wasm`, then `check_wasm_artifacts.py` |
 | Transformation error | Rebuild with `make certora-wasm` (unoptimized) |
-| Rule may be vacuous | Add or fix its satisfy witness before you trust the result |
-| Expanded-command limit | Reduce the modeled surface; raise the limit only with a reason |
+| Rule may be vacuous | Fix its satisfy witness before trusting the result |
+| Expanded-command limit | Shrink the modeled surface; raise the limit only with a reason |
 | Local run out of memory | One rule, split parallelism off, smaller heap |
 | Counterexample looks bitwise-false | Re-run that rule with `precise_bitwise_ops` |
-| `SANITY_FAILED` on a revert rule | Expected; move the rule to a `-reverts` conf |
-| Arithmetic rule times out on every operand | Check that the WASM has a `name` section |
-| Which assert fails? | Set `multi_assert_check: true` on that conf for one run |
+| Arithmetic rule times out on every operand | Check the WASM has a `name` section |
 
 ## References
 

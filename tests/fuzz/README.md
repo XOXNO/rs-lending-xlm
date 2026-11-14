@@ -1,15 +1,10 @@
 # Fuzzing
 
-`cargo-fuzz` targets for the protocol. This is test code in its own Cargo
-workspace; the root workspace excludes it.
-
-The targets and property tests reach inputs that unit tests miss: fixed-point
-rounding, index accrual, liquidation edges, multi-step flows, strategy
-routing, auth boundaries, and accounting conservation.
+`cargo-fuzz` targets in their own Cargo workspace (excluded from the root). They reach inputs unit tests miss: fixed-point rounding, index accrual, liquidation edges, multi-step flows, strategy routing, accounting conservation. Proptest properties live in the [harness](../test-harness/tests/fuzz/README.md).
 
 ## What to run
 
-Use the Makefile from the repository root for normal workflows:
+From the repository root:
 
 ```bash
 make fuzz-build                         # compile libFuzzer targets
@@ -19,8 +14,6 @@ make proptest                           # tuned per-property defaults
 make proptest PROPTEST_CASES=256        # uniform deeper property run
 make miri-common                        # UB checks for pure fixed-point math
 ```
-
-`PROPTEST_CASES` must be positive; zero is rejected instead of skipping generated cases.
 
 For release or audit preparation:
 
@@ -32,9 +25,7 @@ make proptest PROPTEST_CASES=10000
 make fuzz-coverage-all
 ```
 
-On macOS, the Makefile passes `--sanitizer=thread -Zbuild-std` to
-`cargo-fuzz`. A direct run needs the same flags, and `--fuzz-dir .` when it
-starts in `tests/fuzz`:
+On macOS, the Makefile passes `--sanitizer=thread -Zbuild-std` to `cargo-fuzz`. A direct run needs the same flags, plus `--fuzz-dir .` from `tests/fuzz`:
 
 ```bash
 rustup install nightly
@@ -46,57 +37,33 @@ cargo +nightly fuzz run --fuzz-dir . flow_e2e --sanitizer=thread -Zbuild-std -- 
 
 ## Test Layers
 
-| Layer | Location | Purpose |
-|---|---|---|
-| Function fuzzing | `tests/fuzz/fuzz_targets/fp_math.rs`, `rates_and_index.rs`, `fp_ops.rs`, `oracle_math.rs` | Pure math, rounding, overflow, rates, index transitions (scaled balances, supply-index floor on bad debt), and LP fair pricing. Fast and cheap. |
-| Native pool fuzzing | `tests/fuzz/fuzz_targets/pool_native.rs` | Pool supply, borrow, withdraw, repay, index and parameter updates, revenue claim, seizure, strategy creation, flash loan, net settle, recapitalize, and views, with indexes optionally pinned near their caps, against reserve invariants (tracked cash ≤ token balance, revenue ≤ supplied). |
-| Oracle fuzzing | `tests/fuzz/fuzz_targets/aggregator.rs`, `oracle_sources.rs`, `xoxno_oracle.rs` | Price-aggregator resolution against arbitrary prices, ages, tolerances and sanity bands, on single- and dual-source configurations; every provider and source shape (feed, scaled, Aquarius LP) with injected faults; and the XOXNO oracle against a reference model. |
-| Protocol flow fuzzing | `tests/fuzz/fuzz_targets/flow_e2e.rs`, `flow_strategy.rs` | Fixed-width byte op streams for multi-asset user flows, liquidations, bad-debt cleanup, flash-loan failure paths, strategy routes, zero controller residual balance, and rollback behavior. |
-| Property tests | `tests/test-harness/tests/fuzz/` | Proptest suites for accounting conservation, strategy invariants, budget metering, `migrate_from_blend` reconciliation, and liquidation differentials vs reference, plus deterministic auth matrices. |
-| Miri | `common/tests/math/fp_core.rs` | Undefined-behavior checks for the pure i128 helpers `rescale_half_up`, `rescale_floor`, `rescale_ceil`, and `div_by_int_half_up`. |
+libFuzzer targets live in `tests/fuzz/fuzz_targets/<target>.rs` ([Targets](#targets)). Property tests live in `tests/test-harness/tests/fuzz/` and run with `make proptest`: accounting conservation, strategy invariants, budget metering, `migrate_from_blend` reconciliation, liquidation differentials vs reference, deterministic auth matrices ([property list](../test-harness/tests/fuzz/README.md#properties)). Miri (`common/tests/math/fp_core.rs`) checks the pure i128 helpers `rescale_half_up`, `rescale_floor`, `rescale_ceil` and `div_by_int_half_up` for undefined behavior.
 
 ## Targets
 
-`make fuzz` runs:
+`make fuzz` runs the fast, cheap pure-math targets:
 
 | Target | Scope |
 |---|---|
-| `fp_math` | `mul_div_half_up`, `div_by_int_half_up`, `rescale_half_up`. |
-| `rates_and_index` | Borrow and deposit rates, compound interest, index accrual, supplier rewards, protocol fee split. |
-| `fp_ops` | `Ray`, `Wad`, and `Bps` operations, directed rounding of the `mul_div_*` primitives, and exact `BigRational` checks of `position_value*`, `resolve_repay`, `resolve_withdrawal`, and `resolve_net_settle`. |
-| `oracle_math` | Constant-product and StableSwap LP fair pricing against independent bounds (leg-order symmetry, book value, D bounds, amp monotonicity), and `isqrt_of_product`. |
+| `fp_math` | `mul_div_half_up`, `div_by_int_half_up`, `rescale_half_up`; rounding, overflow |
+| `rates_and_index` | Borrow and deposit rates, compound interest, index accrual and transitions (scaled balances, supply-index floor on bad debt), supplier rewards, protocol fee split |
+| `fp_ops` | `Ray`, `Wad`, `Bps` operations; directed rounding of the `mul_div_*` primitives; exact `BigRational` checks of `position_value*`, `resolve_repay`, `resolve_withdrawal`, `resolve_net_settle` |
+| `oracle_math` | Constant-product and StableSwap LP fair pricing against independent bounds (leg-order symmetry, book value, D bounds, amp monotonicity); `isqrt_of_product` |
 
 `make fuzz-contract` runs:
 
 | Target | Scope |
 |---|---|
-| `flow_e2e` | Supply, borrow, withdraw, repay, liquidation, flash-loan failure/success paths, oracle jitter, index sync, revenue claim, bad-debt cleanup. |
-| `flow_strategy` | `multiply`, `swap_debt`, `swap_collateral`, `repay_debt_with_collateral`, and index sync. The controller holds no token balance after a strategy op. |
-| `pool_native` | Native pool state transitions and view invariants, including flash loan (needs `flash_loan_receiver.wasm` from `make build`), net settle, recapitalize, and index-cap pinning. |
-| `aggregator` | Price-aggregator gates on single and dual sources: staleness against the per-feed ceiling, tolerance disagreement, and the sanity band. |
-| `oracle_sources` | The aggregator through every provider (Reflector spot and TWAP, RedStone, Xoxno, Chainlink) and source shape (feed, scaled, Aquarius constant-product and stable LP, dual blends), with injected faults, via `set_oracle` and `seed_oracle`. |
-| `xoxno_oracle` | Differential test of the XOXNO oracle against a reference model of signers, config, submissions, aggregates, and history. |
-
-`make proptest` runs:
-
-| Property (`--test fuzz`) | Scope |
-|---|---|
-| `prop_accounting_conservation` | Pool accounting laws, non-negative reserves, index monotonicity. |
-| `prop_seed_adjusted_cash_conservation_and_token_custody` / `prop_seed_adjusted_cash_conservation_through_liquidation_and_bad_debt` | Seed-adjusted cash conservation and token custody, also through liquidation and bad debt. |
-| `owner_only_endpoints_reject_unauthed_before_validation` / `governance_endpoints_reject_unauthed_before_validation` | Deterministic privileged endpoint auth matrices. |
-| `prop_valid_multiply_fits_default_budget` | Valid `multiply` calls under Soroban default budget limits. |
-| `prop_multiply_succeeds_with_safe_hf_and_clean_router` / `prop_swap_collateral_conserves_position_delta` | Strategy success, exact deltas, HF, allowance, and flash-guard cleanup. |
-| `prop_migrate_blend_reconciles_same_asset` / `prop_migrate_blend_cap_too_low_reverts` | `migrate_from_blend` reconciliation, and the revert when the cap is below the Blend liability. |
-| `prop_liquidation_matches_bigrational_reference` / `prop_below_base_liquidation_matches_reference_and_never_loses_the_liquidator_money` | Liquidation vs `BigRational` reference, including accounts whose HF-preserving cap is below the base bonus. |
-| `prop_whole_unit_liquidation_holds_the_documented_bounds` | Whole-unit liquidation of a collateral leg below 3 decimals against the documented rules. |
+| `flow_e2e` | Fixed-width byte op streams: multi-asset supply, borrow, withdraw, repay, liquidation, flash-loan failure/success, oracle jitter, index sync, revenue claim, bad-debt cleanup, rollback |
+| `flow_strategy` | `multiply`, `swap_debt`, `swap_collateral`, `repay_debt_with_collateral`, index sync; controller holds no token balance after a strategy op |
+| `pool_native` | Native pool supply, borrow, withdraw, repay, index and parameter updates, revenue claim, seizure, strategy creation, flash loan (needs `flash_loan_receiver.wasm` from `make build`), net settle, recapitalize and views, indexes optionally pinned near caps, against reserve invariants (tracked cash ≤ token balance, revenue ≤ supplied) |
+| `aggregator` | Arbitrary prices, ages, tolerances and sanity bands on single and dual sources: per-feed staleness ceiling, tolerance disagreement, sanity band |
+| `oracle_sources` | Every provider (Reflector spot and TWAP, RedStone, Xoxno, Chainlink) and source shape (feed, scaled, Aquarius constant-product and stable LP, dual blends) with injected faults, via `set_oracle` and `seed_oracle` |
+| `xoxno_oracle` | XOXNO oracle vs a reference model of signers, config, submissions, aggregates and history |
 
 ## Corpus And Regressions
 
-Each target starts from small committed inputs in `tests/fuzz/seeds/<target>/`,
-one or more per target. The seeds already decode
-to inputs of useful length, so short CI campaigns do not spend their budget
-growing inputs. New corpus inputs, crash artifacts, and coverage data go to
-these local, git-ignored directories:
+Each target starts from committed inputs in `tests/fuzz/seeds/<target>/` that already decode to useful lengths, so short CI campaigns skip growing inputs. New corpus, crash artifacts and coverage data go to git-ignored:
 
 ```text
 tests/fuzz/corpus/
@@ -104,38 +71,20 @@ tests/fuzz/artifacts/
 tests/fuzz/coverage/
 ```
 
-For long campaigns, `make fuzz-seed-corpus` adds inputs to
-`tests/fuzz/corpus/` for the `fp_math`, `fp_ops`, `rates_and_index`, flow, and
-`pool_native` targets. The `fp_math`,
-`fp_ops`, `rates_and_index`, and `pool_native` inputs take their values from the
-`test_snapshots/` JSON files that the test suites write. Flow seeds are fixed,
-valid 5-byte operation streams, not `Arbitrary<Vec<_>>` prefixes. The generator
-caps the number of numeric seeds so corpus replay stays fast. `rates_and_index`
-uses a fixed fallback parameter set when no snapshot has decodable market
-parameters.
+For long campaigns, `make fuzz-seed-corpus` adds `tests/fuzz/corpus/` inputs for `fp_math`, `fp_ops`, `rates_and_index`, flow and `pool_native`. Non-flow inputs come from the `test_snapshots/` JSON the test suites write, count-capped for fast replay. `rates_and_index` falls back to a fixed parameter set when no snapshot has decodable market parameters. Flow seeds are fixed, valid 5-byte operation streams, not `Arbitrary<Vec<_>>` prefixes.
 
-```bash
-make fuzz-seed-corpus
-```
-
-When libFuzzer finds a crash, minimize it before you keep it as evidence. On
-macOS, add `--sanitizer=thread -Zbuild-std`:
+Minimize a libFuzzer crash before you keep it as evidence (on macOS, add `--sanitizer=thread -Zbuild-std`):
 
 ```bash
 cd tests/fuzz
 cargo +nightly fuzz tmin --fuzz-dir . <target> artifacts/<target>/crash-<hash>
 ```
 
-Proptest stores minimized failures in
-`tests/test-harness/tests/fuzz/*.proptest-regressions` and
-`tests/test-harness/tests/proptest-regressions/*.txt`. The files are
-committed, so each stored case replays on every run. The two seed-adjusted cash
-properties do not persist failures.
+Proptest regressions: see the [harness fuzz README](../test-harness/tests/fuzz/README.md).
 
 ## Coverage
 
-Fuzz coverage replays the corpus and seeds through instrumented targets. It
-fuzzes first only when `FUZZ_COV_TIME` (seconds) is above zero.
+Coverage replays corpus and seeds through instrumented targets, fuzzing first only when `FUZZ_COV_TIME` (seconds) > 0.
 
 ```bash
 make fuzz-coverage
@@ -144,16 +93,7 @@ make fuzz-coverage-all
 make fuzz-coverage-one TARGET=flow_e2e FUZZ_COV_TIME=60
 ```
 
-Reports are written to:
-
-```text
-target/coverage/fuzz/<target>/index.html
-```
-
-Coverage excludes fuzz and harness code, dependencies, and standard-library
-files, so the report shows `common/` and contract code. Flow targets execute
-the pool through uploaded WASM, so native pool source coverage comes from
-`pool_native`, not `flow_e2e` or `flow_strategy`.
+Reports: `target/coverage/fuzz/<target>/index.html`, showing `common/` and contract code (fuzz/harness code, dependencies and std excluded). Flow targets run the pool as uploaded WASM, so native pool coverage comes only from `pool_native`.
 
 ## CI
 
@@ -161,9 +101,8 @@ the pool through uploaded WASM, so native pool source coverage comes from
 
 - PR smoke: `make fuzz FUZZ_TIME=30`, `make fuzz-contract FUZZ_TIME=60`,
   `make proptest`, `make miri-all`, and a `make mutants-diff` shard matrix.
-- Daily schedule and manual dispatch: `fuzz-long` runs every libFuzzer target,
-  `proptest-long` runs a per-property matrix, and `mutants` runs per-area
-  mutation testing.
+- Daily and manual dispatch: `fuzz-long` (every libFuzzer target),
+  `proptest-long` (per-property matrix), `mutants` (per-area mutation testing).
 
 On failure, `fuzz-long` uploads `tests/fuzz/artifacts/<target>/` and
 `proptest-long` uploads the proptest regression files.

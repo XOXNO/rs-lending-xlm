@@ -1,13 +1,12 @@
 ## Summary
 
-One paragraph: what changed and why. Cite concrete modules or entrypoints
-(e.g. "controller withdraw restamp", "pool interest index floor", "oracle
-call-site policy").
+One paragraph: what changed and why, citing modules or entrypoints (e.g.
+"controller withdraw restamp", "pool interest index floor").
 
 ## Risk Surface
 
-**High-priority areas touched (check all that apply and explain):**
-- [ ] Storage layout, keys, TTL/renewal, per-side maps (`SupplyPositions`/`BorrowPositions`), `HubAssetKey`, or `PoolKey` changes
+**Areas touched (check and explain each):**
+- [ ] Storage layout, keys, TTL/renewal, per-side maps (`SupplyPositions`/`BorrowPositions`), `HubAssetKey` or `PoolKey`
 - [ ] Oracle config, price resolution, tolerance, providers (Reflector/RedStone/Xoxno/Aquarius), sanity/staleness, or call-site policy
 - [ ] Risk params, LTV/liquidation curves, caps, position limits, min-borrow-collateral, or spoke overrides
 - [ ] Authorization, delegates, position managers, pause/freeze matrix, or governance/timelock/roles/upgrade
@@ -15,15 +14,15 @@ call-site policy").
 - [ ] Pool accounting, cash, interest split, revenue, bad-debt socialization, or reserves
 - [ ] Controller–pool–governance boundaries or `HubAssetKey` isolation
 - [ ] Common math/rates/types, events (stable ABI), or interface/ABI changes
-- [ ] WASM size, Soroban footprint (reads/writes/entries), compute, or resource usage (`make wasm-size-check`)
+- [ ] WASM size, Soroban footprint (reads/writes/entries), compute or resources (`make wasm-size-check`)
 - [ ] Other (describe):
 
 - Affected contracts/modules:
 - Affected invariants (cite file:function or test):
-- Specific impact (solvency, oracle, liquidation, flash-loan, storage, etc.):
+- Impact (solvency, oracle, liquidation, flash-loan, storage, …):
 
-See [CONTRIBUTING.md](../CONTRIBUTING.md), the contract README and its rustdoc,
-and the [invariants](../docs/reference/invariants.md).
+See [CONTRIBUTING.md](../CONTRIBUTING.md), the contract README and rustdoc, and
+the [invariants](../docs/reference/invariants.md).
 
 ## Verification
 
@@ -34,17 +33,17 @@ and the [invariants](../docs/reference/invariants.md).
 - [ ] `make wasm-size-check`
 - [ ] `make docs-check` / `make access-control-check`
 
-**Protocol-sensitive changes — list exactly what was run and attach key results:**
+**Protocol-sensitive changes — list what ran, with key results:**
 - Certora profile(s) / rules (see `certora/profiles.json` and `certora/*/spec/README.*`):
 - Fuzz target(s) + duration (`make fuzz` / `make fuzz-contract`):
-- Proptest / mutants / other (Scout, miri, specific harness tests):
+- Proptest / mutants / other (Scout, miri, harness tests):
 
-Re-run against the exact tree in this PR. See CONTRIBUTING.md.
+Run against the exact tree in this PR.
 
 ## Operations & Downstream
 
 - Deployment, WASM upgrade, or migration required:
-- Configuration, role, cap, oracle, spoke, or governance follow-up (including timelock proposals):
+- Config, role, cap, oracle, spoke or governance follow-up (incl. timelock proposals):
 - Keeper, indexer, configs, or off-chain impact (TTL, events, feeds):
 - Breaking changes for users, liquidators, strategies, or integrators:
 

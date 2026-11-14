@@ -22,24 +22,21 @@ holds every token.
 
 ## Audits
 
-| Auditor | Scope | Commit | Report |
-|---|---|---|---|
-| Runtime Verification, November 2026 | Core contracts and `common/` | `a2486b25` (`v1.1.0`) | [PDF](audits/2026-11-runtime-verification.pdf) |
+Runtime Verification audited the core contracts and `common/` at `a2486b25`
+(`v1.1.0`) in November 2026; see the
+[report](audits/2026-11-runtime-verification.pdf) and
+[SECURITY.md](SECURITY.md#audits).
 
 ## Deployments
 
-| Network | Addresses |
-|---|---|
-| Mainnet and testnet | [Contract addresses and ids](skills/xoxno-lending/addresses.md), generated from [`configs/networks.json`](configs/networks.json) |
-
-These documents describe this source tree. Before you deposit funds, compare
-the deployed WASM hashes in `configs/networks.json` with your own build.
+Mainnet and testnet [contract addresses and ids](skills/xoxno-lending/addresses.md)
+are generated from [`configs/networks.json`](configs/networks.json). These
+documents describe this source tree: before you deposit funds, compare the
+deployed WASM hashes in `configs/networks.json` with your own build.
 
 ## Documentation
 
-Start with [Architecture](docs/reference/architecture.md). Auditors can then
-read the threat model, invariants, formulas and design decisions. Integrators
-can use the endpoint, event and error references.
+Start with [Architecture](docs/reference/architecture.md).
 
 | Question | Reference |
 |---|---|
@@ -58,8 +55,8 @@ can use the endpoint, event and error references.
 
 ## Development
 
-Install the Rust toolchain and targets in [rust-toolchain.toml](rust-toolchain.toml).
-Install the Stellar CLI. Then build the WASM contracts before you run tests.
+Install the Rust toolchain and targets in [rust-toolchain.toml](rust-toolchain.toml)
+and the Stellar CLI. Build the WASM contracts before you run tests.
 
 ```sh
 git clone https://github.com/XOXNO/rs-lending-xlm.git
@@ -70,8 +67,6 @@ make test
 
 | Task | Command |
 |---|---|
-| Build the contract WASM | `make build` |
-| Run the workspace tests | `make test` |
 | Run the integration harness only | `make test-harness` |
 | Check formatting / lint | `make fmt-check` / `make clippy` |
 | Check documentation links and symbols | `make docs-check` |
@@ -88,8 +83,8 @@ Read [CONTRIBUTING.md](CONTRIBUTING.md) before you open a pull request.
 
 ## Security and license
 
-Report vulnerabilities through [SECURITY.md](SECURITY.md). Do not open a public
-issue. Rewards are paid through the
+Report vulnerabilities privately through [SECURITY.md](SECURITY.md), not in a
+public issue. Rewards are paid through the
 [XOXNO bug bounty on Immunefi](https://immunefi.com/bug-bounty/xoxno/information/).
 
 Licensed under [PolyForm Noncommercial 1.0.0](LICENSE). Commercial use requires

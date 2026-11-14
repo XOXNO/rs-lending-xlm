@@ -1,96 +1,53 @@
 # Governance
 
-Timelocked admin of the lending controller and the price aggregator. It owns
-both contracts; every privileged change to them goes through here.
+Timelocked owner of the controller and the price aggregator; every privileged
+change to them goes through here.
 
 | | |
 | --- | --- |
 | Owner | OZ `Ownable`, two-step |
 | Roles | `PROPOSER`, `CANCELLER`, `GUARDIAN`, `ORACLE`, and grantable `CURATOR_ROLE` |
-| Client | [`interfaces/governance`](../../interfaces/governance) |
+| Client | [`interfaces/governance`](../../interfaces/governance); drops `Env` |
 
-Full signatures are in `contracts/governance/src/`; the generated client drops
-the `Env` argument. The role gate, delay and Recovery rules of each entrypoint
-are in its rustdoc.
+Signatures and role gates: [endpoint reference](../../docs/reference/endpoints.md#governance);
+delay and Recovery rules: each entrypoint's rustdoc.
 
 ## Timelock model
 
 - Sensitive operations wait at least 120960 ledgers (about seven days), a
-  floor compiled into the contract; the configured minimum delay applies when it
-  is longer. The `short-timelock` Cargo feature lowers the floor to 12 ledgers
-  for the end-to-end build only. No deploy or release artifact enables it, and
-  the build is stamped so the candidate check refuses it.
-- `propose` stores an `AdminOperation` in `OperationLedger` with the ledger at
-  which it becomes ready. `RevokeGovRole` also writes a `RoleRevocationTarget`
-  sidecar and a canceller reset writes a `RecoveryOp` sidecar. Execute and
-  cancel remove the entry and its sidecars.
-- The operation id is `hash_operation(target, function, args, predecessor,
-  salt)`. `predecessor` is always 32 zero bytes. The salt only separates
-  operations that are pending at the same time: a new `salt` gives a
-  re-proposed op a new id while the earlier one is still queued. It does not
-  mark an id as used. Execute and cancel remove the entry, and nothing records
-  that an id ran, so the same op with the same salt can be proposed and
-  executed again once its delay passes. As with any new proposal, the
-  timelock delay and the cancellers are what stop a repeat of an executed
-  change.
-- An op executes once ready and before it expires. `execute` runs ops that
-  target another contract; `execute_self` runs ops that target governance.
-- The owner must be the proposer for: ownership, upgrade, migration, delay
-  (`UpdateGovDelay`), oracle, swap-aggregator, Blend approval, accumulator,
-  role-grant and position-manager activation ops. Any proposer can schedule a
-  position-manager deactivation; a GUARDIAN can also apply it immediately.
+  compiled floor; a longer configured minimum delay wins. The `short-timelock`
+  feature lowers the floor to 12 ledgers for the end-to-end build only; no
+  deploy or release artifact enables it, and its stamp makes the candidate
+  check refuse it.
+- `propose` stores the ready ledger in `OperationLedger`. `RevokeGovRole` adds
+  a `RoleRevocationTarget` sidecar, a canceller reset a `RecoveryOp` sidecar.
+- Operation id: `hash_operation(target, function, args, predecessor, salt)`,
+  `predecessor` always 32 zero bytes. The salt only separates concurrently
+  pending ops; nothing records that an id ran, so the same op and salt can run
+  again after a new delay. Only the delay and cancellers stop a repeat.
+- An op runs between ready and expiry: `execute` for other targets,
+  `execute_self` for governance. Execution takes no caller and checks no role;
+  the delay and cancellers protect it, not executor identity.
+- Owner-only proposals are listed under `propose` in the endpoint reference.
+  Any proposer can schedule a position-manager deactivation; a GUARDIAN can
+  also apply it immediately.
+- A canceller reset (`propose_canceller_reset`) uses the Recovery delay and
+  cannot be cancelled.
 
-## Entrypoints
+## Entrypoint notes
 
-### Timelock
-
-| Entrypoint | Caller | Does |
-| --- | --- | --- |
-| `propose(proposer, op, salt) -> id` | `PROPOSER` (owner for the ops above) | Schedules `op` |
-| `execute(target, function, args, predecessor, salt) -> Val` | anyone (see below) | Runs a ready op against `target` (not governance) |
-| `execute_self(op, salt)` | anyone (see below) | Runs a ready op that targets governance |
-| `cancel(canceller, operation_id)` | `CANCELLER` | Vetoes a pending op. Cannot cancel a Recovery op or a revocation of the canceller |
-| `propose_canceller_reset(new_cancellers, salt) -> id` | owner | Schedules a Recovery reset of the canceller set |
-| `execute_canceller_reset(new_cancellers, salt)` | anyone (see below) | Runs a ready canceller reset |
-
-Anyone may execute a ready op: execution takes no caller and checks no role.
-The delay and the cancellers protect an operation, not the identity of the
-executor. A canceller reset uses the Recovery delay and cannot be cancelled.
-
-### Immediate (no delay)
-
-| Entrypoint | Caller | Does |
-| --- | --- | --- |
-| `pause(caller)` | `GUARDIAN` | Pauses the controller |
-| `set_spoke_asset_flags(caller, spoke_id, hub_asset, paused, frozen, no_seize)` | `GUARDIAN` or `CURATOR_ROLE` | Tightens a listing's halt flags (see below) |
-| `create_hub(caller) -> u32`, `add_spoke(caller) -> u32` | `CURATOR_ROLE` | Creates a controller hub or spoke and returns its id |
-| `create_liquidity_pool(caller, hub_id, params) -> Address` | `CURATOR_ROLE` | Registers `params.asset_id` on the deployed pool and returns that pool's address |
-| `suspend_curator_registrar(caller, curator, registrar)` | `GUARDIAN` | Suspends a registrar on a curator that holds `CURATOR_ROLE`. Resuming is the owner-proposed sensitive `SuspendCuratorRegistrar` |
-| `deactivate_position_manager(caller, manager)`, `revoke_blend_pool(caller, pool)` | `GUARDIAN` | Withdraws a position manager or a Blend migration source; activation and approval stay timelocked |
-| `set_sanity_band(caller, key, min_wad, max_wad)` | `ORACLE` | Narrows an aggregator price band; a wider band reverts `SanityBandMustTighten` |
-| `revoke_role_immediate(account, role)` | owner | Strips `GUARDIAN`, `ORACLE` or `CURATOR` from `account` |
-
-### Setup and ownership
-
-| Entrypoint | Caller | Does |
-| --- | --- | --- |
-| `__constructor(admin, min_delay)` | deployer, once | Makes `admin` owner and access-control admin, grants it every default role, sets the minimum delay. `CURATOR_ROLE` is not a default role |
-| `deploy_controller(wasm_hash) -> Address` | owner, once | Deploys the controller and records it |
-| `deploy_price_aggregator(wasm_hash) -> Address` | owner, once | Deploys the aggregator, records it, and registers it with the controller if one exists |
-| `accept_ownership()` | pending owner | Completes the transfer and moves the access-control admin and default roles to the new owner |
-
-### Views
-
-| View | Returns |
-| --- | --- |
-| `controller()`, `price_aggregator()` | Deployed addresses |
-| `get_min_delay()` | Minimum delay, in ledgers |
-| `get_operation_state(id)` | `OperationState` of an op |
-| `get_operation_ledger(id)` | Ledger at which the op becomes ready |
-| `hash_operation(target, function, args, predecessor, salt)` | The op id |
-| `has_role(account, role)` | Whether `account` holds `role` |
-| `resolve_oracle_tolerance(tolerance)` | Validated `OracleTolerance` bounds |
-| `resolve_asset_oracle(key, oracle)` | `oracle` with `asset_decimals` filled: for `PriceKey::Token`, the stored oracle's decimals if the aggregator has one, else the token's; `0` for `PriceKey::Ref` |
+- `__constructor(admin, min_delay)` makes `admin` owner and access-control
+  admin with every default role; `CURATOR_ROLE` is not default.
+- `deploy_price_aggregator` also registers it with an existing controller.
+- `accept_ownership` moves access-control admin and default roles to the new
+  owner.
+- Resuming a registrar after `suspend_curator_registrar` is owner-proposed
+  sensitive `SuspendCuratorRegistrar`. Position-manager activation and Blend
+  approval stay timelocked.
+- `set_sanity_band` reverts `SanityBandMustTighten` on a wider band.
+- `resolve_asset_oracle` fills `asset_decimals`: for `PriceKey::Token`, the
+  stored oracle's decimals if the aggregator has one, else the token's; `0` for
+  `PriceKey::Ref`.
 
 ## Halt controls
 
@@ -99,13 +56,11 @@ executor. A canceller reset uses the Recovery delay and cannot be cancelled.
 | Global controller pause | `pause` | `AdminOperation::Unpause` |
 | Listing flags `paused`, `frozen`, `no_seize` | `set_spoke_asset_flags`, tighten only | `AdminOperation::RelaxSpokeAssetFlags` at the listing's flags epoch |
 
-- A call that would clear a flag through `set_spoke_asset_flags` or
-  `EditAssetInSpoke` reverts `SpokeAssetFlagRelaxation`. `EditAssetInSpoke`
-  rewrites the full listing, but its flags can only keep or tighten.
-- `RelaxSpokeAssetFlags` carries the `expected_epoch` from
-  `get_spoke_asset_flags_epoch`. Every flag change advances the epoch, so a
-  relaxation proposed before a later guardian action reverts
-  `SpokeFlagsEpochMismatch`.
+`set_spoke_asset_flags` also accepts `CURATOR_ROLE`. Clearing a flag through it
+or `EditAssetInSpoke` (which rewrites the whole listing) reverts
+`SpokeAssetFlagRelaxation`. Each flag change advances the epoch, so a
+relaxation proposed before a later guardian action reverts
+`SpokeFlagsEpochMismatch`.
 
 ## Storage and TTL
 
@@ -118,18 +73,16 @@ executor. A canceller reset uses the Recovery delay and cannot be cancelled.
 | `GovernanceKey::RecoveryOp(id)` | persistent | Marker for a pending canceller reset |
 | OpenZeppelin `stellar-access` keys | instance, persistent | Owner, pending owner, admin, role members |
 
-Every entrypoint that writes state renews the instance TTL with
-`renew_instance` (`TTL_THRESHOLD_INSTANCE`, `TTL_BUMP_INSTANCE`). The two
-sidecar entries are extended with `TTL_THRESHOLD_SHARED` and `TTL_BUMP_SHARED`
-when written. OpenZeppelin extends an `OperationLedger` entry by 30 days each
-time it reads the entry. `execute`, `execute_self`, `execute_canceller_reset`
-and `cancel` remove the entry and its sidecars.
+State-writing entrypoints renew the instance TTL (`renew_instance`,
+`TTL_THRESHOLD_INSTANCE`, `TTL_BUMP_INSTANCE`). Sidecars extend with
+`TTL_THRESHOLD_SHARED` / `TTL_BUMP_SHARED` when written; OpenZeppelin extends
+`OperationLedger` by 30 days on each read. `execute`, `execute_self`,
+`execute_canceller_reset` and `cancel` remove the entry and its sidecars.
 
 ## Events
 
-Governance defines `DeployControllerEvent` and `DeployPriceAggregatorEvent`.
-Timelock, ownership, and role changes publish the stock OpenZeppelin events.
-See [events](../../docs/reference/events.md#governance-events).
+Timelock, ownership and role changes publish stock OpenZeppelin events
+([governance events](../../docs/reference/events.md#governance-events)).
 
 ## Layout
 
@@ -150,6 +103,5 @@ contracts/governance/src/
 ## References
 
 - Errors: [`docs/reference/errors.md`](../../docs/reference/errors.md)
-- Events: [`docs/reference/events.md`](../../docs/reference/events.md#governance-events)
 - Curator registry: [`contracts/curator`](../curator/README.md)
 - Controller entrypoints it drives: [`contracts/controller`](../controller/README.md)

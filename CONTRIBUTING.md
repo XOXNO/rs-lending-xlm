@@ -1,12 +1,10 @@
 # Contributing
 
 XOXNO Lending contains invariant-critical Soroban contracts. A good change is
-small, reviewable, and accompanied by evidence that it preserves the relevant
+small, reviewable, and carries evidence that it preserves the relevant
 protocol properties.
 
 ## Before you change code
-
-Read the material that matches your change:
 
 | Change | Read first |
 |---|---|
@@ -18,26 +16,24 @@ Read the material that matches your change:
 | Formal verification | [Certora guide](certora/README.md) |
 | Vulnerability reporting | [SECURITY.md](SECURITY.md) |
 
-For a large protocol change, open an issue before implementation to agree on
-scope, migration implications, and verification expectations. Do not open a
-public issue or pull request for a vulnerability.
+Before a large protocol change, open an issue to agree on scope, migration,
+and verification. Report a vulnerability privately, not in a public issue or
+pull request.
 
 ## Set up
 
-Install the Rust toolchain and targets from `rust-toolchain.toml`, and Stellar
-CLI with `make install-stellar-cli`. Run `make build` before the tests: they
-load contract WASM from `target/`.
-
-Mutation targets also require Python 3.11+ and the pinned cargo-mutants version
-checked by `make _mutants-check`.
+Install the Rust toolchain and targets from `rust-toolchain.toml`, and the
+Stellar CLI with `make install-stellar-cli`. Run `make build` before the
+tests: they load contract WASM from `target/`. Mutation targets also need
+Python 3.11+ and the cargo-mutants version that `make _mutants-check` pins.
 
     make build
     make test
     make help
 
 The keeper (`services/keeper`) and the lending exporter
-(`services/lending-exporter`) are separate Cargo workspaces. Run their checks
-from their own manifests and follow their README files.
+(`services/lending-exporter`) are separate Cargo workspaces; run their checks
+from their own manifests, per their READMEs.
 
 ## Working agreement
 
@@ -45,8 +41,8 @@ from their own manifests and follow their README files.
   cleanup or formatting.
 - Preserve the unit boundary: token amounts at transfers, WAD for USD and
   health factor, RAY for shares and rates, and BPS for ratios and fees.
-- Identify changes to authorization, governance, price handling, storage,
-  accounting, risk, liquidation, or external-call behavior explicitly.
+- Flag changes to authorization, governance, price handling, storage,
+  accounting, risk, liquidation, or external-call behavior.
 - Update public documentation when behavior, an invariant, or a proof boundary
   changes.
 - Never commit secrets, private keys, environment files, or local deployment
@@ -54,8 +50,7 @@ from their own manifests and follow their README files.
 
 ## Verification
 
-Choose the smallest evidence set that covers the changed surface. More
-risk-sensitive changes require more than a passing workspace build.
+Choose the smallest evidence set that covers the changed surface.
 
 | Surface | Minimum evidence |
 |---|---|
@@ -81,12 +76,10 @@ Then run the focused checks for the changed behavior:
     make miri-common
     make certora-wasm
 
-Not every command applies to every change. If a check is skipped, say why in
-the pull request rather than implying it ran.
-
-For repository-wide assurance, use the verification targets that
-`make help-verify` lists. Scout, mutation testing, coverage, and the broader
-Certora profiles are heavier; select them by risk and scope.
+Not every command applies to every change. If you skip a check, say why in
+the pull request. For repository-wide assurance, `make help-verify` lists the
+heavier targets (Scout, mutation testing, coverage, broader Certora profiles);
+select them by risk and scope.
 
 ## Pull request description
 
@@ -98,8 +91,8 @@ State:
 4. Any configuration, deployment, migration, oracle, or operational follow-up.
 5. Known limitations or work deliberately left out of scope.
 
-A reviewer should be able to understand the safety argument without reconstructing
-the entire change history.
+A reviewer should follow the safety argument without reconstructing the change
+history.
 
 ## Writing rules
 
@@ -117,9 +110,8 @@ based on ASD-STE100. The `skills/` set applies all of them.
 9. Describe the current interface only. Remove superseded examples and paths.
 10. Verify safety conditions against committed source and published exports.
 
-Technical names are necessary vocabulary. Code and formulas keep their exact
-syntax. Put change history in commit messages and pull requests, not in
-documents.
+Code and formulas keep their exact syntax. Put change history in commit
+messages and pull requests, not in documents.
 
 ## CI and maintainers
 
@@ -129,8 +121,8 @@ CI security rules, runner policy and dependency exceptions are in
 ## Issues and reviews
 
 Use public issues for reproducible bugs, documentation gaps, features, and
-non-sensitive design discussion. Include the environment, expected result, and
-observed result.
+non-sensitive design discussion. Include the environment and the expected and
+observed results.
 
 Review with evidence: explain the affected behavior, the adversarial case, and
 the verification result. Be direct about uncertainty. Follow the

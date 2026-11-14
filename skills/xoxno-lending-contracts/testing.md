@@ -1,89 +1,73 @@
 # Testing with `LendingFixture`
 
 `xoxno_contract_sdk::testutils::LendingFixture` deploys XOXNO Lending into a
-test `Env` from the WASM that the crate embeds. It deploys governance, the
-controller, the pool, the position NFT, the price aggregator, and two mock
-oracles, with one hub and one spoke. Governance owns the controller, as on
-mainnet, and every configuration step goes through the governance timelock.
-The tests run on the host; they do not need a Wasm build of your contract.
+test `Env` from the embedded WASM: governance, controller, pool, position NFT,
+price aggregator, and two mock oracles, with one hub and one spoke.
+Governance owns the controller, as on mainnet; every configuration step goes
+through its timelock. Tests run on the host; no Wasm build needed.
 
-The verified `xoxno-contract-sdk` version is `0.2.0`. It embeds protocol
-release `v1.1.0`, commit `1053ae033`. A fixture test proves behavior for that
-embedded WASM only. It does not verify later source changes, including the
-current low-decimal rules. Compare the target deployment with the embedded
-release before selecting the crate. Simulate against the target network.
-
-Enable the fixture only in the dev-dependencies:
-
-```toml
-[dev-dependencies]
-soroban-sdk = { version = "28", features = ["testutils"] }
-xoxno-contract-sdk = { version = "0.2", features = ["testutils"] }
-```
+A fixture test covers only the embedded WASM (crate `0.2.0`, protocol
+`v1.1.0`, commit `1053ae033`), not later changes such as the current
+low-decimal rules. Compare the target deployment with it before choosing the
+crate, and simulate on the target network. Enable `testutils` only in
+dev-dependencies ([SKILL.md](SKILL.md#dependencies)).
 
 ## Fixture API
 
-- `LendingFixture::deploy(&env, &admin)` deploys the protocol. `admin` holds
-  every governance role.
-- `create_market(&MarketConfig::usdc())` creates a 7-decimal token, lists it
+- `LendingFixture::deploy(&env, &admin)`: deploys; `admin` holds every
+  governance role.
+- `create_market(&MarketConfig::usdc())`: creates a 7-decimal token, lists it
   in the default hub (`fixture.hub_id`) and spoke (`fixture.spoke_id`) with a
-  dual-source oracle, and supplies the initial liquidity from a new provider.
-  `MarketConfig::usdc()` and `MarketConfig::xlm()` use the mainnet market
-  parameters and the "Blue Chip" asset settings. The returned `Market` has
-  `key` (the controller `HubAssetKey`), `asset`, `token`, and `sac` (the asset
-  admin client, for `mint`).
-- `fixture.addresses()` returns the `LendingAddresses` for your contract's
-  constructor.
-- `set_price(&market, price_wad)` sets the USD price, WAD, on both mock feeds.
-- `advance_time(seconds)` moves the timestamp, and the sequence by one ledger
-  for each 5 seconds. Then it publishes every price again and accrues interest
-  on every market.
+  dual-source oracle, and seeds liquidity from a new provider.
+  `MarketConfig::usdc()`/`MarketConfig::xlm()` use mainnet market parameters
+  and "Blue Chip" asset settings. The returned `Market` has `key` (controller
+  `HubAssetKey`), `asset`, `token`, and `sac` (asset admin client, for `mint`).
+- `fixture.addresses()`: `LendingAddresses` for your constructor.
+- `set_price(&market, price_wad)`: USD price (WAD) on both mock feeds.
+- `advance_time(seconds)`: moves the timestamp and the sequence (one ledger per
+  5 s), republishes every price, accrues interest on every market.
 - `add_hub`, `add_spoke`, `create_market_in`, `list_market`,
-  `add_market_to_hub`, and `supply_liquidity` add hubs, spokes, and listings.
-- `fixture.controller`, `fixture.pool`, `fixture.position_nft`, and
-  `fixture.price_aggregator` are the generated clients, for assertions.
+  `add_market_to_hub`, `supply_liquidity`: more hubs, spokes, listings.
+- `fixture.controller`, `fixture.pool`, `fixture.position_nft`,
+  `fixture.price_aggregator`: generated clients for assertions.
 
 ## Env changes
 
 `deploy` changes the `Env`:
 
-- The timestamp becomes at least 1,000,000 and the sequence at least 100.
-  Each timelocked setup step moves the sequence forward by one ledger.
-- The minimum persistent entry TTL becomes 10,000,000 ledgers, and the maximum
-  entry TTL is above it. New persistent entries, your contract's included,
-  start with this TTL, so a fixture test does not archive them. It does not
-  prove that your contract renews its keys.
-- The budget becomes unlimited, because the fixture setup exceeds the default
-  test budget. To check one call against the network limits, call
-  `env.cost_estimate().budget().reset_default()` just before the call, and
-  read `env.cost_estimate()` after it. A contract registered as a Rust type
-  runs natively, so its own costs are lower than as WASM; the protocol
-  contracts run as WASM.
+- Timestamp ≥ 1,000,000, sequence ≥ 100; each timelocked setup step advances
+  the sequence one ledger.
+- Minimum persistent entry TTL 10,000,000 ledgers, maximum above it. New
+  persistent entries, yours included, start there, so tests never archive them
+  and cannot prove your contract renews its keys.
+- Unlimited budget, since setup exceeds the default. To check one call, run
+  `env.cost_estimate().budget().reset_default()` just before it and read
+  `env.cost_estimate()` after (example below). A contract registered as a Rust
+  type runs natively, costing less than as WASM; protocol contracts run as
+  WASM.
 
-The fixture authorizes its own admin calls per call. It does not change the
-auth mode of the `Env`.
+The fixture authorizes its admin calls per call and leaves the `Env` auth
+mode unchanged.
 
 ## Test your own authorization
 
-`env.mock_all_auths()` accepts every authorization request in the call tree.
-It can hide missing or incorrect contract authorizations. For the operation
-under test, mock only external users:
+`env.mock_all_auths()` accepts every authorization in the tree, hiding
+missing or wrong contract auth. Under test, mock only external users:
 
-- `client.mock_auths(&[MockAuth { .. }])` for a user call, with the exact
+- `client.mock_auths(&[MockAuth { .. }])`: a user call, with the exact
   arguments and sub-invocations the user signs
-- `client.mock_all_auths()` on one client, for a setup call by another actor,
-  such as `usdc.sac.mock_all_auths().mint(..)`
+- `client.mock_all_auths()` on one client: another actor's setup call, e.g.
+  `usdc.sac.mock_all_auths().mint(..)`
 
-The auth of your contract then runs as on the network: direct invoker auth
-for `caller.require_auth()`, and the `authorize_transfer_as_current` entries
-(your own or the wrapper's) for nested token pulls. A missing or wrong entry
-fails the test.
+Your contract's auth then runs as on the network (direct invoker auth for
+`caller.require_auth()`, `authorize_transfer_as_current` entries for nested
+pulls); a missing or wrong entry fails the test.
 
 ## Example
 
 The contract under test takes `LendingAddresses`, the market, and the spoke in
 its constructor, checks the pool against `get_pool_address()`, and stores
-them. `deposit` uses the pointer helpers in
+them. `deposit` uses the pointer helpers from
 [positions.md](positions.md#canonical-local-account-pointer):
 
 ```rust
@@ -207,8 +191,7 @@ fn deposit_without_the_user_signature_fails() {
 }
 ```
 
-To check the deposit against the default budget, reset it just before the
-call:
+To check the deposit against the default budget:
 
 ```rust
     env.cost_estimate().budget().reset_default();
@@ -217,5 +200,5 @@ call:
 ```
 
 A test is evidence for the fixture state only. Before submission, still
-require a successful simulation of the exact transaction on the target
-network; see [SKILL.md](SKILL.md#completion-checks).
+require successful simulation of the exact transaction on the target network
+([SKILL.md](SKILL.md#completion-checks)).

@@ -7,9 +7,10 @@ argument-hint: "[read | positions | transaction | strategy | frontend]"
 
 # XOXNO Lending SDK
 
-This skill targets the published `@xoxno/sdk-js` surface at the
-[pinned SDK](../xoxno-lending/SKILL.md#verified-against) and `@stellar/stellar-sdk@16.3.0`. Builders return unsigned, unprepared XDR. The host
-application owns RPC preparation, signing, submission, confirmation, and
+Targets `@xoxno/sdk-js` at the
+[pinned SDK](../xoxno-lending/SKILL.md#verified-against) and
+`@stellar/stellar-sdk@16.3.0`. Builders return unsigned, unprepared XDR. The
+host application owns RPC preparation, signing, submission, confirmation, and
 state reconciliation.
 
 ## Route by task
@@ -25,7 +26,7 @@ state reconciliation.
 - Wallet UX, prepared-XDR caching, trustlines, and reconciliation:
   [frontend.md](frontend.md)
 
-Canonical sources used by every page:
+Shared references:
 
 - Units and formulas: [../xoxno-lending/math.md](../xoxno-lending/math.md)
 - Identifiers and deployed addresses:
@@ -56,9 +57,10 @@ const baseUrl = {
 const read = createStellarLendingReadClient({ baseUrl })
 ```
 
-The read entry exports the public response types and schemas. It has no Stellar
-SDK runtime dependency. `read.positions(owner)` collects all pages; `read.assets()`
-lists collateral assets. Use `read.assets({ usage: 'borrow' })` for borrow assets.
+The read entry exports the public response types and schemas and has no
+Stellar SDK runtime dependency. `read.positions(owner)` collects all pages;
+`read.assets()` lists collateral assets, `read.assets({ usage: 'borrow' })`
+borrow assets.
 
 For transactions and advanced math, also install the Stellar SDK:
 
@@ -66,8 +68,8 @@ For transactions and advanced math, also install the Stellar SDK:
 npm install @stellar/stellar-sdk@16.3.0
 ```
 
-Install one copy so RPC and builders use the same transaction classes.
-Use published package entries; do not deep-import `dist/` or source files.
+Install one copy so RPC and builders share transaction classes. Use published
+package entries; never deep-import `dist/` or source files.
 See the [wallet guide](https://xoxno.com/docs/stellar-lending/dev/wallet-integration)
 and [API reference](https://xoxno.com/docs/stellar-lending/dev/integrator-api).
 
@@ -79,26 +81,26 @@ import { parseStellarTokenAmount } from '@xoxno/sdk-js/stellar-lending'
 const amount = parseStellarTokenAmount('1.25', 7) // '12500000'
 ```
 
-Pass the selected token's `decimals` directly. The helper rejects missing
-metadata, invalid decimal text, excess precision, non-positive amounts, and
-positive i128 overflow. It uses Stellar's string parser; no floating-point
-conversion or integrator-owned parser is needed. Use raw `'0'` only for the
-withdraw-all sentinel, not as a positive amount to this helper.
+Pass the selected token's `decimals`. The helper rejects missing metadata,
+invalid decimal text, excess precision, non-positive amounts, and positive
+i128 overflow. It uses Stellar's string parser, so you need no floating-point
+conversion or own parser. Raw `'0'` is only the withdraw-all sentinel, never
+input to this helper.
 
 ## Shared invariants
 
 - Resolve controller, router, governance, and position-NFT addresses from
   `getStellarDeployment(network)`.
 - Resolve `(spokeId, hubId, sac)` and token decimals from the selected v1 asset
-  and spoke. Pass `sac` as the builder's `asset`. These coordinates are
-  independent. Do not infer one from another.
+  and spoke. Pass `sac` as the builder's `asset`. The coordinates are
+  independent; never infer one from another.
 - `sourceSequence` is a Stellar account sequence. `accountNonce` is a lending
   account id / position-NFT token id. Never interchange them.
-- Amounts passed to builders are decimal `i128` strings in token base units.
-  Keep v1 `amountRaw` as a string; it is already in token base units. Advanced
-  math uses `BigInt` and raw RAY/WAD inputs. Display numbers are estimates.
-- An account id does not encode a spoke. A wallet may own multiple accounts on
-  the same spoke. Select an account explicitly, then verify its current spoke
+- Builder amounts are decimal `i128` strings in token base units. Keep v1
+  `amountRaw` as a string; it is already base units. Advanced math uses
+  `BigInt` and raw RAY/WAD inputs. Display numbers are estimates.
+- An account id does not encode a spoke, and a wallet may own several accounts
+  on one spoke. Select an account explicitly, then verify its current spoke
   and position-NFT owner.
 - A position-NFT transfer transfers control of the lending account. Recheck
   ownership before preparing any mutation.
@@ -107,8 +109,6 @@ withdraw-all sentinel, not as a positive amount to this helper.
   repay-all sentinel.
 
 ## Completion gates
-
-Before calling an integration complete:
 
 1. Every documented import compiles against the pinned published package.
 2. The selected account, spoke, hub, asset, and network coordinates match.
