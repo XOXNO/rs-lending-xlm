@@ -24,7 +24,7 @@ holds every token.
 
 | Auditor | Scope | Commit | Report |
 |---|---|---|---|
-| Runtime Verification, November 2026 | `common/` and eight contracts (all except the curator) | `a2486b25` (`v1.1.0`) | [PDF](audits/2026-11-runtime-verification.pdf) |
+| Runtime Verification, November 2026 | Core contracts and `common/` | `a2486b25` (`v1.1.0`) | [PDF](audits/2026-11-runtime-verification.pdf) |
 
 [audits/README.md](audits/README.md) lists each finding and its status.
 

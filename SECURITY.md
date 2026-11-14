@@ -94,7 +94,7 @@ systems, or places user assets or data at risk.
 
 | Auditor | Scope | Commit | Engagement | Report |
 |---|---|---|---|---|
-| Runtime Verification | `common/` and eight contracts (all except the curator) | `a2486b25` (`v1.1.0`) | 2026-09-30 to 2026-11-13 | [PDF](audits/2026-11-runtime-verification.pdf) |
+| Runtime Verification | Core contracts and `common/` | `a2486b25` (`v1.1.0`) | 2026-09-30 to 2026-11-13 | [PDF](audits/2026-11-runtime-verification.pdf) |
 
 [audits/README.md](audits/README.md) lists each finding and its status. Fix
 commits cite the finding ID, and the

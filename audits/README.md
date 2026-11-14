@@ -4,8 +4,6 @@
 |---|---|---|---|---|
 | Runtime Verification | [2026-11-runtime-verification.pdf](2026-11-runtime-verification.pdf) | `common/` and eight contracts: pool, controller, price aggregator, swap aggregator, position NFT, XOXNO oracle, governance, DeFindex strategy | `a2486b255b974ef8432ce44de014931f51552f4b` (`v1.1.0`) | 2026-09-30 to 2026-11-13 |
 
-The curator contract was not in the scope of this audit.
-
 ## Runtime Verification findings
 
 | ID | Finding | Severity | Status |
