@@ -24,13 +24,9 @@ holds every token.
 
 | Auditor | Scope | Commit | Report |
 |---|---|---|---|
-| Runtime Verification | `<scope>` | `<commit>` | `<link to report>` |
+| Runtime Verification, November 2026 | `common/` and eight contracts (all except the curator) | `a2486b25` (`v1.1.0`) | [PDF](audits/2026-11-runtime-verification.pdf) |
 
-Every finding has a fix or a recorded decision. The
-[design decisions](docs/explanation/decisions.md) record the decisions, for
-example [ADR-0022](docs/explanation/decisions.md#adr-0022) for finding R-23.
-Regression tests for the findings are in `tests/test-harness/tests/`. See
-[SECURITY.md](SECURITY.md#audits) for the full list.
+[audits/README.md](audits/README.md) lists each finding and its status.
 
 ## Deployments
 

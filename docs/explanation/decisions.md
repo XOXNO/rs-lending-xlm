@@ -214,8 +214,9 @@ consequences.
 
 ### ADR-0022: Liquidator payoff at collateral equal to debt
 
-Audit finding R-23 noted that the liquidator profit jumps where collateral `C`
-falls below debt `D`. The protocol keeps this payoff shape.
+Finding R-23 of the September 2026 upgrade review noted that the liquidator
+profit jumps where collateral `C` falls below debt `D`. The protocol keeps
+this payoff shape.
 
 Let `x = C / D` and let `b` be the base bonus:
 

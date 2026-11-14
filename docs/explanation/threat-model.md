@@ -10,10 +10,11 @@ defines precise safety properties.
 
 ## Audit coverage
 
-Runtime Verification audited this source tree. The fixes for its findings
-are in the tree. [SECURITY.md](../../SECURITY.md#audits) links the reports.
-This document cites audit findings by their public ids, for example audit
-finding S-03.
+Runtime Verification audited `common/` and eight contracts at `v1.1.0`. The
+curator contract was not in that scope.
+[audits/README.md](../../audits/README.md) links the report and lists the
+status of each finding. This document cites findings by their public ids, for
+example audit finding S-03.
 
 ## Assets and trust roots
 

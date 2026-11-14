@@ -92,18 +92,14 @@ systems, or places user assets or data at risk.
 
 ## Audits
 
-| Auditor | Scope | Commit | Date | Report |
+| Auditor | Scope | Commit | Engagement | Report |
 |---|---|---|---|---|
-| Runtime Verification | `<contracts in scope>` | `<commit>` | `<date>` | `<link>` |
+| Runtime Verification | `common/` and eight contracts (all except the curator) | `a2486b25` (`v1.1.0`) | 2026-09-30 to 2026-11-13 | [PDF](audits/2026-11-runtime-verification.pdf) |
 
-Each finding has a fix or a recorded decision:
-
-- Code fixes carry regression tests in `tests/test-harness/tests/`.
-- Accepted design trade-offs are recorded as ADRs in
-  [design decisions](docs/explanation/decisions.md). Example:
-  [ADR-0022](docs/explanation/decisions.md#adr-0022) for finding R-23.
-- The [Aeneas proofs](verification/aeneas/README.md) cite the finding IDs that
-  their theorems cover.
+[audits/README.md](audits/README.md) lists each finding and its status. Fix
+commits cite the finding ID, and the
+[Aeneas proofs](verification/aeneas/README.md) cite the findings that their
+theorems cover.
 
 An audit covers the commit in its scope. Compare that commit with the release
 that you use.
