@@ -95,7 +95,8 @@ Read [CONTRIBUTING.md](CONTRIBUTING.md) before you open a pull request.
 ## Security and license
 
 Report vulnerabilities through [SECURITY.md](SECURITY.md). Do not open a public
-issue.
+issue. Rewards are paid through the
+[XOXNO bug bounty on Immunefi](https://immunefi.com/bug-bounty/xoxno/information/).
 
 Licensed under [PolyForm Noncommercial 1.0.0](LICENSE). Commercial use requires
 a written agreement with XOXNO.

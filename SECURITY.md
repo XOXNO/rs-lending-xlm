@@ -9,8 +9,12 @@ putting users at risk.
 Do not open a public issue, pull request, discussion, or social-media post for
 a suspected vulnerability.
 
-Email [security@xoxno.com](mailto:security@xoxno.com). Encrypt sensitive
-details with our PGP key: `<PGP fingerprint>`.
+Use one of these channels:
+
+- To claim a bounty, submit the report through the
+  [XOXNO bug bounty on Immunefi](https://immunefi.com/bug-bounty/xoxno/information/).
+- For other reports, email [security@xoxno.com](mailto:security@xoxno.com).
+  Encrypt sensitive details with our PGP key: `<PGP fingerprint>`.
 
 A useful report includes:
 
@@ -38,8 +42,12 @@ We may credit reporters in release notes with their consent.
 
 ## Bug bounty
 
-`<Bounty terms: platform, reward range by severity, or "This project has no
-bug bounty program.">`
+XOXNO runs a bug bounty on Immunefi:
+[immunefi.com/bug-bounty/xoxno](https://immunefi.com/bug-bounty/xoxno/information/).
+
+The program page sets the assets in scope, the reward for each severity and
+the submission rules. If this policy and the program page differ on a bounty
+question, the program page applies.
 
 ## Scope
 
