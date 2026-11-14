@@ -2,23 +2,83 @@
 
 [![CI](https://img.shields.io/github/actions/workflow/status/XOXNO/rs-lending-xlm/tests.yml?label=CI&style=flat-square)](https://github.com/XOXNO/rs-lending-xlm/actions/workflows/tests.yml)
 
-XOXNO Lending is a collateralized lending protocol on Stellar Soroban.
-Suppliers earn interest on the liquidity that borrowers use. Borrowers hold
-debt against collateral. A controller enforces account risk, and one pool
-holds every token.
+**A modular money market on Stellar.** Deposit once, and every spoke built on
+top can borrow it. New assets plug into existing liquidity from day one, with
+risk capped and isolated per spoke.
+
+Live on Stellar mainnet · [xoxno.com](https://xoxno.com) ·
+[contact@xoxno.com](mailto:contact@xoxno.com)
+
+## Why
+
+On Stellar today, a new asset gets a new lending pool that starts empty. Its
+holders cannot borrow from the liquidity that already sits in USDC or XLM
+pools. XOXNO Lending separates where liquidity sits from where risk is taken:
+
+- **Deposit once.** Suppliers lend into one book per asset and earn interest
+  from every spoke that borrows it.
+- **Isolated risk.** Each spoke has its own collateral factors, borrow caps
+  and halt flags. A problem in one spoke stays inside its caps.
+- **Launch faster.** A new asset needs a listing, not a new pool. It borrows
+  existing depth from the first block.
+
+## How it works
+
+```mermaid
+flowchart LR
+  subgraph S["Spokes: isolated risk profiles"]
+    BC["Blue Chip<br/>XLM · BTC"]
+    EF["Etherfuse RWA<br/>CETES · USTRY"]
+    CM["Commodities<br/>XAUm"]
+    AC["AMM Collateral<br/>Aquarius LP"]
+  end
+  subgraph H["Hubs: where liquidity sits"]
+    Core["Core<br/>USDC · EURC · PYUSD · USDT0 · XLM · SolvBTC"]
+    RWA["RWA<br/>CETES · USTRY · USDY · XAUm"]
+    AMM["AMM<br/>AQUA · Aquarius LP shares"]
+  end
+  BC -- borrows --> Core
+  EF -- borrows --> Core
+  CM -- borrows --> Core
+  AC -- borrows --> Core
+  EF -. collateral .-> RWA
+  CM -. collateral .-> RWA
+  AC -. collateral .-> AMM
+```
+
+- A **hub** holds liquidity: one book per asset, with its own interest rate.
+- A **spoke** is a risk profile. It lists hub assets as collateral or debt,
+  each with its own LTV, liquidation threshold and caps.
+- Example: a spoke for tokenized equities could accept TSLA at 60% LTV and cap
+  USDC borrowing at $10M of a $100M Core book. That cap limits what Core
+  lenders have at risk in the spoke.
+
+Users call the **controller**. It checks account risk, reads prices from the
+**price aggregator**, and moves tokens in the **pool**, which holds every
+token. Each account is a **position NFT**. **Governance** owns the protocol
+behind a timelock. Mainnet runs [three hubs and eight spokes](skills/xoxno-lending/addresses.md).
 
 ## Features
 
-| Feature | Summary |
+| Feature | What you get |
 |---|---|
-| Hubs and spokes | A hub groups markets that share one book per asset. A spoke lists hub assets with its own risk parameters, caps and halt flags. |
-| Accounts as NFTs | Each account is a position NFT. Owners can add delegates. |
-| Account strategies | `multiply`, `swap_debt`, `swap_collateral`, `repay_debt_with_collateral`, `flash_position` and `migrate_from_blend` run in one transaction, through the swap aggregator. |
-| Flash loans | `flash_loan` lends pool cash to a receiver contract for one call. |
-| Composable prices | The price aggregator combines Chainlink, RedStone, Reflector and XOXNO feeds. It also prices Aquarius and Curve LP shares. Dual-source keys must agree within a tolerance. |
-| Liquidation and bad debt | Liquidation pays a bonus from a curve. Bad debt reduces the supply index of the affected market. |
-| Governance | Typed proposals run after a tiered timelock. A guardian can only reduce risk: pause, tighten flags, or suspend a registrar. |
-| Delegated curation | Registrars run their own hubs and spokes through the curator contract, under the same timelock. |
+| One-transaction strategies | Leverage (`multiply`), debt and collateral swaps, repay with collateral, and migration from Blend, each in a single transaction |
+| Flash loans | Borrow pool cash for one call; repay with a fee in the same call |
+| Composable prices | Chainlink, RedStone, Reflector and XOXNO feeds, plus Aquarius and Curve LP pricing; dual-source prices must agree |
+| Liquidations | A bonus curve pays liquidators; bad debt is shared only by the lenders of the affected hub asset |
+| Safe governance | Typed proposals behind a tiered timelock; a guardian can only reduce risk |
+| Delegated curation | Partners can run their own hubs and spokes through the curator contract |
+| Formal verification | Certora rules and Lean proofs check the core math, accounting and liquidation logic |
+
+## Work with us
+
+| You are | You can |
+|---|---|
+| An asset issuer | List your RWA as collateral in a spoke |
+| An institution | Run your own hub or spoke |
+| A wallet | Add an "Earn" feature on top of the hubs |
+| A liquidity provider | Supply to a hub and earn from every spoke |
+| A developer | Integrate with the [skills](skills/README.md), SDK and [endpoint reference](docs/reference/endpoints.md) |
 
 ## Audits
 
