@@ -7,8 +7,8 @@ argument-hint: "[what the contract must do on XOXNO Lending]"
 
 # XOXNO Lending from Soroban contracts
 
-Use this skill when the controller caller is another contract. Start with the
-protocol model, units, and deployed addresses in
+For a contract that calls the controller. Protocol model, units, and
+addresses:
 [`../xoxno-lending/SKILL.md`](../xoxno-lending/SKILL.md).
 
 ## Choose a task
@@ -20,16 +20,16 @@ protocol model, units, and deployed addresses in
   [composing.md](composing.md)
 - Tests on the embedded protocol WASM with `LendingFixture`:
   [testing.md](testing.md)
-- Interface locations and integration-specific ABI interpretation: [abi.md](abi.md)
-- Canonical error names, codes, and remedies:
-  [`../../docs/reference/errors.md`](../../docs/reference/errors.md)
+- Interface locations and ABI interpretation: [abi.md](abi.md)
+- Error names, codes, and remedies:
+  [`docs/reference/errors.md`](https://github.com/XOXNO/rs-lending-xlm/blob/main/docs/reference/errors.md)
 - Route payload construction:
   [`../xoxno-swap-aggregator/composition.md`](../xoxno-swap-aggregator/composition.md)
 
 ## Dependencies
 
-Use `xoxno-contract-sdk` from crates.io. The crate uses the MIT license and
-`soroban-sdk` 28. It embeds protocol release WASM:
+`xoxno-contract-sdk` (crates.io, MIT, `soroban-sdk` 28) embeds protocol
+release WASM:
 
 ```toml
 [dependencies]
@@ -41,52 +41,51 @@ soroban-sdk = { version = "28", features = ["testutils"] }
 xoxno-contract-sdk = { version = "0.2", features = ["testutils"] }
 ```
 
-Verified crate `0.2.0` embeds protocol `v1.1.0` at commit `1053ae033`.
-Use a crate whose embedded release matches the deployment you call. The
-compatibility table is in the crate README. Build the contract with
-`stellar contract build`; `soroban-sdk` 28 needs stellar-cli 25.2 or newer.
+Verified crate `0.2.0` embeds protocol `v1.1.0`, commit `1053ae033`. Match
+the embedded release to the target deployment (compatibility table in the
+crate README). Build with `stellar contract build`; `soroban-sdk` 28 needs
+stellar-cli 25.2+.
 
 The crate contains:
 
-- `XoxnoLending`: a wrapper in which the current contract is the caller, the
-  payer, and the receiver. Its `open_account`, `deposit`, `supply`, `repay`,
-  and `liquidate` create the nested token-transfer authorization.
+- `XoxnoLending`: wrapper; the current contract is caller, payer, and
+  receiver. Its `open_account`, `deposit`, `supply`, `repay`, and `liquidate`
+  create the nested token-transfer authorization.
 - Generated clients and types in `xoxno_contract_sdk::lending::{controller,
-  pool, position_nft, price_aggregator}`. `lending::ControllerClient` is the
+  pool, position_nft, price_aggregator}`; `lending::ControllerClient` is the
   controller client. Arguments pass by reference.
 - `lending::helpers::authorize_transfer_as_current(env, token, from, to,
-  amount)` for a generated-client call that pulls tokens.
-- The flash callback traits `FlashLoanReceiver` and `FlashPositionReceiver`,
-  and `lending::helpers::approve_flash_repayment`.
-- `lending::constants`, and the test fixture `testutils::LendingFixture`.
+  amount)`, for token-pulling generated-client calls.
+- Flash callback traits `FlashLoanReceiver`, `FlashPositionReceiver`, and
+  `lending::helpers::approve_flash_repayment`.
+- `lending::constants`; test fixture `testutils::LendingFixture`.
 
-Each generated module has its own copy of the shared types, and the copies do
-not convert into each other. When you call the controller, use the
-`lending::controller` types, for example `controller::HubAssetKey` and
-`controller::PositionMode`.
+Each generated module has its own non-convertible copy of the shared types;
+controller calls use `lending::controller` types such as
+`controller::HubAssetKey` and `controller::PositionMode`. Never duplicate a
+`#[contracttype]` locally; it can drift.
 
-The generated clients hold only the functions an integrator calls: the
-controller user, keeper, and view functions, and read-only views of the pool,
-the NFT, and the price aggregator. The crate has no swap router client; see
+Clients cover only integrator functions: controller user, keeper, and view
+functions, plus read-only pool, NFT, and price-aggregator views. No swap
+router client; see
 [`../xoxno-swap-aggregator/payload.md`](../xoxno-swap-aggregator/payload.md).
-The source signatures are the traits under
-[`../../interfaces/`](../../interfaces/), especially
-[`ControllerInterface`](../../interfaces/controller/src/lib.rs).
+Source signatures: the traits under
+[`interfaces/`](https://github.com/XOXNO/rs-lending-xlm/tree/main/interfaces/), especially
+[`ControllerInterface`](https://github.com/XOXNO/rs-lending-xlm/blob/main/interfaces/controller/src/lib.rs).
 
-Resolve the controller and position NFT addresses from
-[`../xoxno-lending/addresses.md`](../xoxno-lending/addresses.md) and pass them,
-or a `LendingAddresses` value, to the constructor. Resolve the pool with
-`get_pool_address()`, or check a passed pool against it, and store the three
-as `LendingAddresses`. Do not embed a deployment address in Wasm. Build
-the wrapper with `XoxnoLending::new` from the stored addresses, not with
-`XoxnoLending::mainnet` or `XoxnoLending::testnet`: these compile the crate's
-address constants into your contract.
+Pass controller and position NFT addresses from
+[`../xoxno-lending/addresses.md`](../xoxno-lending/addresses.md), or a
+`LendingAddresses`, to your constructor. Resolve the pool with
+`get_pool_address()` (or check a passed one against it) and store all three as
+`LendingAddresses`. Never embed a deployment address in Wasm: build the wrapper
+with `XoxnoLending::new` from stored addresses, not `XoxnoLending::mainnet` or
+`XoxnoLending::testnet`, which compile in the crate's address constants.
 
 ## Storage TTL
 
-Your contract owns its instance and its persistent keys, and it renews them
-with its own constants. A ledger closes about every 5 seconds, so one day is
-86,400 / 5 = 17,280 ledgers. The protocol uses these values for its instance and account entries:
+Your contract renews its own instance and persistent keys. At ~5 s per
+ledger, one day is 17,280 ledgers. Protocol values for its instance and
+account entries:
 
 | Setting | Days | Ledgers |
 | --- | --- | --- |
@@ -102,39 +101,33 @@ const POINTER_TTL_THRESHOLD: u32 = 30 * DAY_IN_LEDGERS;
 const POINTER_TTL_EXTEND_TO: u32 = 120 * DAY_IN_LEDGERS;
 ```
 
-`extend_ttl` does nothing while the remaining TTL is above the threshold. The
-threshold must not be larger than the extend-to value. The host clamps an
-instance or persistent extension to the network maximum entry TTL.
+`extend_ttl` is a no-op while remaining TTL exceeds the threshold; threshold
+must not exceed extend-to; the host clamps to the network maximum entry TTL.
 
 ## Contract caller rules
 
 1. Pass `env.current_contract_address()` as `caller`. Direct invoker auth
    satisfies `caller.require_auth()`.
-2. Before `supply`, `repay`, `liquidate`, or `recapitalize`, authorize the
-   exact nested token transfer from your contract to the pool. The wrapper's
-   `open_account`, `deposit`, `supply`, `repay`, and `liquidate` do this. For
-   a generated-client call, including `recapitalize`, call
-   `authorize_transfer_as_current`.
-3. Complete all contract reads before you create the authorization.
-   Make the controller operation your next contract call.
-4. `multiply` initial payment is the exception: authorize a transfer to the
-   controller, not the pool.
-5. Renew your contract instance in every public entrypoint and callback with
+2. Before a token pull, authorize the exact nested transfer from
+   [composing.md](composing.md#token-pull-ordering): to the pool for
+   `supply`, `repay`, `liquidate`, `recapitalize`; to the controller for a
+   `multiply` initial payment. Wrapper verbs do this; generated-client calls,
+   including `recapitalize`, use `authorize_transfer_as_current`.
+3. Finish all contract reads before creating the authorization; the
+   controller operation is your next contract call.
+4. Renew your instance in every public entrypoint and callback:
    `env.storage().instance().extend_ttl(INSTANCE_TTL_THRESHOLD,
    INSTANCE_TTL_EXTEND_TO)`.
-6. Persist account IDs in local persistent storage and renew those keys on
-   every successful use. `renew_account` renews controller/NFT state; it does
-   not renew storage owned by the caller contract.
-7. A public entrypoint that spends your contract's own balance or borrowing
-   power (supply, repay, borrow, withdraw, or a token transfer out) must
-   authorize against an address your contract stored, never one the caller
-   passes. Take your own account ID from your storage, and send tokens only
-   to a stored address or back to the address whose tokens you pulled.
+5. Persist account IDs locally and renew those keys on every successful use;
+   `renew_account` renews controller/NFT state, not your storage.
+6. An entrypoint spending your contract's balance or borrowing power (supply,
+   repay, borrow, withdraw, token transfer out) authorizes a stored address,
+   never a caller-passed one, takes the account ID from storage, and sends
+   tokens only to a stored address or back to whoever supplied them.
 
-The complete local pointer renew/reconcile pattern is in
-[positions.md](positions.md#canonical-local-account-pointer). Production code
-using the same pattern is
-[`contracts/defindex-strategy/src/lib.rs`](../../contracts/defindex-strategy/src/lib.rs).
+Pointer pattern: [positions.md](positions.md#canonical-local-account-pointer);
+production use:
+[`contracts/defindex-strategy/src/lib.rs`](https://github.com/XOXNO/rs-lending-xlm/blob/main/contracts/defindex-strategy/src/lib.rs).
 
 ## Minimal call shape
 
@@ -184,36 +177,29 @@ With the wrapper, the part after `admin.require_auth()` becomes:
     account_id
 ```
 
-The resolve and store helpers are in
-[positions.md](positions.md#canonical-local-account-pointer). The resolve
-read comes before the authorization, and the controller verb is the next
-cross-contract call.
+Resolve and store helpers:
+[positions.md](positions.md#canonical-local-account-pointer). The resolve read
+precedes the authorization; the controller verb is the next cross-contract
+call.
 
-`deposit` with account ID `0` opens a new account in `spoke_id`. With an
-existing ID, `spoke_id` must be the account's spoke. `supply(account_id,
-market, amount)` reads the spoke first, and `open_account(spoke_id, market,
-amount)` always opens a new account.
+`deposit` with ID `0` opens an account in `spoke_id`; with an existing ID,
+`spoke_id` must match the account's. `supply(account_id, market, amount)`
+reads the spoke first; `open_account(spoke_id, market, amount)` always opens
+a new account.
 
 ## Completion checks
 
-Before submission, require successful simulation of the exact transaction,
-including its auth tree and footprint. Simulation is feasibility evidence, not
-completion.
+Before submission, the exact transaction (auth tree, footprint) must simulate
+successfully; that shows feasibility only. Completion is confirmed `SUCCESS`
+plus:
 
-Completion requires confirmed transaction `SUCCESS` plus the applicable
-operation-specific return and state checks:
-
-- account-creating call: local pointer was stored and its TTL extended;
-  `account_exists(id)` is true
-- account reuse: NFT `owner_of(u32::try_from(id))` is the expected owner and
+- account creation: pointer stored, TTL extended; `account_exists(id)` true
+- account reuse: `owner_of(u32::try_from(id))` is the expected owner;
   `get_account_attributes(id)` has the expected mode and spoke
-- token-pulling or strategy call: returned amounts/IDs and resulting balances
-  or positions match the requested branch
-- full exit: reconcile `account_exists`; clear the local pointer only on an
-  explicit `false`, or, on the wrapper path, on `Withdrawal::account_closed`
-- flash callback: pool/controller settlement succeeds after the callback
-  (allowance was pulled for a cash flash loan, or declared collateral was
-  measured and deposited for a flash position)
+- token pull or strategy: returned amounts/IDs and resulting balances or
+  positions match the requested branch
+- full exit: reconcile `account_exists`; clear the pointer only on explicit
+  `false` or, via the wrapper, `Withdrawal::account_closed`
+- flash callback: [settlement](flash-loans.md#settlement-completion) succeeds
 
-Do not infer successful completion from a callback return, a submitted
-transaction hash, or a zero balance alone.
+A callback return, submitted hash, or zero balance alone proves nothing.

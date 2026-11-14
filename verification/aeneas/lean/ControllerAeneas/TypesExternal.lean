@@ -12,7 +12,7 @@
 -- * `Address` is an opaque host handle; the verified code copies and compares it.
 -- * `soroban_sdk::Map<K, V>` is an association list of (key, value) pairs in
 --   iteration order. What the proofs rely on is listed in `FunsExternal.lean`
---   (Map section) and in `docs/controller.md` ("Map model").
+--   (Map section) and in `docs/extraction.md` ("Map model").
 module
 public import Aeneas
 @[expose] public section

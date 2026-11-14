@@ -4,7 +4,7 @@
 INV-ACCT-01.
 
 `global_sync` is reached through the `NonZeroU64` models in
-`FunsExternal.lean` and the `postextract.sh` field renaming (docs/pool.md).
+`FunsExternal.lean` and the `postextract.sh` field renaming (docs/extraction.md).
 -/
 import PoolAeneas.Proofs.Accrual
 

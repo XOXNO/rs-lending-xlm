@@ -1,33 +1,38 @@
 # Aeneas + Lean proofs of the lending arithmetic
 
 Machine-checked proofs about the production Rust in `common/`,
-`contracts/pool/` and `contracts/controller/`: the fixed-point math, the rate
-curve and indexes, the pool's accounting, the liquidation math and the LP
-oracle pricing.
+`contracts/pool/` and `contracts/controller/`: fixed-point math, rate curve
+and indexes, pool accounting, liquidation math and LP oracle pricing.
 
 [Charon](https://github.com/AeneasVerif/charon) and
-[Aeneas](https://github.com/AeneasVerif/aeneas) translate the Rust into Lean 4.
-Each theorem is stated about that translation and checked by Lean. It holds
-for every input the code can receive: there is no bound on the values, only
-the hypotheses written in its statement.
+[Aeneas](https://github.com/AeneasVerif/aeneas) translate the Rust into Lean 4;
+each theorem is about that translation, checked by Lean, and holds for every
+input allowed by the hypotheses in its statement.
 
-* **Size:** 1031 theorems in five Lean libraries.
-* **Last full check:** `main` at `8d884f3c`, all passing.
+* **Size:** five Lean libraries. To count the theorems, run from this
+  directory:
+
+  ```sh
+  grep -rhE '^\s*(@\[[^]]*\]\s*)?(private |protected )?theorem ' --include='*.lean' \
+    lean/FixedPoint lean/RatesAeneas lean/PoolAeneas lean/ControllerAeneas lean/OracleAeneas | wc -l
+  ```
+
 * **Hidden assumptions:** none. No `sorry`, `admit` or added axiom, and the
   build enforces it.
-* **Run it:** `./run.sh`, about one minute. It is not in CI yet, so run it
-  after any change to the covered code.
+* **Run it:** `./run.sh` (see [Running](#running)). No CI workflow runs it.
+  Run it after any change to the covered code.
 
 The area documents below list every theorem with its Rust function,
 hypotheses and invariant IDs. To add or repair a proof, read
-[WRITING-PROOFS.md](WRITING-PROOFS.md).
+[WRITING-PROOFS.md](WRITING-PROOFS.md). The controller and pool extraction
+crates, models and Aeneas workarounds are in
+[docs/extraction.md](docs/extraction.md).
 
 ## What is proved
 
-A theorem `f args ⦃ r => P r ⦄` says that the call returns (it does not
-panic) and that its result satisfies `P`, under the hypotheses of the
-statement. "Never aborts" means "returns for every input in the stated
-domain".
+A theorem `f args ⦃ r => P r ⦄` says that, under its hypotheses, the call
+returns (does not panic) and its result satisfies `P`. "Never aborts" means
+"returns for every input in the stated domain".
 
 **Fixed-point math and share conversions** (`RatesAeneas`,
 [details](docs/rates-floor-ceil.md))
@@ -67,15 +72,15 @@ domain".
 [seizure](docs/controller-seizure.md),
 [repayment](docs/controller-repayment.md))
 
-* Valuations and account risk totals are conservative: collateral is rounded
+* Valuations and account risk totals are conservative. Collateral is rounded
   down and debt is rounded up (INV-RISK-02).
-* `estimate_liquidation_amount` never aborts in the production domain, never
-  repays more than the debt, leaves no dust, and reaches the target health
-  factor within 5.5·10⁻¹⁸ USD.
+* `estimate_liquidation_amount` never aborts in the production domain. It
+  never repays more than the debt and leaves no dust. It reaches the target
+  health factor within 5.5·10⁻¹⁸ USD.
 * A repayment plan conserves tokens: kept plus refunded equals offered.
 * A seizure takes at most what is held. After the executed plan, the health
-  factor is at least what it was before and at least the curve target, up to
-  a stated rounding allowance.
+  factor is at least what it was before. It is also at least the curve
+  target, up to a stated rounding allowance.
 
 **LP oracle pricing** (`OracleAeneas`, [details](docs/oracle.md))
 
@@ -84,9 +89,9 @@ domain".
 * The StableSwap solver never traps. Its result `D` satisfies
   `D*−1 < D ≤ D*+5`, where `D*` is the exact root.
 
-The fifth library, `FixedPoint`, defines the rounding specifications the
-others share. Some math proofs exist once per library, because each library
-has its own translation of `common`; `sync_copies.py` generates those copies.
+The fifth library, `FixedPoint`, defines the shared rounding specifications.
+Each library has its own translation of `common`, so some math proofs exist
+once per library; `sync_copies.py` generates those copies.
 
 ## Trusted base
 
@@ -96,20 +101,23 @@ The proofs are as strong as four assumptions.
    `nightly-2026.11.12-0d21a9e`, with its bundled Charon (commit `454586e`)
    and its Lean library at the same commit (`lean/lakefile.lean`).
 2. **The hand-written models are right.** Each library's
-   `TypesExternal.lean` and `FunsExternal.lean` describe what the tools
-   cannot translate: the Soroban host's `I256` and `U256` as integers that
-   trap as the host does, a few Rust core functions, `Vec` as a list, and
-   stored state, ledger time, prices and external calls as opaque values.
-   Each area document lists its models.
+   `TypesExternal.lean` and `FunsExternal.lean` model what the tools cannot
+   translate: the host's `I256` and `U256` as integers that trap as the host
+   does, a few Rust core functions, `Vec` as a list, and stored state, ledger
+   time, prices and external calls as opaque values. Each area document lists
+   its models; the controller and pool models are in
+   [docs/extraction.md](docs/extraction.md).
 3. **A panic is an abort.** The proofs do not check which error code an
    abort carries.
 4. **Integer overflow aborts.** This holds while the root `Cargo.toml` keeps
    `overflow-checks = true` under `[profile.release]`.
 
 The build checks two more things instead of trusting them.
-`#assert_standard_axioms` (`lean/Audit.lean`) fails on any `sorry` or
-non-standard axiom. `check_standins.py` fails if a hand-copied piece of
-production code differs from the original; all other production code is
+`#assert_standard_axioms` (`lean/Audit.lean`), at the end of each library,
+fails unless every declaration depends only on `propext`,
+`Classical.choice` and `Quot.sound`, so on any `sorry`, `admit` or added
+axiom. `check_standins.py` fails if a hand-copied piece of
+production code differs from the original. All other production code is
 compiled verbatim through `#[path]` includes.
 
 ## Not covered
@@ -123,7 +131,6 @@ compiled verbatim through `#[path]` includes.
 * The flash loan before `finalize`.
 * That the StableSwap loop stops before its 255-round cap. If it did not, it
   would return `InvalidPrice`, which is covered.
-* CI: no workflow runs `run.sh`.
 
 Each area document lists its own gaps.
 
@@ -133,8 +140,8 @@ None is exploitable. The area documents have the details and the examples.
 
 | Finding | Status |
 |---|---|
-| The borrow rate could fall across a breakpoint of the curve | Fixed by #225 (`calculate_annual_borrow_rate_monotone`) |
-| The deposit rate could exceed the borrow rate after bad debt | Fixed with audit finding S-03, #228 (`utilization_spec`) |
+| The borrow rate could fall across a breakpoint of the curve | Fixed. Monotonicity is proved (`calculate_annual_borrow_rate_monotone`) |
+| The deposit rate could exceed the borrow rate after bad debt | Fixed with audit finding S-03. Utilization is proved to stay in `[0, RAY]` (`utilization_spec`) |
 | The Certora `withdraw_summary` is false for a zero-amount withdrawal of dust | Open, in the spec (`withdraw_zero_amount_closes_dust`) |
 | Two Certora estimate rules never reach the liquidation curve | Open, in the spec (`certora_estimate_rules`) |
 | The seizure budget rounds half up, not in the protocol's favour | Known; under 10⁻¹⁸ USD per rounding step |
@@ -149,15 +156,15 @@ export AENEAS_HOME=/path/to/unpacked/aeneas-release
 ./run.sh pool oracle     # selected areas: rates, pool, controller, oracle
 ```
 
-`run.sh` stops at the first of these failures:
+`run.sh` stops at the first failure:
 
 1. A hand-copied stand-in differs from production, a generated proof copy is
    out of date, or the release profile no longer traps on overflow.
-2. The crates are translated again and the result differs from the committed
-   `Funs.lean` or `Types.lean`: the production code changed. A change that
-   only moves lines counts too, because the generated Lean records source
-   positions. `run.sh` leaves the new translation in place; review it, repair
-   any proof and commit. `ALLOW_DRIFT=1` continues anyway.
+2. The re-translation differs from the committed `Funs.lean` or
+   `Types.lean`: production code changed (moved lines count, since the
+   generated Lean records source positions). `run.sh` leaves the new
+   translation in place; review it, repair any proof and commit.
+   `ALLOW_DRIFT=1` continues anyway.
 3. A proof breaks, or a declaration depends on `sorry` or a non-standard
    axiom.
 
@@ -174,5 +181,5 @@ does not scan them.
 * Lean: [elan](https://github.com/leanprover/elan). `lean/lean-toolchain`
   pins `v4.36.0-rc2`.
 
-The first run downloads about 2 GB (Lean and the prebuilt Mathlib) and takes
-about 10 minutes. Later runs take about a minute.
+The first run downloads about 2 GB (Lean, prebuilt Mathlib) and takes about
+10 minutes; later runs take about a minute.

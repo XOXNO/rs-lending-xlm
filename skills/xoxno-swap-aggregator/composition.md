@@ -1,26 +1,24 @@
 # Composing aggregator routes into lending strategies and your own contract
 
-One quote yields one `routeXdr`. Where it ends up decides how you quote. Wire format in
-[payload.md](payload.md); request and response fields in [api.md](api.md); contract and
-router addresses (`controller`, `pool`, `aggregator` in `configs/networks.json`) in
-[../xoxno-lending/addresses.md](../xoxno-lending/addresses.md).
+One quote yields one `routeXdr`; where it ends up decides how you quote. Wire
+format: [payload.md](payload.md); fields: [api.md](api.md); `controller`,
+`pool`, and `aggregator` addresses: [addresses](../xoxno-lending/addresses.md).
 
-Sources: `arb-algo/scripts/check-stellar-{lending,lp}-composition.ts`,
-`rs-lending-xlm/contracts/controller/src/strategies/{swap,legs,multiply,swap_debt,swap_collateral,repay_debt_with_collateral}.rs`,
+Sources: `rs-lending-xlm/contracts/controller/src/strategies/{swap,legs,multiply,swap_debt,swap_collateral,repay_debt_with_collateral}.rs`,
 `contracts/swap-aggregator/src/{execute/mod,program}.rs`, `common/src/token.rs`,
-`sdk-js/src/sdk/stellar/{lending,scval-encode,swap,repay-swap,quote,prepare}.ts` (1.0.228).
+and the strategy builders in the [pinned SDK](../xoxno-lending/SKILL.md#verified-against).
 
 ## Standalone or composed
 
 | | Standalone swap | Composed (controller verb or your contract) |
 |---|---|---|
 | Who calls `execute_strategy` | The user's account (`sender = G…`) | The controller (`sender = controller`) or your contract (`sender = your contract`) |
-| Quote request | `slippage`; omit `sender` when building locally | `slippage`, **no `sender`** |
+| Quote request | `slippage`; no `sender` when building locally | `slippage`, **no `sender`** |
 | What you take from the response | Checked `routeXdr` | `routeXdr` only |
-| `amountIn` you quote | What the user pays | What the calling contract will hand the router (table below) |
-| Who simulates | Prepare the complete locally built transaction | **You**, on the composed transaction; the server never sees it |
+| `amountIn` you quote | User's payment | What the calling contract hands the router (table below) |
+| Who simulates | You, preparing the locally built transaction | **You**, on the composed transaction (server never sees it) |
 | Auth | See [payload.md#authorization-model](payload.md#authorization-model) | Same |
-| Min-out enforcement | Router `SlippageExceeded` | Router `SlippageExceeded`; the controller adds `RouterOverspend` / `NoSwapOutput` but no min-out of its own |
+| Min-out enforcement | Router `SlippageExceeded` | Router `SlippageExceeded`; controller adds `RouterOverspend` / `NoSwapOutput`, no min-out |
 
 ## Quote for composition
 
@@ -49,118 +47,114 @@ export async function quoteForComposition(
 }
 ```
 
-`routeXdr` is present when `slippage` was sent (always for swaps; optional for
-`convertLiquidity`; `pipeline.rs` clears it when `slippage` is absent). Use the checked `steps` returned above. The builders convert the route to
-Soroban `Bytes`. The controller forwards the bytes without decoding them.
-Set `referralId` on the quote request: the server encodes it into `routeXdr`, and the
-builders cannot add it later.
+Pass the checked `steps`; the builders convert the route to Soroban `Bytes`,
+which the controller forwards undecoded. Set `referralId` on the quote
+request: the server encodes it into `routeXdr` and builders cannot add it
+later.
 
 ### Exact-out status
 
-At aggregator commit `54de209a`, reverse quotes preserve the requested output
-as a minimum. Slippage increases the output used to size input.
-Check the encoded floor against the caller's requested output.
-Withdraw the returned `amountIn`.
-
-For `multiply`, subtract the measured debt-asset initial payment before
-grossing up the remaining borrow. For `swap_debt`, gross up the full router
-input. The router has no separate maximum-input parameter.
-These facts are source evidence. Check hosted deployment behavior separately.
+Reverse quotes keep the requested output as the minimum and size input with
+a slippage-raised output ([formula](api.md#get-apiv1quote)). Check the encoded
+floor against the caller's requested output and withdraw the returned
+`amountIn`. For `multiply`, subtract the measured debt-asset initial payment
+before grossing up the remaining borrow; for `swap_debt`, gross up the full
+router input. The router has no maximum-input parameter. This is source
+evidence; check hosted deployment behavior separately.
 
 ## `amountIn` per lending verb
 
-The controller measures what it actually receives and hands exactly that to the router
+The controller hands the router exactly what it measured receiving
 (`swap_tokens(env, refund_to, token_in, amount_in, token_out, swap)` in
-`strategies/swap.rs`). Quote the amount the router will see.
+`strategies/swap.rs`); quote that amount.
 
 | Controller verb (SDK builder) | Router `token_in → token_out` | `amountIn` to quote | Where the amount comes from |
 |---|---|---|---|
-| `multiply` (`buildStellarMultiplyTx`) | `debt.asset → collateral.asset` | `net = debtToFlashLoan − fee` (+ an `initialPayment` made in the debt asset, if any) | `borrow_into_controller(…, charge_fee = true)` returns the measured receipt net of the pool's flash-loan fee; `swap_amount_in = amount_received + debt_extra` (`multiply.rs`) |
-| `multiply` with `initialPayment` in a third asset (`convertSwap`) | `payment.asset → collateral.asset` | Measured payment receipt; it can differ from `initialPayment.amount` | `collect_initial_multiply_payment` swaps the whole received payment |
+| `multiply` (`buildStellarMultiplyTx`) | `debt.asset → collateral.asset` | `net = debtToFlashLoan − fee` (+ any debt-asset `initialPayment`) | `borrow_into_controller(…, charge_fee = true)` returns the receipt net of flash-loan fee; `swap_amount_in = amount_received + debt_extra` (`multiply.rs`) |
+| `multiply` with third-asset `initialPayment` (`convertSwap`) | `payment.asset → collateral.asset` | Measured receipt (can differ from `initialPayment.amount`) | `collect_initial_multiply_payment` swaps the whole receipt |
 | `swap_debt` (`buildStellarSwapDebtTx`) | `newDebt.asset → existingDebt.asset` | `newDebtAmount − fee` | Same flash-fee borrow path (`swap_debt.rs`, `borrow_into_controller`) |
-| `swap_collateral` (`buildStellarSwapCollateralTx`) | `current.asset → newCollateral.asset` | `fromAmount` (measured withdrawal) | `withdraw_and_swap_from_supply` swaps the balance delta of the withdrawal (`legs.rs`) |
-| `repay_debt_with_collateral` (`buildStellarRepayDebtWithCollateralTx`) | `collateral.asset → debt.asset` | `collateralAmount` (measured withdrawal) | Same withdrawal leg; then repays with the measured swap output |
+| `swap_collateral` (`buildStellarSwapCollateralTx`) | `current.asset → newCollateral.asset` | `fromAmount` (measured withdrawal) | `withdraw_and_swap_from_supply` swaps the withdrawal's balance delta (`legs.rs`) |
+| `repay_debt_with_collateral` (`buildStellarRepayDebtWithCollateralTx`) | `collateral.asset → debt.asset` | `collateralAmount` (measured withdrawal) | Same withdrawal leg, then repays with measured output |
 
-`fee = round_half_up(gross × flashloan_fee / 10_000)`, min 1 when the rate is positive
-([../xoxno-lending/math.md#flash-loan-and-strategy-fees](../xoxno-lending/math.md#flash-loan-and-strategy-fees)).
-Read `flashloan_fee` (BPS) from `pool.get_sync_data(HubAssetKey).params`. The strategy fee applies even when `is_flashloanable` is false.
-Helpers `netAfterFlashFee` and `grossForNet`:
-[../xoxno-lending-sdk/strategies.md#sizing-rule-per-verb-what-amountin-must-equal](../xoxno-lending-sdk/strategies.md#sizing-rule-per-verb-what-amountin-must-equal).
+`fee` is the [flash-loan fee](../xoxno-lending/math.md#flash-loan-and-strategy-fees)
+on the gross amount, with `flashloan_fee` (BPS) from
+`pool.get_sync_data(HubAssetKey).params`; it applies even when
+`is_flashloanable` is false. Helpers `netAfterFlashFee` and `grossForNet`:
+[SDK sizing rule](../xoxno-lending-sdk/strategies.md#sizing-rule-per-verb-what-amountin-must-equal).
 
-A withdrawal sized with the withdraw-all sentinel (`i128::MAX`, `WITHDRAW_ALL_SENTINEL`)
-hands the router an amount you cannot know exactly in advance. Quote the current position
-balance. The first hop may use `Mode::All` or `Mode::Ppm` and consume the measured
-withdrawal, but `amountOutMin` stays the **absolute floor encoded for the quoted
-amount**. A smaller actual input can give an output below that floor and revert with
-`SlippageExceeded`. Re-read the position immediately before you build, quote slightly
-less than the balance, or do not use withdraw-all when the amount can change materially.
-Always simulate the complete transaction.
+A withdraw-all sentinel (`i128::MAX`, `WITHDRAW_ALL_SENTINEL`) hands the
+router an amount you cannot know in advance. Quote the current balance. The
+first hop may use `Mode::All` or `Mode::Ppm` to consume the measured
+withdrawal, but `amountOutMin` stays the **absolute floor for the quoted
+amount**, so a smaller actual input can revert with `SlippageExceeded`.
+Re-read the position immediately before building, quote slightly less than
+the balance, or avoid withdraw-all when the amount can change materially.
 
 `accountNonce`, `mode`, `initialPayment` and `convertSwap` rules:
 [../xoxno-lending-sdk/strategies.md#mode-initialpayment-convertswap](../xoxno-lending-sdk/strategies.md#mode-initialpayment-convertswap).
 
 ## Same market: empty bytes, not a placeholder
 
-`repay_debt_with_collateral` with `collateral == debt` (same `hub_id` and `asset`) nets
-supply against debt in the pool without any token movement and asserts
-`swap.is_empty()`; any bytes revert `GenericError::InvalidPayments` (16). The
-pass-through in `swap_tokens_or_passthrough` applies the same rule to every strategy
-whose input and output asset coincide (for example `swap_collateral` between two hubs
-of the same asset). Pass `buildSameTokenRepaySwapSteps()` or `new Uint8Array(0)` as
-`steps`; the builder maps an empty `Uint8Array` to empty `Bytes`. A
-non-empty route into a same-token swap would also fail inside the router with
-`SameToken` (25). Do not quote at all in this case.
+`repay_debt_with_collateral` with `collateral == debt` (same `hub_id` and
+`asset`) nets supply against debt in the pool without token movement and
+asserts `swap.is_empty()`; any bytes revert `GenericError::InvalidPayments`
+(16). `swap_tokens_or_passthrough` applies the same rule to every strategy
+whose input and output asset coincide (for example `swap_collateral` between
+two hubs of the same asset). Do not quote: pass
+`buildSameTokenRepaySwapSteps()` or `new Uint8Array(0)` as `steps` (mapped to
+empty `Bytes`). A non-empty same-token route would also fail in the router
+with `SameToken` (25).
 
 ## Builder walkthroughs
 
 - Repay debt with collateral (same-token aware, exact-out variant):
   [../xoxno-lending-sdk/strategies.md#complete-example-repay-usdc-debt-with-xlm-collateral-same-token-aware](../xoxno-lending-sdk/strategies.md#complete-example-repay-usdc-debt-with-xlm-collateral-same-token-aware)
 - Multiply quoted net of the flash-loan fee, built with the gross amount:
-  [../xoxno-lending-sdk/strategies.md#complete-example-3-long-on-xlm-funded-by-usdc-debt](../xoxno-lending-sdk/strategies.md#complete-example-3-long-on-xlm-funded-by-usdc-debt)
+  [the SDK Multiply example](../xoxno-lending-sdk/strategies.md#complete-example-3-xlm-in-multiply-mode-funded-by-usdc-debt)
 
 ## Budget: why `maxSplits: 1`, `maxHops: 2`
 
-The server's budget ladder (`build_attempt_ladder`) runs only when the server simulates,
-and simulation requires `sender`. The server never budget-checks a composed quote. The
-controller verb adds pool calls, oracle reads and account updates around the swap. For
-composition, keep `maxSplits` at 1 and `maxHops` at 2 (`STELLAR_LENDING_QUOTE_MAX_HOPS`
-/ `_MAX_SPLITS` in `xoxno-ui/src/modules/swap/soroswap.ts`); a 4-hop `swap_collateral`
-hit `Budget, ExceededLimit` on testnet. If your own simulation fails with
-`Budget, ExceededLimit`, re-quote with smaller limits. Request and program caps:
-[api.md#get-apiv1quote](api.md#get-apiv1quote), [payload.md](payload.md#packed-program-ops--version-1).
+The server's budget ladder (`build_attempt_ladder`) runs only when it
+simulates, which requires `sender`, so it never budget-checks a composed
+quote. The controller verb adds pool calls, oracle reads and account updates
+around the swap. Keep `maxSplits` at 1 and `maxHops` at 2
+(`STELLAR_LENDING_QUOTE_MAX_HOPS` / `_MAX_SPLITS` in
+`xoxno-ui/src/modules/swap/soroswap.ts`); a 4-hop `swap_collateral` hit
+`Budget, ExceededLimit` on testnet. Re-quote with smaller limits when your
+simulation fails that way. Caps: [api.md](api.md#get-apiv1quote),
+[payload.md](payload.md#packed-program-ops--version-1).
 
 ## Re-simulate, then read the revert
 
-Always run `prepareStellarBuiltTx` / `server.simulateTransaction` on the composed
-transaction at the ledger you sign at. `prepareStellarBuiltTx(..., { invokedContractId })`
-labels the top-level invocation with `[xoxno-invoked:<contract>]`. That label
-does not identify a nested error emitter. Pair a code and contract address
-from the same diagnostic and trace propagated errors before mapping a code. Router failures, including `BrokenTokenChain`, are
-centralized in [payload.md#router-errors](payload.md#router-errors). Controller-only
-guards are `RouterOverspend` (501), `NoSwapOutput` (502), `InvalidPayments` (16), and
-`FlashLoanOngoing` (400); `Budget, ExceededLimit` is a host budget failure. Re-quote on
-`SlippageExceeded`, reduce route limits on a budget failure, and report repeated
-overspend/no-output failures.
+Always run `prepareStellarBuiltTx` / `server.simulateTransaction` on the
+composed transaction at the ledger you sign at. The
+`[xoxno-invoked:<contract>]` label from `prepareStellarBuiltTx(..., { invokedContractId })`
+marks only the top-level invocation, not a nested error emitter: pair code and
+contract address from the same diagnostic and trace propagated errors before
+mapping. Router failures, including `BrokenTokenChain`:
+[payload.md#router-errors](payload.md#router-errors). Controller-only guards
+are `RouterOverspend` (501), `NoSwapOutput` (502), `InvalidPayments` (16), and
+`FlashLoanOngoing` (400); `Budget, ExceededLimit` is a host budget failure.
+Re-quote on `SlippageExceeded`, reduce route limits on a budget failure, and
+report repeated overspend/no-output failures.
 
-Verify the encoded pair and `min_out` before building with `verifyStellarRouteBytes`:
-[payload.md#verify-routexdr-before-signing](payload.md#verify-routexdr-before-signing).
+Before building, verify the encoded pair and `min_out` with
+[`verifyStellarRouteBytes`](payload.md#verify-routexdr-before-signing).
 
 ## How the controller uses the router
 
-The controller never checks a minimum output. The slippage floor is `amounts[min_out]` inside `routeXdr`.
-The router enforces it before payout. A shortfall raises `SlippageExceeded`.
-The controller credits its measured output balance increase.
-`strategy_finalize` applies the same LTV and health-factor checks as manual
-borrowing, plus the applicable collateral minimums. The
-`swap_tokens` auth and measurement sequence is in
-[`strategies/swap.rs`](../../contracts/controller/src/strategies/swap.rs).
+The controller never checks a minimum output: the router enforces
+`amounts[min_out]` inside `routeXdr` before payout (`SlippageExceeded`), and
+the controller credits its measured output balance increase.
+`strategy_finalize` applies the manual-borrow LTV and health-factor checks plus
+the applicable collateral minimums. The `swap_tokens` auth and measurement
+sequence is in
+[`strategies/swap.rs`](https://github.com/XOXNO/rs-lending-xlm/blob/main/contracts/controller/src/strategies/swap.rs).
 
 ## Your own contract as `sender`
 
-Use the contract-sender flow in
-[payload.md#authorization-model](payload.md#authorization-model), then credit the
-measured output-balance delta. Quote without `sender`; the bytes arrive as an argument.
-Rust reference: `swap_tokens` in
-[`strategies/swap.rs`](../../contracts/controller/src/strategies/swap.rs). Token-pull
-rules:
-[../xoxno-lending-contracts/composing.md#token-pull-ordering](../xoxno-lending-contracts/composing.md#token-pull-ordering).
+Quote without `sender` (the bytes arrive as an argument), follow the
+contract-sender flow in [payload.md](payload.md#authorization-model), and
+credit the measured output-balance delta. Rust reference: `swap_tokens` above.
+Token-pull rules:
+[contracts composing](../xoxno-lending-contracts/composing.md#token-pull-ordering).

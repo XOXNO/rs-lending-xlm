@@ -2,7 +2,7 @@
 # Re-extracts the controller liquidation and risk code to Lean (lean/ControllerAeneas).
 # Usage: AENEAS_HOME=/path/to/aeneas-release ./extract.sh
 # Charon is started only from the functions below (and translates what they
-# call); see ../docs/controller.md for the stand-ins and the opaque items.
+# call); see ../docs/extraction.md for the stand-ins and the opaque items.
 set -euo pipefail
 cd "$(dirname "$0")"
 : "${AENEAS_HOME:?set AENEAS_HOME to the unpacked Aeneas release}"
@@ -63,7 +63,7 @@ for s in "${OPAQUE[@]}"; do ARGS+=(--opaque "$s"); done
 mkdir -p target/llbc
 # --inline-anon-consts works around an Aeneas internal error (InterpAbs.ml)
 # on `while x > Wad::ZERO && ...` loops (process_excess_payment); it leaves
-# the translation of every other function unchanged. See ../docs/controller.md.
+# the translation of every other function unchanged. See ../docs/extraction.md.
 "$AENEAS_HOME/charon" cargo --preset=aeneas --inline-anon-consts --dest-file target/llbc/controller.llbc "${ARGS[@]}"
 "$AENEAS_HOME/aeneas" -backend lean -dest "${AENEAS_LEAN_DEST:-../lean}" -subdir ControllerAeneas -split-files target/llbc/controller.llbc
 # The hand-written external files live in FunsExternal.lean / TypesExternal.lean.

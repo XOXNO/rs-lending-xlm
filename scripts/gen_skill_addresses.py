@@ -3,8 +3,9 @@
 
 Source of truth: configs/networks.json (deployed contract ids, on-chain hub and
 spoke id maps) and configs/<network>/{hubs,spokes,markets,blend}.json (names
-and listings). Off-chain endpoints that are not in configs/ are
-listed in OFFCHAIN below with the file they were read from.
+and listings). Markets with `"enabled": false` in markets.json, and spoke
+listings that reference them, are skipped. Off-chain endpoints that are not in
+configs/ are listed in OFFCHAIN below.
 
 Usage:
     python3 scripts/gen_skill_addresses.py            # rewrite the file
@@ -20,16 +21,15 @@ CONFIGS = ROOT / "configs"
 OUT = ROOT / "skills" / "xoxno-lending" / "addresses.md"
 NETWORKS = ("mainnet", "testnet")
 
-# Off-chain endpoints. Observed in sdk-js src/sdk/stellar/contracts.ts
-# (quote server) and xoxno-ui src/lib/blockchain/network.ts (API base).
+# Off-chain endpoints used by the published XOXNO SDK (`@xoxno/sdk-js`).
 OFFCHAIN = {
     "mainnet": {
         "Quote server (swap aggregator API)": "https://stellar-swap.xoxno.com",
-        "XOXNO API (xoxno-api-v2)": "https://api.xoxno.com",
+        "XOXNO public API": "https://api.xoxno.com",
     },
     "testnet": {
         "Quote server (swap aggregator API)": "https://testnet-stellar-swap.xoxno.com",
-        "XOXNO API (xoxno-api-v2)": "https://testnet-api.xoxno.com",
+        "XOXNO public API": "https://testnet-api.xoxno.com",
     },
 }
 
@@ -54,7 +54,9 @@ def render_network(net: str, networks: dict) -> list[str]:
     n = networks[net]
     hubs = json.loads((CONFIGS / net / "hubs.json").read_text())
     spokes = json.loads((CONFIGS / net / "spokes.json").read_text())
-    markets = json.loads((CONFIGS / net / "markets.json").read_text())["markets"]
+    all_markets = json.loads((CONFIGS / net / "markets.json").read_text())["markets"]
+    disabled = {m["name"] for m in all_markets if m.get("enabled", True) is False}
+    markets = [m for m in all_markets if m["name"] not in disabled]
     blend = json.loads((CONFIGS / net / "blend.json").read_text())
     hub_map = n.get("hub_ids", {})
     spoke_map = n.get("spoke_ids", {})
@@ -124,7 +126,9 @@ def render_network(net: str, networks: dict) -> list[str]:
         onchain = spoke_map.get(cfg_id)
         listed = ", ".join(f"{sym}@hub{hub_map[str(c['hub_id'])]}"
                            for sym, c in spoke["assets"].items()
-                           if str(c["hub_id"]) in hub_map)
+                           if str(c["hub_id"]) in hub_map
+                           and sym not in disabled
+                           and c.get("enabled", True) is not False)
         if onchain is None:
             not_deployed.append((cfg_id, spoke["name"]))
             continue

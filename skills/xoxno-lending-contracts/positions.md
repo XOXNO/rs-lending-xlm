@@ -1,34 +1,32 @@
 # Accounts and positions from a contract
 
-The position NFT owner is the account owner. `account_id` is the NFT token ID
-widened from `u32` to `u64`. The `PositionMode` and spoke of an account are
-fixed at creation. Check the owner, mode, and spoke before you reuse an ID.
+The position NFT owner owns the account; `account_id` is the NFT token ID
+widened from `u32` to `u64`. `PositionMode` and spoke are fixed at creation.
+Check owner, mode, and spoke before reusing an ID.
 
 ## Lifecycle
 
 - ID `0` creates an account through `supply`, `multiply`, `flash_position`,
   `migrate_from_blend`, or liquidation `Credit(0)`. Store the returned ID.
 - `account_exists(id)` checks and renews only the controller's
-  `AccountMeta(id)`. It does not renew or prove the existence of position maps,
-  delegates, NFT entries, your local pointer, or your contract instance.
-- Cleanup depends on the operation. `withdraw` and the strategy verbs remove
-  the account when both position maps end empty. Liquidation and
-  `clean_bad_debt` remove it through their own paths. `repay` writes only the
-  debt side and does not remove an empty account.
+  `AccountMeta(id)`, not position maps, delegates, NFT entries, your local
+  pointer, or your instance.
+- `withdraw` and strategy verbs remove the account when both position maps
+  end empty; liquidation and `clean_bad_debt` use their own paths; `repay`
+  writes only debt and never removes an empty account
+  ([cleanup](composing.md#operation-specific-cleanup)).
 - Deletion removes controller entries and burns the NFT atomically. IDs are
-  not reused.
+  never reused.
 
-See
-[`contracts/controller/src/account.rs`](../../contracts/controller/src/account.rs),
-[`positions/supply.rs`](../../contracts/controller/src/positions/supply.rs),
+Sources: [`contracts/controller/src/account.rs`](https://github.com/XOXNO/rs-lending-xlm/blob/main/contracts/controller/src/account.rs),
+[`positions/supply.rs`](https://github.com/XOXNO/rs-lending-xlm/blob/main/contracts/controller/src/positions/supply.rs),
 and
-[`positions/debt.rs`](../../contracts/controller/src/positions/debt.rs).
+[`positions/debt.rs`](https://github.com/XOXNO/rs-lending-xlm/blob/main/contracts/controller/src/positions/debt.rs).
 
 ## Canonical local account pointer
 
-Your contract must store and renew its account ID. These helpers implement
-the procedure from
-[`resolve_vault_account`](../../contracts/defindex-strategy/src/lib.rs):
+These helpers store and renew your account ID, as
+[`resolve_vault_account`](https://github.com/XOXNO/rs-lending-xlm/blob/main/contracts/defindex-strategy/src/lib.rs):
 
 ```rust
 use soroban_sdk::{contracterror, contracttype, panic_with_error, Env};
@@ -80,31 +78,27 @@ fn resolve_account(env: &Env, controller: &ControllerClient) -> u64 {
 }
 ```
 
-The TTL constants are in [SKILL.md](SKILL.md#storage-ttl). With the wrapper,
-pass `&lending.controller()` as the client.
+TTL constants: [SKILL.md](SKILL.md#storage-ttl). With the wrapper, pass
+`&lending.controller()` as the client.
 
-Resolve the stored ID before token authorization. Call the controller
-operation. Store any returned ID. After an operation that can delete the
-account, check `account_exists`. Remove the stored ID only after
-`Ok(Ok(false))`. Abort on a lookup failure.
+Resolve before token authorization, call the controller, store any returned
+ID. After a possibly deleting operation, check `account_exists`; remove the
+stored ID only on `Ok(Ok(false))` and abort on lookup failure.
 
-`XoxnoLending::resolve_account(stored)` returns the same branch: the stored ID
-while `account_exists` is true, else `NEW_ACCOUNT` (`0`), and a failed lookup
-aborts the call. It does not extend or clear your key. If you use it, extend
-the key on every successful use and overwrite it with the returned ID.
+`XoxnoLending::resolve_account(stored)` returns the same branch (stored ID
+while `account_exists` is true, else `NEW_ACCOUNT` (`0`); lookup failure
+aborts) but neither extends nor clears your key: extend it on every
+successful use and overwrite it with the returned ID.
 
-For per-owner adapters use
-`DataKey::VaultAccount(Address)` exactly as the DeFindex strategy does, and
-extend the specific owner key on every successful lookup and write.
+Per-owner adapters use `DataKey::VaultAccount(Address)` like the DeFindex
+strategy, extending that owner's key on every successful lookup and write.
 
 ## Full exit with the wrapper
 
 The wrapper's `withdraw` and `withdraw_all` return
 `Withdrawal { amount, account_closed }`. `account_closed` is true only when
-the position NFT's `owner_of` fails with `NonExistentToken`: the protocol
-deleted the account and burned its NFT. That is the explicit non-existence
-signal on this path. Any other lookup failure gives `false`, and the key
-stays.
+`owner_of` fails with `NonExistentToken` (account deleted, NFT burned). Any
+other lookup failure gives `false`; the key stays.
 
 ```rust
 use soroban_sdk::{token, Address, Env};
@@ -138,23 +132,23 @@ pub fn withdraw_all_to_admin(env: Env, market: HubAssetKey) -> i128 {
 }
 ```
 
-The config keys are the ones in [SKILL.md](SKILL.md#minimal-call-shape). The
-withdrawal closes the account only when no other supply or debt remains. The
-tokens go to the stored admin, not to an address the caller passes.
+Config keys: [SKILL.md](SKILL.md#minimal-call-shape). The account closes only
+when no other supply or debt remains. Tokens go to the stored admin, not a
+caller-passed address.
 
-Return before the wrapper call when the resolve helper gives `0`. A withdrawal
-from account `0` fails, and the failure also rolls back the helper's removal of
-a stale pointer, so the pointer could never be cleared.
+Return early when the resolve helper gives `0`: withdrawing from account `0`
+fails and rolls back the helper's stale-pointer removal, so the pointer would
+never clear.
 
 ## Renewal responsibilities
 
 `renew_account(owner, id)` is NFT-owner-only. It extends the controller
 instance, account metadata, existing supply/debt/delegate maps, and NFT
-owner/balance state. It cannot touch the integrating contract's storage.
+owner/balance state, never your contract's storage.
 
 `PositionNft::renew(token_id)` is permissionless and extends NFT state only.
-A keeper can call it directly. The crate's `position_nft` client has
-ownership views only, so a keeper contract calls `renew` by name:
+The crate's `position_nft` client has only ownership views, so a keeper
+contract calls `renew` by name:
 
 ```rust
 env.invoke_contract::<()>(
@@ -164,19 +158,14 @@ env.invoke_contract::<()>(
 );
 ```
 
-To renew controller account state, the NFT holder contract must expose an
-authenticated forwarding entrypoint:
+To renew controller account state, the NFT holder contract exposes an
+authenticated forwarding entrypoint (config keys as in
+[SKILL.md](SKILL.md#minimal-call-shape)):
 
 ```rust
-use soroban_sdk::{contracttype, Address, Env};
+use soroban_sdk::{Address, Env};
 use xoxno_contract_sdk::lending::ControllerClient;
 use xoxno_contract_sdk::LendingAddresses;
-
-#[contracttype]
-pub enum ConfigKey {
-    Admin,
-    Lending,
-}
 
 pub fn renew_owned_account(env: Env) {
     env.storage()
@@ -194,17 +183,14 @@ pub fn renew_owned_account(env: Env) {
 }
 ```
 
-Read the admin and controller addresses from your own storage, not from
-arguments. A caller-supplied controller can return `false` from
-`account_exists` and make the resolve helper clear your pointer.
+Read admin and controller from storage, not arguments: a caller-supplied
+controller can return `false` from `account_exists` and clear your pointer.
+Three lifetimes renew here: `extend_ttl` the instance, the resolve helper the
+pointer, `renew_account` controller and NFT state.
 
-This entrypoint renews three lifetimes: the instance `extend_ttl` renews its
-own instance, the resolve helper renews the local pointer, and
-`renew_account` renews controller and NFT state.
-
-Renew before expiry. A simulated and assembled transaction restores archived
-entries inline, and the submitter pays restore rent. Only a hand-built
-footprint needs a separate `RestoreFootprint` operation. See
+Renew before expiry. A simulated, assembled transaction restores archived
+entries inline at the submitter's rent; only a hand-built footprint needs a
+separate `RestoreFootprint`. See
 [archived entries](../xoxno-lending-troubleshooting/SKILL.md#archived-entries).
 
 ## Ownership and delegation
@@ -216,49 +202,42 @@ Before owner/delegate or owner-only work on a stored ID:
 3. read `get_account_attributes(id)`
 4. require expected owner, mode, and spoke
 
-These checks are preconditions and completion checks for your contract. They
-do not replace controller authorization. An NFT transfer moves the account,
-collateral, and debt, but it does not revoke delegates. A grant from the
-previous owner is only suspended: it becomes active again if NFT ownership
-returns to that owner while the manager registration is active and no later
-holder changed the delegate list. To revoke delegates, call `remove_delegate`
-for each one before transferring the NFT. A holder that wants a clean account
-can delete a previous holder's dormant grant with `remove_delegate`; that call
-emits no event. The controller has no view that lists an account's delegates,
-so track them from `AccountDelegateEvent` and the current NFT owner.
+These preconditions and completion checks do not replace controller
+authorization.
 
-An owner may call `add_delegate` only for a governance-activated position
-manager. Delegates may borrow or withdraw to arbitrary recipients, so grant
-only to controlled code. A keeper renewing only NFT TTL does not need a
-delegate grant.
+An NFT transfer moves account, collateral, and debt but not delegates. A
+previous owner's grant is suspended and reactivates if ownership returns to
+that owner while the manager registration is active and no later holder
+changed the delegate list. To revoke, `remove_delegate` each delegate before
+transferring. A new holder can delete a dormant grant with `remove_delegate`
+(no event). No view lists delegates; track `AccountDelegateEvent` and the
+current owner.
 
-The NFT enumerable interface is the only owner-to-account reverse index:
-`balance(owner)` followed by `get_owner_token_id(owner, index)`. Treat the
-result as a snapshot and re-check `owner_of` before acting.
+`add_delegate` accepts only a governance-activated position manager.
+Delegates can borrow or withdraw to any recipient, so grant only to controlled
+code. A keeper renewing only NFT TTL needs no grant.
+
+The only owner-to-account index is NFT enumeration: `balance(owner)`, then
+`get_owner_token_id(owner, index)`. It is a snapshot; re-check `owner_of`
+before acting.
 
 ## Reading positions
 
-- `get_collateral_amount` / `get_borrow_amount`: accrued token base units,
-  rounded half up
-- `get_account_positions`: raw maps; `scaled_amount` is RAY-scaled shares, and
-  supply entries also carry their BPS risk parameters
-- `get_health_factor`: WAD; `i128::MAX` can mean no debt, no account, or a saturated positive ratio
-- `get_market_index`: accrued RAY indexes, no oracle lookup
+View units: [abi.md](abi.md#views-that-need-interpretation).
+`get_account_positions` supply entries also carry BPS risk parameters. Read
+token amounts from `get_collateral_amount` / `get_borrow_amount` or the
+wrapper's `collateral`, `debt`, and `position`; never mix RAY shares, indexes,
+and decimals by hand.
 
-Read token amounts from these views, or from the wrapper's `collateral`,
-`debt`, and `position`, which call them. Do not mix RAY shares, indexes, and
-token decimals by hand. A full withdrawal pays the floor of the claim, which
-can be one base unit below the half-up view. A full repayment needs the
-ceiling of the debt, which can be one base unit above it. When your contract
-must floor what a user can claim, or ceil what a user owes, compute it as in
+A full withdrawal pays the claim's floor, up to one base unit below the
+half-up view; a full repayment needs the debt's ceiling, up to one above. For
+floor/ceil math and sizing, follow
 [`../xoxno-lending/math.md`](../xoxno-lending/math.md#shares-and-token-amounts).
-Sizing guidance is in the same file.
 
 ## DeFindex adapter PPS convention
 
-This is not a generic vault formula. The DeFindex adapter treats one of its
-shares as one scaled supply share of the lending account. Its reported PPS is
-therefore the supply index, floor-rescaled from RAY to 12 decimals:
+Not a generic vault formula: one DeFindex adapter share is one scaled supply
+share, so PPS is the supply index floor-rescaled from RAY to 12 decimals:
 
 ```rust
 use xoxno_contract_sdk::lending::constants::RAY;
@@ -269,10 +248,7 @@ let index = lending.supply_index(&market);
 let defindex_pps = index / (RAY / 10_i128.pow(PPS_DECIMALS));
 ```
 
-`supply_index` is the RAY supply index from `get_market_index`, and it is
-positive. `RAY / 10^12` is exactly `10^15`. Integer division truncates toward
-zero, which is the floor for a positive index, and it cannot overflow.
-
-Use this only when implementing the same adapter accounting convention. A
-vault with fees, multiple assets, idle balances, or a different share model
-must compute its own total-assets/share ratio.
+`supply_index` (from `get_market_index`) is positive RAY; `RAY / 10^12` is
+exactly `10^15`; integer division floors a positive index and cannot
+overflow. A vault with fees, multiple assets, idle balances, or another share
+model computes its own total-assets/share ratio.

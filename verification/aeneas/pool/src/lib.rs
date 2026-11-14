@@ -11,7 +11,7 @@
 //! resolve to the same modules. The pool modules (`crate::cache`,
 //! `crate::guards`, ...) sit where `contracts/pool/src/lib.rs` puts them.
 //!
-//! Stand-ins (hand-written, documented in `docs/pool.md`): `types` (wraps the
+//! Stand-ins (hand-written, documented in `docs/extraction.md`): `types` (wraps the
 //! verbatim `types/pool.rs` and `types/shared.rs`), `oracle`, `ownable`,
 //! `storage`, `time` and `events`. `storage`, `time` and `events` are marked
 //! `opaque` for Charon (signatures only; their meaning is in

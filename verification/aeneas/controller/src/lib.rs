@@ -4,7 +4,7 @@
 //! common fixed-point and rate code it calls (`common/src/{math,rates}`),
 //! compiled verbatim through `#[path]` includes for extraction to Lean with
 //! Charon and Aeneas. Nothing under `common/` or `contracts/` is copied or
-//! edited. See `../docs/controller.md`.
+//! edited. See `../docs/extraction.md`.
 //!
 //! The controller files say `common::...` for the common crate and
 //! `crate::...` for the controller crate. Both resolve to this crate:
@@ -25,7 +25,7 @@ pub mod validation;
 pub mod positions;
 
 // Controller modules: `risk/totals.rs` verbatim; the `Context` model; and
-// stand-ins (see each file and `../docs/controller.md`).
+// stand-ins (see each file and `../docs/extraction.md`).
 pub mod account_store;
 pub mod collections;
 pub mod context;

@@ -23,7 +23,7 @@ unexpected_cfgs = { level = "warn", check-cfg = ['cfg(feature, values("certora")
 
 # Extraction roots: only these items and what they call reach Lean. Storage,
 # events, token transfers and the contract entry points are outside the model
-# (see docs/pool.md).
+# (see docs/extraction.md).
 [package.metadata.charon]
 start_from = [
   "crate::market_cache::shares",
@@ -31,7 +31,7 @@ start_from = [
   "crate::guards",
   # `global_sync` reaches `NonZeroU64`, for which this Aeneas version emits a
   # Lean structure with a duplicated field (`ZeroablePrimitive`);
-  # `postextract.sh` renames the second field (docs/pool.md).
+  # `postextract.sh` renames the second field (docs/extraction.md).
   "crate::interest::global_sync",
   "crate::interest::accrue_chunk",
   "crate::interest::add_protocol_revenue",
@@ -39,7 +39,7 @@ start_from = [
   "crate::ops::flash::terms",
   "crate::ops::flash::book_fee",
   # The successful-path tail of a flash loan: books the fee, checks the entry
-  # ceiling, commits. The market-state event it emits is opaque (docs/pool.md).
+  # ceiling, commits. The market-state event it emits is opaque (docs/extraction.md).
   "crate::ops::flash::finalize",
   # The whole share-conversion module, so the copied RatesAeneas scaling
   # proofs (FloorCeilRescale, FloorCeilScaling) find every function they name.
@@ -59,5 +59,5 @@ start_from = [
 ]
 exclude = ["crate::market_cache::cash::_::transfer_out"]
 # Storage, ledger time and events: signatures only (stand-ins in src/; their
-# Lean meaning is in lean/PoolAeneas/FunsExternal.lean, docs/pool.md).
+# Lean meaning is in lean/PoolAeneas/FunsExternal.lean, docs/extraction.md).
 opaque = ["crate::storage", "crate::time", "crate::events"]

@@ -1,0 +1,59 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 460" width="900" height="460" role="img" aria-labelledby="t d">
+  <title id="t">XOXNO Lending hubs and spokes</title>
+  <desc id="d">Spokes such as Blue Chip, Etherfuse RWA, Commodities and AMM Collateral borrow liquidity from the Core hub. Their collateral is held in the RWA and AMM hubs.</desc>
+  <defs>
+    <marker id="g" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#a6f24a"/>
+    </marker>
+    <marker id="w" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#8a8a8a"/>
+    </marker>
+  </defs>
+  <style>
+    .t{font:600 15px -apple-system,Segoe UI,Helvetica,Arial,sans-serif;fill:#fff}
+    .s{font:13px -apple-system,Segoe UI,Helvetica,Arial,sans-serif;fill:#a0a0a0}
+    .h{font:600 13px -apple-system,Segoe UI,Helvetica,Arial,sans-serif;fill:#a6f24a;letter-spacing:.06em}
+    .box{fill:#161616;stroke:#2c2c2c}
+    .spoke{fill:#14200b;stroke:#3d5c1c}
+  </style>
+  <rect width="900" height="460" rx="16" fill="#0a0a0a"/>
+
+  <text class="h" x="40" y="44">SPOKES · ISOLATED RISK</text>
+  <text class="h" x="540" y="44">HUBS · WHERE LIQUIDITY SITS</text>
+
+  <rect class="spoke" x="40" y="64" width="290" height="58" rx="12"/>
+  <text class="t" x="60" y="89">Blue Chip</text><text class="s" x="60" y="109">XLM · BTC</text>
+  <rect class="spoke" x="40" y="142" width="290" height="58" rx="12"/>
+  <text class="t" x="60" y="167">Etherfuse RWA</text><text class="s" x="60" y="187">CETES · USTRY</text>
+  <rect class="spoke" x="40" y="220" width="290" height="58" rx="12"/>
+  <text class="t" x="60" y="245">Commodities</text><text class="s" x="60" y="265">XAUm</text>
+  <rect class="spoke" x="40" y="298" width="290" height="58" rx="12"/>
+  <text class="t" x="60" y="323">AMM Collateral</text><text class="s" x="60" y="343">Aquarius LP</text>
+  <text class="s" x="40" y="384">+ 4 more spokes on mainnet</text>
+
+  <rect class="box" x="540" y="64" width="320" height="96" rx="12"/>
+  <text class="t" x="560" y="92">Core</text>
+  <text class="s" x="560" y="114">USDC · EURC · PYUSD · USDT0</text>
+  <text class="s" x="560" y="134">XLM · SolvBTC</text>
+  <rect class="box" x="540" y="190" width="320" height="70" rx="12"/>
+  <text class="t" x="560" y="218">RWA</text><text class="s" x="560" y="240">CETES · USTRY · USDY · XAUm</text>
+  <rect class="box" x="540" y="290" width="320" height="70" rx="12"/>
+  <text class="t" x="560" y="318">AMM</text><text class="s" x="560" y="340">AQUA · Aquarius LP shares</text>
+
+  <g fill="none" stroke="#a6f24a" stroke-width="2" marker-end="url(#g)">
+    <path d="M330,93 C430,93 440,84 536,84"/>
+    <path d="M330,171 C440,171 440,102 536,102"/>
+    <path d="M330,249 C450,249 440,120 536,120"/>
+    <path d="M330,327 C460,327 440,138 536,138"/>
+  </g>
+  <g fill="none" stroke="#8a8a8a" stroke-width="2" stroke-dasharray="6 6" marker-end="url(#w)">
+    <path d="M330,180 C430,180 450,215 536,215"/>
+    <path d="M330,258 C430,258 450,235 536,235"/>
+    <path d="M330,336 C430,336 450,325 536,325"/>
+  </g>
+
+  <line x1="40" y1="422" x2="80" y2="422" stroke="#a6f24a" stroke-width="2"/>
+  <text class="s" x="90" y="426">borrows liquidity</text>
+  <line x1="240" y1="422" x2="280" y2="422" stroke="#8a8a8a" stroke-width="2" stroke-dasharray="6 6"/>
+  <text class="s" x="290" y="426">collateral held here</text>
+</svg>

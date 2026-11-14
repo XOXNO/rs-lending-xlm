@@ -1,14 +1,10 @@
 # lending-exporter
 
-A read-only Prometheus exporter for the XOXNO Lending protocol on Soroban.
-
-On a timer it reads the controller, pool, price-aggregator and oracle provider
-contracts over Soroban RPC, then serves the results at `/metrics` for a public
-Grafana dashboard.
-
-It holds no signer and writes nothing. It only simulates read-only calls and
-reads ledger entries. It is a standalone Cargo workspace, shipped as its own
-container, with one instance per network.
+Read-only Prometheus exporter for XOXNO Lending. On a timer it reads the
+controller, pool, price-aggregator and oracle provider contracts over Soroban
+RPC and serves `/metrics` for a public Grafana dashboard. No signer: only
+read-only simulations and ledger reads. Standalone Cargo workspace and
+container, one instance per network.
 
 ## Quick start
 
@@ -19,166 +15,137 @@ curl -s localhost:9110/metrics | grep lending_
 
 ## How it reads the protocol
 
-| Source | How it is found | What it gives |
+| Source | Address from | Gives |
 |---|---|---|
-| Controller | from the config file | market indexes, soft oracle status, spokes, minimum borrow collateral |
-| Pool | asked from the controller each scrape | liquidity, rates, IRM parameters, last accrual |
-| Price-aggregator | asked from the controller each scrape | oracle config |
-| Oracle providers and LP pools | read from the oracle config each scrape | feed timestamps, LP share supply |
+| Controller | config file | market indexes, soft oracle status, spokes, minimum borrow collateral |
+| Pool | controller, each scrape | liquidity, rates, IRM parameters, last accrual |
+| Price-aggregator | controller, each scrape (config file on failure) | oracle config |
+| Oracle providers and LP pools | oracle config, each scrape | feed timestamps, LP share supply |
 
-The controller and market asset addresses come from the config file. Every
-other address is looked up on each scrape. If the price-aggregator lookup fails,
-the address in the config file is used instead.
-
-The controller reports a **soft oracle status** for every asset. This status is
-the authority for solvency monitoring, because it always answers instead of
-failing closed. Direct provider probes are an early warning only.
+The controller's per-asset **soft oracle status** is the solvency-monitoring
+authority: it always answers instead of failing closed. Direct provider probes
+are early warning only.
 
 ## What it publishes
 
-All metric names start with the lending_ prefix. No per-user account data is
-published.
+All metric names start with the lending_ prefix. No per-user data.
 
-**Oracle**, per asset — blended price, primary price, anchor price, deviation in
-basis points, blend timestamp, three flags (stale, deviation and healthy), and
-the error code behind an invalid price.
-
-**Oracle config**, per asset — maximum staleness, tolerance band, sanity bounds,
-source count, and how many seconds remain before a feed goes stale. An asset
-priced by a single LP source also reports its pool value floor and LP share
-supply.
-
-**Market**, per hub and asset — supplied, borrowed, available liquidity and
-revenue, in tokens and in USD. Also utilization, supply and borrow APY, the
-interest-rate parameters, and the time since the last accrual.
-
-**Spoke**, per listing — the paused, frozen, collateral, borrow and deprecated
-flags. LTV, liquidation threshold, liquidation bonus and fees. Supply and borrow
-caps, how much of each is used, and how full each is. Per spoke: the
-liquidation target health factor, the health factor at the maximum bonus, and
-the bonus factor. When a listing is removed on chain, or the exporter cannot
-decode it, every series of that listing is removed.
-
-**Protocol** — total value locked, total borrowed, liquidity, revenue, market
-and spoke counts, and the minimum borrow collateral.
-
-**Exporter health** — scrape duration, last success time, ledger sequence, time
-and skew, RPC errors, view failures, simulation count and build info.
+- **Oracle**, per asset: blended, primary and anchor price; deviation (bps);
+  blend timestamp; stale, deviation and healthy flags; error code behind an
+  invalid price.
+- **Oracle config**, per asset: max staleness, tolerance band, sanity bounds,
+  source count, seconds until a feed goes stale. Single-LP-source assets add
+  pool value floor and LP share supply.
+- **Market**, per hub and asset: supplied, borrowed, available liquidity and
+  revenue (tokens and USD); utilization; supply and borrow APY; interest-rate
+  parameters; time since last accrual.
+- **Spoke**, per listing: paused, frozen, collateral, borrow and deprecated
+  flags; LTV, liquidation threshold, bonus and fees; supply and borrow caps,
+  usage and fill. Per spoke: liquidation target HF, HF at max bonus, bonus
+  factor. A listing removed on chain or undecodable loses every series.
+- **Protocol**: TVL, total borrowed, liquidity, revenue, market and spoke
+  counts, minimum borrow collateral.
+- **Exporter health**: scrape duration, last success time, ledger sequence,
+  time and skew, RPC errors, view failures, simulation count, build info.
 
 ### Caps and closed markets
 
-A cap is always an enforced ceiling, in asset units. There is no value that
-means unlimited. A cap of `0` closes that side to new supply or new borrows, so
-the market is closed.
+A cap is always an enforced ceiling in asset units; no value means unlimited.
+A cap of `0` closes that side to new supply or borrows. Caps are independent of
+the collateral and borrow flags: a `0` cap on a side still flagged enabled is a
+deliberate wind-down.
 
-Caps are independent of the collateral and borrow flags. A cap of `0` on a side
-that is still flagged as enabled is a normal, deliberate wind-down.
-
-Two metrics make this visible:
-
-| Metric | Meaning |
-|---|---|
-| `lending_spoke_supply_closed` | `1` when the supply cap is `0` |
-| `lending_spoke_borrow_closed` | `1` when the borrow cap is `0` |
-
-Read these two gauges, not the gap in the data. While a market is closed its cap
-utilization divides by zero and is not published. A closed market and a failed
-scrape look the same on a graph. The two gauges are the only way to tell them
-apart. Two alerts fire on the closed-but-enabled combination when the spoke is
-not deprecated.
+`lending_spoke_supply_closed` and `lending_spoke_borrow_closed` read `1` when
+the supply or borrow cap is `0`. Read these gauges, not the data gap: a closed
+side's cap utilization divides by zero and is not published, so on a graph it
+looks like a failed scrape. Two alerts fire on closed-but-enabled when the
+spoke is not deprecated.
 
 ## Configuration
 
-One YAML file per network: `config/testnet.yaml` and `config/mainnet.yaml`.
-Each file lists the controller address, the markets to read as
-`(hub_id, asset, symbol)`, and the spoke ids to scan.
+`config/testnet.yaml` and `config/mainnet.yaml` list the controller address,
+markets as `(hub_id, asset, symbol)`, and spoke ids to scan.
 
-Rules to follow:
-
-- **Contract addresses come from `configs/networks.json`.** That file is the
-  source of truth. Change it first, then copy the address here.
-- **A market must be listed here or it is never read.** When an asset is listed
-  in `configs/<network>/markets.json`, add it here in the same commit.
-- **Spoke ids are the on-chain ids, not the config ids.** The ids in
-  `configs/<network>/spokes.json` differ on mainnet, because one deferred spoke
-  shifted every later id down by one. `configs/networks.json` holds the map
-  between them.
-- **Give every hub and spoke a name.** A missing name shows on the dashboard as
-  a bare `Spoke 7`. A test fails if a name is missing.
+- **Contract addresses come from `configs/networks.json`**, the source of
+  truth. Change it first, then copy the address here.
+- **An unlisted market is never read.** When an asset is listed in
+  `configs/<network>/markets.json`, add it here in the same commit. Do not list
+  a market with `enabled: false` there: it is not deployed, so every read
+  fails.
+- **Spoke ids are on-chain ids.** On mainnet they differ from the ids in
+  `configs/<network>/spokes.json`; `spoke_ids` in `configs/networks.json` maps
+  them.
+- **Name every hub and spoke.** A missing name shows as a bare `Spoke 7`, and a
+  test fails.
 - `symbol`, `hubs` and `spoke_names` are display labels only.
-- `scrape_interval_seconds` defaults to `30`. A value below `5` stops startup.
+- `scrape_interval_seconds` defaults to `30`; below `5` stops startup.
 - `rpc.timeout_seconds` is parsed but not applied.
 - `contracts.xoxno_oracle_adapter` is validated at startup, but no scrape reads
   it.
 
-Mainnet reads 25 of the 31 markets in `configs/mainnet/markets.json`. The six it
-skips are the `SPIKO*` markets, which are disabled and not deployed.
-
 ### Environment variables
 
-`--config` is the only command-line flag. `EXPORTER_CONFIG` sets the same path
-when the flag is absent. One of the two is required: the binary and the image
-have no default, so a container without it exits and `LendingExporterDown`
-fires instead of another network's data being reported. The RPC and address
-variables replace YAML values before validation. An empty `EXPORTER_RPC_URL` or
-`EXPORTER_CONTROLLER` is ignored, so the committed value wins. An empty
+`--config` is the only flag; `EXPORTER_CONFIG` is its fallback. One is
+required (no default in binary or image): without it the container exits and
+`LendingExporterDown` fires, rather than reporting another network's data. The
+other variables replace YAML values before validation. Empty
+`EXPORTER_RPC_URL` or `EXPORTER_CONTROLLER` is ignored; empty
 `EXPORTER_PRICE_AGGREGATOR` or `EXPORTER_XOXNO_ORACLE_ADAPTER` clears that
 address.
 
 | Variable | Overrides |
 |---|---|
-| `EXPORTER_CONFIG` | the config file path (required; the image ships `/etc/lending-exporter/testnet.yaml` and `/etc/lending-exporter/mainnet.yaml`) |
-| `EXPORTER_RPC_URL` | the RPC URL |
-| `EXPORTER_CONTROLLER` | the controller address |
-| `EXPORTER_PRICE_AGGREGATOR` | the price-aggregator address |
-| `EXPORTER_XOXNO_ORACLE_ADAPTER` | the XOXNO oracle adapter address |
-| `RUST_LOG` | `log.level` from the YAML, when it parses as a filter |
+| `EXPORTER_CONFIG` | config path (required; image ships `/etc/lending-exporter/testnet.yaml` and `/etc/lending-exporter/mainnet.yaml`) |
+| `EXPORTER_RPC_URL` | RPC URL |
+| `EXPORTER_CONTROLLER` | controller address |
+| `EXPORTER_PRICE_AGGREGATOR` | price-aggregator address |
+| `EXPORTER_XOXNO_ORACLE_ADAPTER` | XOXNO oracle adapter address |
+| `RUST_LOG` | `log.level`, when it parses as a filter; no fixed fallback |
 
-`MAINNET_LENDING_CONTROLLER` is not read by the binary. It is a Compose
-variable that feeds `EXPORTER_CONTROLLER`.
+`MAINNET_LENDING_CONTROLLER` is a Compose variable that feeds
+`EXPORTER_CONTROLLER`; the binary does not read it.
 
 ## Deploy
 
-Both networks ship their addresses in their config file, so no override is
-needed.
+Config files carry their network's addresses; no override needed.
 
 ```bash
 docker compose -f docker-compose.example.yaml up -d lending-exporter-testnet
 docker compose -f docker-compose.example.yaml --profile mainnet up -d lending-exporter-mainnet
 ```
 
-Mainnet sits behind a profile so a plain `docker compose up` does not start it
-by accident. Add both scrape jobs from `ops/prometheus.example.yml` to
-Prometheus. Every series except `lending_exporter_simulations_total` carries a
-`network` label.
+Mainnet sits behind a profile so a plain `docker compose up` skips it. Add both
+scrape jobs from `ops/prometheus.example.yml`. Every series except
+`lending_exporter_simulations_total` has a `network` label.
 
-Deploy a Chainlink-aware exporter before configuring a Chainlink source, then
-upgrade governance and the price aggregator with `make <network> upgradeAll`.
-After a Chainlink config is stored, revert that config before downgrading any of
-these three components to a pre-Chainlink release.
+Order for a Chainlink oracle source:
+
+1. Deploy an exporter release that decodes Chainlink sources.
+2. Upgrade governance and the price aggregator with `make <network> upgradeAll`.
+3. Configure the Chainlink source.
+
+Remove stored Chainlink config before downgrading any of these to a release without Chainlink support.
 
 ### Dashboard
 
-Import `ops/grafana-dashboard.json` into Grafana. Its sections are Health
-status, Protocol, Markets, Oracles, Spokes, Exporter health, and Alerting.
+Import `ops/grafana-dashboard.json`. Sections: Health status, Protocol,
+Markets, Oracles, Spokes, Exporter health, Alerting.
 
-The dashboard uses no template variables, because public dashboards reject
-them. Every query outside the Alerting section is therefore pinned to
-`network="mainnet"`; five Alerting panels show every network. Every query panel
-is pinned to the production datasource UID `cfgw0aa7mups0d`, because public
-dashboards also reject panels without a fixed datasource.
+Public dashboards reject template variables and panels without a fixed
+datasource, so every query panel names one Prometheus datasource UID, and every
+query outside Alerting filters on `network="mainnet"` (Alerting shows every
+network). To import it:
 
-To reuse it elsewhere, replace that UID. For a testnet copy, also replace
-`network="mainnet"` with `network="testnet"` and change the `uid` and `title`.
+1. Replace the committed datasource UID with `<your-prometheus-datasource-uid>`.
+2. For a testnet copy, replace `network="mainnet"` with `network="testnet"`.
+3. For a testnet copy, change the dashboard `uid` and `title`.
 
-No panel names an asset, so a newly listed market appears on its own once the
-exporter reads it.
+No panel names an asset, so a new market appears once the exporter reads it.
 
 ### Alerts
 
-Rebuild the expressions from `ops/alerts.yml` as Grafana-managed alert rules, so
-they stay internal and off the public panels. Prefer the soft-status flags over
-hard error codes.
+Rebuild `ops/alerts.yml` expressions as Grafana-managed alert rules, keeping
+them off the public panels. Prefer soft-status flags over hard error codes.
 
 ## Code layout
 

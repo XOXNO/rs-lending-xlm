@@ -1,19 +1,18 @@
 ---
 name: xoxno-swap-aggregator
-description: "Use when swapping tokens on Stellar through the XOXNO swap aggregator (arb-algo, stellar-swap.xoxno.com, GET /api/v1/quote), reading a quote's output, minimum received, price impact, route or fee, executing execute_strategy on the router, or obtaining a routeXdr to embed in a lending strategy (multiply, swap collateral, swap debt, repay debt with collateral) or in your own Soroban contract."
+description: "Use when swapping tokens on Stellar through the XOXNO swap aggregator (stellar-swap.xoxno.com, GET /api/v1/quote), reading a quote's output, minimum received, price impact, route or fee, executing execute_strategy on the router, or obtaining a routeXdr to embed in a lending strategy (multiply, swap collateral, swap debt, repay debt with collateral) or in your own Soroban contract."
 user-invocable: true
 argument-hint: "[swap or route task]"
 ---
 
 # XOXNO Swap Aggregator
 
-The aggregator has a quote server and a router contract. The server searches
-Soroban DEX liquidity and returns a route. The router executes the route
-atomically through `execute_strategy(sender, total_in, swap_xdr)`.
+A quote server searches Soroban DEX liquidity and returns a route; the router
+contract executes it atomically through `execute_strategy(sender, total_in, swap_xdr)`.
 Standalone swaps and lending strategies use the same route format.
 
-Sources: `arb-algo` commit `54de209a` (verified source), `@xoxno/sdk-js` 1.0.228 with
-`@stellar/stellar-sdk` ^16, `rs-lending-xlm` at this skill's commit.
+Sources: the XOXNO swap quote server, the [pinned SDK](../xoxno-lending/SKILL.md#verified-against) with
+`@stellar/stellar-sdk` ^16, and the router contract in `rs-lending-xlm`.
 
 ## Related skills
 - Shared model, addresses, hub/spoke ids → [../xoxno-lending/SKILL.md](../xoxno-lending/SKILL.md)
@@ -33,10 +32,10 @@ Sources: `arb-algo` commit `54de209a` (verified source), `@xoxno/sdk-js` 1.0.228
 
 ## Routing boundary
 
-The on-chain venue/opcode mapping is centralized in
-[payload.md#packed-program-ops--version-1](payload.md#packed-program-ops--version-1).
-The external quote server's venue discovery and production compatibility remain outside
-the contract proof boundary.
+The on-chain venue/opcode mapping is in
+[payload.md](payload.md#packed-program-ops--version-1). The quote server's
+venue discovery and production compatibility are outside the contract proof
+boundary.
 
 ## Base URLs and the deployment check
 
@@ -45,28 +44,25 @@ the contract proof boundary.
 | mainnet | `https://stellar-swap.xoxno.com` | `STELLAR_NETWORKS.stellarMainnet.quoteUrl` |
 | testnet | `https://testnet-stellar-swap.xoxno.com` | `STELLAR_NETWORKS.stellarTestnet.quoteUrl` |
 
-The quote server has no submission endpoint. A request with `sender` can
-return an unsigned envelope. Before quoting, fetch `/api/v1/config`.
-Compare its network passphrase and router with trusted configuration.
-Read the router from `configs/networks.json` or `STELLAR_NETWORKS`.
-Use the server response only to check the deployment.
+The quote server has no submission endpoint; a request with `sender` can
+return an unsigned envelope. Before quoting, fetch `/api/v1/config` and compare
+its network passphrase and router with trusted configuration
+(`configs/networks.json` or `STELLAR_NETWORKS`). Use the response only to
+check the deployment, never as the router source.
 
 ## Token identifiers
 
 `from` and `to` are 56-character `C…` contract ids only; XLM is
-`Asset.native().contractId(passphrase)`. Catalog and entry shape:
+`Asset.native().contractId(passphrase)`. Catalog:
 [api.md#get-apiv1tokens](api.md#get-apiv1tokens).
 
 ## Quote parameters
 
-Parameters: [api.md#get-apiv1quote](api.md#get-apiv1quote); exactly one amount,
-`slippage` required for `routeXdr`. Response fields:
-[api.md#response-quoteresponse](api.md#response-quoteresponse). Never render `routeXdr`
-or `transaction`; they are execution inputs. Error codes and reactions:
-[api.md#error-bodies-errorresponse-code-error](api.md#error-bodies-errorresponse-code-error).
-
-Freshness and slippage rules are centralized in
-[api.md#freshness-and-slippage-canonical](api.md#freshness-and-slippage-canonical).
+Send exactly one amount; `slippage` is required for `routeXdr`
+([parameters](api.md#get-apiv1quote), [response](api.md#response-quoteresponse),
+[errors](api.md#error-bodies-errorresponse-code-error),
+[freshness and slippage](api.md#freshness-and-slippage-canonical)). Never
+render `routeXdr` or `transaction`; they are execution inputs.
 
 ## Example 1: quote and render
 
@@ -170,11 +166,11 @@ export async function prepareStandaloneSwap(
 }
 ```
 
-`acceptedMinOut` is the output floor accepted by the user. Do not replace it
-with a response value. Sign only the checked `preparedXdr`. Follow
-[SDK transactions](../xoxno-lending-sdk/transactions.md) for signing,
-persistence, submission, confirmation, and recovery. On success, read the
-actual delivered return value and reconcile token balances.
+`acceptedMinOut` is the user's accepted output floor; never replace it with a
+response value. Sign only the checked `preparedXdr`. Signing, persistence,
+submission, confirmation, and recovery:
+[SDK transactions](../xoxno-lending-sdk/transactions.md). On success, read the
+delivered return value and reconcile token balances.
 
 ## LP conversion: `transactions[]`
 
@@ -192,8 +188,6 @@ A `convertLiquidity` quote with `sender` returns ordered `transactions[]` instea
 6. Check authorization against the built invocation and expected caller.
 7. Sign the checked prepared XDR.
 8. Persist the original network, signed XDR, and hash before sending.
-9. Confirm the original hash and reconcile delivered tokens.
-
-Keep an unresolved transaction record after expiry. Do not submit a replacement
-until the original outcome is resolved. Follow the
-[submission lifecycle](../xoxno-lending-troubleshooting/SKILL.md#submission-lifecycle).
+9. Confirm the original hash and reconcile delivered tokens, following the
+   [submission lifecycle](../xoxno-lending-troubleshooting/SKILL.md#submission-lifecycle)
+   (no replacement until the original outcome is resolved).

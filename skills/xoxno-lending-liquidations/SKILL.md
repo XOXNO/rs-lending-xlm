@@ -9,86 +9,75 @@ argument-hint: "[liquidation task]"
 
 `liquidate(liquidator, account_id, debt_payments, seize_mode)` sizes the close,
 pulls accepted debt tokens, seizes collateral pro rata, and pays underlying
-tokens (`Transfer`) or supply credit (`Credit`). Simulate
-`get_liquidation_estimate` with the exact same payments and mode immediately
-before building the write.
+tokens (`Transfer`) or supply credit (`Credit`). Immediately before building
+the write, simulate `get_liquidation_estimate` with the same payments and mode.
 
-Canonical references:
-
-- Contract signatures: [contracts ABI](../xoxno-lending-contracts/abi.md)
-- Transaction lifecycle: [SDK transactions](../xoxno-lending-sdk/transactions.md)
-- Liquidation arithmetic: [math](../xoxno-lending/math.md#liquidation-bonus-close-amount-seizure-fees)
-- Error definitions: [error reference](../../docs/reference/errors.md)
-- Event shapes and order: [event reference](../../docs/reference/events.md)
-- Operational failure diagnosis: [troubleshooting](../xoxno-lending-troubleshooting/SKILL.md)
+References: [contracts ABI](../xoxno-lending-contracts/abi.md),
+[SDK transactions](../xoxno-lending-sdk/transactions.md),
+[liquidation math](../xoxno-lending/math.md#liquidation-bonus-close-amount-seizure-fees),
+[errors](https://github.com/XOXNO/rs-lending-xlm/blob/main/docs/reference/errors.md),
+[events](https://github.com/XOXNO/rs-lending-xlm/blob/main/docs/reference/events.md),
+[troubleshooting](../xoxno-lending-troubleshooting/SKILL.md).
 
 ## 1. Discover candidates
 
-Do not scan account ids. Build a watchlist from successful controller
-`position:batch_update` events. Use archived successful events to recover an
-older inventory. For known owners, the v1 wallet positions route can seed IDs.
-Follow every pagination link. Recheck candidates on a timer and on pool index
-updates. Prices can change without a controller event.
+Do not scan account ids. Watch successful controller `position:batch_update`
+events (archived ones for older inventory); the v1 wallet positions route can
+seed IDs for known owners (follow every pagination link). Recheck on a timer
+and on pool index updates: prices move without controller events.
 
-- Ignore every event with `inSuccessfulContractCall === false`; reverted calls
-  are not candidates or state changes.
-- Persist the `getEvents` cursor after each durably committed page and resume
-  from that cursor. Keep `(txHash, eventId, childIndex)` idempotency keys.
-- Indexed API data supplies candidates. Current contract views decide eligibility.
+- Ignore events with `inSuccessfulContractCall === false`.
+- Persist the `getEvents` cursor after each durably committed page; resume
+  from it. Keep `(txHash, eventId, childIndex)` idempotency keys.
+- API data supplies candidates; current contract views decide eligibility.
 
 For each candidate:
 
-1. `account_exists(account_id)` must be true.
-2. `is_liquidatable(account_id)` must be true, equivalently on-chain health
-   factor below `1e18`.
-3. Treat `get_health_factor == i128::MAX` as ineligible. It can mean a
-   missing account, no debt, or a saturated positive ratio. It does not prove
-   that debt is absent.
+1. `account_exists(account_id)` is true.
+2. `is_liquidatable(account_id)` is true (on-chain health factor below `1e18`).
+3. `get_health_factor == i128::MAX` is ineligible (missing account, no debt,
+   or saturated ratio); it does not prove debt is absent.
 
-`HealthFactorTooHigh` (`controller #101`) is a legitimate liquidation result
-when eligibility changes or no target debt remains. Identify the panicking
-contract before mapping the number.
+`HealthFactorTooHigh` (`controller #101`) is legitimate when eligibility
+changes or no target debt remains; identify the panicking contract first.
 
-`liquidate` prices every supply and debt leg, so one failing price reverts it.
-When the failing asset is a dust debt leg, `repay` is permissionless and reads
-no price: repay that leg in full, then liquidate. A paused listing rejects that
-repayment.
+`liquidate` prices every leg, so one failing price reverts it. If that asset
+is a dust debt leg, repay it in full first (`repay` is permissionless and
+reads no price; a paused listing rejects it), then liquidate.
 
 ## 2. Select the seize mode
 
 | Mode | Result | Estimate units | Main constraint |
 |---|---|---|---|
-| `Transfer` | Underlying collateral to the liquidator | Asset base units | Every generated Transfer seizure leg needs sufficient pool cash and the recipient may need a classic-asset trustline |
+| `Transfer` | Underlying collateral to liquidator | Asset base units | Pool cash for every generated leg; recipient may need a classic-asset trustline |
 | `Credit(0)` | New normal-mode receiving account | RAY supply shares | No governed position limit; no pool-cash requirement |
-| `Credit(id)` | Supply shares credited to `id` | RAY supply shares | Receiver is authorized, same spoke, normal mode, and not the liquidated account |
+| `Credit(id)` | Supply shares credited to `id` | RAY supply shares | Receiver authorized, same spoke, normal mode, not the target |
+
+### Listing flags
 
 Seizure is pro rata, but the planner drops legs that round to zero.
-`no_seize` blocks only a generated nonzero seizure leg. A dropped leg does
-not block liquidation. Debt repayment rejects a paused listing but permits
-a frozen listing. Seizure permits paused or frozen listings, but rejects
-`no_seize` on a generated leg.
 
-A missing spoke listing permits repayment and Transfer seizure. Credit needs
-a listing when it creates a new receiver supply position. An existing receiver
-position uses its stored risk parameters.
+| Listing state | Debt repayment | Seizure |
+|---|---|---|
+| paused | rejected | permitted |
+| frozen | permitted | permitted |
+| `no_seize` | permitted | rejected on a generated nonzero leg; a dropped leg does not block |
+| missing spoke listing | permitted | `Transfer` permitted; `Credit` needs a listing for a new receiver position (existing ones keep stored risk parameters) |
+
+### Credit receivers
 
 The estimate checks a `Credit` receiver's spoke, mode, position capacity and
-low-decimal isolation, but not receiver authorization or pool cash
-availability. For `Credit(id)`, require current NFT ownership or an active registered
-manager delegated by that owner. Require the same spoke, `Normal` mode,
-and a receiver distinct from the target. Simulate the complete
-write for every mode.
+low-decimal isolation, not authorization or pool cash. `Credit(id)` requires
+current NFT ownership or an active manager delegated by the owner. Simulate
+the complete write for every mode.
 
-Use Credit when Transfer cannot draw pool cash. A liquidation that leaves at
-most $5 of collateral below the remaining debt socializes that debt in the
-same call. A Credit receiver credited in a market written down there shares
-that write-down pro rata, and the estimate does not show it. When the account
-also owes a seized asset, a seize-all Credit liquidation can lose money in
-that asset's market. Use Transfer there, or a partial size that leaves more
-than $5 of collateral.
+Use Credit when Transfer cannot draw pool cash. A liquidation leaving at most
+$5 of collateral below remaining debt socializes that debt in the same call,
+and a Credit receiver in a written-down market shares the loss pro rata
+(unseen by the estimate). If the account also owes a seized asset, use
+Transfer, or a partial size leaving more than $5 of collateral.
 
-Convert Credit estimate shares to token units with the matching market supply
-index and asset decimals before valuation:
+Convert Credit estimate shares to tokens before valuation:
 
 ```text
 value_ray   = floor(shares * supply_index / RAY)
@@ -97,162 +86,102 @@ token_units = floor(value_ray / 10^(27 - asset_decimals))
 
 ## 3. Build debt payments safely
 
-Offer only positive debt legs the account actually owes. The controller pulls accepted amounts. For a full-debt quote, it pulls the
-whole offer and the pool refunds excess. A direct repayment transfer to the
-pool is a donation. Refunds are in debt-token units.
+Offer only positive debt legs the account owes. The controller pulls accepted
+amounts (whole offer for a full-debt quote, excess refunded in debt tokens).
+A direct transfer to the pool is a donation.
 
-For a contract liquidator, require each payment leg to have a unique token
-address even when the same token is borrowed in multiple hubs. Estimates and
-refunds are keyed by token address only, not by `(hub_id, asset)`.
+### Unique debt-token addresses for contract liquidators
 
-This is an authorization limit. `authorize_as_current_contract` authorizes the
-nested token call by token contract, function, and transfer arguments. It does
-not include the controller's hub id. With repeated token addresses, asset-only
-refunds cannot determine the accepted amount for each hub leg, while
-authorization entries are consumed against ordered token-transfer
-sub-invocations. The contract cannot safely construct exact per-leg transfer
-authorizations.
+A contract liquidator must use a unique token address per payment leg, even
+for one token borrowed in several hubs, because:
+
+- estimates and refunds are keyed by token address, not `(hub_id, asset)`;
+- `authorize_as_current_contract` binds the nested token call by token
+  contract, function, and transfer arguments, not the controller's hub id;
+- authorization entries are consumed against ordered token-transfer
+  sub-invocations.
+
+Repeated addresses make exact per-leg authorizations impossible.
 
 ### Full-close and insolvent plans
 
-When `D ≤ C < D × (1 + base bonus)`, the quote covers the debt at a capped bonus.
-A full-close quote can accept a partial offer. Rounding can change the account
-ratio. While the final plan remains a full-close plan, the controller pulls
-each merged offer. The pool refunds excess debt tokens. Hold the full offer.
-Accrual can change the plan. Re-simulate before signing.
+When `D ≤ C < D × (1 + base bonus)`, the quote covers the debt at a capped
+bonus and accepts partial offers (rounding can change the ratio). While the
+plan stays full-close, the controller pulls each merged offer and the pool
+refunds excess: hold the full offer. Accrual can change the plan; re-simulate.
 
-When `C < D`, the quote is `floor(C / (1 + base))` at the base bonus.
-The planner trims a larger offer from the last leg backward.
-It floors retained token amounts and drops zero amounts.
-A plan without a payment leg fails with `InvalidPayments`.
-Authorize the final accepted transfers. A stale authorization can fail if a
-competing liquidation changes the plan.
+When `C < D`, the quote is `floor(C / (1 + base))` at the base bonus. The
+planner trims larger offers from the last leg backward, flooring retained
+amounts and dropping zeros; no leg left → `InvalidPayments`. Authorize the
+final accepted transfers; a competing liquidation can invalidate them.
 
-**Collateral below 3 decimals seizes base units.** Such a leg is the account's
-only supply position. One unit means `10^-decimals` tokens, not one whole token.
-At 2 decimals, one base unit is 0.01 token. On a solvent account whose leg holds at least one base
-unit, the controller can change a partial quote:
+**Collateral below 3 decimals seizes whole base units.** The controller can
+raise a partial quote or make it a full close; an offer backing less than one
+unit reverts with `InvalidPayments` (`controller #16`). Estimate an offer up
+to the debt with `get_liquidation_estimate` (not the curve formula), read
+`max_payment_wad` and `refunds`, and sign only accepted amounts. Value the
+seized unit at its price, not `D * (1 + bonus)`. Rules:
+[math](../xoxno-lending/math.md#low-decimal-collateral-quotes).
 
-- When one unit's USD value divided by `1 + bonus` covers the whole debt plus
-  one base unit of each debt leg, the quote is the whole debt. The liquidator
-  repays all debt and receives one unit.
-- Otherwise, check whether the curve quote seizes less than one base unit
-  plus a `1e-6` margin. The quote rises to the repayment for that amount only
-  if the raised repayment stays below the whole debt. The seizure takes one
-  unit and refunds the margin, rounded down to debt-token base units.
-- Otherwise the curve quote stays.
-
-The raised quote is a ceiling. A smaller offer is not raised. An offer that
-backs less than one unit seizes nothing and reverts with `InvalidPayments`
-(`controller #16`). A raised quote is not promoted to full debt, so it can
-leave debt below $5. If neither rule changes the quote, check whether it backs one base unit.
-If it does not, every offer fails until accrual or a price change ends the condition.
-
-In the full-close case the liquidator pays the debt `D` and receives one unit
-worth `U`. Its effective bonus is `U / D - 1`, not the reported
-`bonus_rate_bps`. With `k` held units and liquidation threshold `LT`, it is at
-most about `1 / (k * LT) - 1`. The borrower loses `U - D * (1 + bonus)` above
-the normal bonus. The listing has no liquidation fee. Value the seized unit at
-its price, not at `D * (1 + bonus)`.
-
-Do not size such an offer from the curve formula. Estimate an offer up to the
-debt with `get_liquidation_estimate`, read `max_payment_wad` and `refunds`, and
-sign only the accepted amounts. See
-[math](../xoxno-lending/math.md#seizure-and-fees-per-collateral).
-
-Perform every controller/token read first. Offer exactly the accepted amounts. Authorize each planned
-`transfer(liquidator, pool, amount)`. Call `liquidate` immediately.
-Do not make another outbound contract call between authorization and liquidation. See [contract composition](../xoxno-lending-contracts/composing.md#contract-liquidation).
+Do every controller/token read first, offer exactly the accepted amounts,
+authorize each planned `transfer(liquidator, pool, amount)`, then call
+`liquidate` with no outbound call in between
+([contract composition](../xoxno-lending-contracts/composing.md#contract-liquidation)).
 
 ## 4. Gate on actual net proceeds
 
-Never reconstruct gross collateral as
-`repayment × (1 + bonus)` or cap that reconstruction by account collateral.
-The estimate contains planned legs. It does not prove the final payout.
+Never reconstruct gross collateral as `repayment × (1 + bonus)` or cap it by
+account collateral; the estimate holds planned legs, not the final payout.
 
-Snapshot the account's canonical ordered supply-position list before
-estimating. `seized_collaterals` and `protocol_fees` are index-aligned with
-each other: require equal lengths between those two vectors and the same asset
-at each index.
+Snapshot the ordered supply-position list before estimating.
+`seized_collaterals` and `protocol_fees` must have equal lengths and the same
+asset at each index. They are **not** aligned with the snapshot: legs
+rounding to zero tokens or shares are dropped
+([math](../xoxno-lending/math.md#seizure-and-fees-per-collateral)), so the
+estimate is an ordered **subsequence**. Do not require one leg per position;
+valid dust would stop the bot.
 
-They are **not** index-aligned with the supply snapshot. The contract drops a
-leg whose seizure rounds to zero tokens or zero shares (see
-[math](../xoxno-lending/math.md#seizure-and-fees-per-collateral)), so the estimate is an ordered
-**subsequence** of the supply positions. A borrower can hold a one-unit leg, and
-every partial liquidation of that account then returns fewer legs than
-positions. Do not reject an account because an estimate omits a supply leg.
-Requiring one estimate leg per position can stop the bot on valid dust positions.
+Estimate tuples omit hub IDs. Match assets to positions in stored order; a
+unique match identifies the hub. Keep repeated collateral addresses across
+hubs (do not deduplicate). If dropped legs allow several matches, use the
+lowest compatible value, or stop if unbounded.
 
-Estimate tuples omit hub IDs. Match assets to supply positions in stored
-order. A unique ordered match identifies the hub. If dropped legs permit
-several matches, keep the hub ambiguous. Use the lowest value across
-compatible matches. Stop if you cannot bound the value.
-
-Reject an estimate whose `seized_collaterals` is empty. The contract accepts a
-liquidation that repays debt and seizes nothing, so the liquidator would pay
-and receive no collateral.
-
-Repeated collateral token addresses across different hubs are legitimate:
-preserve the hub from each ordered supply-position entry and do not deduplicate
-those estimate legs. If a repeated token has fewer estimate legs than supply positions, the
-estimate alone cannot identify which hub lost a leg. Use the lower value
-across compatible hub assignments.
-
-Repeated debt-payment token addresses have a separate problem for contract
-liquidators. Refunds and nested transfer authorization cannot identify the
-hub-specific repayment legs.
+Reject empty `seized_collaterals`: the contract accepts a liquidation that
+repays debt and seizes nothing.
 
 For every paired collateral `(hub_id, asset)`:
 
-1. Reject a non-positive seizure leg that is present in the estimate, and a
-   leg that matches no supply position. An absent leg is not an error.
-2. Require `0 <= protocol_fee <= seized_amount`; reject an omitted fee leg
-   instead of silently treating it as zero. In Credit mode a dust leg can carry
-   a fee equal to its seizure; value it at zero instead of rejecting the
-   estimate. In Transfer mode the fee never exceeds the whole units the pool
-   pays above the leg's repayment share.
-3. In Transfer mode, clamp gross tokens to the floor of the held token claim.
-   Compute `net_amount = min(seized_amount, floorHeldTokenClaim) - protocol_fee`.
-   A half-up full-close estimate can show 2 base units for a 1.6-unit claim,
-   while the pool pays only 1. Reject a negative conservative net estimate.
-4. In Credit mode, compute `net_amount = seized_amount - protocol_fee`. These
-   amounts are shares. Subtract fee shares first. Convert the net shares once
-   with the matching market supply index and token decimals. Do not convert gross and fee independently.
-5. Price each net amount with the corresponding contract-address `PriceKey`
-   and decimals, rejecting stale/unsafe prices.
-6. Sum the USD value of conservative net legs, then subtract accepted debt cost,
-   Soroban resource/inclusion fees, trustline/reserve costs, and conservative
-   exit-swap slippage.
+1. Reject a present non-positive seizure leg and a leg matching no position;
+   an absent leg is fine.
+2. Require `0 <= protocol_fee <= seized_amount`; reject an omitted fee leg.
+   A Credit dust leg can carry a fee equal to its seizure: value it at zero.
+   A Transfer fee never exceeds the whole units paid above the leg's
+   repayment share.
+3. Transfer: `net_amount = min(seized_amount, floorHeldTokenClaim) - protocol_fee`
+   (a half-up full-close estimate can show 2 base units for a 1.6-unit claim
+   the pool pays as 1). Reject a negative net.
+4. Credit: `net_amount = seized_amount - protocol_fee` in shares, converted
+   once with the formula above; never convert gross and fee separately.
+5. Price each net amount with its contract-address `PriceKey` and decimals;
+   reject stale/unsafe prices.
+6. Subtract accepted debt cost, Soroban resource/inclusion fees,
+   trustline/reserve costs, and conservative exit slippage from the USD sum.
 
-Execute only when the resulting net profit exceeds the configured margin.
-Re-simulate immediately before signature because prices, indexes, and received
-token amounts can change.
+Execute only above the configured margin; re-simulate immediately before
+signing.
 
 ## 5. Submit one envelope through a terminal state
 
-Persist the original network, signed XDR, and hash before sending.
-
-- For `PENDING` or `DUPLICATE`, poll the original hash.
-- For `TRY_AGAIN_LATER`, check the hash and retry the identical signed XDR.
-- For `NOT_FOUND`, keep checking the original hash. Retry only the original
-  envelope while its timebounds remain valid.
-- Use ledger close time to check expiry. Expiry prevents future inclusion;
-  it does not prove that the transaction was never included.
-- After expiry, resolve the original outcome from retained or complete
-  transaction history. Reconcile the resulting state. If the outcome remains
-  unknown, stop replacement submission.
-- After a resolved failure or proven non-inclusion, refresh sequence,
-  re-estimate, re-simulate, and sign the replacement.
-
-Archived footprint entries are restored inline by protocol 23 when an invoke
-is submitted after simulation. Follow the single canonical rule in
+Persist network, signed XDR, and hash before sending; follow the
+[submission lifecycle](../xoxno-lending-troubleshooting/SKILL.md#submission-lifecycle)
+until the hash is terminal. A replacement also needs a fresh estimate.
+Archived entries:
 [troubleshooting](../xoxno-lending-troubleshooting/SKILL.md#archived-entries).
 
 ## 6. Confirm and reconcile
 
-Confirmation is the original transaction hash reaching `SUCCESS`, not a send
-status. Decode its return (`0` for Transfer, receiving account id for Credit)
-and reconcile:
+Confirmation is the original hash reaching `SUCCESS`. Decode the return
+(`0` for Transfer, receiving account id for Credit) and reconcile:
 
 - controller liquidation and target position batch;
 - optional Credit receiver batch and NFT mint;
@@ -260,33 +189,31 @@ and reconcile:
 - token transfers for Transfer mode;
 - resulting account and market views.
 
-Events are operational evidence, not complete state truth. Missing zero-delta
-batches and interleaved pool/NFT/token events are expected; compare events with
-post-transaction views. Use the canonical ordering and payload definitions in
-[events](../../docs/reference/events.md).
+Events are evidence, not complete state: zero-delta batches can be missing
+and pool/NFT/token events interleave. Compare with post-transaction views.
+Ordering and payloads:
+[events](https://github.com/XOXNO/rs-lending-xlm/blob/main/docs/reference/events.md).
 
 ## Bad debt
 
-`clean_bad_debt` is permissionless. It succeeds only when debt exceeds
-collateral and collateral is at most `BAD_DEBT_USD_THRESHOLD`, a fixed 5 USD
-in WAD. `CannotCleanBadDebt` (`controller #114`) is a legitimate result when
-those conditions do not hold; it is not inherently a collision or a non-user
-error. Post-liquidation cleanup applies the same gate but skips instead of
-reverting. The owner-only `force_socialize_bad_debt` has no collateral cap.
-Always identify the panicking contract before interpreting #114.
+Permissionless `clean_bad_debt` requires debt above collateral and
+collateral at most 5 USD WAD ([gate](../xoxno-lending/math.md#bad-debt-socialization));
+otherwise `CannotCleanBadDebt` (`controller #114`) is a legitimate result.
+Identify the panicking contract first. Post-liquidation cleanup skips instead
+of reverting.
 
-The controller's flash loan cannot fund its own liquidation call.
-The Soroban host rejects re-entry. `liquidate` also rejects an active
-flash loan with `FlashLoanOngoing`. Use inventory or external liquidity.
+A controller flash loan cannot fund a liquidation: the host rejects re-entry,
+and `liquidate` rejects an active flash loan with `FlashLoanOngoing`. Use
+inventory or external liquidity.
 
 ## Completion checks
 
 - [ ] Candidate came from successful events or an explicit API seed.
 - [ ] Cursor and idempotency keys were persisted durably.
 - [ ] Exact payments/mode were estimated and the final write was simulated.
-- [ ] Net profit used conservative net proceeds per asset,
-      including gas, trustline/reserve cost, and exit slippage.
-- [ ] Repeated debt-payment token addresses were rejected for a contract
-      liquidator.
+- [ ] Net profit used conservative per-asset net proceeds, gas,
+      trustline/reserve cost, and exit slippage.
+- [ ] A contract liquidator used
+      [unique debt-token addresses](#unique-debt-token-addresses-for-contract-liquidators).
 - [ ] The original signed envelope/hash was persisted and confirmed.
 - [ ] Events were reconciled with resulting account and market state.

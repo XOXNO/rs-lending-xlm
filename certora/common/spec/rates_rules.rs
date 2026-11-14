@@ -72,9 +72,9 @@ fn utilization_zero_when_supplied_zero(e: Env, borrowed: i128) {
 /// returns `RAY` by comparison, without dividing.
 ///
 /// This half runs on the inlined compiler-builtins limb code (`__multi3`,
-/// `__udivti3`). `docs/explanation/certora-sunbeam-prover-tuning.md` §9.7 names
-/// that code as a plausible source of a spurious `util > RAY` counterexample on
-/// the unsplit rule; the split shows which half produces it.
+/// `__udivti3`). `certora/README.md` ("Known prover limits") names that code
+/// as the likely source of a spurious `util > RAY` counterexample on the
+/// unsplit rule; the split shows which half produces it.
 #[rule]
 fn utilization_bounded_when_borrowed_lte_supplied_native(e: Env, borrowed: i128, supplied: i128) {
     cvlr_assume!((0..=100 * RAY).contains(&borrowed));

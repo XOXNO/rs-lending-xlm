@@ -9,7 +9,7 @@
 # 'all'/'find'"). The calls themselves go to
 # `core.iter.traits.iterator.Iterator.{all,find}.default` directly, so the
 # fix deletes the two field definitions from the instance and nothing else.
-# See ../docs/controller.md ("Aeneas issues").
+# See ../docs/extraction.md ("Aeneas issues").
 set -euo pipefail
 f="$1/Funs.lean"
 python3 - "$f" <<'PY'

@@ -1,8 +1,8 @@
 # Transactions: builders and canonical lifecycle
 
-Companion to [SKILL.md](SKILL.md). This is the single lifecycle used by
-scripts and frontends. Every builder on this page is synchronous and returns
-`{ xdr }`: one unsigned, unprepared controller invocation.
+Companion to [SKILL.md](SKILL.md); one lifecycle for scripts and frontends.
+Every builder is synchronous and returns `{ xdr }`: one unsigned, unprepared
+controller invocation.
 
 ## Builder options and identifiers
 
@@ -19,47 +19,45 @@ interface StellarLendingBuilderOptions {
 
 - `sourceSequence` comes from
   `(await server.getAccount(caller)).sequenceNumber()`.
-- `accountNonce` is the lending account id / position-NFT token id from a
-  selected account. It is unrelated to `sourceSequence`.
+- `accountNonce`: selected lending account id / position-NFT token id,
+  unrelated to `sourceSequence`.
 - `accountNonce: '0'` (or omitted) opens an account only in supply and
-  multiply. `migrate_from_blend` opens one with `accountId: '0'`. Borrow,
-  withdraw, repay, liquidation, `swap_debt`, `swap_collateral`, and
-  `repay_debt_with_collateral` require an existing id.
-- `spokeId`, `hubId`, and `asset` come from the selected reserve/account
-  coordinates. An account id does not encode a spoke.
-- Builder amounts are decimal `i128` strings in token base units.
+  multiply; `migrate_from_blend` uses `accountId: '0'`. Borrow, withdraw,
+  repay, liquidation, `swap_debt`, `swap_collateral`, and
+  `repay_debt_with_collateral` need an existing id.
+- `spokeId`, `hubId`, `asset`: from the selected reserve/account.
 
-Defaults are `fee: '100'` stroops and `timeoutSeconds: 300`. The XOXNO
-frontend uses `fee: '100000'` and `timeoutSeconds: 300`; preparation adds the
-Soroban resource fee.
+Defaults: `fee: '100'` stroops, `timeoutSeconds: 300`. The XOXNO frontend uses
+`fee: '100000'`, `timeoutSeconds: 300`; preparation adds the Soroban resource
+fee.
 
 ## User builders and ABI intent
 
 - `buildStellarSupplyTx` / `buildStellarSupplyBatchTx`: supply on a spoke;
   omitted/zero `accountNonce` opens an account.
-- `buildStellarBorrowTx` / batch: borrow from an existing account; optional
-  `to` defaults to caller.
-- `buildStellarWithdrawTx` / batch: withdraw from an existing account.
-  `amount: '0'` is the withdraw-all sentinel.
-- `buildStellarRepayTx` / batch: repay an existing account. There is no
-  repay-all sentinel; a payment at or above the debt (rounded up) burns all
-  debt shares and refunds any excess.
-- `buildStellarLiquidateTx`: repay target debt and choose `'Transfer'`,
-  `{ Credit: 0 }`, or `{ Credit: existingId }` seizure mode.
-- `buildStellarFlashLoanTx`: `data` is hex or `Uint8Array`; do not pass
-  base64, which may be silently truncated by hex decoding.
+- `buildStellarBorrowTx` / batch: existing account; optional `to` defaults to
+  caller.
+- `buildStellarWithdrawTx` / batch: existing account; `amount: '0'` withdraws
+  all.
+- `buildStellarRepayTx` / batch: existing account. No repay-all sentinel; a
+  payment at or above the debt (rounded up) burns all debt shares and refunds
+  the excess.
+- `buildStellarLiquidateTx`: repays target debt; seizure mode `'Transfer'`,
+  `{ Credit: 0 }`, or `{ Credit: existingId }`.
+- `buildStellarFlashLoanTx`: `data` is hex or `Uint8Array`; never base64,
+  which hex decoding may silently truncate.
 - `buildStellarMultiplyTx`, `buildStellarSwapDebtTx`,
   `buildStellarSwapCollateralTx`, and
   `buildStellarRepayDebtWithCollateralTx`: see
   [strategies.md](strategies.md).
-- `buildStellarMigrateFromBlendTx`: migration coordinates refer to the XOXNO
-  destination; Blend assets are bare token addresses.
+- `buildStellarMigrateFromBlendTx`: coordinates name the XOXNO destination;
+  Blend assets are bare token addresses.
 
-The exact controller signatures, option encoding, and return types are in
-[../xoxno-lending-contracts/abi.md](../xoxno-lending-contracts/abi.md).
-Controller methods without a dedicated 1.0.228 builder can use the exported
-`buildTx(opts, method, params)` with ScVals encoded by the host's
-`@stellar/stellar-sdk`; verify the ABI first.
+Controller signatures, option encoding, and return types:
+[../xoxno-lending-contracts/abi.md](../xoxno-lending-contracts/abi.md). Methods
+without a builder: verify the ABI, then call the exported
+`buildTx(opts, method, params)` with ScVals from the host's
+`@stellar/stellar-sdk`.
 
 ## Canonical lifecycle
 
@@ -67,22 +65,21 @@ Controller methods without a dedicated 1.0.228 builder can use the exported
    `(accountId, spokeId, hubId, asset)` coordinates.
 2. Fetch the source account immediately before building.
 3. Build unsigned XDR with its current sequence and fresh timebounds.
-4. Prepare through the host RPC with `prepareStellarBuiltTx`.
-5. Sign **only the prepared XDR** using the matching network passphrase.
-6. Verify that the wallet signed the prepared transaction without changing it.
-7. Persist the original network, signed envelope, and hash before sending.
+4. Prepare via host RPC with `prepareStellarBuiltTx`.
+5. Sign **only the prepared XDR** with the matching network passphrase.
+6. Verify the wallet signed it unchanged.
+7. Persist network, signed envelope, and hash before sending.
 8. Submit the signed envelope.
 9. Poll the original hash after `PENDING`, `DUPLICATE`, or `TRY_AGAIN_LATER`.
 10. Keep the outcome unknown after transport errors or polling limits.
 11. Confirm ledger `SUCCESS` or `FAILED` for that hash.
-12. After `SUCCESS`, reconcile the returned account id, indexed positions, and current NFT owner.
+12. After `SUCCESS`, reconcile returned account id, indexed positions, and NFT owner.
 
-Always pass an explicit `attempts` value to `pollTransaction`. A bounded poll
-that finds no transaction is not proof of failure.
+Always pass explicit `attempts` to `pollTransaction`; a bounded poll that
+finds nothing does not prove failure.
 
-The helper below is for the first submission of a newly signed transaction.
-Recovery must use the original record and the policy below; do not treat a retry
-rejection as proof that the original failed.
+The helper covers only a first submission; recovery uses the original record
+and the policy below.
 
 ```ts
 import { Transaction, TransactionBuilder, rpc } from '@stellar/stellar-sdk'
@@ -135,57 +132,55 @@ export async function submitPreparedSigned(
 }
 ```
 
-The caller supplies durable storage and the RPC for the selected network.
-The helper cannot prove that input XDR was prepared or that the RPC matches the
-network; the host must enforce both. A signature's presence and an unchanged
-hash are local checks, not cryptographic verification of the signer identity.
-Only ledger `SUCCESS` proves execution.
+The caller supplies durable storage and the selected network's RPC. The
+helper cannot prove the input was prepared or the RPC matches the network; the
+host enforces both. Signature presence and an unchanged hash are local checks,
+not signer verification. Only ledger `SUCCESS` proves execution.
 
 Keep the pending record through reloads and mobile app switching. Mark it
-terminal after `SUCCESS`, `FAILED`, or a definitive first-send rejection.
-Retain rejection diagnostics. Local parsing, preparation, or signing failures
-before send do not submit anything.
+terminal after `SUCCESS`, `FAILED`, or a definitive first-send rejection;
+keep rejection diagnostics. Failures before send submit nothing.
 
-`UNKNOWN` means send failed in transport, polling failed, or lookup stayed
-`NOT_FOUND`. It does not authorize a new transaction:
+`UNKNOWN` (send transport failure, polling failure, or persistent `NOT_FOUND`)
+never authorizes a new transaction:
 
 1. Query the original hash on the recorded network's RPC.
-2. If retrying submission, send the exact original signed XDR and keep its hash.
-3. A retry `ERROR` does not prove that the original failed.
-4. Do not sign a replacement while the original envelope remains valid.
-5. After expiry, resolve the original hash and reconcile retained transaction
-   history and account state before deciding whether a replacement is needed.
-6. If available history cannot prove the outcome, keep the operation unresolved.
-   Do not automatically repeat it.
+2. To retry, resend the exact original signed XDR; keep its hash.
+3. A retry `ERROR` does not prove the original failed.
+4. Never sign a replacement while the original envelope is valid.
+5. After expiry, resolve the original hash and reconcile retained history and
+   account state before deciding on a replacement.
+6. If history cannot prove the outcome, keep it unresolved; never auto-repeat.
 
-XDR does not contain a network passphrase. Recovery uses the stored network even
-if the wallet has switched. Expiry prevents future inclusion; it does not prove
-that the transaction was never included. Serialize transactions from one Stellar
-source account to avoid sequence races.
+XDR carries no network passphrase: recover on the stored network even if the
+wallet switched. Expiry blocks future inclusion but does not prove
+non-inclusion. Serialize transactions per source account to avoid sequence
+races.
 
 ## Error interpretation
 
-Use the contract-specific catalog in
-[../xoxno-lending-troubleshooting/SKILL.md](../xoxno-lending-troubleshooting/SKILL.md).
-Numeric codes overlap between controller, pool, router, NFT, governance, and
+Catalog: [../xoxno-lending-troubleshooting/SKILL.md](../xoxno-lending-troubleshooting/SKILL.md).
+Numeric codes overlap across controller, pool, router, NFT, governance, and
 DEX contracts.
 
 `invokedContractId` on `prepareStellarBuiltTx` prefixes a preparation error
-with the contract id you pass, normally the **top-level** contract. Resolve
-the actual emitter from diagnostics. Read its address and error from the same
-entry. An earlier handled error can belong to another contract. Therefore:
+with the id you pass, normally the **top-level** contract; a controller-tagged
+strategy can fail in the pool, router, or a DEX. Resolve the emitter from
+diagnostics, reading address and error from the same entry, and trace
+propagated and handled nested failures (an earlier handled error can belong
+to another contract). So:
 
-- map a code only when diagnostics identify the emitting contract, or when the
-  top-level contract itself is proven to be the emitter;
-- leave nested failures unmapped when diagnostics do not identify the emitter;
-- preserve the raw diagnostic events and numeric code;
-- never turn a top-level controller tag into controller attribution for a pool
-  or router failure.
+- map a code only when diagnostics identify the emitter, or the top-level
+  contract is proven to be it;
+- otherwise leave nested failures unmapped;
+- preserve raw diagnostic events and the numeric code;
+- never attribute a pool or router failure to the controller because of the
+  top-level tag.
 
-`mapSorobanError(raw)` is a partial, contract-blind lending catalog. `null`
-means unknown/unparsed, not “no error.” A safe fallback is
+`mapSorobanError(raw)` is a partial, contract-blind catalog; never call it just
+because the top-level tag is the controller. `null` means unknown/unparsed,
+not “no error.” Safe fallback:
 `Nested contract error #N; emitting contract not identified` plus the raw
 diagnostic for operators.
 
-The canonical completion checklist is
-[SKILL.md#completion-gates](SKILL.md#completion-gates).
+Completion checklist: [SKILL.md#completion-gates](SKILL.md#completion-gates).

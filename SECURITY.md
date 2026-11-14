@@ -6,24 +6,27 @@ putting users at risk.
 
 ## Report privately
 
-Do not open a public issue, pull request, discussion, or social-media post for
-a suspected vulnerability.
+Do not report a suspected vulnerability in a public issue, pull request,
+discussion, or social-media post. Use one of these channels:
 
-Email [security@xoxno.com](mailto:security@xoxno.com). Encrypt sensitive
-details when possible; a PGP key is available on request.
+- To claim a bounty, submit the report through the
+  [XOXNO bug bounty on Immunefi](https://immunefi.com/bug-bounty/xoxno/information/).
+- For other reports, email [security@xoxno.com](mailto:security@xoxno.com).
+  Encrypt sensitive details with our
+  [PGP key](.github/security-pgp-key.asc), fingerprint
+  `E6CD 3011 03A0 CF06 96C4 57F5 35F6 978D 1310 C877`.
 
-A useful report includes:
+Include:
 
-- a clear description of the issue and its practical impact;
+- the issue and its practical impact;
 - a minimal reproduction or proof of concept;
 - the affected revision or release, ideally a commit SHA;
-- the relevant environment, network, and contract addresses where applicable;
-- observed behavior, expected behavior, and any assumptions needed to trigger
-  the issue; and
+- the environment, network, and contract addresses where applicable;
+- observed and expected behavior, and any assumptions needed to trigger it;
 - whether any part of the issue is already public.
 
 Do not access, modify, or disclose another person's data. Stop once you have
-enough evidence to demonstrate impact.
+enough evidence to show impact.
 
 ## What to expect
 
@@ -35,6 +38,13 @@ enough evidence to demonstrate impact.
 | Coordinated disclosure | 90 days from report, unless we agree otherwise |
 
 We may credit reporters in release notes with their consent.
+
+## Bug bounty
+
+The [Immunefi program page](https://immunefi.com/bug-bounty/xoxno/information/)
+sets the assets in scope, the reward for each severity and the submission
+rules. Where this policy and the program page differ on a bounty question, the
+program page applies.
 
 ## Scope
 
@@ -61,8 +71,8 @@ authorization boundary, accounting rule, price guarantee, or liveness property.
 ## Supported versions
 
 Security fixes target the latest tag on main. Mainnet follows that release;
-testnet may run release candidates. If you are unsure whether a deployment is
-affected, include its network and contract addresses in the private report.
+testnet may run release candidates. If unsure whether a deployment is
+affected, include its network and contract addresses in the report.
 
 ## Safe harbor
 
@@ -77,21 +87,11 @@ this policy and:
 This policy does not authorize activity that violates law, targets third-party
 systems, or places user assets or data at risk.
 
-## Audit status
+## Audits
 
-Published audit material, when available, is linked with the relevant release.
-Repository documentation describes the current design and threat model; it is
-not a substitute for independent review of deployed contracts and active
-configuration.
+| Auditor | Scope | Commit | Engagement | Report |
+|---|---|---|---|---|
+| Runtime Verification | Core contracts and `common/` | `a2486b25` (`v1.1.0`) | 2026-09-30 to 2026-11-13 | [PDF](audits/2026-11-runtime-verification.pdf) |
 
-## Dependency maintenance
-
-Reviewed 2026-10-09: accept and track RUSTSEC-2024-0436 for `paste` 1.0.15
-in the root and fuzz lockfiles. It is an unmaintained build-time proc-macro
-pulled in by the Soroban SDK dependency tree, with no fixed release. Recheck
-this exception when upgrading the SDK or when an upstream replacement becomes
-available.
-
-Run workflow audits with `zizmor .github`. This scopes the scan to this
-repository's active workflows and Dependabot configuration; workflow files
-under `vendor/` are upstream source and GitHub does not execute them here.
+An audit covers only the commit in its scope; compare it with the release you
+use.

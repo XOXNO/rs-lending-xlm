@@ -15,7 +15,7 @@
 # two `Copy` parent clauses (`Self: Copy`, `Self::NonZeroInner: Copy`).
 # Aeneas names both `markerCopyInst`, which Lean rejects
 # ("field 'markerCopyInst' has already been declared"). It is reached through
-# `NonZeroU64::new`/`get` in `interest::global_sync`. See docs/pool.md
+# `NonZeroU64::new`/`get` in `interest::global_sync`. See docs/extraction.md
 # ("Aeneas bug: duplicate parent-clause field").
 #
 # The fix renames the SECOND field to `markerCopyInst1` in exactly three

@@ -68,10 +68,6 @@ EXTERNAL_SYMBOLS = {
 # Per-file allowances. Each entry is a name the file cites deliberately even
 # though no such item exists in any source we can see; the comment says why.
 FILE_ALLOW = {
-    # Edge and node types of the codebase-memory MCP graph, named while
-    # explaining what that graph does and does not model. They are labels in an
-    # external index, not items in this source tree.
-    "CLAUDE.md": {"CALLS"},
     # Fragments used to illustrate the test-naming convention
     # (test_<entry>_<condition>_<expected>), not whole test names.
     "tests/test-harness/tests/README.md": {
@@ -84,8 +80,8 @@ FILE_ALLOW = {
 
 
 # Skill directories that document a service living in another repository: the
-# public REST API (xoxno-api-v2) and the swap-aggregator quote server
-# (arb-algo / stellar-indexer). Their names -- NestJS DTOs and pipes, quote
+# public REST API (the XOXNO public API) and the swap-aggregator quote server
+# (the XOXNO quote server). Their names -- NestJS DTOs and pipes, quote
 # server structs and env vars -- are real, but nothing in this repo defines
 # them, so the check cannot resolve them and there is no local code for them to
 # go stale against. Scoped to these two trees, not all of skills/: the other

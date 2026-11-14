@@ -10,7 +10,7 @@ Generated from `configs/networks.json` and `configs/<network>/*.json` in the pro
 - Network passphrase: `Public Global Stellar Network ; September 2015`
 - RPC gateway used by XOXNO clients: `https://stellar-gateway.xoxno.com`
 - Quote server (swap aggregator API): `https://stellar-swap.xoxno.com`
-- XOXNO API (xoxno-api-v2): `https://api.xoxno.com`
+- XOXNO public API: `https://api.xoxno.com`
 - Deployment recorded at ledger `64140891`; timelock min delay `12` ledgers
 
 ### Contracts
@@ -36,7 +36,7 @@ Generated from `configs/networks.json` and `configs/<network>/*.json` in the pro
 | On-chain `hub_id` | Name | Markets |
 |---|---|---|
 | 1 | Core | XLM, USDC, EURC, PYUSD, USDT0, SolvBTC, xSolvBTC |
-| 2 | RWA | USST, SPIKOEUTBL, SPIKOUSTBL, SPIKOUKTBL, SPIKOSAFO, SPIKOEURSAFO, SPIKOGBPSAFO, DEJTRSY, DEJAAA, USTRY, CETES, USDY, XAUM |
+| 2 | RWA | USST, DEJTRSY, DEJAAA, USTRY, CETES, USDY, XAUM |
 | 3 | AMM | AQUA, XLMUSDC_LP, XLMSolvBTC_LP, xSolvBTCSolvBTC_LP, CETESUSDC_LP, USTRYUSDC_LP, USDYUSDC_LP, XAUMUSDC_LP, PYUSDUSDC_LP, XLMAQUA_LP, AQUAUSDC_LP |
 
 ### Markets (`HubAssetKey { hub_id, asset }`)
@@ -49,12 +49,6 @@ Generated from `configs/networks.json` and `configs/<network>/*.json` in the pro
 | PYUSD | 1 | `CCCRWH6Q3FNP3I2I57BDLM5AFAT7O6OF6GKQOC6SSJNDAVRZ57SPHGU2` | 7 |
 | USDT0 | 1 | `CBSJZEIO5C7KC2SF3MKSNXXJSW5G3VTNBX4ATMKUI3B2MR4JKM4R26YF` | 7 |
 | USST | 2 | `CBZ4DCE7PYMUTOAKKUTRSUPT3FJFVOWCSKWUM5A72D6SAVMUJE5JN2PJ` | 18 |
-| SPIKOEUTBL | 2 | `CBGV2QFQBBGEQRUKUMCPO3SZOHDDYO6SCP5CH6TW7EALKVHCXTMWDDOF` | 5 |
-| SPIKOUSTBL | 2 | `CARUUX2FZNPH6DGJOEUFSIUQWYHNL5AVDV7PMVSHWL7OBYIBFC76F4TO` | 5 |
-| SPIKOUKTBL | 2 | `CDT3KU6TQZNOHKNOHNAFFDQZDURVC3MSTL4ML7TUTZGNOPBZCLABP4FR` | 5 |
-| SPIKOSAFO | 2 | `CDGSC6BA4TCAOVSFQCUEHDMOIIHYYVNYBT6YEARS4MX3ITAHUINVGQHX` | 5 |
-| SPIKOEURSAFO | 2 | `CBOOCGZSVRSZFRE4U2NWR2B4RXYVJWRCBTGOUD2JPI2TDJPWMTJX7FZP` | 5 |
-| SPIKOGBPSAFO | 2 | `CAGYRRKPFSWKM6SJOE4QAAVYMOSHMDS5WOQ4T5A2E6XNCU7LZZKUNQKP` | 5 |
 | DEJTRSY | 2 | `CBI7UCH5KGSVQRO5H4SUCZUTZABCITZLRHQQZTWL2TK4RZ72TAR6IHRV` | 18 |
 | DEJAAA | 2 | `CC64WBDGS6QQP22QTTIACYIXT3WF7BBQEYOQPLTP7GTKYY7PZ74QYGSL` | 18 |
 | USTRY | 2 | `CBLV4ATSIWU67CFSQU2NVRKINQIKUZ2ODSZBUJTJ43VJVRSBTZYOPNUR` | 7 |
@@ -86,7 +80,7 @@ Live listing parameters: `get_spoke_asset(spoke_id, hub_asset)`.
 | 1 | Blue Chip | 1 | XLM@hub1, USDC@hub1, EURC@hub1, PYUSD@hub1, USDT0@hub1, SolvBTC@hub1, xSolvBTC@hub1 |
 | 2 | Etherfuse RWA | 2 | USTRY@hub2, CETES@hub2, USDC@hub1, XLM@hub1, EURC@hub1, PYUSD@hub1 |
 | 3 | Centrifuge RWA | 4 | DEJTRSY@hub2, DEJAAA@hub2, USDC@hub1, XLM@hub1, EURC@hub1, PYUSD@hub1 |
-| 4 | Stables & FX | 5 | USDC@hub1, EURC@hub1, PYUSD@hub1, USDT0@hub1, USST@hub2, USDY@hub2, SPIKOEUTBL@hub2, SPIKOUSTBL@hub2, SPIKOUKTBL@hub2, SPIKOSAFO@hub2, SPIKOEURSAFO@hub2, SPIKOGBPSAFO@hub2 |
+| 4 | Stables & FX | 5 | USDC@hub1, EURC@hub1, PYUSD@hub1, USDT0@hub1, USST@hub2, USDY@hub2 |
 | 5 | AMM Collateral | 6 | XLMUSDC_LP@hub3, XLMSolvBTC_LP@hub3, xSolvBTCSolvBTC_LP@hub3, CETESUSDC_LP@hub3, USTRYUSDC_LP@hub3, USDYUSDC_LP@hub3, PYUSDUSDC_LP@hub3, XLMAQUA_LP@hub3, AQUAUSDC_LP@hub3, USDC@hub1, EURC@hub1, XLM@hub1, PYUSD@hub1 |
 | 6 | Ondo RWA | 7 | USDY@hub2, USDYUSDC_LP@hub3, USDC@hub1, EURC@hub1, XLM@hub1, PYUSD@hub1 |
 | 7 | Commodities | 8 | XAUM@hub2, XAUMUSDC_LP@hub3, USDC@hub1, EURC@hub1, XLM@hub1, PYUSD@hub1 |
@@ -108,7 +102,7 @@ Blend pool factory v2: `CDSYOAVXFY7SM5S64IZPPPYB4GVGGLMQVFREPSQQEZVIWXX5R23G4QSU
 - Network passphrase: `Test SDF Network ; September 2015`
 - RPC gateway used by XOXNO clients: `https://stellar-testnet-gateway.xoxno.com`
 - Quote server (swap aggregator API): `https://testnet-stellar-swap.xoxno.com`
-- XOXNO API (xoxno-api-v2): `https://testnet-api.xoxno.com`
+- XOXNO public API: `https://testnet-api.xoxno.com`
 - Deployment recorded at ledger `4037973`; timelock min delay `12` ledgers
 
 ### Contracts

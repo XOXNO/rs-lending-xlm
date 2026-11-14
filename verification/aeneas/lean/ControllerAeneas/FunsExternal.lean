@@ -21,7 +21,7 @@
 --   longer than one it was given, so the limit cannot be reached.
 -- * The Soroban SDK `Map<K, V>` methods (association-list model, see the Map
 --   section) and the controller `Context` reads and effects (see the Context
---   section): documented one by one below and in `docs/controller.md`.
+--   section): documented one by one below and in `docs/extraction.md`.
 module
 public import Aeneas
 public import ControllerAeneas.Types
