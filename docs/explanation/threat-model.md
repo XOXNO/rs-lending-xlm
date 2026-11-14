@@ -11,9 +11,8 @@ defines precise safety properties.
 ## Audit coverage
 
 Runtime Verification audited the core contracts and `common/` at `v1.1.0`.
-[audits/README.md](../../audits/README.md) links the report and lists the
-status of each finding. This document cites findings by their public ids, for
-example audit finding S-03.
+The [report](../../audits/2026-11-runtime-verification.pdf) is in `audits/`.
+This document cites findings by their ids, for example audit finding S-03.
 
 ## Assets and trust roots
 

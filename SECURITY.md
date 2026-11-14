@@ -96,10 +96,5 @@ systems, or places user assets or data at risk.
 |---|---|---|---|---|
 | Runtime Verification | Core contracts and `common/` | `a2486b25` (`v1.1.0`) | 2026-09-30 to 2026-11-13 | [PDF](audits/2026-11-runtime-verification.pdf) |
 
-[audits/README.md](audits/README.md) lists each finding and its status. Fix
-commits cite the finding ID, and the
-[Aeneas proofs](verification/aeneas/README.md) cite the findings that their
-theorems cover.
-
 An audit covers the commit in its scope. Compare that commit with the release
 that you use.
