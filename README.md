@@ -24,27 +24,7 @@ pools. XOXNO Lending separates where liquidity sits from where risk is taken:
 
 ## How it works
 
-```mermaid
-flowchart LR
-  subgraph S["Spokes: isolated risk profiles"]
-    BC["Blue Chip<br/>XLM · BTC"]
-    EF["Etherfuse RWA<br/>CETES · USTRY"]
-    CM["Commodities<br/>XAUm"]
-    AC["AMM Collateral<br/>Aquarius LP"]
-  end
-  subgraph H["Hubs: where liquidity sits"]
-    Core["Core<br/>USDC · EURC · PYUSD · USDT0 · XLM · SolvBTC"]
-    RWA["RWA<br/>CETES · USTRY · USDY · XAUm"]
-    AMM["AMM<br/>AQUA · Aquarius LP shares"]
-  end
-  BC -- borrows --> Core
-  EF -- borrows --> Core
-  CM -- borrows --> Core
-  AC -- borrows --> Core
-  EF -. collateral .-> RWA
-  CM -. collateral .-> RWA
-  AC -. collateral .-> AMM
-```
+![Spokes borrow liquidity from the Core hub; their collateral is held in the RWA and AMM hubs](docs/assets/hub-and-spoke.svg)
 
 - A **hub** holds liquidity: one book per asset, with its own interest rate.
 - A **spoke** is a risk profile. It lists hub assets as collateral or debt,
