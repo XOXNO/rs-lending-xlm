@@ -60,12 +60,14 @@ jobs:
 
       - name: Install elan
         run: |
-          curl -fsSL -o "$RUNNER_TEMP/elan.tar.gz" \
-            "https://github.com/leanprover/elan/releases/download/${ELAN_VERSION}/elan-x86_64-unknown-linux-gnu.tar.gz"
-          echo "${ELAN_SHA256}  $RUNNER_TEMP/elan.tar.gz" | sha256sum -c -
-          tar -xzf "$RUNNER_TEMP/elan.tar.gz" -C "$RUNNER_TEMP"
-          "$RUNNER_TEMP/elan-init" -y --no-modify-path --default-toolchain none
-          echo "$HOME/.elan/bin" >> "$GITHUB_PATH"
+          if ! command -v elan >/dev/null; then
+            curl -fsSL -o "$RUNNER_TEMP/elan.tar.gz" \
+              "https://github.com/leanprover/elan/releases/download/${ELAN_VERSION}/elan-x86_64-unknown-linux-gnu.tar.gz"
+            echo "${ELAN_SHA256}  $RUNNER_TEMP/elan.tar.gz" | sha256sum -c -
+            tar -xzf "$RUNNER_TEMP/elan.tar.gz" -C "$RUNNER_TEMP"
+            "$RUNNER_TEMP/elan-init" -y --no-modify-path --default-toolchain none
+            echo "$HOME/.elan/bin" >> "$GITHUB_PATH"
+          fi
 
       - name: Extract, check drift and build proofs
         working-directory: verification/aeneas
