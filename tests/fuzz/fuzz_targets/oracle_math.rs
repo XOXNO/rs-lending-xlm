@@ -64,8 +64,13 @@ fn value_wad(l: &LpLeg) -> Option<i128> {
 /// `actual` against a float bound, with relative slack for float error and a few
 /// units for integer rounding.
 fn within(actual: i128, bound: f64, upper: bool) -> bool {
+    within_by(actual, bound, upper, 0.0)
+}
+
+/// `within` plus `extra` absolute slack for a known integer error upstream.
+fn within_by(actual: i128, bound: f64, upper: bool, extra: f64) -> bool {
     let a = actual as f64;
-    let slack = bound.abs() * 1e-9 + 4.0;
+    let slack = bound.abs() * 1e-9 + 4.0 + extra;
     if upper {
         a <= bound + slack
     } else {
@@ -99,7 +104,10 @@ fn check_stable(env: &Env, i: &In, a: &LpLeg, b: &LpLeg, supply: &LpSupply, any_
         "stable LP price depends on leg order: a={a:?} b={b:?} supply={supply:?} amp={amp1}"
     );
     if let Ok(p) = st1 {
-        // D lies between 2*sqrt(xa*xb) and xa + xb.
+        // The real D lies between 2*sqrt(xa*xb) and xa + xb. The solver returns
+        // an integer D with D* - 1 < D <= D* + 5 (`solve_stable_d_spec`), and
+        // each unit of D moves the price by `per_share`. At dust reserves that
+        // unit dominates the 4-unit price slack.
         if let (Some(xa), Some(xb), Some(shares_wad)) = (
             to_wad(a.reserve, a.decimals),
             to_wad(b.reserve, b.decimals),
@@ -109,11 +117,11 @@ fn check_stable(env: &Env, i: &In, a: &LpLeg, b: &LpLeg, supply: &LpSupply, any_
             let upper = (xa as f64 + xb as f64) * per_share;
             let lower = 2.0 * (xa as f64).sqrt() * (xb as f64).sqrt() * per_share;
             assert!(
-                within(p, upper, true),
+                within_by(p, upper, true, 5.0 * per_share),
                 "stable LP price {p} above arithmetic bound {upper}"
             );
             assert!(
-                within(p, lower, false),
+                within_by(p, lower, false, per_share),
                 "stable LP price {p} below geometric bound {lower}"
             );
         }
