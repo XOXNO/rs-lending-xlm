@@ -115,6 +115,13 @@ exclude_re = [
     # two forms agree on every reachable input.
     "replace && with \\|\\| in apply_canceller_reset",
 
+    # --- EQUIVALENT: `^` equals `|` on disjoint role bits -------------------
+    # ROLE_MARKET, ROLE_SPOKE and ROLE_FLAGS are the bits 1, 2 and 4. On bits
+    # that share nothing, `a ^ b == a | b`: `ROLE_MASK` stays 7 under either
+    # swap (`^` binds tighter than `|`), and `ROLE_MARKET ^ ROLE_FLAGS` is 5.
+    "curator/src/lib.rs:[0-9]+:(47|60): replace \\| with \\^$",
+    "curator/src/ops.rs:[0-9]+:60: replace \\| with \\^ in cancel_proposal$",
+
     # --- UNREVIEWED: possible test gaps, not shown equivalent -----------------
     # Write the test that kills each entry, or move the entry to a group above
     # with the reason it is equivalent.
