@@ -2,6 +2,13 @@ use super::*;
 use crate::constants::WAD_DECIMALS;
 use soroban_sdk::{Env, U256};
 
+// The LP pricing modules have no test mount of their own; their guard tests
+// ride on this one, the oracle test module the crate already compiles.
+#[path = "lp.rs"]
+mod lp;
+#[path = "lp_stable.rs"]
+mod lp_stable;
+
 #[test]
 fn is_stale_false_at_exact_max_age() {
     assert!(!is_stale(160, 100, 60));
