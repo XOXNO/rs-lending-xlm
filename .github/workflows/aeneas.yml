@@ -27,7 +27,6 @@ permissions:
 env:
   AENEAS_RELEASE: nightly-2026.11.12-0d21a9e
   AENEAS_SHA256: 29cc52d27f066f6b1ec3c77ffba7b9f8885d6c641927abc93d2c8fbe991f2c6f
-  CHARON_TOOLCHAIN: nightly-2026-09-17
   ELAN_VERSION: v4.2.4
   ELAN_SHA256: 42b94d4244e8353142c456ec0e4ca6528fd898a6c604d4059f494e706e431f63
 
@@ -45,7 +44,10 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Install Charon toolchain
-        run: rustup toolchain install "$CHARON_TOOLCHAIN" --profile minimal -c rustc-dev -c llvm-tools -c rust-src
+        uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
+        with:
+          toolchain: nightly-2026-09-17
+          components: rustc-dev, llvm-tools, rust-src
 
       - name: Install Aeneas
         run: |
