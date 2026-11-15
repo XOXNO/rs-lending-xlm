@@ -1,0 +1,70 @@
+name: Aeneas Proofs
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "common/src/**"
+      - "contracts/pool/src/**"
+      - "contracts/controller/src/**"
+      - "Cargo.toml"
+      - "verification/aeneas/**"
+      - ".github/workflows/aeneas.yml"
+  pull_request:
+    branches: [master, main, feat/*, rc/*]
+    paths:
+      - "common/src/**"
+      - "contracts/pool/src/**"
+      - "contracts/controller/src/**"
+      - "Cargo.toml"
+      - "verification/aeneas/**"
+      - ".github/workflows/aeneas.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  AENEAS_RELEASE: nightly-2026.11.12-0d21a9e
+  AENEAS_SHA256: 29cc52d27f066f6b1ec3c77ffba7b9f8885d6c641927abc93d2c8fbe991f2c6f
+  CHARON_TOOLCHAIN: nightly-2026-09-17
+  ELAN_VERSION: v4.2.4
+  ELAN_SHA256: 42b94d4244e8353142c456ec0e4ca6528fd898a6c604d4059f494e706e431f63
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  aeneas:
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    name: Aeneas Proofs
+    runs-on: [self-hosted, xoxno]
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install Charon toolchain
+        run: rustup toolchain install "$CHARON_TOOLCHAIN" --profile minimal -c rustc-dev -c llvm-tools -c rust-src
+
+      - name: Install Aeneas
+        run: |
+          curl -fsSL -o "$RUNNER_TEMP/aeneas.tar.gz" \
+            "https://github.com/AeneasVerif/aeneas/releases/download/${AENEAS_RELEASE}/aeneas-linux-x86_64.tar.gz"
+          echo "${AENEAS_SHA256}  $RUNNER_TEMP/aeneas.tar.gz" | sha256sum -c -
+          rm -rf "$RUNNER_TEMP/aeneas" && mkdir -p "$RUNNER_TEMP/aeneas"
+          tar -xzf "$RUNNER_TEMP/aeneas.tar.gz" -C "$RUNNER_TEMP/aeneas"
+          echo "AENEAS_HOME=$RUNNER_TEMP/aeneas" >> "$GITHUB_ENV"
+
+      - name: Install elan
+        run: |
+          curl -fsSL -o "$RUNNER_TEMP/elan.tar.gz" \
+            "https://github.com/leanprover/elan/releases/download/${ELAN_VERSION}/elan-x86_64-unknown-linux-gnu.tar.gz"
+          echo "${ELAN_SHA256}  $RUNNER_TEMP/elan.tar.gz" | sha256sum -c -
+          tar -xzf "$RUNNER_TEMP/elan.tar.gz" -C "$RUNNER_TEMP"
+          "$RUNNER_TEMP/elan-init" -y --no-modify-path --default-toolchain none
+          echo "$HOME/.elan/bin" >> "$GITHUB_PATH"
+
+      - name: Extract, check drift and build proofs
+        working-directory: verification/aeneas
+        run: ./run.sh
