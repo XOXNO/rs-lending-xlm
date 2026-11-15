@@ -124,7 +124,7 @@ integer BPS bonus with `(1 + bonus)·p ≤ hf` — exactly the doc comment's
 theorem max_hf_cap_bounds {hf p cap : Int} (hp : 0 < p)
     (h : IsFloor (hf * 10^4) p (cap + 10^4)) :
     (10^4 + cap) * p ≤ hf * 10^4 ∧ hf * 10^4 < (10^4 + cap + 1) * p := by
-  unfold IsFloor at h; rw [if_pos hp] at h
+  unfold IsFloor at h; rw [ite_eq_left hp] at h
   constructor <;> nlinarith [h.1, h.2]
 
 /-! ## `liquidation_at_target` -/

@@ -41,7 +41,7 @@ theorem calculate_borrow_rate_spec (env : Env) (u : math.fp.Ray) (p : types.Mark
   have hb0 := hp.base_nonneg
   refine ⟨rv a, ha, hab.1, hab.2, ?_⟩
   unfold IsHalfAway at hq
-  rw [if_pos (by omega), hn'] at hq
+  rw [ite_eq_left (by omega), hn'] at hq
   exact hq
 
 /-- `(lo..hi).contains(&x)` on `i128` is `lo ≤ x < hi` (via the trusted `Range::contains` model). -/

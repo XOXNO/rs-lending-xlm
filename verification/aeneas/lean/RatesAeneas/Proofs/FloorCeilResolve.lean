@@ -56,7 +56,7 @@ theorem resolve_repay_spec (env : Env) (amount pos index : Std.I128) (dec : Std.
   -- facts about the ceiling debt
   have hpi : 0 ≤ pos.val * index.val := by positivity
   have hD0c := hD0
-  unfold IsCeil at hD0c; rw [if_pos hP] at hD0c
+  unfold IsCeil at hD0c; rw [ite_eq_left hP] at hD0c
   have hD0nn : 0 ≤ D0.val := by
     by_contra h
     have : D0.val * (10^27 * 10^(27 - dec.val)) < 0 := by nlinarith
@@ -88,7 +88,7 @@ theorem resolve_repay_spec (env : Env) (amount pos index : Std.I128) (dec : Std.
       nlinarith
     -- A = amount*10^k fits: A*RAY ≤ amount*P < pos*index < (q0+1)*RAY
     have hq0c := hq0
-    unfold IsCeil at hq0c; rw [if_pos (by norm_num)] at hq0c
+    unfold IsCeil at hq0c; rw [ite_eq_left (by norm_num)] at hq0c
     have hA0 : 0 ≤ amount.val * 10^(27 - dec.val) := by positivity
     have hAlt : amount.val * 10^(27 - dec.val) < 2^127 := by
       have h1 : amount.val * 10^(27 - dec.val) * 10^27 < q0 * 10^27 := by nlinarith
@@ -96,7 +96,7 @@ theorem resolve_repay_spec (env : Env) (amount pos index : Std.I128) (dec : Std.
       omega
     obtain ⟨b, hb⟩ := exists_isFloor (amount.val * 10^(27 - dec.val) * 10^27) index.val (by omega)
     have hbc := hb
-    unfold IsFloor at hbc; rw [if_pos hidx] at hbc
+    unfold IsFloor at hbc; rw [ite_eq_left hidx] at hbc
     have hb0 : 0 ≤ b := by
       by_contra h
       have : (b + 1) * index.val ≤ 0 := by nlinarith
@@ -192,13 +192,13 @@ theorem resolve_net_settle_spec (env : Env) (amount ss ds si bi : Std.I128) (dec
   step with unscale_borrow_ceil_spec env ds bi dec (by omega) ⟨qD, hqD, hqDlo, hqDhi⟩
     as ⟨D0, hD0⟩
   have hF0c := hF0
-  unfold IsFloor at hF0c; rw [if_pos hP] at hF0c
+  unfold IsFloor at hF0c; rw [ite_eq_left hP] at hF0c
   have hD0c := hD0
-  unfold IsCeil at hD0c; rw [if_pos hP] at hD0c
+  unfold IsCeil at hD0c; rw [ite_eq_left hP] at hD0c
   have hqSc := hqS
-  unfold IsFloor at hqSc; rw [if_pos (by norm_num)] at hqSc
+  unfold IsFloor at hqSc; rw [ite_eq_left (by norm_num)] at hqSc
   have hqDc := hqD
-  unfold IsCeil at hqDc; rw [if_pos (by norm_num)] at hqDc
+  unfold IsCeil at hqDc; rw [ite_eq_left (by norm_num)] at hqDc
   simp only [lift, bind_ok]
   generalize hi : core.cmp.impls.OrdI128.min amount F0 = i
   have hiv : i.val = min amount.val F0.val := by rw [← hi]; simp
@@ -253,7 +253,7 @@ theorem resolve_net_settle_spec (env : Env) (amount ss ds si bi : Std.I128) (dec
           omega
         obtain ⟨b, hb⟩ := exists_isFloor (st.val * 10^(27 - dec.val) * 10^27) bi.val (by omega)
         have hbc := hb
-        unfold IsFloor at hbc; rw [if_pos hbi] at hbc
+        unfold IsFloor at hbc; rw [ite_eq_left hbi] at hbc
         have hb0 : 0 ≤ b := by
           by_contra h
           have : (b + 1) * bi.val ≤ 0 := by nlinarith
@@ -303,7 +303,7 @@ theorem resolve_net_settle_spec (env : Env) (amount ss ds si bi : Std.I128) (dec
         omega
       obtain ⟨c, hc⟩ := exists_isCeil (st.val * 10^(27 - dec.val) * 10^27) si.val (by omega)
       have hcc := hc
-      unfold IsCeil at hcc; rw [if_pos hsi] at hcc
+      unfold IsCeil at hcc; rw [ite_eq_left hsi] at hcc
       have heqA : st.val * 10^(27 - dec.val) * 10^27 = st.val * (10^27 * 10^(27 - dec.val)) := by
         ring
       have hA27 : 0 ≤ st.val * 10^(27 - dec.val) * 10^27 := by positivity
@@ -369,7 +369,7 @@ theorem protocol_fee_shares_spec (env : Env) (fee index supplied : Std.I128)
   obtain ⟨q, hq⟩ := exists_isFloor (fee.val * 10^27) index.val (by omega)
   have hq0 : 0 ≤ q := by
     have hqc := hq
-    unfold IsFloor at hqc; rw [if_pos hidx] at hqc
+    unfold IsFloor at hqc; rw [ite_eq_left hidx] at hqc
     by_contra h
     have : (q + 1) * index.val ≤ 0 := by nlinarith
     nlinarith

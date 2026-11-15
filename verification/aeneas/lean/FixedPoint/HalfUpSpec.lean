@@ -30,7 +30,7 @@ def IsHalfAway (n d q : Int) : Prop :=
 theorem IsHalfUp.iff_isFloor {n d q : Int} (hd : 0 < d) :
     IsHalfUp n d q ↔ IsFloor (2 * n + d) (2 * d) q := by
   unfold IsHalfUp IsFloor
-  rw [if_pos (by omega)]
+  rw [ite_eq_left (by omega)]
   constructor <;> rintro ⟨h1, h2⟩ <;> constructor <;> linarith
 
 /-- The half-up rounding is unique. -/
@@ -93,7 +93,7 @@ theorem isHalfUp_tdiv (n d : Int) (hn : 0 ≤ n) (hd : 0 < d) :
 /-- Half-up of a non-negative numerator is also the ties-away rounding. -/
 theorem IsHalfUp.isHalfAway {n d q : Int} (hn : 0 ≤ n) (h : IsHalfUp n d q) :
     IsHalfAway n d q := by
-  unfold IsHalfAway; rw [if_pos hn]; exact h
+  unfold IsHalfAway; rw [ite_eq_left hn]; exact h
 
 /-- Every quotient with a positive divisor has a half-up rounding. (The
 witness divides; the specification does not.) -/

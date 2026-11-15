@@ -63,7 +63,7 @@ theorem div_floor_i256_spec (env : Env) (n d : Int) (hd : d ≠ 0)
     rw [hq]
     rcases hnn rfl with h0 | hs
     · subst h0; simpa [hzero] using hfl
-    · rwa [if_neg (by simp [hs])] at hfl
+    · rwa [ite_eq_right (by simp [hs])] at hfl
   | false =>
     simp only [Bool.false_eq_true, ↓reduceIte]
     step as ⟨z, hz⟩
@@ -88,7 +88,7 @@ theorem div_floor_i256_spec (env : Env) (n d : Int) (hd : d ≠ 0)
       · have hne : (decide (n < 0) != decide ((d : Int) < 0)) = false := by
           simp [hs]
         simp only [hne, Bool.false_eq_true, ↓reduceIte, WP.spec_ok]
-        rwa [if_neg (by simp [hs])] at hfl
+        rwa [ite_eq_right (by simp [hs])] at hfl
       · have hne : (decide (n < 0) != decide ((d : Int) < 0)) = true := by
           by_cases hn0 : n < 0 <;> by_cases hd0 : d < 0 <;> simp_all
         simp only [hne, ↓reduceIte]
@@ -96,7 +96,7 @@ theorem div_floor_i256_spec (env : Env) (n d : Int) (hd : d ≠ 0)
         step as ⟨c, hc⟩
         · simp only [aeneas_soroban_shim.I256.InRange, hMIN, hMAX, hone]; simp; omega
         rw [hc, hone]
-        rw [if_pos (by simp [hex, hs])] at hfl
+        rw [ite_eq_left (by simp [hex, hs])] at hfl
         simpa using hfl
 
 /-! ## The native `i128` path -/
@@ -135,7 +135,7 @@ theorem div_floor_i128_spec (p d : Std.I128) (hd : d.val ≠ 0) :
           simp [IScalar.lt_equiv, hs]
         simp only [hne, Bool.false_eq_true, ↓reduceIte, WP.spec_ok, Option.some.injEq]
         rintro q rfl
-        rw [ht]; rwa [if_neg (by simp [hs])] at hfl
+        rw [ht]; rwa [ite_eq_right (by simp [hs])] at hfl
       · have hne : (decide (p < 0#i128) != decide (d < 0#i128)) = true := by
           by_cases hp0 : p.val < 0 <;> by_cases hd0 : d.val < 0 <;>
             simp_all [IScalar.lt_equiv]
@@ -146,7 +146,7 @@ theorem div_floor_i128_spec (p d : Std.I128) (hd : d.val ≠ 0) :
         rw [hq] at hsub
         obtain ⟨_, _, hqv, _⟩ := hsub
         rw [hqv, ht]
-        rw [if_pos (by simp [hex, hs])] at hfl
+        rw [ite_eq_left (by simp [hex, hs])] at hfl
         simpa using hfl
 
 /-! ## `mul_div_floor` -/

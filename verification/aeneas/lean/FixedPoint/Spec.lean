@@ -19,14 +19,14 @@ theorem IsFloor.unique {n d q₁ q₂ : Int} (hd : d ≠ 0)
     (h₁ : IsFloor n d q₁) (h₂ : IsFloor n d q₂) : q₁ = q₂ := by
   unfold IsFloor at h₁ h₂
   rcases lt_or_gt_of_ne hd with hneg | hpos
-  · rw [if_neg (by omega)] at h₁ h₂
+  · rw [ite_eq_right (by omega)] at h₁ h₂
     rcases lt_trichotomy q₁ q₂ with hlt | heq | hgt
     · have : q₂ * d ≤ (q₁ + 1) * d := mul_le_mul_of_nonpos_right (by omega) (by omega)
       nlinarith
     · exact heq
     · have : q₁ * d ≤ (q₂ + 1) * d := mul_le_mul_of_nonpos_right (by omega) (by omega)
       nlinarith
-  · rw [if_pos hpos] at h₁ h₂
+  · rw [ite_eq_left hpos] at h₁ h₂
     rcases lt_trichotomy q₁ q₂ with hlt | heq | hgt
     · have : (q₁ + 1) * d ≤ q₂ * d := mul_le_mul_of_nonneg_right (by omega) (by omega)
       nlinarith
@@ -59,42 +59,42 @@ theorem truncFloor_isFloor (n d : Int) (hd : d ≠ 0) (inexact : Bool)
   rcases lt_or_gt_of_ne hd with hneg | hpos
   · -- d < 0
     have hdabs : (d.natAbs : Int) = -d := by omega
-    rw [if_neg (by omega)]
+    rw [ite_eq_right (by omega)]
     by_cases hi : inexact = true <;> by_cases hn : n < 0
-    · rw [if_neg (by simp [hn, hneg])]
+    · rw [ite_eq_right (by simp [hn, hneg])]
       constructor <;> nlinarith [hsign_nonpos (by omega)]
     · have hr : r ≠ 0 := by
         intro h0; exact (hinex.mp hi) (hdvd.mpr h0)
-      rw [if_pos (by simp [hi, hn, hneg])]
+      rw [ite_eq_left (by simp [hi, hn, hneg])]
       have hr' : 0 < r := lt_of_le_of_ne (hsign_nonneg (by omega)) (Ne.symm hr)
       constructor <;> nlinarith
     · have hr : r = 0 := by
         by_contra h0; exact hi (hinex.mpr (fun hd' => h0 (hdvd.mp hd')))
-      rw [if_neg (by simp [hi])]
+      rw [ite_eq_right (by simp [hi])]
       constructor <;> nlinarith
     · have hr : r = 0 := by
         by_contra h0; exact hi (hinex.mpr (fun hd' => h0 (hdvd.mp hd')))
-      rw [if_neg (by simp [hi])]
+      rw [ite_eq_right (by simp [hi])]
       constructor <;> nlinarith
   · -- d > 0
     have hdabs : (d.natAbs : Int) = d := by omega
-    rw [if_pos hpos]
+    rw [ite_eq_left hpos]
     by_cases hi : inexact = true <;> by_cases hn : n < 0
     · have hr : r ≠ 0 := by
         intro h0; exact (hinex.mp hi) (hdvd.mpr h0)
-      rw [if_pos (by simp [hi, hn, show ¬ d < 0 by omega])]
+      rw [ite_eq_left (by simp [hi, hn, show ¬ d < 0 by omega])]
       have hr' : r < 0 := lt_of_le_of_ne (hsign_nonpos (by omega)) hr
       constructor <;> nlinarith
-    · rw [if_neg (by simp [hn, show ¬ d < 0 by omega])]
+    · rw [ite_eq_right (by simp [hn, show ¬ d < 0 by omega])]
       have := hsign_nonneg (by omega)
       constructor <;> nlinarith
     · have hr : r = 0 := by
         by_contra h0; exact hi (hinex.mpr (fun hd' => h0 (hdvd.mp hd')))
-      rw [if_neg (by simp [hi])]
+      rw [ite_eq_right (by simp [hi])]
       constructor <;> nlinarith
     · have hr : r = 0 := by
         by_contra h0; exact hi (hinex.mpr (fun hd' => h0 (hdvd.mp hd')))
-      rw [if_neg (by simp [hi])]
+      rw [ite_eq_right (by simp [hi])]
       constructor <;> nlinarith
 
 end FixedPoint.Spec

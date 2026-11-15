@@ -143,11 +143,11 @@ theorem sz_body_spec (env : Env) (tc opb tsu : math.fp.Wad) (rad sa : Bool)
             rw [← hDd, hwv] at hr'
             step with sz_to_wad_val env (if A.val < r.val then A else r) (by split <;> omega) as ⟨a2, ha2⟩
             have hS1 : g.S1 = min (clD S0.val g.Dd * g.Dd) A.val := by
-              unfold SzLeg.S1; rw [if_pos hw, grad, if_pos hr, hS0', hAv]
+              unfold SzLeg.S1; rw [ite_eq_left hw, grad, ite_eq_left hr, hS0', hAv]
             have hmin : (if A.val < r.val then A else r).val = g.S1 := by
               rw [hS1, ← hr']; split <;> rename_i c <;> simp [min_def] <;> omega
             refine ⟨?_, ?_, hmin⟩
-            · unfold SzLeg.Uns; rw [if_neg (by rw [grad, hr]; simp)]; ring
+            · unfold SzLeg.Uns; rw [ite_eq_right (by rw [grad, hr]; simp)]; ring
             · rw [hok.WU_A1 hw, ← hmin, ha2]
           · have hr' : rad = false := by simpa using hr
             simp only [hr', Bool.false_eq_true, ↓reduceIte]
@@ -161,7 +161,7 @@ theorem sz_body_spec (env : Env) (tc opb tsu : math.fp.Wad) (rad sa : Bool)
                 simp only [IScalarTy.numBits] at this; nlinarith)⟩ as ⟨r, hrv⟩
             rw [← hDd, hwv] at hrv
             have hS1 : g.S1 = S0.val / g.Dd * g.Dd := by
-              unfold SzLeg.S1; rw [if_pos hw, grad, if_neg (by rw [hr']; simp), hS0']
+              unfold SzLeg.S1; rw [ite_eq_left hw, grad, ite_eq_right (by rw [hr']; simp), hS0']
             step with sz_to_wad_val env r (by rw [hrv]; exact mul_nonneg hfl0 hD.le) as ⟨a2, ha2⟩
             have hA1 : a2.val = g.A1 := by rw [hok.WU_A1 hw, ha2, hrv, hS1]
             have ha20 : 0 ≤ a2.val := by rw [hA1]; exact hok.A1_0
@@ -177,14 +177,14 @@ theorem sz_body_spec (env : Env) (tc opb tsu : math.fp.Wad) (rad sa : Bool)
             · by_cases hc : wu.val < L.val
               · simp only [hc, ↓reduceIte]
                 have hU : g.Uns = L.val - wu.val := by
-                  unfold SzLeg.Uns; rw [if_pos ⟨hw, by rw [grad, hr']⟩, if_pos (by rw [← hwu', ← hL']; exact hc),
+                  unfold SzLeg.Uns; rw [ite_eq_left ⟨hw, by rw [grad, hr']⟩, ite_eq_left (by rw [← hwu', ← hL']; exact hc),
                     hwu', hL']
                 step with sz_wad_checked_sub_val env L wu hwu0 (by omega) as ⟨w1, hw1⟩
                 step with sz_wad_checked_add_val env uns w1 ⟨by omega, by rw [hw1, ← hU]; exact huns⟩
                   as ⟨w2, hw2⟩
                 rw [hw2, hw1, hU]
               · simp only [hc, ↓reduceIte, WP.spec_ok]
-                unfold SzLeg.Uns; rw [if_pos ⟨hw, by rw [grad, hr']⟩, if_neg (by rw [← hwu', ← hL']; exact hc)]
+                unfold SzLeg.Uns; rw [ite_eq_left ⟨hw, by rw [grad, hr']⟩, ite_eq_right (by rw [← hwu', ← hL']; exact hc)]
                 ring
             · intro w hw'
               simp only [WP.spec_ok]
@@ -230,9 +230,9 @@ theorem sz_body_spec (env : Env) (tc opb tsu : math.fp.Wad) (rad sa : Bool)
   · by_cases hc : i4.val < cap.val
     · simp only [hc, ↓reduceIte]
       step with sz_ray_checked_sub_val env cap i4 (by omega) (by omega) as ⟨b, hb⟩
-      rw [hb]; unfold SzLeg.Bonus; rw [← hbase, ← hcap, if_pos hc]
+      rw [hb]; unfold SzLeg.Bonus; rw [← hbase, ← hcap, ite_eq_left hc]
     · simp only [hc, ↓reduceIte, WP.spec_ok]
-      unfold SzLeg.Bonus; rw [← hbase, ← hcap, if_neg hc, sz_ray_zero_val]
+      unfold SzLeg.Bonus; rw [← hbase, ← hcap, ite_eq_right hc, sz_ray_zero_val]
   intro bon hbon
   have hB0 := hok.Bonus0
   have hBC := hok.BonusC
@@ -243,7 +243,7 @@ theorem sz_body_spec (env : Env) (tc opb tsu : math.fp.Wad) (rad sa : Bool)
   refine WP.spec_bind (Pₘ := fun x => x.val = g.Seized) ?_ ?_
   · by_cases hc : cap.val = A.val
     · simp only [hc, ↓reduceIte, WP.spec_ok]
-      unfold SzLeg.Seized; rw [← hcap, ← hAv, if_pos hc, gs]
+      unfold SzLeg.Seized; rw [← hcap, ← hAv, ite_eq_left hc, gs]
     · simp only [hc, ↓reduceIte]
       have hlt : g.Capped < g.A := by rw [← hcap, ← hAv]; omega
       have := hok.part_le g.Capped hlt
@@ -251,7 +251,7 @@ theorem sz_body_spec (env : Env) (tc opb tsu : math.fp.Wad) (rad sa : Bool)
       rw [gi, ← hcap] at this h0
       step with sz_ray_div_floor_val env cap ir.supply_index (by rw [← gi]; exact hok.i0)
         ⟨by omega, by rw [← gs] at *; omega⟩ as ⟨x, hx⟩
-      rw [hx]; unfold SzLeg.Seized; rw [← hcap, ← hAv, if_neg hc, gi]
+      rw [hx]; unfold SzLeg.Seized; rw [← hcap, ← hAv, ite_eq_right hc, gi]
   intro ss hss
   have hdf := hok.div_fit g.Bonus (by omega)
   have hdf0 : 0 ≤ g.Bonus * 10^27 / g.i := sz_div_nonneg _ _ hok.i0 (by positivity)
@@ -267,10 +267,10 @@ theorem sz_body_spec (env : Env) (tc opb tsu : math.fp.Wad) (rad sa : Bool)
   · by_cases hc : cap.val = A.val
     · simp only [hc, ↓reduceIte]
       step with sz_to_asset_val env cap pr.asset_decimals hdlt (by omega) as ⟨x, hx⟩
-      rw [hx]; unfold SzLeg.Amt; rw [← hcap, ← hAv, if_pos hc, hDd]
+      rw [hx]; unfold SzLeg.Amt; rw [← hcap, ← hAv, ite_eq_left hc, hDd]
     · simp only [hc, ↓reduceIte]
       step with sz_to_asset_floor_val env cap pr.asset_decimals (by omega) (by omega) as ⟨x, hx⟩
-      rw [hx]; unfold SzLeg.Amt; rw [← hcap, ← hAv, if_neg hc, hDd]
+      rw [hx]; unfold SzLeg.Amt; rw [← hcap, ← hAv, ite_eq_right hc, hDd]
   intro amt hamt
   by_cases hz4 : amt.val ≤ 0
   · simp only [hz4, ↓reduceIte, WP.spec_ok]
@@ -296,9 +296,9 @@ theorem sz_body_spec (env : Env) (tc opb tsu : math.fp.Wad) (rad sa : Bool)
     · simp only [hc, ↓reduceIte]
       step with sz_ray_checked_sub_val env pd i4 (by omega) (by omega) as ⟨r1, hr1⟩
       step with sz_to_asset_floor_val env r1 pr.asset_decimals (by omega) (by omega) as ⟨x, hx⟩
-      rw [hx, hr1, hpd, ← hDd]; unfold SzLeg.Real; rw [← hbase, ← hpg', if_pos (by rw [← hpd]; exact hc)]
+      rw [hx, hr1, hpd, ← hDd]; unfold SzLeg.Real; rw [← hbase, ← hpg', ite_eq_left (by rw [← hpd]; exact hc)]
     · simp only [hc, ↓reduceIte, WP.spec_ok]
-      unfold SzLeg.Real; rw [← hbase, ← hpg', if_neg (by rw [← hpd]; exact hc)]; rfl
+      unfold SzLeg.Real; rw [← hbase, ← hpg', ite_eq_right (by rw [← hpd]; exact hc)]; rfl
   intro re hre
   simp only [sz_lift_min, bind_ok, math.fp.Ray.raw, math.fp.Bps.raw]
   have hf0 := hok.f0; have hfB := hok.fB
@@ -328,7 +328,7 @@ theorem sz_body_spec (env : Env) (tc opb tsu : math.fp.Wad) (rad sa : Bool)
   · have hr' : rb.val = g.Bonus * 10^27 / g.i := by rw [hrb, hbon, gi]
     unfold SzLeg.Bsc; rw [← hss, ← hr']
     by_cases c : ss.val < rb.val
-    · rw [if_pos c, min_eq_right c.le]
-    · rw [if_neg c, min_eq_left (by omega)]
+    · rw [ite_eq_left c, min_eq_right c.le]
+    · rw [ite_eq_right c, min_eq_left (by omega)]
 
 end ControllerAeneas.Proofs

@@ -53,7 +53,7 @@ theorem withdrawal_floor_le_halfup {N r H F D : Int} (hD : 1 ≤ D)
     (hr : IsHalfUp N (10^27) r) (hH : IsHalfUp r D H)
     (hF : IsFloor N (10^27 * D) F) : F ≤ H := by
   have hP : (0:Int) < 10^27 * D := by positivity
-  unfold IsFloor at hF; rw [if_pos hP] at hF
+  unfold IsFloor at hF; rw [ite_eq_left hP] at hF
   have h1 := hr.lt_mul
   have h2 := hH.lt_mul
   -- F*D ≤ r
@@ -121,7 +121,7 @@ theorem resolve_withdrawal_spec (env : Env) (amount pos index : Std.I128) (dec :
   -- the floor intermediate `⌊N/RAY⌋` fits: it lies in `[0, q0]`
   obtain ⟨f0, hf0⟩ := exists_isFloor (pos.val * index.val) (10^27) (by norm_num)
   have hf0c := hf0
-  unfold IsFloor at hf0c; rw [if_pos (by norm_num)] at hf0c
+  unfold IsFloor at hf0c; rw [ite_eq_left (by norm_num)] at hf0c
   have hf0nn : 0 ≤ f0 := by
     by_contra h
     have : (f0 + 1) * 10^27 ≤ 0 := by nlinarith
@@ -138,12 +138,12 @@ theorem resolve_withdrawal_spec (env : Env) (amount pos index : Std.I128) (dec :
   have hr0nn : 0 ≤ r0.val := IsHalfUp.nonneg (by norm_num) hN hr0
   step with ray_to_asset_spec env r0 dec hdec as ⟨H0, hH0⟩
   have hH0' : IsHalfUp r0.val (10^(27 - dec.val)) H0.val := by
-    unfold IsHalfAway at hH0; rw [if_pos hr0nn] at hH0; exact hH0
+    unfold IsHalfAway at hH0; rw [ite_eq_left hr0nn] at hH0; exact hH0
   step with unscale_supply_floor_spec env pos index dec (by omega) hN
     ⟨f0, hf0, by omega, by omega⟩ as ⟨F0, hF0⟩
   have hFH : F0.val ≤ H0.val := withdrawal_floor_le_halfup hD1 hr0 hH0' hF0
   have hF0c := hF0
-  unfold IsFloor at hF0c; rw [if_pos hP] at hF0c
+  unfold IsFloor at hF0c; rw [ite_eq_left hP] at hF0c
   have hF0nn : 0 ≤ F0.val := by
     by_contra h
     have : (F0.val + 1) * (10^27 * 10^(27 - dec.val)) ≤ 0 :=
@@ -174,7 +174,7 @@ theorem resolve_withdrawal_spec (env : Env) (amount pos index : Std.I128) (dec :
       nlinarith
     obtain ⟨c, hc⟩ := exists_isCeil (amount.val * 10^(27 - dec.val) * 10^27) index.val (by omega)
     have hcc := hc
-    unfold IsCeil at hcc; rw [if_pos hidx] at hcc
+    unfold IsCeil at hcc; rw [ite_eq_left hidx] at hcc
     have hc0 : 0 ≤ c := by
       by_contra h
       have : c * index.val < 0 := mul_neg_of_neg_of_pos (by omega) hidx
@@ -188,7 +188,7 @@ theorem resolve_withdrawal_spec (env : Env) (amount pos index : Std.I128) (dec :
       ⟨by omega, hAlt⟩ ⟨c, hc, by omega, by omega⟩ as ⟨s, hs⟩
     have hsc : s.val = c := IsCeil.unique (by omega) hs hc
     have hsc' := hs
-    unfold IsCeil at hsc'; rw [if_pos hidx] at hsc'
+    unfold IsCeil at hsc'; rw [ite_eq_left hidx] at hsc'
     -- `amount ≤ F`: `amount*P ≤ N < (F+1)*P`
     have hamtF : amount.val ≤ F0.val := by
       by_contra h

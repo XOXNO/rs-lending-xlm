@@ -19,4 +19,5 @@ path = "src/lib.rs"
 soroban-sdk = { package = "aeneas-oracle-shim", path = "shim" }
 
 [lints.rust]
+dead_code = "allow"
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(feature, values("certora"))'] }

@@ -448,10 +448,10 @@ theorem whole_unit_repayment_spec (env : Env) (acc : types.Account)
   step with rp_mul_spec env q opb hq0 hopb0.le hqbfit as ⟨qb, hqb⟩
   try simp only [wad_ge, bind_ok]
   by_cases hcov : m.val ≤ qb.val
-  · rw [if_pos (by simpa using hcov)]
+  · rw [ite_eq_left (by simpa using hcov)]
     apply (WP.spec_ok _).mpr
     exact ⟨rfl, le_refl _, hqD.le, fun h => absurd rfl h⟩
-  rw [if_neg (by simpa using hcov)]
+  rw [ite_eq_right (by simpa using hcov)]
   step with rp_div_floor_spec env uu opb hu0 hopb0 (by nlinarith) as ⟨uab, huab⟩
   have huab' := (isFloor_pos hopb0).mp huab
   have hU0 : 0 ≤ lsum (keyUnit ctx)
@@ -472,21 +472,21 @@ theorem whole_unit_repayment_spec (env : Env) (acc : types.Account)
   have hraisedpre : huD (q.val * opb.val) (10^18) < uu.val + max (uu.val / 10^6) 1 := by
     rw [← hqb, ← hm]; omega
   by_cases hfull : fcc.val ≤ uab.val
-  · rw [if_pos (by simpa using hfull)]
+  · rw [ite_eq_left (by simpa using hfull)]
     apply (WP.spec_ok _).mpr
     refine ⟨rfl, hqD.le, le_refl _, fun _ => ⟨k', raw, pr, he, hpr, by omega, ?_⟩⟩
     rw [← huu, ← hopb]
     refine ⟨hraisedpre, Or.inl ⟨rfl, ?_⟩⟩
     have : fcc.val * opb.val ≤ uab.val * opb.val := mul_le_mul_of_nonneg_right hfull hopb0.le
     rw [hfcc] at this; linarith [huab'.1]
-  rw [if_neg (by simpa using hfull)]
+  rw [ite_eq_right (by simpa using hfull)]
   step with rp_div_ceil_spec env m opb hm0.le hopb0 (by nlinarith) as ⟨ur, hur⟩
   try simp only [wad_ge, bind_ok]
   by_cases hDur : snap.total_debt.val ≤ ur.val
-  · rw [if_pos (by simpa using hDur)]
+  · rw [ite_eq_left (by simpa using hDur)]
     apply (WP.spec_ok _).mpr
     exact ⟨rfl, le_refl _, hqD.le, fun h => absurd rfl h⟩
-  rw [if_neg (by simpa using hDur)]
+  rw [ite_eq_right (by simpa using hDur)]
   apply (WP.spec_ok _).mpr
   have hraised : WholeUnitRaised q.val snap.total_debt.val
       (lsum (keyUnit ctx) ((acc.borrow_positions : List (types.HubAssetKey × types.DebtPositionRaw)).map Prod.fst))

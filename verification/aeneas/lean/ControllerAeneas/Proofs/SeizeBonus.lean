@@ -180,7 +180,7 @@ theorem get_account_bonus_params_spec (env : Env) (ctx : context.Context)
       apply sz_huD_nonneg _ _ (by norm_num)
       apply mul_nonneg _ hp'
       exact sz_huD_nonneg _ _ (by norm_num) (sz_huD_nonneg _ _ (by norm_num) (mul_nonneg hs' hi'))
-    unfold IsHalfAway at hq; rw [if_pos hw0] at hq
+    unfold IsHalfAway at hq; rw [ite_eq_left hw0] at hq
     simp only [math.fp.Bps.raw, bind_ok, lift, bps_from_same]
     simp only [WP.spec_ok]
     exact ⟨hc, trivial, fun h => by omega,
