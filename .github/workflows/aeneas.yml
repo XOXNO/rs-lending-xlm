@@ -69,6 +69,12 @@ jobs:
             echo "$HOME/.elan/bin" >> "$GITHUB_PATH"
           fi
 
+      - name: Restore the Aeneas Lean library build
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: verification/aeneas/lean/.lake/packages/aeneas
+          key: aeneas-lean-${{ runner.os }}-${{ hashFiles('verification/aeneas/lean/lake-manifest.json', 'verification/aeneas/lean/lean-toolchain') }}
+
       - name: Extract, check drift and build proofs
         working-directory: verification/aeneas
         run: ./run.sh
