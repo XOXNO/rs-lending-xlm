@@ -93,4 +93,24 @@ theorem calculate_deposit_rate_spec (env : Env) (u br : math.fp.Ray) (rf : math.
       simp only [hr', decide_false, Bool.false_eq_true, ↓reduceIte, WP.spec_ok, ray_zero_val_hu]
       exact ⟨le_refl _, hbr, fun _ => by simp_all, fun h => by simp_all⟩
 
+/-- **The per-millisecond borrow rate never decreases as utilization rises.**
+For a rate model passing `InterestRateModel::verify` and utilizations
+`0 ≤ u ≤ u'`, both calls return and `calculate_borrow_rate u ≤
+calculate_borrow_rate u'`. This is the rate accrual applies
+(`interest::simulate`); `calculate_annual_borrow_rate_monotone` covers the
+annual rate it is derived from, and half-up division by
+`MILLISECONDS_PER_YEAR` preserves the order. -/
+theorem calculate_borrow_rate_monotone (env : Env) (u u' : math.fp.Ray)
+    (p : types.MarketParams) (hu : 0 ≤ rv u) (huu : rv u ≤ rv u') (hp : ValidRateModel p) :
+    rates.curve.calculate_borrow_rate env u p ⦃ r =>
+      rates.curve.calculate_borrow_rate env u' p ⦃ r' => rv r ≤ rv r' ⦄ ⦄ := by
+  obtain ⟨r, hr, a, ha, -, -, hra⟩ := spec_imp_eq_ok (calculate_borrow_rate_spec env u p hu hp)
+  obtain ⟨r', hr', a', ha', -, -, hra'⟩ :=
+    spec_imp_eq_ok (calculate_borrow_rate_spec env u' p (le_trans hu huu) hp)
+  rw [hr, hr']
+  simp only [WP.spec_ok]
+  have haa : a ≤ a' := AnnualRate.mono hp (le_min hu (by norm_num))
+    (min_le_min_right _ huu) (min_le_right _ _) ha ha'
+  exact IsHalfUp.mono (by norm_num) haa hra hra'
+
 end RatesAeneas.Proofs

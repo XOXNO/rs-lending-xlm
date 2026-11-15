@@ -98,6 +98,13 @@ PINNED = [
     # Stand-ins build the same items into a vector (no `impl Iterator` / `map`).
     (f"{PROD_CTRL}/storage/account.rs", "fn iter_typed_positions", "5e086d852c330973"),
     (f"{PROD_CTRL}/storage/account.rs", "fn iter_debt_positions", "97f5df0076f209d3"),
+    (f"{PROD_CTRL}/context.rs", "impl Context :: fn load_markets", "7f2e1de9f7b6649e"),
+    (f"{PROD_CTRL}/context.rs", "impl Context :: fn cached_pool_address", "68daa0e72560d46e"),
+    (f"{PROD_CTRL}/positions/mod.rs", "fn enforce_spoke_asset_flags", "a1b19ed5c2e2e027"),
+    ("common/src/token.rs", "fn transfer_amount_measured", "6497c79e99147c6a"),
+    ("contracts/pool/src/storage.rs", "fn read_state", "5c04601e269733a7"),
+    ("contracts/pool/src/storage.rs", "fn load_state", "defc0809734a8d02"),
+    ("contracts/pool/src/storage.rs", "fn write_state", "829dc8ceb238ec55"),
 ]
 
 
