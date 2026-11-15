@@ -43,7 +43,7 @@ theorem ha_combine (Wc Wc' D D' C B rep opb prop hf X Y Z Ec Es Ev Ed n SLT : �
     have e : 4 * 10^18 * C * (B * Z / C + (B + 10^18) * SLT / (2 * 10^18)) =
         4 * B * 10^18 * Z + 2 * C * (B + 10^18) * SLT := by field_simp; ring
     have hp : (0:ℚ) < 4 * 10^18 * C := by positivity
-    by_contra hc; push_neg at hc
+    by_contra hc; push Not at hc
     have := mul_lt_mul_of_pos_left hc hp
     linarith
   -- step 4 times B/C
@@ -51,7 +51,7 @@ theorem ha_combine (Wc Wc' D D' C B rep opb prop hf X Y Z Ec Es Ev Ed n SLT : �
     have hz : Z ≤ 10^4 * (Wc + n) + Ev / 10^54 := by
       have e : (10:ℚ)^54 * (10^4 * (Wc + n) + Ev / 10^54) = 10^54 * 10^4 * (Wc + n) + Ev := by
         field_simp
-      by_contra hc; push_neg at hc
+      by_contra hc; push Not at hc
       have := mul_lt_mul_of_pos_left hc (show (0:ℚ) < 10^54 by positivity)
       linarith
     have : B * Z ≤ B * (10^4 * (Wc + n) + Ev / 10^54) := mul_le_mul_of_nonneg_left hz hB
@@ -105,7 +105,7 @@ theorem ha_combine (Wc Wc' D D' C B rep opb prop hf X Y Z Ec Es Ev Ed n SLT : �
     have hd : Wc - Wc' ≤ B * Wc / C + B * (n + Ev / (10^54 * 10^4)) / C +
           (B + 10^18) * SLT / (2 * 10^18 * 10^4) + (Es / 2 + Ec) / (10^4 * 10^54) + n := by
       have hp : (0:ℚ) < 10^4 * 10^54 := by positivity
-      by_contra hc; push_neg at hc
+      by_contra hc; push Not at hc
       have := mul_lt_mul_of_pos_left hc hp
       linarith
     linarith
@@ -113,7 +113,7 @@ theorem ha_combine (Wc Wc' D D' C B rep opb prop hf X Y Z Ec Es Ev Ed n SLT : �
   have hdebt : D' - Ed / (2 * 10^54) ≤ D - rep := by
     have e : 2 * 10^54 * (D' - Ed / (2 * 10^54)) = 2 * 10^54 * D' - Ed := by field_simp
     have hp : (0:ℚ) < 2 * 10^54 := by positivity
-    by_contra hc; push_neg at hc
+    by_contra hc; push Not at hc
     have := mul_lt_mul_of_pos_left hc hp
     linarith
   -- final
@@ -143,14 +143,14 @@ theorem ha_coll_bound (Wc Wc' C B X Y Z Ec Es Ev n SLT : ℚ) (hC : 0 < C) (hB :
     have e : 4 * 10^18 * C * (B * Z / C + (B + 10^18) * SLT / (2 * 10^18)) =
         4 * B * 10^18 * Z + 2 * C * (B + 10^18) * SLT := by field_simp; ring
     have hp : (0:ℚ) < 4 * 10^18 * C := by positivity
-    by_contra hc; push_neg at hc
+    by_contra hc; push Not at hc
     have := mul_lt_mul_of_pos_left hc hp
     linarith
   have hZ : B * Z / C ≤ B * Wc / C * 10^4 + B * (n * 10^4 + Ev / 10^54) / C := by
     have hz : Z ≤ 10^4 * (Wc + n) + Ev / 10^54 := by
       have e : (10:ℚ)^54 * (10^4 * (Wc + n) + Ev / 10^54) = 10^54 * 10^4 * (Wc + n) + Ev := by
         field_simp
-      by_contra hc; push_neg at hc
+      by_contra hc; push Not at hc
       have := mul_lt_mul_of_pos_left hc (show (0:ℚ) < 10^54 by positivity)
       linarith
     have : B * Z ≤ B * (10^4 * (Wc + n) + Ev / 10^54) := mul_le_mul_of_nonneg_left hz hB
@@ -167,7 +167,7 @@ theorem ha_coll_bound (Wc Wc' C B X Y Z Ec Es Ev n SLT : ℚ) (hC : 0 < C) (hB :
     field_simp; ring
   rw [e2] at hall2
   have hp : (0:ℚ) < 10^4 * 10^54 := by positivity
-  by_contra hc; push_neg at hc
+  by_contra hc; push Not at hc
   have := mul_lt_mul_of_pos_left hc hp
   linarith
 
@@ -232,7 +232,7 @@ theorem ha_combine_target (Wc Wc' D D' C B rep opb prop δ T r X Y Z Ec Es Ev Ed
   have hdebt : D' - Ed / (2 * 10^54) ≤ D - rep := by
     have e : 2 * 10^54 * (D' - Ed / (2 * 10^54)) = 2 * 10^54 * D' - Ed := by field_simp
     have hp : (0:ℚ) < 2 * 10^54 := by positivity
-    by_contra hc; push_neg at hc
+    by_contra hc; push Not at hc
     have := mul_lt_mul_of_pos_left hc hp
     linarith
   have hTd : T * (D' - Ed / (2 * 10^54)) ≤ T * (D - rep) := mul_le_mul_of_nonneg_left hdebt hT0
