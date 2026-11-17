@@ -252,7 +252,7 @@ Open views: `balance(account: Address) -> u32`, `owner_of(token_id: u32) -> Addr
 
 ## Swap aggregator
 
-Constructor `(admin: Address)` sets the owner. `execute_strategy`'s XDR payload is a validated, packed stream of swaps and Aquarius LP burns and mints; a Curve leg mints LP when its output is the pool and burns LP to one coin when its input is. The router applies [fees](formulas.md#swap-router-fees-and-splits), checks output against the route minimum, then transfers and returns the payout.
+Constructor `(admin: Address)` sets the owner. `execute_strategy`'s XDR payload is a validated, packed stream of swaps and Aquarius LP burns and mints; a Curve leg mints LP when its output is the pool and burns LP to one coin when its input is. The router applies [fees](formulas.md#swap-router-fees-and-splits), checks output against the route minimum, opens a `G...` sender's missing output trustline through the SAC `trust` function, then transfers the payout, publishes `SwapEvent` ([events](events.md#swap-aggregator-events)) and returns the payout.
 
 Recipient receipt is not remeasured, so taxed tokens can deliver less than returned. Controller strategies measure positive receipts but do not enforce the route minimum. Fees need an active nonzero referral. The whitelist picks the fee side, not allowed tokens. Lending governance cannot upgrade the router; its owner does.
 

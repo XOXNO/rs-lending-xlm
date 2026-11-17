@@ -9,7 +9,8 @@
 //! | Layer | Role |
 //! |-------|------|
 //! | [`Router`] | Public entrypoints and Ownable |
-//! | `execute` | Strategy run: pull, instruction stream, fees, settle |
+//! | `execute` | Strategy run: pull, instruction stream, fees, trustline, settle |
+//! | `events` | Swap event for indexers |
 //! | `fees` | Static + referral fee apply and claim |
 //! | `storage` | Keys, TTL, fee buckets, whitelist, referrals |
 //! | `vault` | Invocation-local token ledger |
@@ -17,6 +18,7 @@
 
 mod constants;
 mod errors;
+mod events;
 mod execute;
 mod fees;
 mod math;
