@@ -143,7 +143,7 @@ pub(crate) fn run(env: Env, sender: Address, total_in: i128, payload: StrategyPa
     ensure_trustline(&env, &output_token, &sender);
     token::Client::new(&env, &output_token).transfer(&router, &sender, &total_out);
 
-    residual::accrue_residual_as_revenue(&env, &mut vault);
+    let residuals = residual::accrue_residual_as_revenue(&env, &mut vault);
 
     SwapEvent {
         fee_token: fee_token.clone(),
@@ -155,6 +155,7 @@ pub(crate) fn run(env: Env, sender: Address, total_in: i128, payload: StrategyPa
         referral_id,
         static_fee: fees_charged.0,
         referral_fee: fees_charged.1,
+        residuals,
     }
     .publish(&env);
 

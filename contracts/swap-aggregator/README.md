@@ -42,7 +42,7 @@ Steps:
 6. Send `token_out` to `sender`.
 7. Move leftovers to the admin bucket; `ExcessiveResidual` if one exceeds its
    allowance.
-8. Publish `SwapEvent`.
+8. Publish `SwapEvent`, with the swept leftovers as `residuals`.
 
 ## Fees
 
@@ -103,7 +103,7 @@ removed.
 
 ## Events
 
-Each swap publishes `SwapEvent` for volume and fee indexing
+Each swap publishes `SwapEvent` for volume, fee and residual revenue indexing
 ([fields](../../docs/reference/events.md#swap-aggregator-events)). Ownership
 changes publish the stock OpenZeppelin `Ownable` events
 ([inherited events](../../docs/reference/events.md#inherited-events)).
