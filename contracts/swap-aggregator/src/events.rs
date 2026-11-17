@@ -2,13 +2,9 @@
 
 use soroban_sdk::{contractevent, Address};
 
-/// Event published once per successful `execute_strategy`, after the payout.
+/// Published once per successful swap, after the payout.
 ///
-/// Indexers use it for per-sender and per-router swap volume. Amounts are raw
-/// token units. `amount_in` is the measured input the router received;
-/// `amount_out` is what the router sent to `sender`, after fees. Fees are
-/// charged on `fee_token`, which is `token_in` or `token_out`; both fee fields
-/// are zero when the swap pays no fee.
+/// Raw token units. `amount_in` is measured; `amount_out` is after fees.
 #[contractevent(topics = ["router", "swap"])]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct SwapEvent {

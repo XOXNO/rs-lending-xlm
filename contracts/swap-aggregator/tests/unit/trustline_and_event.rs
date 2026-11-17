@@ -224,8 +224,7 @@ fn swap_reverts_when_sender_cannot_fund_trustline_reserve() {
     let s = setup(&env);
     let sender = classic_account(&env, 9, FUNDED);
     s.fund_classic_sender(&sender);
-    // Exactly the minimum for one sub-entry: (2 + 1) * base reserve. A second
-    // trustline needs one more base reserve.
+    // Reserve for one trustline only: (2 + 1) * base reserve.
     set_account(&env, &account_id(9), 3 * BASE_RESERVE as i64, 1);
 
     let result = s.router.try_execute_strategy(&sender, &500, &s.payload(0));
@@ -274,8 +273,7 @@ fn swap_publishes_event_with_amounts_and_fees() {
     s.router.set_static_fee(&100);
     let referral = s.router.add_referral(&Address::generate(&env), &50);
 
-    // Neither token is whitelisted, so the 1.5% fee is taken on input:
-    // static 500 * 100 / 10_000 = 5, referral 500 * 50 / 10_000 = 2.
+    // Fee on input: static 1% = 5, referral 0.5% = 2.
     let out = s
         .router
         .execute_strategy(&sender, &500, &s.payload(referral));

@@ -36,21 +36,13 @@ Steps:
    router's **measured** balance change per hop, never a venue report or
    payload amount.
 4. Revert if output < `total_min_out`.
-5. If `sender` is a `G...` account, call the Stellar Asset Contract `trust`
-   function (CAP-73) on `token_out`. It opens a missing trustline, which needs
-   `sender`'s signature for that sub-call and 0.5 XLM of reserve. With an
-   existing trustline it does nothing and needs no signature. The router
-   ignores a failed call (native XLM, the issuer, a non-SAC token, no reserve);
-   step 6 reverts the swap if the trustline is still missing.
+5. For a `G...` sender, open a missing `token_out` trustline with the SAC
+   `trust` call (CAP-73). This needs the sender's signature and 0.5 XLM
+   reserve. A failed call is ignored; step 6 then reverts.
 6. Send `token_out` to `sender`.
 7. Move leftovers to the admin bucket; `ExcessiveResidual` if one exceeds its
    allowance.
 8. Publish `SwapEvent`.
-
-A wallet that simulates the swap with recorded authorization gets the `trust`
-sub-call in `sender`'s authorization tree only when the trustline is missing.
-If the trustline disappears between simulation and submission, the swap reverts
-and must be simulated again.
 
 ## Fees
 
@@ -111,12 +103,9 @@ removed.
 
 ## Events
 
-Every successful `execute_strategy` publishes one `SwapEvent` (topics
-`["router", "swap"]`): `sender`, `token_in`, `token_out`, measured `amount_in`,
-`amount_out` paid to `sender`, `referral_id`, `fee_token`, `static_fee` and
-`referral_fee`. Use it for per-sender and per-router swap volume and fees
-([event reference](../../docs/reference/events.md#swap-aggregator-events)).
-Ownership changes publish the stock OpenZeppelin `Ownable` events
+Each swap publishes `SwapEvent` for volume and fee indexing
+([fields](../../docs/reference/events.md#swap-aggregator-events)). Ownership
+changes publish the stock OpenZeppelin `Ownable` events
 ([inherited events](../../docs/reference/events.md#inherited-events)).
 
 ## Layout

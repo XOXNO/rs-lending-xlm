@@ -1,8 +1,8 @@
 //! Strategy orchestration for one `execute_strategy` call.
 //!
 //! Flow: auth → decode program → pull input → optional input fee → run the
-//! instruction stream → optional output fee → min-out check → receiver
-//! trustline → payout → residual accrual → swap event.
+//! instruction stream → optional output fee → min-out check → trustline →
+//! payout → residual accrual → swap event.
 
 mod residual;
 
@@ -45,9 +45,8 @@ struct Ctx<'a> {
 /// Runs the strategy in `payload` for `sender` and returns the amount of `token_out` delivered.
 ///
 /// Transfers `total_in` of the input token from `sender` and credits the vault the measured
-/// balance delta. Executes the instruction stream, applies fees, opens `sender`'s trustline for
-/// the output token when missing ([`ensure_trustline`]), pays `sender`, accrues leftover vault
-/// balances as admin fee, and publishes [`SwapEvent`].
+/// balance delta. Executes the instruction stream, applies fees, pays `sender`, accrues leftover
+/// vault balances as admin fee, and publishes [`SwapEvent`].
 ///
 /// Fees apply only with an active referral (see [`fees::apply_fees_on_token`]). They are taken
 /// on the input token unless only the output token is fee-whitelisted.
@@ -162,17 +161,10 @@ pub(crate) fn run(env: Env, sender: Address, total_in: i128, payload: StrategyPa
     total_out
 }
 
-/// Opens `receiver`'s trustline for `token` before the payout, when one is missing.
+/// Opens a `G...` receiver's missing trustline via the SAC `trust` call (CAP-73).
 ///
-/// Acts only for a classic `G...` receiver; a contract address holds SAC balances without a
-/// trustline. Calls the Stellar Asset Contract `trust` function (CAP-73). The SAC does
-/// nothing when the trustline exists, and otherwise requires `receiver`'s authorization and
-/// 0.5 XLM of its reserve.
-///
-/// The result is ignored on purpose. The call fails for native XLM, for the asset issuer, for
-/// a token that is not a SAC, and when the receiver cannot pay the reserve or did not sign the
-/// sub-call. In each case the payout transfer that follows is the authoritative check: it
-/// succeeds when no trustline is needed and reverts the whole swap when one is missing.
+/// Needs `receiver`'s signature only when it creates one. Failures are ignored: the
+/// payout transfer reverts the swap if the trustline is still missing.
 fn ensure_trustline(env: &Env, token: &Address, receiver: &Address) {
     if !is_account_address(env, receiver) {
         return;
@@ -277,10 +269,7 @@ fn resolve_amount(
     }
 }
 
-/// Returns whether `address` is a classic account (`G...`), not a contract.
-///
-/// Reads the `ScAddress` discriminant from the address XDR: a 4-byte `ScVal` tag, then a 4-byte
-/// big-endian address type where 0 is an account.
+/// Returns whether `address` is a `G...` account. Byte 7 of its XDR is the address type.
 fn is_account_address(env: &Env, address: &Address) -> bool {
     address.to_xdr(env).get(7) == Some(SC_ADDRESS_TYPE_ACCOUNT)
 }

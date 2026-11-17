@@ -41,8 +41,7 @@ pub(crate) fn set_static_fee(env: &Env, fee_bps: u32) {
 
 /// Debits the vault and accrues static + referral fees for an active referral.
 ///
-/// Returns the charged `(static_fee, referral_fee)` in token units; `(0, 0)` when no fee
-/// applies. No-op when `referral_id == 0`, the referral is missing/inactive, the token balance is
+/// Returns the charged `(static_fee, referral_fee)`. No-op when `referral_id == 0`, the referral is missing/inactive, the token balance is
 /// non-positive, the combined bps is 0, or the computed fee rounds down to zero. Panics if
 /// the combined bps exceeds [`FEE_CAP`].
 ///
