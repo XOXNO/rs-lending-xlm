@@ -120,7 +120,14 @@ pub fn withdraw_summary(
         // Production full-closes dust whose half-up actual rounds to zero
         // (resolve_withdrawal: amount >= current_supply_actual).
         let closes_dust: bool = nondet();
-        cvlr_assume!(new_scaled == if closes_dust { 0 } else { position.scaled_amount });
+        cvlr_assume!(
+            new_scaled
+                == if closes_dust {
+                    0
+                } else {
+                    position.scaled_amount
+                }
+        );
     } else {
         cvlr_assume!(new_scaled == position.scaled_amount);
     }
