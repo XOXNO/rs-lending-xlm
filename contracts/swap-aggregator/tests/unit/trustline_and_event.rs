@@ -293,3 +293,40 @@ fn swap_event_reports_zero_fees_without_referral() {
 
     s.assert_swap_event(&sender, 500, 0, &s.b.address, (0, 0));
 }
+
+#[test]
+fn swap_to_custom_token_skips_trust_for_classic_sender() {
+    use super::support::fee_on_transfer_token_mock::{FotToken, FotTokenClient};
+    let env = Env::default();
+    let s = setup(&env);
+    // Output is a plain contract token with no `trust` function.
+    let custom = env.register(FotToken, ());
+    let custom_client = FotTokenClient::new(&env, &custom);
+    custom_client.init(&0);
+    let pool = env.register(aquarius_mock::AqPool, ());
+    aquarius_mock::AqPoolClient::new(&env, &pool).init(&s.a.address, &custom);
+    custom_client.mint(&pool, &500);
+    let sender = classic_account(&env, 11, FUNDED);
+    s.fund_classic_sender(&sender);
+    let payload = strategy_xdr_with_referral(
+        &env,
+        s.a.address.clone(),
+        custom.clone(),
+        400,
+        alloc::vec![one_hop_path(
+            &env,
+            SwapVenue::Aquarius,
+            pool,
+            s.a.address.clone(),
+            custom.clone(),
+            1_000_000,
+        )],
+        0,
+    );
+
+    let out = s.router.execute_strategy(&sender, &500, &payload);
+
+    assert_eq!(out, 500);
+    assert_eq!(custom_client.balance(&sender), 500);
+    assert!(!authorized_call(&env, "trust"));
+}

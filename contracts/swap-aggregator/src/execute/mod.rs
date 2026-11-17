@@ -8,7 +8,7 @@ mod residual;
 
 use soroban_sdk::token::StellarAssetClient;
 use soroban_sdk::xdr::ToXdr;
-use soroban_sdk::{panic_with_error, token, Address, Env, Map, Vec};
+use soroban_sdk::{panic_with_error, token, Address, Env, Executable, Map, Vec};
 
 use common::errors::GenericError;
 use common::token::transfer_amount_measured;
@@ -163,10 +163,11 @@ pub(crate) fn run(env: Env, sender: Address, total_in: i128, payload: StrategyPa
 
 /// Opens a `G...` receiver's missing trustline via the SAC `trust` call (CAP-73).
 ///
-/// Needs `receiver`'s signature only when it creates one. Failures are ignored: the
-/// payout transfer reverts the swap if the trustline is still missing.
+/// Skips tokens that are not a Stellar Asset Contract. Needs `receiver`'s signature
+/// only when it creates one. Failures are ignored: the payout transfer reverts the
+/// swap if the trustline is still missing.
 fn ensure_trustline(env: &Env, token: &Address, receiver: &Address) {
-    if !is_account_address(env, receiver) {
+    if !is_account_address(env, receiver) || token.executable() != Some(Executable::StellarAsset) {
         return;
     }
     let _ = StellarAssetClient::new(env, token).try_trust(receiver);
