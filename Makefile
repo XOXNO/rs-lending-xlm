@@ -1322,7 +1322,7 @@ upgrade-position-nft: _preflight-controller _preflight-governance $(CORE_WASM)
 	NETWORK=$(NETWORK) SIGNER=$(SIGNER) bash $(CONFIG_DIR)/script.sh upgradePositionNftHash $$HASH
 
 
-deploy-curator: _preflight-governance deploy-artifacts
+deploy-curator: _preflight-governance $(CORE_WASM)
 	@echo "=== Deploying curator on $(NETWORK) ==="
 	@echo "Signer: $(SIGNER)"
 	@GOV=$$(jq -r '.["$(NETWORK)"].governance // empty' $(CONFIG_DIR)/networks.json); \
@@ -1342,7 +1342,7 @@ deploy-curator: _preflight-governance deploy-artifacts
 	echo "Next: make $(NETWORK) grantGovRole $$CUR CURATOR, then PROPOSER"
 
 
-upgrade-curator: _preflight-governance deploy-artifacts
+upgrade-curator: _preflight-governance $(CORE_WASM)
 	@echo "=== Upgrading curator on $(NETWORK) ==="
 	@echo "Signer: $(SIGNER)"
 	@stellar contract upload \
@@ -2315,7 +2315,7 @@ help-ops:
 	$(call ROW,make <n> setAggregator | setAccumulator,from networks.json or env)
 	$(call ROW,make <n> setPriceAggregator,re-point the oracle authority (timelocked))
 	$(call NOTE,make <n> grantGovRole|revokeGovRole G... ROLE)
-	$(call NOTE,    ROLE = PROPOSER | CANCELLER | ORACLE | GUARDIAN)
+	$(call NOTE,    ROLE = PROPOSER | CANCELLER | ORACLE | GUARDIAN | CURATOR)
 	$(call ROW,make <n> setPositionLimits 10 10,max supply/borrow positions)
 	$(call NOTE,make <n> setMinBorrowCollateralUsd RAY)
 	$(call NOTE,make <n> setPositionManager G... true)
