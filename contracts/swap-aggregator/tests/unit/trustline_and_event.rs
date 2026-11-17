@@ -15,7 +15,7 @@ use soroban_sdk::xdr::{
     SequenceNumber, Thresholds, TrustLineAsset, Uint256,
 };
 use soroban_sdk::Event as _;
-use soroban_sdk::{map, Address, Env, Map, Symbol, TryIntoVal};
+use soroban_sdk::{Address, Env, Symbol, TryIntoVal};
 
 use super::support::{aquarius_mock, one_hop_path, strategy_xdr_with_referral};
 
@@ -141,11 +141,6 @@ impl Swap<'_> {
 
     /// One-hop A→B payload with a 400 minimum; `referral_id` 0 means none.
     fn payload(&self, referral_id: u64) -> soroban_sdk::Bytes {
-        self.payload_with_weight(referral_id, 1_000_000)
-    }
-
-    /// As [`Self::payload`], routing `weight_ppm` of the input.
-    fn payload_with_weight(&self, referral_id: u64, weight_ppm: u32) -> soroban_sdk::Bytes {
         strategy_xdr_with_referral(
             self.env,
             self.a.address.clone(),
@@ -157,7 +152,7 @@ impl Swap<'_> {
                 self.pool.clone(),
                 self.a.address.clone(),
                 self.b.address.clone(),
-                weight_ppm,
+                1_000_000,
             )],
             referral_id,
         )
@@ -171,7 +166,6 @@ impl Swap<'_> {
         referral_id: u64,
         fee_token: &Address,
         (static_fee, referral_fee): (i128, i128),
-        residuals: Map<Address, i128>,
     ) {
         let expected = SwapEvent {
             sender: sender.clone(),
@@ -183,7 +177,6 @@ impl Swap<'_> {
             fee_token: fee_token.clone(),
             static_fee,
             referral_fee,
-            residuals,
         }
         .to_xdr(self.env, &self.router.address);
         assert!(
@@ -286,7 +279,7 @@ fn swap_publishes_event_with_amounts_and_fees() {
         .execute_strategy(&sender, &500, &s.payload(referral));
 
     assert_eq!(out, 493);
-    s.assert_swap_event(&sender, 493, referral, &s.a.address, (5, 2), map![&env]);
+    s.assert_swap_event(&sender, 493, referral, &s.a.address, (5, 2));
 }
 
 #[test]
@@ -298,7 +291,7 @@ fn swap_event_reports_zero_fees_without_referral() {
 
     s.router.execute_strategy(&sender, &500, &s.payload(0));
 
-    s.assert_swap_event(&sender, 500, 0, &s.b.address, (0, 0), map![&env]);
+    s.assert_swap_event(&sender, 500, 0, &s.b.address, (0, 0));
 }
 
 #[test]
@@ -336,21 +329,4 @@ fn swap_to_custom_token_skips_trust_for_classic_sender() {
     assert_eq!(out, 500);
     assert_eq!(custom_client.balance(&sender), 500);
     assert!(!authorized_call(&env, "trust"));
-}
-
-#[test]
-fn swap_event_reports_residual_swept_to_revenue() {
-    let env = Env::default();
-    let s = setup(&env);
-    let sender = Address::generate(&env);
-    s.a.admin.mint(&sender, &500);
-
-    // Routes 99.8% of 500: 499 A swapped, 1 A left as residual.
-    let out = s
-        .router
-        .execute_strategy(&sender, &500, &s.payload_with_weight(0, 998_000));
-
-    assert_eq!(out, 499);
-    let residuals = map![&env, (s.a.address.clone(), 1_i128)];
-    s.assert_swap_event(&sender, 499, 0, &s.b.address, (0, 0), residuals);
 }
