@@ -24,7 +24,7 @@ env:
   STELLAR_VERSION: "28.0.0"
   # Every deployable contract, named as its artifacts/wasm/deploy file. The
   # package and checksum steps read this one list.
-  RELEASE_CONTRACTS: controller pool governance price_aggregator position_nft defindex_strategy aggregator xoxno-oracle-adapter
+  RELEASE_CONTRACTS: controller pool governance price_aggregator position_nft defindex_strategy aggregator xoxno-oracle-adapter curator
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}-${{ github.event_name }}

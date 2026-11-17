@@ -95,7 +95,7 @@ DEPLOY_DIR := $(WASM_ARTIFACTS_DIR)/deploy
 # that GitHub release instead of building it from this checkout.
 RELEASE_TAG ?=
 RELEASE_REPO ?= XOXNO/rs-lending-xlm
-RELEASE_CONTRACTS := controller pool governance price_aggregator position_nft defindex_strategy aggregator xoxno-oracle-adapter
+RELEASE_CONTRACTS := controller pool governance price_aggregator position_nft defindex_strategy aggregator xoxno-oracle-adapter curator
 CORE_WASM := $(if $(RELEASE_TAG),release-artifacts,deploy-artifacts)
 AGGREGATOR_WASM := $(if $(RELEASE_TAG),release-artifacts,build-aggregator)
 ORACLE_ADAPTER_WASM := $(if $(RELEASE_TAG),release-artifacts,build-oracle-adapter)
@@ -1322,10 +1322,7 @@ upgrade-position-nft: _preflight-controller _preflight-governance $(CORE_WASM)
 	NETWORK=$(NETWORK) SIGNER=$(SIGNER) bash $(CONFIG_DIR)/script.sh upgradePositionNftHash $$HASH
 
 
-_curator-no-release-tag:
-	$(if $(RELEASE_TAG),$(error curator.wasm is not in the release set; deploy or upgrade it without RELEASE_TAG))
-
-deploy-curator: _curator-no-release-tag _preflight-governance deploy-artifacts
+deploy-curator: _preflight-governance deploy-artifacts
 	@echo "=== Deploying curator on $(NETWORK) ==="
 	@echo "Signer: $(SIGNER)"
 	@GOV=$$(jq -r '.["$(NETWORK)"].governance // empty' $(CONFIG_DIR)/networks.json); \
@@ -1345,7 +1342,7 @@ deploy-curator: _curator-no-release-tag _preflight-governance deploy-artifacts
 	echo "Next: make $(NETWORK) grantGovRole $$CUR CURATOR, then PROPOSER"
 
 
-upgrade-curator: _curator-no-release-tag _preflight-governance deploy-artifacts
+upgrade-curator: _preflight-governance deploy-artifacts
 	@echo "=== Upgrading curator on $(NETWORK) ==="
 	@echo "Signer: $(SIGNER)"
 	@stellar contract upload \
