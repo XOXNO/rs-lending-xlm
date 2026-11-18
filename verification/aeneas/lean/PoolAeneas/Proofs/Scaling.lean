@@ -118,7 +118,7 @@ theorem calculate_scaled_supply_favours_protocol (env : Env) (amount : Std.I128)
   apply WP.spec_mono h
   intro s hs
   unfold IsFloor at hs
-  rw [if_pos hidx] at hs
+  rw [ite_eq_left hidx] at hs
   exact ⟨hs.1, by linarith [hs.2]⟩
 
 end PoolAeneas.Proofs

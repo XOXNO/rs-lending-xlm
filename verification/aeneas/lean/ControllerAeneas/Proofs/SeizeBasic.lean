@@ -362,7 +362,7 @@ theorem sz_to_asset_val (env : Env) (r : math.fp.Ray) (dec : Std.U32) (hdec : de
   rw [h27] at this
   apply WP.spec_mono this
   intro q hq
-  unfold IsHalfAway at hq; rw [if_pos hr] at hq
+  unfold IsHalfAway at hq; rw [ite_eq_left hr] at hq
   exact isHalfUp_eq (by positivity) hq
 
 /-- `Ray::from_asset` multiplies by `10^(27 − dec)` exactly whenever the
@@ -482,7 +482,7 @@ theorem sz_resolve_withdrawal_val (env : Env) (amount pos index : Std.I128) (dec
   by_cases hge : H0.val ≤ amount.val
   · have hge' : (amount >= H0) := by simp [IScalar.le_equiv]; omega
     simp only [hge', ↓reduceIte, WP.spec_ok]
-    rw [← hr0, ← hH0, if_pos hge, ← hF0e]
+    rw [← hr0, ← hH0, ite_eq_left hge, ← hF0e]
     exact ⟨rfl, hF0nn, by omega, hF0b.1⟩
   · have hlt' : ¬ (amount >= H0) := by simp [IScalar.le_equiv]; omega
     simp only [hlt', ↓reduceIte]
@@ -538,7 +538,7 @@ theorem sz_resolve_withdrawal_val (env : Env) (amount pos index : Std.I128) (dec
     have hposb := pos.hBounds
     simp only [IScalarTy.numBits] at hposb
     step with ray_div_ceil_spec env a1 index (by omega) ⟨c, hc, by omega, by omega⟩ as ⟨s, hs⟩
-    rw [← hr0, ← hH0, if_neg hge]
+    rw [← hr0, ← hH0, ite_eq_right hge]
     exact ⟨rfl, hamt, le_refl _, hAF⟩
 
 end ControllerAeneas.Proofs

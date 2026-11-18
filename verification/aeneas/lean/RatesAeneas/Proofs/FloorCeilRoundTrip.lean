@@ -53,7 +53,7 @@ theorem supply_round_trip (env : Env) (amount : Std.I128) (dec : Std.U32) (index
   step with calculate_scaled_supply_spec env amount dec index hdec hidx ⟨by omega, hA⟩ hfit
     as ⟨s, hs⟩
   generalize hAdef : amount.val * 10^(27 - dec.val) = A at hs hA hA0
-  unfold IsFloor at hs; rw [if_pos hidx] at hs
+  unfold IsFloor at hs; rw [ite_eq_left hidx] at hs
   obtain ⟨hs1, hs2⟩ := hs
   -- the minted shares are non-negative
   have hs0 : 0 ≤ s.val := by
@@ -65,7 +65,7 @@ theorem supply_round_trip (env : Env) (amount : Std.I128) (dec : Std.U32) (index
   obtain ⟨m, hm⟩ := exists_isFloor (s.val * index.val) (10^27) (by norm_num)
   have hmb : -2^127 ≤ m ∧ m < 2^127 := by
     have hm' := hm
-    unfold IsFloor at hm'; rw [if_pos (by norm_num)] at hm'
+    unfold IsFloor at hm'; rw [ite_eq_left (by norm_num)] at hm'
     constructor
     · by_contra h
       have : (m + 1) * 10^27 ≤ 0 := by nlinarith
@@ -77,7 +77,7 @@ theorem supply_round_trip (env : Env) (amount : Std.I128) (dec : Std.U32) (index
   apply WP.spec_mono (unscale_supply_floor_spec env s index dec (by omega) hsi
     ⟨m, hm, hmb.1, hmb.2⟩)
   intro r hr
-  unfold IsFloor at hr; rw [if_pos (by positivity)] at hr
+  unfold IsFloor at hr; rw [ite_eq_left (by positivity)] at hr
   have h1 : r.val * (10^27 * 10^(27 - dec.val)) ≤ amount.val * (10^27 * 10^(27 - dec.val)) := by
     rw [← hAdef] at hs1; nlinarith [hr.1]
   exact le_of_mul_le_mul_right h1 (by positivity)
@@ -112,12 +112,12 @@ theorem borrow_round_trip (env : Env) (amount : Std.I128) (dec : Std.U32) (index
   step with calculate_scaled_borrow_spec env amount dec index hdec (by omega) ⟨by omega, hAlt⟩ hfit
     as ⟨s, hs⟩
   generalize hAdef : amount.val * 10^(27 - dec.val) = A at hs hA hA0 hAlt
-  unfold IsCeil at hs; rw [if_pos hidx] at hs
+  unfold IsCeil at hs; rw [ite_eq_left hidx] at hs
   obtain ⟨hs1, hs2⟩ := hs
   obtain ⟨m, hm⟩ := exists_isCeil (s.val * index.val) (10^27) (by norm_num)
   have hmb : -2^127 ≤ m ∧ m < 2^127 := by
     have hm' := hm
-    unfold IsCeil at hm'; rw [if_pos (by norm_num)] at hm'
+    unfold IsCeil at hm'; rw [ite_eq_left (by norm_num)] at hm'
     constructor
     · by_contra h
       have : m * 10^27 < 0 := by nlinarith
@@ -127,7 +127,7 @@ theorem borrow_round_trip (env : Env) (amount : Std.I128) (dec : Std.U32) (index
       omega
   apply WP.spec_mono (unscale_borrow_ceil_spec env s index dec (by omega) ⟨m, hm, hmb.1, hmb.2⟩)
   intro r hr
-  unfold IsCeil at hr; rw [if_pos (by positivity)] at hr
+  unfold IsCeil at hr; rw [ite_eq_left (by positivity)] at hr
   have h1 : amount.val * (10^27 * 10^(27 - dec.val)) ≤ r.val * (10^27 * 10^(27 - dec.val)) := by
     rw [← hAdef] at hs1; nlinarith [hr.1]
   exact le_of_mul_le_mul_right h1 (by positivity)

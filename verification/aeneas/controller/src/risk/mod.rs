@@ -7,7 +7,4 @@
 pub(crate) mod totals;
 pub(crate) mod validation;
 
-pub(crate) use totals::{
-    account_price_assets, calculate_account_risk_totals, calculate_ltv_collateral_wad,
-    position_value, sum_debt_usd, AccountRiskTotals,
-};
+pub(crate) use totals::{position_value, AccountRiskTotals};

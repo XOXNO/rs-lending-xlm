@@ -26,7 +26,7 @@ theorem IsFloor.neg_iff {n d f : Int} (hd : d ≠ 0) (hf : IsFloor n d f) :
     f < 0 ↔ (n ≠ 0 ∧ ((n < 0) ≠ (d < 0))) := by
   unfold IsFloor at hf
   rcases lt_or_gt_of_ne hd with hneg | hpos
-  · rw [if_neg (by omega)] at hf
+  · rw [ite_eq_right (by omega)] at hf
     constructor
     · intro hf0
       have : 0 ≤ f * d + d := by nlinarith
@@ -37,7 +37,7 @@ theorem IsFloor.neg_iff {n d f : Int} (hd : d ≠ 0) (hf : IsFloor n d f) :
       by_contra hf0
       have : f * d ≤ 0 := by nlinarith
       omega
-  · rw [if_pos hpos] at hf
+  · rw [ite_eq_left hpos] at hf
     constructor
     · intro hf0
       have : f * d + d ≤ 0 := by nlinarith

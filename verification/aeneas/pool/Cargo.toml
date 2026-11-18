@@ -19,7 +19,7 @@ path = "src/lib.rs"
 soroban-sdk = { package = "aeneas-pool-shim", path = "shim" }
 
 [lints.rust]
-unexpected_cfgs = { level = "warn", check-cfg = ['cfg(feature, values("certora"))'] }
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(feature, values("certora", "math-test"))'] }
 
 # Extraction roots: only these items and what they call reach Lean. Storage,
 # events, token transfers and the contract entry points are outside the model

@@ -240,7 +240,7 @@ theorem supply_apply_spec (env : Env) (entry : types.pool.PoolSupplyEntry)
     rw [h0] at hmv
     simp only [zero_mul] at hmv
     exact IsFloor.unique (by have := hinv.si_pos; omega) hmv
-      (by unfold IsFloor; rw [if_pos hinv.si_pos]; constructor <;> nlinarith [hinv.si_pos])
+      (by unfold IsFloor; rw [ite_eq_left hinv.si_pos]; constructor <;> nlinarith [hinv.si_pos])
   have hp1v := ray_checked_add_eq_ok _ _ _ _ hp1
   obtain ⟨hsh1, hsup1, hc1e⟩ := mint_supply_preserves c c1 m hinv.shares hm0 hc1
   obtain ⟨hcash2, hc2e⟩ := (credit_cash_spec c1 _).2 c2 hc2
@@ -267,7 +267,7 @@ theorem supply_apply_spec (env : Env) (entry : types.pool.PoolSupplyEntry)
 `⌈A·RAY/bi⌉ ≤ A` for `A ≥ 0`, so it fits whenever `A` does. -/
 theorem ceil_le_of_index_ge_ray {A bi q : Int} (hA : 0 ≤ A) (hbi : 10^27 ≤ bi)
     (hq : IsCeil (A * 10^27) bi q) : 0 ≤ q ∧ q ≤ A := by
-  unfold IsCeil at hq; rw [if_pos (by omega)] at hq
+  unfold IsCeil at hq; rw [ite_eq_left (by omega)] at hq
   constructor
   · nlinarith
   · by_contra hc
@@ -486,7 +486,7 @@ theorem repay_accounting_spec (env : Env) (action : types.pool.PoolAction)
   have hpi : 0 ≤ action.position.scaled_amount.val * c.borrow_index.val := by
     have := hinv.bi_pos; positivity
   have hq0 : 0 ≤ q := by
-    unfold IsCeil at hq; rw [if_pos (by norm_num)] at hq; nlinarith
+    unfold IsCeil at hq; rw [ite_eq_left (by norm_num)] at hq; nlinarith
   unfold market_cache.scale.Cache.resolve_repay at hrr
   have hspec := spec_ok_eq (resolve_repay_spec c.env action.amount action.position.scaled_amount
     c.borrow_index c.params.asset_decimals hdec27 hinv.bi_pos hpos hamt ⟨q, hq, by omega, hqlt⟩) hrr
@@ -495,7 +495,7 @@ theorem repay_accounting_spec (env : Env) (action : types.pool.PoolAction)
   obtain ⟨D, hD⟩ := isCeil_exists (action.position.scaled_amount.val * c.borrow_index.val)
     (10^27 * 10^(27 - c.params.asset_decimals.val)) (by positivity)
   have hD0 : 0 ≤ D := by
-    have hDc := hD; unfold IsCeil at hDc; rw [if_pos (by positivity)] at hDc; nlinarith
+    have hDc := hD; unfold IsCeil at hDc; rw [ite_eq_left (by positivity)] at hDc; nlinarith
   obtain ⟨hfull, hpart⟩ := hspec D hD
   have hp1v := (ray_checked_sub_eq_ok _ _ _ _ hp1).2.2.2
   obtain ⟨hsh1, _, _, hbor1, hc1e⟩ := burn_debt_preserves c c1 bu hinv.shares hc1
@@ -554,14 +554,14 @@ theorem repay_accounting_spec (env : Env) (action : types.pool.PoolAction)
     · omega
     · have ha0 : action.amount.val = 0 := by omega
       have hDpos : 0 < D := by
-        have hDc := hD; unfold IsCeil at hDc; rw [if_pos (by positivity)] at hDc
+        have hDc := hD; unfold IsCeil at hDc; rw [ite_eq_left (by positivity)] at hDc
         have : 0 < action.position.scaled_amount.val * c.borrow_index.val := by
           have := hinv.bi_pos; positivity
         nlinarith
       obtain ⟨_, hfl, _, _⟩ := key.2 (by omega)
       rw [ha0] at hfl; simp only [zero_mul] at hfl
       have : bu.val = 0 := IsFloor.unique (by have := hinv.bi_pos; omega) hfl
-        (by unfold IsFloor; rw [if_pos hinv.bi_pos]; constructor <;> nlinarith [hinv.bi_pos])
+        (by unfold IsFloor; rw [ite_eq_left hinv.bi_pos]; constructor <;> nlinarith [hinv.bi_pos])
       omega
   · exact hinv.of_eq hs2 (by rw [hcash2, hc1e]; simp; have := hinv.cash; omega)
       (by rw [hc2full]) (by rw [hc2full])
@@ -796,7 +796,7 @@ theorem withdraw_accounting_spec (env : Env) (isl : Bool) (entry : types.pool.Po
   obtain ⟨q, hq, hqlt⟩ := hfit
   have hrq : r0 = q := IsHalfUp.unique (by norm_num) hr0 hq
   have hFk : F0 * 10^(27 - c.params.asset_decimals.val) ≤ q := by
-    have hFc := hF0; unfold IsFloor at hFc; rw [if_pos (by positivity)] at hFc
+    have hFc := hF0; unfold IsFloor at hFc; rw [ite_eq_left (by positivity)] at hFc
     have hqc := hq; unfold IsHalfUp at hqc
     by_contra hc
     have : (q + 1) * 10^27 ≤ F0 * 10^(27 - c.params.asset_decimals.val) * 10^27 :=
@@ -856,7 +856,7 @@ theorem withdraw_accounting_spec (env : Env) (isl : Bool) (entry : types.pool.Po
           bu.val * c.supply_index.val := by
         by_cases hle : H0 ≤ entry.action.amount.val
         · obtain ⟨hbe, hge⟩ := hfull hle
-          have hFc := hF0; unfold IsFloor at hFc; rw [if_pos (by positivity)] at hFc
+          have hFc := hF0; unfold IsFloor at hFc; rw [ite_eq_left (by positivity)] at hFc
           have e : gr.val * 10^(27 - c.params.asset_decimals.val) * 10^27 =
               F0 * (10^27 * 10^(27 - c.params.asset_decimals.val)) := by rw [hge]; ring
           rw [e, hbe]; exact hFc.1
@@ -869,7 +869,7 @@ theorem withdraw_accounting_spec (env : Env) (isl : Bool) (entry : types.pool.Po
     intro q' hq'
     simp only [zero_mul] at hq'
     exact IsCeil.unique (by have := hinv.si_pos; omega) hq'
-      (by unfold IsCeil; rw [if_pos hinv.si_pos]; constructor <;> nlinarith [hinv.si_pos])
+      (by unfold IsCeil; rw [ite_eq_left hinv.si_pos]; constructor <;> nlinarith [hinv.si_pos])
   refine ⟨hamt, hpos, hfee, hg0, hga, by rw [hremv]; omega, by rw [hremv]; omega, ?_, ?_, ?_,
     ?_, ?_, ?_, hnt0, hntG, hidx, by simp [hpar3], by simp, ?_, ?_,
     ⟨s, hs0, hsz, by rw [hremv]; omega, ?_, ?_⟩, ?_, hc3full⟩

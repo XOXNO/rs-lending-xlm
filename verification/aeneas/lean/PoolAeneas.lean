@@ -35,6 +35,7 @@ import PoolAeneas.Proofs.GlobalSync
 import PoolAeneas.Proofs.Legs
 import PoolAeneas.Proofs.Legs2
 import PoolAeneas.Proofs.Summaries
+import PoolAeneas.Proofs.NoFit
 -- The market value ceiling as a stored-state invariant of every leg.
 import PoolAeneas.Proofs.ValueCeiling
 import Audit

@@ -66,7 +66,7 @@ theorem require_utilization_below_max_spec (env : Env) (c : market_cache.Cache) 
     (hS : IsFloor (c.supplied.val * c.supply_index.val) (10^27) S) (hSfit : S < 2^127) :
     (∃ u, guards.require_utilization_below_max env c = ok u) ↔ UtilPass c B S := by
   have hB0 : 0 ≤ B := by
-    unfold IsCeil at hB; rw [if_pos (by norm_num)] at hB; nlinarith
+    unfold IsCeil at hB; rw [ite_eq_left (by norm_num)] at hB; nlinarith
   have hS0 : 0 ≤ S := IsFloor.nonneg (by norm_num) (by positivity) hS
   unfold guards.require_utilization_below_max UtilPass
   simp only [market_cache.Cache.impl.supplied, market_cache.Cache.impl.borrowed,
@@ -89,7 +89,7 @@ theorem require_utilization_below_max_spec (env : Env) (c : market_cache.Cache) 
   -- the allowed debt value: `A = ⌊S * max_utilization / RAY⌋ ≤ S`
   have hA := isFloor_ediv (S * c.params.max_utilization.val) (10^27) (by norm_num)
   set A := S * c.params.max_utilization.val / 10^27 with hAdef
-  have hA' := hA; unfold IsFloor at hA'; rw [if_pos (by norm_num)] at hA'
+  have hA' := hA; unfold IsFloor at hA'; rw [ite_eq_left (by norm_num)] at hA'
   have hA0 : 0 ≤ A := IsFloor.nonneg (by norm_num) (Int.mul_nonneg hS0 hm) hA
   have hAS : A ≤ S := by
     by_contra hc; have hc := not_le.mp hc
@@ -309,12 +309,12 @@ theorem require_liquidation_buffer_spec (env : Env) (c : market_cache.Cache) (dr
   have hD : (0 : Int) < 10^27 * 10^(27 - c.params.asset_decimals.val) := by positivity
   have hsa0 : 0 ≤ sa.val := IsFloor.nonneg hD hnn hsa
   have hsale : sa.val ≤ c.supplied.val * c.supply_index.val := by
-    unfold IsFloor at hsa; rw [if_pos hD] at hsa
+    unfold IsFloor at hsa; rw [ite_eq_left hD] at hsa
     have : (1 : Int) ≤ 10^27 * 10^(27 - c.params.asset_decimals.val) := by omega
     nlinarith
   have hsab := i128_bounds sa
   obtain ⟨R, hR⟩ := isCeil_exists (sa.val * 200) 10000 (by norm_num)
-  have hR' := hR; unfold IsCeil at hR'; rw [if_pos (by norm_num)] at hR'
+  have hR' := hR; unfold IsCeil at hR'; rw [ite_eq_left (by norm_num)] at hR'
   have hR0 : 0 ≤ R := by nlinarith
   have hRle : R ≤ sa.val := by nlinarith
   refine ⟨sa.val, R, hsa, hR, ?_, ?_⟩
@@ -363,7 +363,7 @@ theorem backing_shortfall_spec (c : market_cache.Cache) (C Dt : Int)
         C - Dt - c.cash.val * 10^(27 - c.params.asset_decimals.val)) ⦄ := by
   have hC0 : 0 ≤ C := IsFloor.nonneg (by norm_num) (by positivity) hC
   have hD0 : 0 ≤ Dt := by
-    unfold IsCeil at hD; rw [if_pos (by norm_num)] at hD; nlinarith
+    unfold IsCeil at hD; rw [ite_eq_left (by norm_num)] at hD; nlinarith
   unfold guards.backing_shortfall market_cache.scale.Cache.unscale_borrow_ceil_ray
   simp only [market_cache.Cache.impl.env, market_cache.Cache.impl.supplied,
     market_cache.Cache.impl.supply_index, market_cache.Cache.impl.borrowed,
@@ -397,7 +397,7 @@ theorem backing_shortfall_spec (c : market_cache.Cache) (C Dt : Int)
   have hpos' : 0 < u.val - c.cash.val := by
     simp only [max_def] at hpos; split at hpos <;> omega
   rw [max_eq_left (le_of_lt hpos')]
-  unfold IsFloor at hU; rw [if_pos hk] at hU
+  unfold IsFloor at hU; rw [ite_eq_left hk] at hU
   nlinarith
 
 /-- **`require_backed_market` passes exactly when there is no backing
@@ -426,7 +426,7 @@ theorem require_backed_market_spec (env : Env) (c : market_cache.Cache) (C Dt : 
   · have := hr1 hle
     simp [hr0.mpr this, hle]
   · obtain ⟨U, hU, hrv⟩ := hr2 (by omega)
-    unfold IsFloor at hU; rw [if_pos hk] at hU
+    unfold IsFloor at hU; rw [ite_eq_left hk] at hU
     have key : r.val = 0 ↔ C - Dt < (c.cash.val + 1) * 10^(27 - c.params.asset_decimals.val) := by
       rw [hrv]
       constructor

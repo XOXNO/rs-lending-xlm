@@ -479,3 +479,42 @@ theorem fair_lp_price_wad_fails_closed (env : aeneas_oracle_shim.Env)
       core.result.Result.Insts.CoreOpsTry_traitFromResidualResult.from_residual,
       core.convert.FromSame.from]
 
+/-- **Every `Ok p` from `fair_lp_price_wad` satisfies the documented
+formula.** The helper calls returned `Ok va`, `Ok vb` and `Ok S`, and
+`p = ⌊2·⌊√(va·vb)⌋·WAD / S⌋` (`IsFloorPos`). Converse of
+`fair_lp_price_wad_value`, which assumes the helper results. -/
+theorem fair_lp_ok_formula (env : aeneas_oracle_shim.Env)
+    (a b : oracle.lp.LpLeg) (s : oracle.lp.LpSupply) (p : Std.I128)
+    (h : oracle.lp.fair_lp_price_wad env a b s = ok (.Ok p)) :
+    ∃ va vb S : Std.I128, oracle.lp.reserve_value_wad env a = ok (.Ok va) ∧
+      oracle.lp.reserve_value_wad env b = ok (.Ok vb) ∧
+      oracle.observation.try_amount_to_wad s.total_shares s.decimals = ok (.Ok S) ∧
+      IsFloorPos (2 * (Nat.sqrt (va.val.toNat * vb.val.toNat) : Int) * 10^18) S.val p.val := by
+  by_cases hdeg : a.reserve.val ≤ 0 ∨ b.reserve.val ≤ 0 ∨ a.price_wad.val ≤ 0 ∨
+      b.price_wad.val ≤ 0 ∨ s.total_shares.val ≤ 0
+  · rw [fair_lp_price_wad_rejects_degenerate env a b s hdeg] at h; simp at h
+  have hpos : 0 < a.reserve.val ∧ 0 < b.reserve.val ∧ 0 < a.price_wad.val ∧
+      0 < b.price_wad.val ∧ 0 < s.total_shares.val := by omega
+  have h0 : (0#i128 : Std.I128).val = 0 := by simp
+  have g1 : ¬ (a.reserve ≤ 0#i128) := by rw [IScalar.le_equiv, h0]; omega
+  have g2 : ¬ (b.reserve ≤ 0#i128) := by rw [IScalar.le_equiv, h0]; omega
+  have g3 : ¬ (a.price_wad ≤ 0#i128) := by rw [IScalar.le_equiv, h0]; omega
+  have g4 : ¬ (b.price_wad ≤ 0#i128) := by rw [IScalar.le_equiv, h0]; omega
+  have g5 : ¬ (s.total_shares ≤ 0#i128) := by rw [IScalar.le_equiv, h0]; omega
+  rcases reserve_value_wad_cases env a with ⟨va, ha⟩ | ha
+  · rcases reserve_value_wad_cases env b with ⟨vb, hb⟩ | hb
+    · rcases try_amount_to_wad_cases s.total_shares s.decimals with ⟨S, hS⟩ | hS
+      · have hSpos := try_amount_to_wad_pos s.total_shares s.decimals S hpos.2.2.2.2 hS
+        have hv := fair_lp_price_wad_value env a b s hpos va vb S ha hb hS hSpos
+        rw [h, WP.spec_ok] at hv
+        exact ⟨va, vb, S, ha, hb, hS, hv⟩
+      · have he := fair_lp_price_wad_share_err env a b s hpos va vb ha hb hS
+        rw [h, WP.spec_ok] at he; simp at he
+    · unfold oracle.lp.fair_lp_price_wad at h
+      simp [g1, g2, g3, g4, g5, ha, hb, core.result.Result.Insts.CoreOpsTry.branch,
+        core.result.Result.Insts.CoreOpsTry_traitFromResidualResult.from_residual,
+        core.convert.FromSame.from] at h
+  · unfold oracle.lp.fair_lp_price_wad at h
+    simp [g1, g2, g3, g4, g5, ha, core.result.Result.Insts.CoreOpsTry.branch,
+      core.result.Result.Insts.CoreOpsTry_traitFromResidualResult.from_residual,
+      core.convert.FromSame.from] at h

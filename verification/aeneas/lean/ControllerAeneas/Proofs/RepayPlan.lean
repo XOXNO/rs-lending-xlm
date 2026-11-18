@@ -79,7 +79,7 @@ theorem legUsd_zero_of_pay_nonpos (ctx : context.Context) (acc : types.Account)
     rw [hDz] at this
     linarith
   unfold legUsd
-  rw [if_pos (by omega)]
+  rw [ite_eq_left (by omega)]
   unfold fv; rw [← hn, hnz]; simp
 
 /-- Extra domain of a leg the excess loop may trim (positive kept amount and
@@ -325,16 +325,16 @@ theorem normalize_tail_spec (env : Env) (acc : types.Account)
     have hid : ∃ S, S.Sublist es ∧ List.Forall₂ LegLe S es :=
       ⟨es, List.Sublist.refl _, List.forall₂_same.mpr (fun x _ => Or.inl rfl)⟩
     by_cases hfc : snap.total_debt.val ≤ I.val
-    · rw [if_pos (by simpa using hfc), WP.spec_ok]
+    · rw [ite_eq_left (by simpa using hfc), WP.spec_ok]
       exact ⟨[], by simp, hid, by simp [refSum], le_refl _, fun _ => ⟨rfl, rfl⟩,
         fun h => absurd hfc h, fun h => absurd hfc h⟩
-    rw [if_neg (by simpa using hfc)]
+    rw [ite_eq_right (by simpa using hfc)]
     by_cases hgt : I.val < tot.val
     swap
-    · rw [if_neg (by simpa using hgt), WP.spec_ok]
+    · rw [ite_eq_right (by simpa using hgt), WP.spec_ok]
       refine ⟨[], by simp, hid, by simp [refSum], le_refl _, fun h => absurd h hfc,
         fun _ _ => by rw [← htot]; omega, fun _ _ => min_le_left _ _⟩
-    rw [if_pos (by simpa using hgt)]
+    rw [ite_eq_left (by simpa using hgt)]
     unfold math.fp.Wad.checked_sub
     step with checked_sub_nonneg_spec env tot I hI0 hgt.le as ⟨ex, hex⟩
     have hx := process_excess_payment_spec env es rs ex
@@ -413,14 +413,14 @@ theorem normalize_tail_spec (env : Env) (acc : types.Account)
   intro sa hsa
   -- Step 4: the record.
   by_cases hfc : snap.total_debt.val ≤ I.val
-  · rw [if_pos (by simpa using hfc)]
+  · rw [ite_eq_left (by simpa using hfc)]
     obtain ⟨⟨rad, c3⟩, hr⟩ := hrep fin c2
     rw [hr]
     simp only [bind_ok]
     apply (WP.spec_ok _).mpr
     refine ⟨new, hnew, ⟨S, hS, hf⟩, hcons, hw, by show w.val ≤ _; rw [hw]; exact hle, rfl, rfl,
       fun _ => hfull hfc, hsa, fun h => absurd h (by simp [hfc]), fun h => absurd h (by simp [hfc])⟩
-  · rw [if_neg (by simpa using hfc)]
+  · rw [ite_eq_right (by simpa using hfc)]
     apply (WP.spec_ok _).mpr
     refine ⟨new, hnew, ⟨S, hS, hf⟩, hcons, hw, by show w.val ≤ _; rw [hw]; exact hle, rfl, rfl,
       fun h => absurd h (by simp [hfc]), hsa, fun _ hins => ?_, fun _ hsol => ?_⟩
@@ -569,22 +569,22 @@ theorem normalize_repayment_plan_spec (env : Env) (acc : types.Account)
   simp only [aeneas_soroban_shim.Vec.new, bind_ok, hcalc, hest, wad_lt, wad_ge, wad_gt]
   simp only [Std.uncurry_apply_pair]
   by_cases hins : snap.total_collateral.val < snap.total_debt.val
-  · rw [if_pos (by simpa using hins)]
+  · rw [ite_eq_left (by simpa using hins)]
     try simp only [bind_ok, Std.uncurry_apply_pair]
     apply WP.spec_mono (normalize_tail_spec env acc snap es rs tot q bonus ctx hlen' htot' hq0
       (hok' _) hfeed hzero hfit' hrep)
     intro res h
     exact hbase res.1 q h (fun _ => rfl)
-  · rw [if_neg (by simpa using hins)]
+  · rw [ite_eq_right (by simpa using hins)]
     try simp only [bind_ok, Std.uncurry_apply_pair]
     by_cases hqD' : snap.total_debt.val ≤ q.val
-    · rw [if_pos (by simpa using hqD')]
+    · rw [ite_eq_left (by simpa using hqD')]
       try simp only [bind_ok, Std.uncurry_apply_pair]
       apply WP.spec_mono (normalize_tail_spec env acc snap es rs tot q bonus ctx hlen' htot' hq0
         (hok' _) hfeed hzero hfit' hrep)
       intro res h
       exact hbase res.1 q h (fun h => absurd h hins)
-    · rw [if_neg (by simpa using hqD')]
+    · rw [ite_eq_right (by simpa using hqD')]
       obtain ⟨⟨r, c3⟩, hr, hr0⟩ := hwu q bonus hq0 (by omega) (by omega) hb0 hbm
       rw [hr]
       try simp only [bind_ok, Std.uncurry_apply_pair]

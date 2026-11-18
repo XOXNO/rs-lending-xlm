@@ -684,7 +684,7 @@ theorem calculate_account_risk_totals_spec (env : Env) (ctx : context.Context)
     simp [math.fp.Wad.Insts.CoreCmpPartialEqWad.eq, this]
     step with div_floor_saturating_val env wc td hw0 (by omega) as ⟨hf, hhf⟩
     refine ⟨htc, hlc, hwc, htd, ?_⟩
-    rw [if_neg hz, hhf, hwc, htd]; norm_num
+    rw [ite_eq_right hz, hhf, hwc, htd]; norm_num
 
 /-! ## Conservativeness (INV-RISK-02) -/
 

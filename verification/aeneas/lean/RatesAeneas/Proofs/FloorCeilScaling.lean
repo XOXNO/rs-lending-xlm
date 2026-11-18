@@ -27,7 +27,7 @@ theorem ray_decimals_val : (constants.production.shared.RAY_DECIMALS).val = 27 :
 theorem IsFloor.nest {n a b m r : Int} (ha : 0 < a) (hb : 0 < b)
     (h1 : IsFloor n a m) (h2 : IsFloor m b r) : IsFloor n (a * b) r := by
   unfold IsFloor at *
-  rw [if_pos ha] at h1; rw [if_pos hb] at h2; rw [if_pos (mul_pos ha hb)]
+  rw [ite_eq_left ha] at h1; rw [ite_eq_left hb] at h2; rw [ite_eq_left (mul_pos ha hb)]
   obtain ⟨h1a, h1b⟩ := h1; obtain ⟨h2a, h2b⟩ := h2
   constructor
   · have : r * b * a ≤ m * a := mul_le_mul_of_nonneg_right h2a (by omega)
@@ -40,7 +40,7 @@ theorem IsFloor.nest {n a b m r : Int} (ha : 0 < a) (hb : 0 < b)
 theorem IsCeil.nest {n a b m r : Int} (ha : 0 < a) (hb : 0 < b)
     (h1 : IsCeil n a m) (h2 : IsCeil m b r) : IsCeil n (a * b) r := by
   unfold IsCeil at *
-  rw [if_pos ha] at h1; rw [if_pos hb] at h2; rw [if_pos (mul_pos ha hb)]
+  rw [ite_eq_left ha] at h1; rw [ite_eq_left hb] at h2; rw [ite_eq_left (mul_pos ha hb)]
   obtain ⟨h1a, h1b⟩ := h1; obtain ⟨h2a, h2b⟩ := h2
   constructor
   · have : m * a ≤ r * b * a := mul_le_mul_of_nonneg_right h2a (by omega)
@@ -199,7 +199,7 @@ theorem unscale_supply_floor_spec (env : Env) (scaled index : Std.I128) (dec : S
   step with ray_mul_floor_spec env scaled index hfit as ⟨m, hm⟩
   step with ray_to_asset_floor_spec env m dec hdec as ⟨r, hr, _⟩
   have hm0 : 0 ≤ m.val := by
-    unfold IsFloor at hm; rw [if_pos (by norm_num)] at hm
+    unfold IsFloor at hm; rw [ite_eq_left (by norm_num)] at hm
     by_contra h
     have : (m.val + 1) * 10^27 ≤ 0 := by nlinarith
     omega

@@ -119,7 +119,7 @@ theorem ray_checked_sub_spec (env : Env) (a b : Std.I128)
 /-- Every positive divisor has a floor (`Int.ediv`). Used only to discharge
 "the result fits" hypotheses; specifications never divide. -/
 theorem isFloor_ediv (n d : Int) (hd : 0 < d) : IsFloor n d (n / d) := by
-  unfold IsFloor; rw [if_pos hd]
+  unfold IsFloor; rw [ite_eq_left hd]
   have h1 := Int.ediv_mul_le n (Int.ne_of_gt hd)
   have h2 := Int.emod_lt_of_pos n hd
   have h3 := Int.emod_add_mul_ediv n d
@@ -131,10 +131,10 @@ theorem isFloor_ediv (n d : Int) (hd : 0 < d) : IsFloor n d (n / d) := by
 theorem isCeil_exists (n d : Int) (hd : 0 < d) : ∃ q, IsCeil n d q := by
   by_cases h : d ∣ n
   · obtain ⟨k, hk⟩ := h
-    exact ⟨k, by unfold IsCeil; rw [if_pos hd]; constructor <;> nlinarith⟩
+    exact ⟨k, by unfold IsCeil; rw [ite_eq_left hd]; constructor <;> nlinarith⟩
   · refine ⟨n / d + 1, ?_⟩
     have hf := isFloor_ediv n d hd
-    unfold IsFloor at hf; unfold IsCeil; rw [if_pos hd] at hf ⊢
+    unfold IsFloor at hf; unfold IsCeil; rw [ite_eq_left hd] at hf ⊢
     have hne : (n / d) * d ≠ n := by
       intro he; exact h ⟨n / d, by rw [mul_comm]; exact he.symm⟩
     constructor <;> nlinarith [lt_of_le_of_ne hf.1 hne]
@@ -145,14 +145,14 @@ theorem floor_fits (n d : Int) (hd : 0 < d) (hn : 0 ≤ n) (hlt : n < 2^127 * d)
   refine ⟨n / d, isFloor_ediv n d hd, ?_, ?_⟩
   · have := Int.ediv_nonneg hn (le_of_lt hd); omega
   · have hf := isFloor_ediv n d hd
-    unfold IsFloor at hf; rw [if_pos hd] at hf
+    unfold IsFloor at hf; rw [ite_eq_left hd] at hf
     by_contra hc
     have hc := not_lt.mp hc
     nlinarith
 
 /-- The floor of a non-negative quotient is non-negative. -/
 theorem IsFloor.nonneg {n d q : Int} (hd : 0 < d) (hn : 0 ≤ n) (h : IsFloor n d q) : 0 ≤ q := by
-  unfold IsFloor at h; rw [if_pos hd] at h
+  unfold IsFloor at h; rw [ite_eq_left hd] at h
   by_contra hc
   have hc := not_le.mp hc
   nlinarith

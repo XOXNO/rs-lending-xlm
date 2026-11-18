@@ -434,7 +434,7 @@ revenue. Uninterpreted. -/
 opaque external.pool.pool_seize_positions_call : aeneas_soroban_shim.Env →
     aeneas_soroban_shim.Address → aeneas_soroban_shim.Vec types.PoolSeizeEntry → Result Unit
 
-/-- `account::cleanup_account_if_empty` (defined in `account_store`) (defined in `account_store`): removes an empty account from
+/-- `account::cleanup_account_if_empty` (defined in `account_store`): removes an empty account from
 storage. Uninterpreted. -/
 opaque account_store.cleanup_account_if_empty : aeneas_soroban_shim.Env → types.Account → Std.U64 →
     Result Unit

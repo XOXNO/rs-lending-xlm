@@ -127,11 +127,11 @@ theorem sz_loop_spec (env : Env) (tc opb tsu : math.fp.Wad) (rad sa : Bool) (ctx
     by_cases he : (legOf ctx tc tsu opb rad sa (k, pos)).Emit
     · obtain ⟨x, rfl, hx⟩ := hemit he
       refine ⟨x :: out, by rw [hs]; simp, ?_⟩
-      unfold SzOut; rw [if_pos he]
+      unfold SzOut; rw [ite_eq_left he]
       exact ⟨x, out, rfl, hx, hout⟩
     · rw [hnemit he] at hs
       refine ⟨out, hs, ?_⟩
-      unfold SzOut; rw [if_neg he]; exact hout
+      unfold SzOut; rw [ite_eq_right he]; exact hout
 
 /-- The integer inputs of a leg read from a raw supply entry (the typed
 position has the same scaled amount and fee rate, `TypedOf`). -/

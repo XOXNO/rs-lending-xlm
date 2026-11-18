@@ -98,7 +98,7 @@ theorem net_settle_apply_spec (env : Env) (entry : types.pool.PoolNetSettleEntry
   obtain ⟨qD, hqD, hqDlt⟩ := hfitD
   have hqS0 : 0 ≤ qS := IsFloor.nonneg (by norm_num) (by have := hinv.si_pos; positivity) hqS
   have hqD0 : 0 ≤ qD := by
-    have hqc := hqD; unfold IsCeil at hqc; rw [if_pos (by norm_num)] at hqc
+    have hqc := hqD; unfold IsCeil at hqc; rw [ite_eq_left (by norm_num)] at hqc
     have : 0 ≤ entry.debt_position.scaled_amount.val * c.borrow_index.val := by
       have := hinv.bi_pos; positivity
     nlinarith
@@ -214,7 +214,7 @@ theorem seize_apply_spec (env : Env) (entry : types.pool.PoolSeizeEntry)
     have hbc := mul_div_ceil_eq_ok c.env _ _ _ _ (by rw [ray_val]; norm_num) hbq
     rw [ray_val] at hbc
     have hb0 : 0 ≤ bq.val := by
-      have hbc' := hbc; unfold IsCeil at hbc'; rw [if_pos (by norm_num)] at hbc'
+      have hbc' := hbc; unfold IsCeil at hbc'; rw [ite_eq_left (by norm_num)] at hbc'
       have : 0 ≤ entry.position.scaled_amount.val * c.borrow_index.val := by
         have := hinv.bi_pos; positivity
       nlinarith

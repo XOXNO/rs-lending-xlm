@@ -230,7 +230,10 @@ limits: [README](../README.md#not-covered),
 ## Production code review notes
 
 No economically relevant counterexample. One rounding direction disfavours
-the protocol, by under one WAD unit (`10^-18` USD):
+the protocol, by under one WAD unit (`10^-18` USD) per step; a liquidation
+with `n` collateral legs has `1 + 3n` such steps, and the share and price
+steps scale with the budget and the price (about `5·10^-13` USD for a $1M
+liquidation against BTC):
 
 * **`calculate_seized_collateral`'s seizure budget rounds half up.**
   `total_seizure_usd = repay_usd.mul(1 + bonus)` is `hu(repay·(BPS+bonus)/BPS)`

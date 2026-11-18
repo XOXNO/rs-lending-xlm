@@ -41,8 +41,8 @@ abbrev InRange (v : Int) : Prop := MIN ≤ v ∧ v ≤ MAX
 @[step] theorem rem_euclid_spec (a b : aeneas_soroban_shim.I256) (hb : (b : Int) ≠ 0)
     (h : ¬ ((a : Int) = MIN ∧ (b : Int) = -1)) :
     rem_euclid a b ⦃ r => (r : Int) = Int.emod a b ⦄ := by
-  simp only [rem_euclid, hb, if_false]
-  rw [if_neg h]
+  simp only [rem_euclid, hb, ite_false]
+  rw [ite_eq_right h]
   simp
 
 @[step] theorem eq_spec (a b : aeneas_soroban_shim.I256) :

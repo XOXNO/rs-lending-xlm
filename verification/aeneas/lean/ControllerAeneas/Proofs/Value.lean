@@ -85,7 +85,7 @@ theorem to_wad_spec (env : Env) (a : math.fp.Ray) (ha : 0 ≤ a.val) :
     step with div_by_int_half_up_spec env a f (by rw [hfv]; norm_num) as ⟨q, hq⟩
     rw [hfv] at hq
     unfold IsHalfAway at hq
-    rwa [if_pos ha] at hq
+    rwa [ite_eq_left ha] at hq
 
 /-! ## The rounding chains -/
 

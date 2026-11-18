@@ -49,7 +49,7 @@ theorem calculate_borrow_rate_spec (env : Env) (u : math.fp.Ray) (p : types.pool
   have hb0 := hp.base_nonneg
   refine ⟨rv a, ha, hab.1, hab.2, ?_⟩
   unfold IsHalfAway at hq
-  rw [if_pos (by omega), hn'] at hq
+  rw [ite_eq_left (by omega), hn'] at hq
   exact hq
 
 -- (`range_contains_eq` and `calculate_deposit_rate_spec` are left out of this copy:

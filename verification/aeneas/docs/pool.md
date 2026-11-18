@@ -230,7 +230,7 @@ number of chunks.
 | `global_sync_loop_spec` | `global_sync`'s loop | Induction over chunks; the loop terminates (below) | the step hypothesis | INV-IDX-04 |
 | `global_sync_noop` | `interest::global_sync` | `current ≤ last`: cache unchanged, timestamp not advanced | none | INV-IDX-04 |
 | `global_sync_spec_of_inv` | `interest::global_sync` | `e = current − last`, chunk invariant with `Inv e c`: never aborts; `e = 0` → unchanged; else `{x with last_timestamp := current}` with `Inv 0 x` | as `global_sync_loop_spec` | INV-IDX-04 |
-| `global_sync_spec` | `interest::global_sync` | **Never aborts, any elapsed time.** `e = 0` → unchanged; else accrues in chunks of at most a year, result `x` has `ChunkPost c x`, `AccrualDomain x`, `last_timestamp = current_timestamp`; the ceiling event leaves the cache unchanged | `AccrualDomain c` | INV-IDX-06, INV-IDX-01, INV-IDX-02, INV-IDX-04, INV-ACCT-01, audit S-04 |
+| `global_sync_spec` | `interest::global_sync` | **Never aborts, any elapsed time.** `e = 0` → unchanged; else accrues in chunks of at most a year, result `x` has `ChunkPost c x`, `AccrualDomain x`, `last_timestamp = current_timestamp` | `AccrualDomain c` | INV-IDX-06, INV-IDX-01, INV-IDX-02, INV-IDX-04, INV-ACCT-01, audit S-04 |
 | `min_u64_val`, `sat_sub_u64_val`, `elapsed_val` | `u64::min`, `u64::saturating_sub`, `Cache::elapsed_ms` | Value lemmas | | |
 
 **`global_sync_loop_spec`**: any `Inv remaining cache` preserved by each
@@ -402,6 +402,8 @@ m.borrow_index ≤ 10^36` (what `nondet_market_index_raw` assumes);
 | `withdraw_summary_partial` | `new ≥ 0`; `amount > 0 ∧ position > 0 → new < position`; `position ≤ 0 → new = position`; `0 ≤ actual ≤ amount`; `IndexInRange`; decimals `≤ 18` |
 | `withdraw_zero_amount_closes_dust`, `withdraw_dust_instance` | The `withdraw_summary` gap: `amount = 0` with half-up value `H = 0` closes the position (`new = 0`, `actual = 0`); instance: decimals 0, `si = RAY`, position 1 |
 | `repay_summary_holds` | Exactly the summary's position clause; `0 ≤ actual ≤ amount`; `IndexInRange`; decimals `≤ 18` |
+| `withdraw_summary_partial_nofit`, `repay_summary_holds_nofit` (`NoFit.lean`) | The same clauses (repay: the amount clauses) **without the fit hypothesis**: it is derived from the leg's `ok` result (`withdraw_fit_of_ok`, `repay_fit_of_ok`, `resolve_withdrawal_aborts`) |
+| `withdraw_poolInv_nofit` (`NoFit.lean`) | `PoolInv` after a successful withdraw leg, without the fit hypothesis |
 | `net_settle_summary_holds` | Exactly the summary's clauses; `IndexInRange` |
 | `recapitalize_summary_holds` | `0 ≤ actual ≤ amount` |
 | `create_strategy_summary_holds` | `new ≥ old`, `amount ≥ 0`, fee `f ∈ [0, amount]` (`0` without `charge_fee`), `actual = amount`, `received = amount − f`; `IndexInRange`; decimals `≤ 18` |
@@ -469,8 +471,10 @@ definitions, not axioms.
 
 ## Not covered
 
-* **"Position ≤ market total" (INV-ACCT-10).** The withdraw, repay and
-  net-settlement theorems assume it
+* **"Position ≤ market total" (INV-ACCT-10).** Proved nowhere. The withdraw
+  and repay summaries and the post-withdraw `PoolInv` hold without the fit
+  hypotheses that stood for it (`NoFit.lean`); the net-settlement theorems
+  still assume it
   ([above](#the-market-value-ceiling-as-a-stored-state-invariant-valueceilinglean)).
 * **The flash loan before `finalize`.** `ops::flash::apply` (payout,
   receiver callback, two balance checks) is unextracted, so nothing shows
