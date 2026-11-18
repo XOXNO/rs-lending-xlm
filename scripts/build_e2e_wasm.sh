@@ -13,7 +13,7 @@ case "$mode" in
 candidate)
     out=artifacts/wasm/deploy
     mkdir -p "$out" target/optimized
-    for pkg in controller pool governance price-aggregator position-nft defindex-strategy swap-aggregator xoxno-oracle; do
+    for pkg in controller pool governance price-aggregator position-nft defindex-strategy swap-aggregator xoxno-oracle curator; do
         stellar contract build --locked --package "$pkg" --optimize --out-dir target/optimized
         name="${pkg//-/_}"
         case "$pkg" in swap-aggregator) name=aggregator;; xoxno-oracle) name=xoxno-oracle-adapter;; esac
@@ -27,7 +27,7 @@ candidate)
 fixtures)
     out=artifacts/wasm/fixtures
     mkdir -p "$out"
-    # Native registry tests load Cargo's curator.wasm; it is not a release candidate.
+    # Native registry tests load Cargo's curator.wasm, not the candidate build.
     stellar contract build --locked --package curator --optimize --out-dir target/optimized
     for pkg in mock-oracle mock-redstone flash-loan-receiver flash-position-receiver script-runner production-fixture; do
         stellar contract build --locked --package "$pkg" --optimize --out-dir "$out"

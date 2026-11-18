@@ -67,7 +67,7 @@
   {
     "id": "governance_create_market",
     "execution": "controlled-ledger",
-    "methods": ["governance.create_liquidity_pool"],
+    "methods": ["governance.create_liquidity_pool", "curator.create_hub", "curator.add_spoke", "curator.create_market", "curator.propose", "curator.hub_registrar"],
     "test": "immediate::curator_registrar_creates_a_market_in_its_hub",
     "scope": "Real curator WASM forwards create_market to native governance.create_liquidity_pool and controller with mocked auth; verifies registrar hub ownership and returned pool; successful call only, not endpoint rejection coverage"
   },
@@ -140,5 +140,106 @@
     ],
     "test": "position_nft_ttl_and_ownership_reads::liquidation_resolves_nft_ownership_and_succeeds_after_auto_restore",
     "scope": "host recording-mode restore; does not prove RPC restore submission"
+  },
+  {
+    "id": "curator_wasm_lifecycle",
+    "execution": "controlled-ledger",
+    "methods": [
+      "curator.__constructor",
+      "curator.governance",
+      "curator.upgrade",
+      "governance.execute"
+    ],
+    "test": "immediate::curator_wasm_stores_governance_and_upgrades_through_the_timelock",
+    "scope": "Real curator WASM (Cargo release build) with native governance/controller and mocked auth; constructor stores governance, then governance upgrades curator through the sensitive timelock; same-schema upgrade, not migration"
+  },
+  {
+    "id": "curator_wasm_flags_and_grants",
+    "execution": "controlled-ledger",
+    "methods": [
+      "curator.cap_grant",
+      "curator.set_cap_grant",
+      "curator.tighten_flags",
+      "curator.reassign_hub",
+      "curator.reassign_spoke"
+    ],
+    "test": "immediate::curator_hub_owner_freezes_a_grantee_listing_but_cannot_pause_it",
+    "scope": "Real curator WASM (Cargo release build) with native governance/controller and mocked auth; governance reassigns hub and spoke, hub owner grants caps, grantee lists, hub owner freezes but cannot pause"
+  },
+  {
+    "id": "curator_register_registrar",
+    "execution": "controlled-ledger",
+    "methods": [
+      "curator.register_registrar",
+      "curator.registrar_admin"
+    ],
+    "test": "a_governance_call_records_the_governance_signature",
+    "scope": "Native curator with native governance/controller and mocked auth; governance registers a registrar and its admin reads back; separate test rejects a missing governance signature"
+  },
+  {
+    "id": "curator_set_admin",
+    "execution": "controlled-ledger",
+    "methods": [
+      "curator.set_admin",
+      "curator.registrar_admin"
+    ],
+    "test": "the_admin_hands_the_registrar_to_a_new_admin",
+    "scope": "Native curator with native governance/controller and mocked auth; the registrar admin hands over to a new admin"
+  },
+  {
+    "id": "curator_roles",
+    "execution": "controlled-ledger",
+    "methods": [
+      "curator.set_roles",
+      "curator.roles"
+    ],
+    "test": "a_voluntary_admin_handover_drops_roles_and_grants",
+    "scope": "Native curator with native governance/controller and mocked auth; admin grants roles, handover drops them"
+  },
+  {
+    "id": "curator_force_set_admin",
+    "execution": "controlled-ledger",
+    "methods": [
+      "curator.force_set_admin"
+    ],
+    "test": "governance_replaces_the_admin_of_a_suspended_registrar",
+    "scope": "Native curator with native governance/controller and mocked auth; governance SetCuratorRegistrarAdmin replaces a suspended registrar's admin; old admin loses role rights"
+  },
+  {
+    "id": "curator_suspend",
+    "execution": "controlled-ledger",
+    "methods": [
+      "curator.set_registrar_suspended",
+      "curator.registrar_suspended"
+    ],
+    "test": "suspended_registrar_cannot_act_until_governance_resumes_it",
+    "scope": "Native curator with native governance/controller and mocked auth; governance suspends and resumes a registrar; suspended registrar writes reject"
+  },
+  {
+    "id": "curator_spoke_registrar",
+    "execution": "controlled-ledger",
+    "methods": [
+      "curator.spoke_registrar"
+    ],
+    "test": "spoke_role_binds_the_created_ids",
+    "scope": "Native curator with native governance/controller and mocked auth; created hub and spoke ids bind to the registrar"
+  },
+  {
+    "id": "curator_revoke_cap_grant",
+    "execution": "controlled-ledger",
+    "methods": [
+      "curator.revoke_cap_grant"
+    ],
+    "test": "revoked_grant_blocks_a_grantee_relaxation_of_the_hub_asset",
+    "scope": "Native curator with native governance/controller and mocked auth; revoked grant blocks the grantee's later relaxation"
+  },
+  {
+    "id": "curator_cancel_proposal",
+    "execution": "controlled-ledger",
+    "methods": [
+      "curator.cancel_proposal"
+    ],
+    "test": "the_new_owner_of_a_hub_cancels_what_the_former_owner_queued",
+    "scope": "Native curator with native governance/controller and mocked auth; new hub owner cancels an operation the former owner queued"
   }
 ]

@@ -2330,5 +2330,173 @@
     "root_method": "submit_prices",
     "execution": "direct-call",
     "source": "tests/integration/flows/xoxno_oracle.sh:126"
+  },
+  {
+    "contract": "curator",
+    "method": "__constructor",
+    "execution": "controlled-ledger",
+    "controlled_case": "curator_wasm_lifecycle",
+    "scope": "Real curator WASM (Cargo release build) with native governance/controller and mocked auth; constructor stores governance, then governance upgrades curator through the sensitive timelock; same-schema upgrade, not migration"
+  },
+  {
+    "contract": "curator",
+    "method": "upgrade",
+    "execution": "controlled-ledger",
+    "controlled_case": "curator_wasm_lifecycle",
+    "scope": "Real curator WASM (Cargo release build) with native governance/controller and mocked auth; constructor stores governance, then governance upgrades curator through the sensitive timelock; same-schema upgrade, not migration"
+  },
+  {
+    "contract": "curator",
+    "method": "governance",
+    "execution": "controlled-ledger",
+    "controlled_case": "curator_wasm_lifecycle",
+    "scope": "Real curator WASM (Cargo release build) with native governance/controller and mocked auth; constructor stores governance, then governance upgrades curator through the sensitive timelock; same-schema upgrade, not migration"
+  },
+  {
+    "contract": "curator",
+    "method": "registrar_admin",
+    "execution": "controlled-ledger",
+    "controlled_case": "curator_set_admin",
+    "scope": "Native curator with native governance/controller and mocked auth; the registrar admin hands over to a new admin"
+  },
+  {
+    "contract": "curator",
+    "method": "registrar_suspended",
+    "execution": "controlled-ledger",
+    "controlled_case": "curator_suspend",
+    "scope": "Native curator with native governance/controller and mocked auth; governance suspends and resumes a registrar; suspended registrar writes reject"
+  },
+  {
+    "contract": "curator",
+    "method": "set_registrar_suspended",
+    "execution": "controlled-ledger",
+    "controlled_case": "curator_suspend",
+    "scope": "Native curator with native governance/controller and mocked auth; governance suspends and resumes a registrar; suspended registrar writes reject"
+  },
+  {
+    "contract": "curator",
+    "method": "roles",
+    "execution": "controlled-ledger",
+    "controlled_case": "curator_roles",
+    "scope": "Native curator with native governance/controller and mocked auth; admin grants roles, handover drops them"
+  },
+  {
+    "contract": "curator",
+    "method": "hub_registrar",
+    "execution": "controlled-ledger",
+    "controlled_case": "governance_create_market",
+    "scope": "Real curator WASM (Cargo release build) with native governance/controller and mocked auth; registrar creates hub and spoke, proposes and creates a market; successful calls only"
+  },
+  {
+    "contract": "curator",
+    "method": "spoke_registrar",
+    "execution": "controlled-ledger",
+    "controlled_case": "curator_spoke_registrar",
+    "scope": "Native curator with native governance/controller and mocked auth; created hub and spoke ids bind to the registrar"
+  },
+  {
+    "contract": "curator",
+    "method": "cap_grant",
+    "execution": "controlled-ledger",
+    "controlled_case": "curator_wasm_flags_and_grants",
+    "scope": "Real curator WASM (Cargo release build) with native governance/controller and mocked auth; governance reassigns hub and spoke, hub owner grants caps, grantee lists, hub owner freezes but cannot pause"
+  },
+  {
+    "contract": "curator",
+    "method": "force_set_admin",
+    "execution": "controlled-ledger",
+    "controlled_case": "curator_force_set_admin",
+    "scope": "Native curator with native governance/controller and mocked auth; governance SetCuratorRegistrarAdmin replaces a suspended registrar's admin; old admin loses role rights"
+  },
+  {
+    "contract": "curator",
+    "method": "reassign_hub",
+    "execution": "controlled-ledger",
+    "controlled_case": "curator_wasm_flags_and_grants",
+    "scope": "Real curator WASM (Cargo release build) with native governance/controller and mocked auth; governance reassigns hub and spoke, hub owner grants caps, grantee lists, hub owner freezes but cannot pause"
+  },
+  {
+    "contract": "curator",
+    "method": "reassign_spoke",
+    "execution": "controlled-ledger",
+    "controlled_case": "curator_wasm_flags_and_grants",
+    "scope": "Real curator WASM (Cargo release build) with native governance/controller and mocked auth; governance reassigns hub and spoke, hub owner grants caps, grantee lists, hub owner freezes but cannot pause"
+  },
+  {
+    "contract": "curator",
+    "method": "register_registrar",
+    "execution": "controlled-ledger",
+    "controlled_case": "curator_register_registrar",
+    "scope": "Native curator with native governance/controller and mocked auth; governance registers a registrar and its admin reads back; separate test rejects a missing governance signature"
+  },
+  {
+    "contract": "curator",
+    "method": "set_admin",
+    "execution": "controlled-ledger",
+    "controlled_case": "curator_set_admin",
+    "scope": "Native curator with native governance/controller and mocked auth; the registrar admin hands over to a new admin"
+  },
+  {
+    "contract": "curator",
+    "method": "set_roles",
+    "execution": "controlled-ledger",
+    "controlled_case": "curator_roles",
+    "scope": "Native curator with native governance/controller and mocked auth; admin grants roles, handover drops them"
+  },
+  {
+    "contract": "curator",
+    "method": "create_hub",
+    "execution": "controlled-ledger",
+    "controlled_case": "governance_create_market",
+    "scope": "Real curator WASM (Cargo release build) with native governance/controller and mocked auth; registrar creates hub and spoke, proposes and creates a market; successful calls only"
+  },
+  {
+    "contract": "curator",
+    "method": "add_spoke",
+    "execution": "controlled-ledger",
+    "controlled_case": "governance_create_market",
+    "scope": "Real curator WASM (Cargo release build) with native governance/controller and mocked auth; registrar creates hub and spoke, proposes and creates a market; successful calls only"
+  },
+  {
+    "contract": "curator",
+    "method": "create_market",
+    "execution": "controlled-ledger",
+    "controlled_case": "governance_create_market",
+    "scope": "Real curator WASM (Cargo release build) with native governance/controller and mocked auth; registrar creates hub and spoke, proposes and creates a market; successful calls only"
+  },
+  {
+    "contract": "curator",
+    "method": "tighten_flags",
+    "execution": "controlled-ledger",
+    "controlled_case": "curator_wasm_flags_and_grants",
+    "scope": "Real curator WASM (Cargo release build) with native governance/controller and mocked auth; governance reassigns hub and spoke, hub owner grants caps, grantee lists, hub owner freezes but cannot pause"
+  },
+  {
+    "contract": "curator",
+    "method": "set_cap_grant",
+    "execution": "controlled-ledger",
+    "controlled_case": "curator_wasm_flags_and_grants",
+    "scope": "Real curator WASM (Cargo release build) with native governance/controller and mocked auth; governance reassigns hub and spoke, hub owner grants caps, grantee lists, hub owner freezes but cannot pause"
+  },
+  {
+    "contract": "curator",
+    "method": "revoke_cap_grant",
+    "execution": "controlled-ledger",
+    "controlled_case": "curator_revoke_cap_grant",
+    "scope": "Native curator with native governance/controller and mocked auth; revoked grant blocks the grantee's later relaxation"
+  },
+  {
+    "contract": "curator",
+    "method": "propose",
+    "execution": "controlled-ledger",
+    "controlled_case": "governance_create_market",
+    "scope": "Real curator WASM (Cargo release build) with native governance/controller and mocked auth; registrar creates hub and spoke, proposes and creates a market; successful calls only"
+  },
+  {
+    "contract": "curator",
+    "method": "cancel_proposal",
+    "execution": "controlled-ledger",
+    "controlled_case": "curator_cancel_proposal",
+    "scope": "Native curator with native governance/controller and mocked auth; new hub owner cancels an operation the former owner queued"
   }
 ]

@@ -330,7 +330,7 @@ jobs:
     with:
       release_tag: ${{ inputs.tag || github.ref_name }}
       version: ${{ inputs.tag || github.ref_name }}
-      packages: controller pool governance price_aggregator position_nft defindex_strategy aggregator xoxno-oracle-adapter
+      packages: controller pool governance price_aggregator position_nft defindex_strategy aggregator xoxno-oracle-adapter curator
       name_prefix: "xoxno/"
       network: testnet
       attestation_signer_workflow: ${{ github.repository }}/.github/workflows/release.yml
@@ -349,7 +349,7 @@ jobs:
     with:
       release_tag: ${{ inputs.tag || github.ref_name }}
       version: ${{ inputs.tag || github.ref_name }}
-      packages: controller pool governance price_aggregator position_nft defindex_strategy aggregator xoxno-oracle-adapter
+      packages: controller pool governance price_aggregator position_nft defindex_strategy aggregator xoxno-oracle-adapter curator
       name_prefix: "xoxno/"
       network: mainnet
       attestation_signer_workflow: ${{ github.repository }}/.github/workflows/release.yml

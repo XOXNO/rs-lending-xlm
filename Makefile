@@ -215,6 +215,9 @@ release-artifacts:
 	@gh release download "$(RELEASE_TAG)" -R $(RELEASE_REPO) -D $(DEPLOY_DIR) \
 		$(foreach c,$(RELEASE_CONTRACTS),-p '$(c).wasm')
 	@for c in $(RELEASE_CONTRACTS); do \
+		if [ ! -f "$(DEPLOY_DIR)/$$c.wasm" ]; then \
+			echo "skip $$c.wasm: not in release $(RELEASE_TAG)"; continue; \
+		fi; \
 		gh attestation verify "$(DEPLOY_DIR)/$$c.wasm" -R $(RELEASE_REPO) \
 			--signer-workflow $(RELEASE_REPO)/.github/workflows/release.yml \
 			--source-ref refs/tags/$(RELEASE_TAG) --deny-self-hosted-runners >/dev/null || exit 1; \
@@ -1323,6 +1326,7 @@ upgrade-position-nft: _preflight-controller _preflight-governance $(CORE_WASM)
 
 
 deploy-curator: _preflight-governance $(CORE_WASM)
+	@test -f $(DEPLOY_DIR)/curator.wasm || { echo "curator.wasm is missing; release $(RELEASE_TAG) predates curator releases"; exit 1; }
 	@echo "=== Deploying curator on $(NETWORK) ==="
 	@echo "Signer: $(SIGNER)"
 	@GOV=$$(jq -r '.["$(NETWORK)"].governance // empty' $(CONFIG_DIR)/networks.json); \
@@ -1343,6 +1347,7 @@ deploy-curator: _preflight-governance $(CORE_WASM)
 
 
 upgrade-curator: _preflight-governance $(CORE_WASM)
+	@test -f $(DEPLOY_DIR)/curator.wasm || { echo "curator.wasm is missing; release $(RELEASE_TAG) predates curator releases"; exit 1; }
 	@echo "=== Upgrading curator on $(NETWORK) ==="
 	@echo "Signer: $(SIGNER)"
 	@stellar contract upload \

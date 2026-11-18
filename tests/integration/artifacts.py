@@ -9,7 +9,7 @@ from pathlib import Path
 if not __debug__:
     raise RuntimeError('release verification requires Python assertions; unset PYTHONOPTIMIZE')
 
-CONTRACTS = 'controller pool governance price_aggregator position_nft defindex_strategy aggregator xoxno-oracle-adapter'.split()
+CONTRACTS = 'controller pool governance price_aggregator position_nft defindex_strategy aggregator xoxno-oracle-adapter curator'.split()
 SDK_CONTRACTS = 'controller pool position_nft price_aggregator governance mock_reflector mock_redstone'.split()
 DISTRIBUTION_FILES = ({f'{c}.wasm' for c in CONTRACTS}
     | {f'{c}.wasm.sha256' for c in CONTRACTS}

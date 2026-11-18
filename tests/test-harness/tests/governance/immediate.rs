@@ -1,7 +1,7 @@
 use governance::op::{AdminOperation, RelaxSpokeAssetFlagsArgs, RoleArgs, SpokeAssetArgs};
 use soroban_sdk::testutils::{Address as _, Events as _, Ledger as _};
 use soroban_sdk::xdr::{ContractEventBody, ScVal};
-use soroban_sdk::{map, vec, Address, BytesN, IntoVal, Map, Symbol, TryFromVal, Val, Vec};
+use soroban_sdk::{map, vec, Address, Bytes, BytesN, IntoVal, Map, Symbol, TryFromVal, Val, Vec};
 use test_harness::{
     assert_contract_error, errors, hub_asset, usd, usdc_preset, LendingTest, ALICE,
     DEFAULT_MARKET_PARAMS, HARNESS_HUB, HARNESS_SPOKE,
@@ -357,12 +357,16 @@ fn owner_revokes_role_immediately() {
     }
 }
 
-fn register_curator(t: &LendingTest) -> Address {
+fn read_curator_wasm() -> std::vec::Vec<u8> {
     let path = "target/wasm32v1-none/release/curator.wasm";
-    let bytes = std::fs::read(path)
+    std::fs::read(path)
         .or_else(|_| std::fs::read(format!("../{path}")))
         .or_else(|_| std::fs::read(format!("../../{path}")))
-        .expect("curator WASM not found. Run 'make build' first.");
+        .expect("curator WASM not found. Run 'make build' first.")
+}
+
+fn register_curator(t: &LendingTest) -> Address {
+    let bytes = read_curator_wasm();
     let curator = t.env.register(bytes.as_slice(), (t.governance.clone(),));
     for role in ["CURATOR", "PROPOSER"] {
         t.gov_client().execute_immediate(
@@ -374,6 +378,42 @@ fn register_curator(t: &LendingTest) -> Address {
         );
     }
     curator
+}
+
+/// Real curator WASM: the constructor stores governance, and governance
+/// upgrades the contract through the sensitive timelock.
+#[test]
+fn curator_wasm_stores_governance_and_upgrades_through_the_timelock() {
+    let t = LendingTest::new().build();
+    t.env.cost_estimate().budget().reset_unlimited();
+    let curator = register_curator(&t);
+    let stored: Address = curator_call(&t, &curator, "governance", vec![&t.env]);
+    assert_eq!(stored, t.governance);
+
+    let hash = t
+        .env
+        .deployer()
+        .upload_contract_wasm(Bytes::from_slice(&t.env, &read_curator_wasm()));
+    let gov = t.gov_client();
+    let salt = BytesN::from_array(&t.env, &[9; 32]);
+    gov.propose(
+        &t.admin,
+        &AdminOperation::UpgradeCurator(curator.clone(), hash.clone()),
+        &salt,
+    );
+    t.env
+        .ledger()
+        .with_mut(|l| l.sequence_number += governance::TIMELOCK_SENSITIVE_MIN_DELAY_LEDGERS);
+    gov.execute(
+        &curator,
+        &Symbol::new(&t.env, "upgrade"),
+        &vec![&t.env, hash.into_val(&t.env)],
+        &BytesN::from_array(&t.env, &[0; 32]),
+        &salt,
+    );
+
+    let after: Address = curator_call(&t, &curator, "governance", vec![&t.env]);
+    assert_eq!(after, t.governance);
 }
 
 fn open_registrar(t: &LendingTest, curator: &Address, admin: &Address) -> u32 {
