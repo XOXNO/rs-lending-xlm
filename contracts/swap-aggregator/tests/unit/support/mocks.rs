@@ -511,7 +511,10 @@ pub mod comet_mock {
             user: Address,
         ) -> (i128, i128) {
             let pool = env.current_contract_address();
-            token::Client::new(&env, &token_in).transfer_from(&pool, &user, &pool, &amount_in);
+            let input = token::Client::new(&env, &token_in);
+            let expiration = (env.ledger().sequence() / 100_000 + 1) * 100_000;
+            input.approve(&user, &pool, &amount_in, &expiration);
+            input.transfer_from(&pool, &user, &pool, &amount_in);
             token::Client::new(&env, &token_out).transfer(&pool, &user, &amount_in);
             (amount_in, 0)
         }
