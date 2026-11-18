@@ -41,28 +41,33 @@ pub(crate) fn set_static_fee(env: &Env, fee_bps: u32) {
 
 /// Debits the vault and accrues static + referral fees for an active referral.
 ///
-/// No-op when `referral_id == 0`, the referral is missing/inactive, the token balance is
+/// Returns the charged `(static_fee, referral_fee)`. No-op when `referral_id == 0`, the referral is missing/inactive, the token balance is
 /// non-positive, the combined bps is 0, or the computed fee rounds down to zero. Panics if
 /// the combined bps exceeds [`FEE_CAP`].
 ///
 /// The static fee is charged only with an active referral; a swap without one pays no static
 /// fee. Off-chain quotes assume this policy.
-pub(crate) fn apply_fees_on_token(env: &Env, vault: &mut Vault, token: &Address, referral_id: u64) {
+pub(crate) fn apply_fees_on_token(
+    env: &Env,
+    vault: &mut Vault,
+    token: &Address,
+    referral_id: u64,
+) -> (i128, i128) {
     if referral_id == 0 {
-        return;
+        return (0, 0);
     }
 
     let cfg = match storage::try_load_referral(env, referral_id) {
         Some(c) => c,
-        None => return,
+        None => return (0, 0),
     };
     if !cfg.active {
-        return;
+        return (0, 0);
     }
 
     let balance = vault.balance_of(token);
     if balance <= 0 {
-        return;
+        return (0, 0);
     }
     let static_fee_bps = storage::static_fee_bps(env);
 
@@ -70,7 +75,7 @@ pub(crate) fn apply_fees_on_token(env: &Env, vault: &mut Vault, token: &Address,
         .checked_add(cfg.fee_bps)
         .unwrap_or_else(|| panic_with_error!(env, Error::IntegerOverflow));
     if combined_bps == 0 {
-        return;
+        return (0, 0);
     }
 
     if combined_bps > FEE_CAP {
@@ -81,12 +86,13 @@ pub(crate) fn apply_fees_on_token(env: &Env, vault: &mut Vault, token: &Address,
     let referral_fee = fee_amount(env, balance, cfg.fee_bps);
     let total = checked_add(env, static_fee, referral_fee);
     if total <= 0 {
-        return;
+        return (0, 0);
     }
 
     vault.withdraw(token, total);
 
     storage::accumulate_swap_fees(env, token, referral_id, static_fee, referral_fee);
+    (static_fee, referral_fee)
 }
 
 /// Transfers each positive bucket balance for `tokens` to `recipient` and clears the bucket.

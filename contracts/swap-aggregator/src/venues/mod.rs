@@ -8,7 +8,7 @@ pub(crate) mod phoenix;
 pub(crate) mod soroswap;
 pub(crate) mod sushi;
 
-pub(crate) use auth::{auth_entry, authorize_token_approve, authorize_token_transfer};
+pub(crate) use auth::{authorize_token_approve, authorize_token_transfer};
 
 use soroban_sdk::{panic_with_error, token, Address, Env, Map, Vec};
 

@@ -1,6 +1,6 @@
 # Event reference
 
-Match emitting contract and ordered topics. Controller, pool, governance, curator, price aggregator and DeFindex adapter define custom events; position NFT, swap aggregator and XOXNO oracle emit only inherited OpenZeppelin events. Track accounts and markets from both controller and pool events.
+Match emitting contract and ordered topics. Controller, pool, governance, curator, price aggregator, swap aggregator and DeFindex adapter define custom events; position NFT and XOXNO oracle emit only inherited OpenZeppelin events. Track accounts and markets from both controller and pool events.
 
 ## Wire rules and units
 
@@ -76,6 +76,12 @@ Each registry write emits one event, from its setter, carrying the stored value.
 | Event / topics | Format and fields | Emitted by / meaning |
 | --- | --- | --- |
 | `UpdateAssetOracleEvent`<br>`["config", "asset_oracle"]` | map: `key: PriceKey, oracle: AssetOracle` | set_oracle, set_sanity_band, set_tolerance; full stored snapshot. |
+
+### Swap-aggregator events
+
+| Event / topics | Format and fields | Emitted by / meaning |
+| --- | --- | --- |
+| `SwapEvent`<br>`["router", "swap"]` | map: `sender: Address, token_in: Address, token_out: Address, amount_in: i128, amount_out: i128, referral_id: u64, fee_token: Address, static_fee: i128, referral_fee: i128` | execute_strategy, after payout. `amount_in` measured; `amount_out` after fees. Fees are 0 without an active referral. Strategy swaps show the controller as `sender`. |
 
 ### DeFindex-strategy events
 
@@ -196,10 +202,10 @@ OpenZeppelin 0.8.0 and Soroban SDK 28.0.0 determine these shapes. Topics default
 
 RoleAdminChanged and AdminRenounced never emit (not exposed). Ownable `set_owner` is silent; router, XOXNO oracle and pool constructors use it. `update_current_contract` upgrades emit no custom event.
 
-Decode token events under the token's standard; NFT events are not SEP-41. XOXNO submissions and router swaps/fees have no custom event ([endpoints](endpoints.md)).
+Decode token events under the token's standard; NFT events are not SEP-41. XOXNO submissions and router fee claims have no custom event ([endpoints](endpoints.md)).
 
 ## Source map
 
 - [Controller events](../../contracts/controller/src/events/mod.rs), [config events](../../contracts/controller/src/events/config.rs), [market events](../../contracts/controller/src/events/market.rs), [liquidation application](../../contracts/controller/src/positions/liquidation/apply.rs), [cleanup](../../contracts/controller/src/positions/liquidation/bad_debt.rs).
-- [Pool events](../../contracts/pool/src/events.rs), [governance events](../../contracts/governance/src/events.rs), [curator events](../../contracts/curator/src/events.rs), [price registry](../../contracts/price-aggregator/src/registry.rs), [adapter](../../contracts/defindex-strategy/src/lib.rs), [NFT lifecycle](../../contracts/position-nft/src/contract.rs).
+- [Pool events](../../contracts/pool/src/events.rs), [governance events](../../contracts/governance/src/events.rs), [curator events](../../contracts/curator/src/events.rs), [swap-aggregator events](../../contracts/swap-aggregator/src/events.rs), [price registry](../../contracts/price-aggregator/src/registry.rs), [adapter](../../contracts/defindex-strategy/src/lib.rs), [NFT lifecycle](../../contracts/position-nft/src/contract.rs).
 - [Shared types](../../common/src/types/mod.rs), [rate curve](../../common/src/rates/curve.rs), [dependency pins](../../Cargo.toml).
