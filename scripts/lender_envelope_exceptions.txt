@@ -41,8 +41,9 @@
 #          correlated for 10x loops. RedStone pushes both feeds in one batch
 #          and prices sUSDe as the exchange rate times the USDe market price,
 #          so a USDe depeg moves both. Only an independent RedStone fault on
-#          one feed breaks the pair. sUSDe 150k supply and USDe 400k borrow
-#          entry caps bound new exposure.
+#          one feed breaks the pair. At max LTV the product is 1.0296, so a
+#          new max-LTV loan can be short at opposite in-band corners. sUSDe
+#          150k supply and USDe 400k borrow entry caps bound that loss.
 
 mainnet 5 USDC EURC CA526Y2NQWGWVVQ7RFFPGAZMU66PSYJ3UC2MTVAV4ZU7OM5BOPHDXUSG S3-CR-1 1.014397 pending config fix: spoke 5 USDC LT below 0.898
 mainnet 5 USDC EURC CAFJZQWSED6YAWZU3GWRTOCNPPCGBN32L7QV43XX5LZLFTK6JLN34DLN S3-CR-1 1.014397 pending config fix: spoke 5 USDC LT below 0.898
