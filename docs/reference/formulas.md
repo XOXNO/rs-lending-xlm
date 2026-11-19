@@ -99,8 +99,7 @@ gate. A debt mint (borrow or strategy opening) is checked at every ceiling, so
 at 100% debt value must not exceed supply value. Withdrawals and revenue claims
 skip a 100% ceiling, since cash bounds them. Debt mints, withdrawal, net
 settlement and revenue claims reject zero total supply with outstanding debt.
-These checks do
-not establish full backing after every mutation.
+These checks do not establish full backing after every mutation.
 
 ### Revenue payout
 
