@@ -904,5 +904,114 @@
         "liquidation_fees": 1000
       }
     }
+  },
+  "10": {
+    "name": "Ethena Correlated",
+    "liquidation_curve": {
+      "target_hf_wad": "1020000000000000000",
+      "hf_for_max_bonus_wad": "800000000000000000",
+      "liquidation_bonus_factor_bps": 10000
+    },
+    "assets": {
+      "sUSDe": {
+        "hub_id": 4,
+        "can_be_collateral": true,
+        "can_be_borrowed": false,
+        "ltv": 9000,
+        "liquidation_threshold": 9300,
+        "liquidation_bonus": 300,
+        "supply_cap": "1500000000000",
+        "borrow_cap": "0",
+        "liquidation_fees": 1000
+      },
+      "USDe": {
+        "hub_id": 4,
+        "can_be_collateral": false,
+        "can_be_borrowed": true,
+        "ltv": 9000,
+        "liquidation_threshold": 9300,
+        "liquidation_bonus": 300,
+        "supply_cap": "5000000000000",
+        "borrow_cap": "4000000000000",
+        "liquidation_fees": 1000
+      }
+    }
+  },
+  "11": {
+    "name": "Ethena Ecosystem",
+    "liquidation_curve": {
+      "target_hf_wad": "1050000000000000000",
+      "hf_for_max_bonus_wad": "900000000000000000",
+      "liquidation_bonus_factor_bps": 5000
+    },
+    "assets": {
+      "sUSDe": {
+        "hub_id": 4,
+        "can_be_collateral": true,
+        "can_be_borrowed": false,
+        "ltv": 8200,
+        "liquidation_threshold": 8500,
+        "liquidation_bonus": 400,
+        "supply_cap": "1500000000000",
+        "borrow_cap": "0",
+        "liquidation_fees": 1000
+      },
+      "USDe": {
+        "hub_id": 4,
+        "can_be_collateral": true,
+        "can_be_borrowed": true,
+        "ltv": 8700,
+        "liquidation_threshold": 9000,
+        "liquidation_bonus": 300,
+        "supply_cap": "5000000000000",
+        "borrow_cap": "4000000000000",
+        "liquidation_fees": 1000
+      },
+      "USDC_ETHENA": {
+        "hub_id": 4,
+        "can_be_collateral": true,
+        "can_be_borrowed": true,
+        "ltv": 8200,
+        "liquidation_threshold": 8500,
+        "liquidation_bonus": 400,
+        "supply_cap": "5000000000000",
+        "borrow_cap": "4000000000000",
+        "liquidation_fees": 1000
+      },
+      "USDT0_ETHENA": {
+        "hub_id": 4,
+        "can_be_collateral": true,
+        "can_be_borrowed": true,
+        "ltv": 8200,
+        "liquidation_threshold": 8500,
+        "liquidation_bonus": 400,
+        "supply_cap": "5000000000000",
+        "borrow_cap": "4000000000000",
+        "liquidation_fees": 1000,
+        "enabled": false
+      },
+      "USDC": {
+        "hub_id": 1,
+        "can_be_collateral": false,
+        "can_be_borrowed": true,
+        "ltv": 8200,
+        "liquidation_threshold": 8500,
+        "liquidation_bonus": 400,
+        "supply_cap": "0",
+        "borrow_cap": "2500000000000",
+        "liquidation_fees": 1000
+      },
+      "USDT0": {
+        "hub_id": 1,
+        "can_be_collateral": false,
+        "can_be_borrowed": true,
+        "ltv": 8200,
+        "liquidation_threshold": 8500,
+        "liquidation_bonus": 400,
+        "supply_cap": "0",
+        "borrow_cap": "1000000000000",
+        "liquidation_fees": 1000
+      }
+    }
   }
 }
