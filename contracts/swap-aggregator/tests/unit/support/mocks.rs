@@ -785,3 +785,62 @@ pub mod fee_on_transfer_token_mock {
         }
     }
 }
+
+/// Custom (non-SAC) token whose `trust` counts its calls.
+pub mod trust_spy_token_mock {
+    use super::*;
+
+    #[contract]
+    pub struct TrustSpyToken;
+
+    #[contracttype]
+    enum SpyKey {
+        Balance(Address),
+        TrustCalls,
+    }
+
+    #[contractimpl]
+    impl TrustSpyToken {
+        pub fn mint(env: Env, to: Address, amount: i128) {
+            let balance = Self::balance(env.clone(), to.clone());
+            env.storage()
+                .instance()
+                .set(&SpyKey::Balance(to), &(balance + amount));
+        }
+
+        pub fn balance(env: Env, id: Address) -> i128 {
+            env.storage()
+                .instance()
+                .get(&SpyKey::Balance(id))
+                .unwrap_or(0)
+        }
+
+        pub fn transfer(env: Env, from: Address, to: Address, amount: i128) {
+            from.require_auth();
+            let from_balance = Self::balance(env.clone(), from.clone());
+            assert!(from_balance >= amount, "spy: insufficient balance");
+            let to_balance = Self::balance(env.clone(), to.clone());
+            env.storage()
+                .instance()
+                .set(&SpyKey::Balance(from), &(from_balance - amount));
+            env.storage()
+                .instance()
+                .set(&SpyKey::Balance(to), &(to_balance + amount));
+        }
+
+        /// Same signature as the SAC `trust`; records the call and succeeds.
+        pub fn trust(env: Env, _addr: Address) {
+            let calls = Self::trust_calls(env.clone());
+            env.storage()
+                .instance()
+                .set(&SpyKey::TrustCalls, &(calls + 1));
+        }
+
+        pub fn trust_calls(env: Env) -> u32 {
+            env.storage()
+                .instance()
+                .get(&SpyKey::TrustCalls)
+                .unwrap_or(0)
+        }
+    }
+}
