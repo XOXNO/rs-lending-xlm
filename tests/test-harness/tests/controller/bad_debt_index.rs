@@ -5,8 +5,13 @@ use test_harness::{
     DAVE, LIQUIDATOR,
 };
 
+/// ETH has no seeded liquidity: the tests split bad debt over their own suppliers.
 fn setup() -> LendingTest {
-    LendingTest::new().standard_two_asset_dust_disabled()
+    LendingTest::new()
+        .standard_two_asset()
+        .with_market_liquidity("ETH", 0.0)
+        .with_dust_disabled_all_markets()
+        .build()
 }
 
 #[test]

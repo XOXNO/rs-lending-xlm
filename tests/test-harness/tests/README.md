@@ -12,7 +12,7 @@ Domain binaries live in `<name>/main.rs`; the rest are `<name>.rs`.
 | `controller` | Positions, supply/borrow/repay/withdraw, liquidation, admin, spoke, flash loan, keeper, views |
 | `governance` | Timelock operation states, immediate-path roles, permissionless execution, spoke, Redstone, DEX USD repricing, stale edits; forwarder input validation (market creation, asset config, IRM, position limits, oracle config/tolerance probing) |
 | `oracle` | `tolerance/` (bands, config, dual source, edges, staleness), future timestamps and future-skew live path, TWAP, Redstone, XOXNO adapter, DEX USD repricing |
-| `pool` | Interest curves, rate math, revenue, accrual partition bound, pool coverage |
+| `pool` | Interest curves, rate math, revenue, accrual partition bound, pool coverage, borrow against zero supply |
 | `strategy` | Multiply, flash position, swap collateral/debt, Blend migration, router guards, cross-hub loops, `edge/` cases, adversarial and happy paths |
 | `composition` | One caller contract chains controller verbs in one invocation: atomic revert, delegate revocation, NFT transfer, repeated loops, supplier exit |
 | `fuzz` | Proptest properties ([`fuzz/README.md`](fuzz/README.md)) |

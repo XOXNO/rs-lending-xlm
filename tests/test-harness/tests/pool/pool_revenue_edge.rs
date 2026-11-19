@@ -1,3 +1,4 @@
+use test_harness::helpers::HARNESS_HUB;
 use test_harness::{assert_contract_error, errors, hub_asset, LendingTest, ALICE, BOB, CAROL};
 
 #[test]
@@ -83,6 +84,7 @@ fn test_claim_revenue_blocked_when_post_state_insolvent() {
         .standard_two_asset()
         .with_dust_disabled_all_markets()
         .with_max_utilization_disabled_all_markets()
+        .with_market_liquidity("USDC", 0.0)
         .build();
 
     let accumulator = t
@@ -100,6 +102,8 @@ fn test_claim_revenue_blocked_when_post_state_insolvent() {
     let revenue_pre = t.snapshot_revenue("USDC");
     assert!(revenue_pre > 0, "fixture must accrue revenue");
 
+    // Cash that no share owns lets ALICE leave in full while debt is open.
+    t.add_unowned_cash_on_hub(HARNESS_HUB, "USDC", 10_000 * 10_000_000);
     t.withdraw_all(ALICE, "USDC");
 
     let result = t.try_claim_revenue("USDC");
