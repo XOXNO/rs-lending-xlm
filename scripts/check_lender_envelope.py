@@ -45,8 +45,9 @@ the price-aggregator read path:
         plain feeds from P reach only the band; such a key has one trust set
         and keeps the 10% single-source band cap. A key whose two legs have
         different trust sets (SolvBTC: Scaled(factor x Ref BTC) + Feed) is
-        exempt from that cap (admin.rs:171-177), so its band may not bound
-        the reach.
+        exempt from that cap (`validate_oracle` in admin.rs), so its band may
+        not bound the reach. The contract still caps the factor range of a
+        scaled leg whose factor provider serves both legs.
     Either way the sanity band caps the result.
 
 A key with several market configs for one token address (testnet hubs share

@@ -277,7 +277,7 @@ fn solvbtc_oracle(
         quote: btc,
 
         min_factor_wad: 10i128.pow(18),
-        max_factor_wad: 2 * 10i128.pow(18),
+        max_factor_wad: 103 * 10i128.pow(16),
     }));
     sources.push_back(PriceSource::Feed(nav_feed(
         env,

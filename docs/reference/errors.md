@@ -108,7 +108,7 @@ Unless a row adds a response, correct the named input or wait for governance to 
 | 223 `SanityBoundViolated` | Price outside the stored sanity band. Wait, or have governance rebase the band. |
 | 224 `InvalidSanityBounds` | Band not positive and increasing, above `MAX_REASONABLE_PRICE_WAD`, or narrower than `MIN_SANITY_BAND_BPS`; or scaled-factor minimum <= 0, maximum below minimum or above `MAX_REASONABLE_PRICE_WAD` (factor bounds may be equal; no minimum width). |
 | 225 `OracleCycleDetected` | Key already being resolved up the composition chain. |
-| 226 `SanityBandTooWideForSingleSource` | Single-source or same-trust-set pair band above `MAX_SINGLE_SOURCE_SANITY_BAND_BPS`, or LP band above `MAX_LP_SANITY_BAND_BPS`. Non-LP pairs with differing trust sets are exempt. |
+| 226 `SanityBandTooWideForSingleSource` | Single-source or same-trust-set pair band above `MAX_SINGLE_SOURCE_SANITY_BAND_BPS`, or LP band above `MAX_LP_SANITY_BAND_BPS`. Non-LP pairs with differing trust sets are exempt, except that a scaled leg's factor range is held to the same cap when its factor provider serves both legs. |
 | 227 `SanityBandMustTighten` | Immediate `set_sanity_band` would widen; use timelocked `ConfigureAssetOracle`. |
 | 228 `TwapRecordsOutOfRange` | Records above `MAX_TWAP_RECORDS`. |
 | 229 `OracleDepthExceeded` | Nesting deeper than `MAX_RESOLUTION_DEPTH`. |

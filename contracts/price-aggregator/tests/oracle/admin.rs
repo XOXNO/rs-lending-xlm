@@ -304,7 +304,7 @@ fn two_sources_trusting_different_contracts_are_exempt_from_the_single_source_ba
         let oracle = wide_band_pair(
             &env,
             ratio_over_base(&env, &a, &b),
-            ratio_over_base(&env, &b, &c),
+            ratio_over_base(&env, &c, &b),
             Vec::from_array(&env, [b.clone()]),
         );
         validate_asset_oracle(&env, &PriceKey::Token(Address::generate(&env)), &oracle);
@@ -439,5 +439,23 @@ fn a_base_edit_that_pushes_a_dependent_past_the_depth_limit_is_rejected() {
             base,
             oracle_of(&env, one(&env, scaled_onto(&env, &adapter, deep))),
         );
+    });
+}
+
+/// The shared contract `b` reads the factor of the second leg. Its 0.5..2
+/// range is wider than the single-source cap, so the wide band is rejected.
+#[test]
+#[should_panic(expected = "Error(Contract, #226)")]
+fn a_shared_factor_provider_with_a_wide_range_keeps_the_single_source_band_cap() {
+    let env = Env::default();
+    let [a, b, c] = [0; 3].map(|_| Address::generate(&env));
+    in_contract(&env, || {
+        let oracle = wide_band_pair(
+            &env,
+            ratio_over_base(&env, &a, &b),
+            ratio_over_base(&env, &b, &c),
+            Vec::from_array(&env, [b.clone()]),
+        );
+        validate_asset_oracle(&env, &PriceKey::Token(Address::generate(&env)), &oracle);
     });
 }

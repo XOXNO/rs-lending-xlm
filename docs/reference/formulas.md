@@ -274,7 +274,9 @@ Lines 1–2 fail with `InvalidSanityBounds` (224); `MIN_SANITY_BAND_BPS` is 50.
 Line 3 fails with `SanityBandTooWideForSingleSource` (226); the cap is
 `MAX_LP_SANITY_BAND_BPS` (8182) for LP, else
 `MAX_SINGLE_SOURCE_SANITY_BAND_BPS` (1000), and none for a pair with differing
-trust sets.
+trust sets. In such a pair, each scaled leg whose factor provider also serves
+the other leg must keep `[min_factor_wad, max_factor_wad]` within the 1000-BPS
+cap; else it fails with error 226.
 
 A scaled source multiplies a factor feed by a quote-asset price:
 
