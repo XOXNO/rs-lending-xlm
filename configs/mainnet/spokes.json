@@ -906,7 +906,7 @@
     }
   },
   "10": {
-    "name": "Ethena Correlated",
+    "name": "Ethena Looping",
     "liquidation_curve": {
       "target_hf_wad": "1020000000000000000",
       "hf_for_max_bonus_wad": "800000000000000000",

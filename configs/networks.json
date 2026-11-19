@@ -61,7 +61,8 @@
     "hub_ids": {
       "1": 1,
       "2": 2,
-      "3": 3
+      "3": 3,
+      "4": 4
     },
     "spoke_ids": {
       "1": 1,
@@ -71,7 +72,9 @@
       "6": 5,
       "7": 6,
       "8": 7,
-      "9": 8
+      "9": 8,
+      "10": 9,
+      "11": 10
     },
     "price_aggregator": "CBGUF2G2Q7HCVCWYISDXBHPVBGMYNXA7PG2VET66YBZX6IKOOV27NSMV",
     "position_nft": "CAWCSG77AY2W24QZ6ZXLHZU4UXEFHZBM6EI4A4IF7JB5CTY4XND3TI6C",

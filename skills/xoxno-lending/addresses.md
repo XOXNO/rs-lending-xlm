@@ -38,6 +38,7 @@ Generated from `configs/networks.json` and `configs/<network>/*.json` in the pro
 | 1 | Core | XLM, USDC, EURC, PYUSD, USDT0, SolvBTC, xSolvBTC |
 | 2 | RWA | USST, DEJTRSY, DEJAAA, USTRY, CETES, USDY, XAUM |
 | 3 | AMM | AQUA, XLMUSDC_LP, XLMSolvBTC_LP, xSolvBTCSolvBTC_LP, CETESUSDC_LP, USTRYUSDC_LP, USDYUSDC_LP, XAUMUSDC_LP, PYUSDUSDC_LP, XLMAQUA_LP, AQUAUSDC_LP |
+| 4 | Ethena | USDe, sUSDe, USDC_ETHENA |
 
 ### Markets (`HubAssetKey { hub_id, asset }`)
 
@@ -57,6 +58,9 @@ Generated from `configs/networks.json` and `configs/<network>/*.json` in the pro
 | XAUM | 2 | `CC2RBGYNCFBCVENIDL5BFBWPH4OUZM2UA3OD2K2N54GLMWCC4KWPVAGO` | 9 |
 | SolvBTC | 1 | `CBIJBDNZNF4X35BJ4FFZWCDBSCKOP5NB4PLG4SNENRMLAPYG4P5FM6VN` | 8 |
 | xSolvBTC | 1 | `CAUP7NFABXE5TJRL3FKTPMWRLC7IAXYDCTHQRFSCLR5TMGKHOOQO772J` | 8 |
+| USDe | 4 | `CCNOV6XVI2O5BSTA3232GIRUQULDEBV7IWGKM6QKI6II5OIIQTU24JJN` | 7 |
+| sUSDe | 4 | `CACSKWC753QVGC4J6YPDBIR2BEHFVWIAE7CBSS3HOVYMN623OAIQYE2M` | 7 |
+| USDC_ETHENA | 4 | `CCW67TSZV3SSS2HXMBQ5JFGCKJNXKZM7UQUWUZPUTHXSTZLEO7SJMI75` | 7 |
 | AQUA | 3 | `CAUIKL3IYGMERDRUN6YSCLWVAKIFG5Q4YJHUKM4S4NJZQIA3BAS6OJPK` | 7 |
 | XLMUSDC_LP | 3 | `CAVKLYY4RWFQBRA2YI5GTGGXKUKJQI3JLAHDGXMS7L5RDH6X6A47NMOZ` | 7 |
 | XLMSolvBTC_LP | 3 | `CAPPL34NF6X7M3EQFIPDXZHQX2PT3EOE2LYCDORH3PF2LTRDSFGWV6NL` | 7 |
@@ -68,8 +72,6 @@ Generated from `configs/networks.json` and `configs/<network>/*.json` in the pro
 | PYUSDUSDC_LP | 3 | `CD3EQXQGRYUKM7LZ6MZVTXSW74ROXU6YI2SXHJ6KTB5BQ425E5KXRDBC` | 7 |
 | XLMAQUA_LP | 3 | `CBOHAVUYKQD4C7FIVXEDJCVLUZYUO6RN3VIKEDOTIJGDDV3QN33Y4T4D` | 7 |
 | AQUAUSDC_LP | 3 | `CDOY7ILRR7PDGLBXZUPSENB6XOET77PR2JY3HXDGQS3TS4T764OYBUGO` | 7 |
-
-Configured under a hub that is **not created on-chain** (absent from `hub_ids` in `configs/networks.json`): USDe, sUSDe, USDC_ETHENA.
 
 The decimals column is the oracle configuration value; the pool reads the token contract's own `decimals` at market creation.
 
@@ -87,8 +89,10 @@ Live listing parameters: `get_spoke_asset(spoke_id, hub_asset)`.
 | 6 | Ondo RWA | 7 | USDY@hub2, USDYUSDC_LP@hub3, USDC@hub1, EURC@hub1, XLM@hub1, PYUSD@hub1 |
 | 7 | Commodities | 8 | XAUM@hub2, XAUMUSDC_LP@hub3, USDC@hub1, EURC@hub1, XLM@hub1, PYUSD@hub1 |
 | 8 | Aquarius Ecosystem | 9 | AQUA@hub3, XLMAQUA_LP@hub3, AQUAUSDC_LP@hub3, USDC@hub1, XLM@hub1, EURC@hub1, PYUSD@hub1 |
+| 9 | Ethena Looping | 10 | sUSDe@hub4, USDe@hub4 |
+| 10 | Ethena Ecosystem | 11 | sUSDe@hub4, USDe@hub4, USDC_ETHENA@hub4, USDC@hub1, USDT0@hub1 |
 
-Configured but **not created on-chain** (absent from `spoke_ids` in `configs/networks.json`): config key 3 (Spiko RWA), config key 10 (Ethena Correlated), config key 11 (Ethena Ecosystem).
+Configured but **not created on-chain** (absent from `spoke_ids` in `configs/networks.json`): config key 3 (Spiko RWA).
 
 ### Blend pools approved for `migrate_from_blend`
 
