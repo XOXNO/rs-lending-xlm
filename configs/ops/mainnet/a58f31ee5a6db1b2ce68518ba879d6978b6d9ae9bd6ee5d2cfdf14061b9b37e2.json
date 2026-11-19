@@ -1,0 +1,12 @@
+{
+  "kind": "controller",
+  "op_id": "a58f31ee5a6db1b2ce68518ba879d6978b6d9ae9bd6ee5d2cfdf14061b9b37e2",
+  "network": "mainnet",
+  "target": "CAUCMIN5KSXEVZ7NMXR3LZATGD5EFIEUI5XWTFLYRO2R5OTXI22WE5JX",
+  "function": "create_hub",
+  "args": [],
+  "predecessor": "0000000000000000000000000000000000000000000000000000000000000000",
+  "salt": "f8f329a57155ead696fb611c047f7576989c5aeb69d0c1fe2ebba7ec23f11cc9",
+  "cli_executable": true,
+  "executed": true
+}

@@ -19,8 +19,8 @@ contracts:
     # Every market in configs/mainnet/markets.json except those marked
     # `enabled: false`. A disabled market is not listed on-chain, so its pool
     # Params/State keys read as `never_created` on every tick, which looks like
-    # a broken key encoding. The six SPIKO* markets (hub 2) are disabled; add
-    # them here when they are enabled.
+    # a broken key encoding. The six SPIKO* markets (hub 2) and USDT0_ETHENA
+    # (hub 4) are disabled; add them here when they are enabled.
     - { hub_id: 1, asset: CAS3J7GYLGXMF6TDJBBYYSE3HQ6BBSMLNUQ34T6TZMYMW2EVH34XOWMA }
     - { hub_id: 1, asset: CCW67TSZV3SSS2HXMBQ5JFGCKJNXKZM7UQUWUZPUTHXSTZLEO7SJMI75 }
     - { hub_id: 1, asset: CDTKPWPLOURQA2SGTKTUQOWRCBZEORB4BWBOMJ3D3ZTQQSGE5F6JBQLV }
@@ -46,13 +46,16 @@ contracts:
     - { hub_id: 3, asset: CD3EQXQGRYUKM7LZ6MZVTXSW74ROXU6YI2SXHJ6KTB5BQ425E5KXRDBC }
     - { hub_id: 3, asset: CBOHAVUYKQD4C7FIVXEDJCVLUZYUO6RN3VIKEDOTIJGDDV3QN33Y4T4D }
     - { hub_id: 3, asset: CDOY7ILRR7PDGLBXZUPSENB6XOET77PR2JY3HXDGQS3TS4T764OYBUGO }
+    - { hub_id: 4, asset: CCNOV6XVI2O5BSTA3232GIRUQULDEBV7IWGKM6QKI6II5OIIQTU24JJN } # USDe
+    - { hub_id: 4, asset: CACSKWC753QVGC4J6YPDBIR2BEHFVWIAE7CBSS3HOVYMN623OAIQYE2M } # sUSDe
+    - { hub_id: 4, asset: CCW67TSZV3SSS2HXMBQ5JFGCKJNXKZM7UQUWUZPUTHXSTZLEO7SJMI75 } # USDC
   market_assets: []
   flash_loan_receiver: ""
   governance: CC44PEQW7HSEPKAZ5ZRPH2JS5M5KVJXCUBLJ2ZX4E3WCDKMNFILHC2AD
   xoxno_oracle_adapter: CDA3XS2HETVCW5GSRN3FH4X3YJ45IA6DNVSZTEOYDFGOCXQK4ZJG22JM
   price_aggregator: CBGUF2G2Q7HCVCWYISDXBHPVBGMYNXA7PG2VET66YBZX6IKOOV27NSMV
   # Read-only dependencies that no protocol write renews. The RedStone adapter
-  # backs 14 markets; Chainlink backs USDT0; the swap router carries every
+  # backs 17 markets; Chainlink backs USDT0; the swap router carries every
   # strategy leg.
   redstone_adapter: CA526Y2NQWGWVVQ7RFFPGAZMU66PSYJ3UC2MTVAV4ZU7OM5BOPHDXUSG
   swap_router: CCVENFSVCBYDHVOACFZXMNNYVOZ3LKXPZYU5LUI4N7KTXOKRVYD7F3TR

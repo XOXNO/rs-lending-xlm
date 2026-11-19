@@ -1,0 +1,127 @@
+{
+  "kind": "controller",
+  "op_id": "4d82f8d31c612d8fcb58170ac84fb69972ee96b64afb7fd70f88e714c51818bd",
+  "network": "mainnet",
+  "target": "CAUCMIN5KSXEVZ7NMXR3LZATGD5EFIEUI5XWTFLYRO2R5OTXI22WE5JX",
+  "function": "create_liquidity_pool",
+  "args": [
+    {
+      "u32": 4
+    },
+    {
+      "address": "CCNOV6XVI2O5BSTA3232GIRUQULDEBV7IWGKM6QKI6II5OIIQTU24JJN"
+    },
+    {
+      "map": [
+        {
+          "key": {
+            "symbol": "asset_decimals"
+          },
+          "val": {
+            "u32": 7
+          }
+        },
+        {
+          "key": {
+            "symbol": "asset_id"
+          },
+          "val": {
+            "address": "CCNOV6XVI2O5BSTA3232GIRUQULDEBV7IWGKM6QKI6II5OIIQTU24JJN"
+          }
+        },
+        {
+          "key": {
+            "symbol": "base_borrow_rate"
+          },
+          "val": {
+            "i128": "25000000000000001191182336"
+          }
+        },
+        {
+          "key": {
+            "symbol": "flashloan_fee"
+          },
+          "val": {
+            "u32": 9
+          }
+        },
+        {
+          "key": {
+            "symbol": "is_flashloanable"
+          },
+          "val": {
+            "bool": true
+          }
+        },
+        {
+          "key": {
+            "symbol": "max_borrow_rate"
+          },
+          "val": {
+            "i128": "375000000000000039342571520"
+          }
+        },
+        {
+          "key": {
+            "symbol": "max_utilization"
+          },
+          "val": {
+            "i128": "950000000000000000000000000"
+          }
+        },
+        {
+          "key": {
+            "symbol": "mid_utilization"
+          },
+          "val": {
+            "i128": "450000000000000000000000000"
+          }
+        },
+        {
+          "key": {
+            "symbol": "optimal_utilization"
+          },
+          "val": {
+            "i128": "900000000000000000000000000"
+          }
+        },
+        {
+          "key": {
+            "symbol": "reserve_factor"
+          },
+          "val": {
+            "u32": 1500
+          }
+        },
+        {
+          "key": {
+            "symbol": "slope1"
+          },
+          "val": {
+            "i128": "25000000000000001191182336"
+          }
+        },
+        {
+          "key": {
+            "symbol": "slope2"
+          },
+          "val": {
+            "i128": "25000000000000001191182336"
+          }
+        },
+        {
+          "key": {
+            "symbol": "slope3"
+          },
+          "val": {
+            "i128": "300000000000000000000000000"
+          }
+        }
+      ]
+    }
+  ],
+  "predecessor": "0000000000000000000000000000000000000000000000000000000000000000",
+  "salt": "935f1887091957b141b7ea09d81e8c1030ebe436906c3decc4c2fdced48f0653",
+  "cli_executable": true,
+  "executed": true
+}

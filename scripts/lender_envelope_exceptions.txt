@@ -37,7 +37,7 @@
 # S3-MC-1: spoke 5 deliberately treats its USD assets as correlated. PYUSD's
 #          200k supply / 150k borrow entry caps limit new exposure and its 2%
 #          cross-source tolerance bounds divergence; interest can exceed caps.
-# S3-MC-2: spoke 10 Ethena Correlated deliberately treats sUSDe and USDe as
+# S3-MC-2: spoke 10 Ethena Looping deliberately treats sUSDe and USDe as
 #          correlated for 10x loops. RedStone pushes both feeds in one batch
 #          and prices sUSDe as the exchange rate times the USDe market price,
 #          so a USDe depeg moves both. Only an independent RedStone fault on

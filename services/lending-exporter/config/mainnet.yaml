@@ -73,20 +73,24 @@ markets:
       asset: CDOY7ILRR7PDGLBXZUPSENB6XOET77PR2JY3HXDGQS3TS4T764OYBUGO,
       symbol: AQUAUSDC_LP,
     }
+  - { hub_id: 4, asset: CCNOV6XVI2O5BSTA3232GIRUQULDEBV7IWGKM6QKI6II5OIIQTU24JJN, symbol: USDe }
+  - { hub_id: 4, asset: CACSKWC753QVGC4J6YPDBIR2BEHFVWIAE7CBSS3HOVYMN623OAIQYE2M, symbol: sUSDe }
+  - { hub_id: 4, asset: CCW67TSZV3SSS2HXMBQ5JFGCKJNXKZM7UQUWUZPUTHXSTZLEO7SJMI75, symbol: USDC }
 # On-chain spoke ids, not the config ids in configs/mainnet/spokes.json.
 # Config spoke 3 (Spiko RWA) is deferred, so each later config spoke has an
 # on-chain id one lower. `mainnet.spoke_ids` in configs/networks.json holds the
 # config -> on-chain map. `get_spoke` takes the on-chain id.
-spokes: [1, 2, 3, 4, 5, 6, 7, 8]
+spokes: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
 
 hubs:
   1: Core
   2: RWA
   3: AMM
+  4: Ethena
 
 # Keyed by on-chain spoke id, matching `spokes` above. Spiko RWA is absent
-# because it has no on-chain id yet; creating it will append id 9, so add
-# `9: Spiko RWA` here at the same time. Unlisted ids fall back to "Spoke {id}".
+# because it has no on-chain id yet; creating it will append id 11, so add
+# `11: Spiko RWA` here at the same time. Unlisted ids fall back to "Spoke {id}".
 spoke_names:
   1: Blue Chip
   2: Etherfuse RWA
@@ -96,6 +100,8 @@ spoke_names:
   6: Ondo RWA
   7: Commodities
   8: Aquarius Ecosystem
+  9: Ethena Looping
+  10: Ethena Ecosystem
 scrape_interval_seconds: 30
 metrics:
   bind: 0.0.0.0:9110
