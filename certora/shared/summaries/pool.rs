@@ -111,11 +111,23 @@ pub fn withdraw_summary(
 ) -> PoolPositionMutation {
     let mut new_position = position.clone();
     let new_scaled: i128 = nondet();
-    // A positive withdraw from an open position burns at least one share and a
-    // full close lands on zero. A zero amount or an empty position is a no-op.
+    cvlr_assume!(new_scaled >= 0);
+    cvlr_assume!(new_scaled <= position.scaled_amount);
     if amount > 0 && position.scaled_amount > 0 {
         cvlr_assume!(new_scaled >= 0);
         cvlr_assume!(new_scaled < position.scaled_amount);
+    } else if amount == 0 && position.scaled_amount > 0 {
+        // Production full-closes dust whose half-up actual rounds to zero
+        // (resolve_withdrawal: amount >= current_supply_actual).
+        let closes_dust: bool = nondet();
+        cvlr_assume!(
+            new_scaled
+                == if closes_dust {
+                    0
+                } else {
+                    position.scaled_amount
+                }
+        );
     } else {
         cvlr_assume!(new_scaled == position.scaled_amount);
     }
