@@ -322,6 +322,7 @@ EXPECTED_LANES = {
     'flow_flash_position_gates': ['flash-b'],
     'flow_flash_position_malicious': ['flash-a'],
     'flow_blend_hub_liquidity': ['blend'],
+    'flow_blend_pool_setup': ['blend', 'sdk'],
     'flow_blend_allowlist': ['blend', 'sdk'],
     'flow_blend_rejects': ['blend'],
     'flow_blend_migrate': ['blend'],

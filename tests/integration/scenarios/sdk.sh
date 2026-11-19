@@ -11,18 +11,20 @@ trap 'exit 130' INT TERM
 check_tools || die preflight "required tools missing"
 check_stellar_version || die preflight "CLI version mismatch"
 wallets() {
-    prefund_wallets admin alice bob carol dave
+    prefund_wallets admin alice bob carol dave blendissuer
     new_wallet ADMIN admin || return 1
     new_wallet ALICE alice || return 1
     new_wallet BOB bob || return 1
     new_wallet CAROL carol || return 1
     new_wallet DAVE dave || return 1
+    new_wallet BLEND_ISSUER blendissuer || return 1
 }
 run_case wallets wallets || die wallets "funding failed"
 run_case deploy_protocol deploy_protocol || die deploy_protocol "required case failed"
 run_case flow_real_markets flow_real_markets || die flow_real_markets "required case failed"
 run_case flow_fund_usdc flow_fund_usdc || die flow_fund_usdc "required case failed"
 run_case flow_seed_liquidity flow_seed_liquidity || die flow_seed_liquidity "required case failed"
+run_case flow_blend_pool_setup flow_blend_pool_setup || die flow_blend_pool_setup "required case failed"
 run_case flow_blend_allowlist flow_blend_allowlist || die flow_blend_allowlist "required case failed"
 run_case flow_sdk_lifecycle flow_sdk_lifecycle || die flow_sdk_lifecycle "required case failed"
 run_case flow_sdk_strategy flow_sdk_strategy || die flow_sdk_strategy "required case failed"
