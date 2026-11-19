@@ -7,7 +7,6 @@
 mod residual;
 
 use soroban_sdk::token::StellarAssetClient;
-use soroban_sdk::xdr::ToXdr;
 use soroban_sdk::{panic_with_error, token, Address, Env, Executable, Map, Vec};
 
 use common::errors::GenericError;
@@ -29,9 +28,6 @@ use crate::venues;
 /// `None` after an instruction with no single well-defined output (a burn
 /// releases several constituents), which makes a following `Prev` fail closed.
 type PrevOutput = Option<(Address, i128)>;
-
-/// Low byte of the XDR `ScAddressType` for a classic account.
-const SC_ADDRESS_TYPE_ACCOUNT: u8 = 0;
 
 /// Everything the instruction loop needs that does not change between steps.
 struct Ctx<'a> {
@@ -161,13 +157,13 @@ pub(crate) fn run(env: Env, sender: Address, total_in: i128, payload: StrategyPa
     total_out
 }
 
-/// Opens a `G...` receiver's missing trustline via the SAC `trust` call (CAP-73).
+/// Opens `receiver`'s missing trustline via the SAC `trust` call (CAP-73).
 ///
-/// Skips tokens that are not a Stellar Asset Contract. Needs `receiver`'s signature
-/// only when it creates one. Failures are ignored: the payout transfer reverts the
-/// swap if the trustline is still missing.
+/// Skips non-SAC tokens, so custom token code never runs here. The SAC is a no-auth no-op for
+/// a contract receiver or an existing trustline. Failures are ignored: the payout transfer
+/// reverts the swap if the trustline is still missing.
 fn ensure_trustline(env: &Env, token: &Address, receiver: &Address) {
-    if !is_account_address(env, receiver) || token.executable() != Some(Executable::StellarAsset) {
+    if token.executable() != Some(Executable::StellarAsset) {
         return;
     }
     let _ = StellarAssetClient::new(env, token).try_trust(receiver);
@@ -268,9 +264,4 @@ fn resolve_amount(
                 / PPM_DENOMINATOR
         }
     }
-}
-
-/// Returns whether `address` is a `G...` account. Byte 7 of its XDR is the address type.
-fn is_account_address(env: &Env, address: &Address) -> bool {
-    address.to_xdr(env).get(7) == Some(SC_ADDRESS_TYPE_ACCOUNT)
 }

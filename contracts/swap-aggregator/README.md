@@ -36,9 +36,10 @@ Steps:
    router's **measured** balance change per hop, never a venue report or
    payload amount.
 4. Revert if output < `total_min_out`.
-5. For a `G...` sender and a SAC `token_out`, open a missing trustline with
-   the SAC `trust` call (CAP-73). This needs the sender's signature and 0.5 XLM
-   reserve. A failed call is ignored; step 6 then reverts.
+5. For a SAC `token_out`, call the SAC `trust` (CAP-73) for `sender`. For a
+   `G...` sender it opens a missing trustline, which needs the sender's
+   signature and 0.5 XLM reserve. For a `C...` sender or an existing trustline
+   it does nothing. A failed call is ignored; step 6 then reverts.
 6. Send `token_out` to `sender`.
 7. Move leftovers to the admin bucket; `ExcessiveResidual` if one exceeds its
    allowance.

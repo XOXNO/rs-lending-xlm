@@ -235,12 +235,13 @@ fn swap_reverts_when_sender_cannot_fund_trustline_reserve() {
 }
 
 #[test]
-fn swap_to_contract_sender_skips_trust() {
+fn swap_to_contract_sender_needs_no_trust_auth() {
     let env = Env::default();
     let s = setup(&env);
     let sender = Address::generate(&env);
     s.a.admin.mint(&sender, &500);
 
+    // The SAC `trust` call is a no-op for a contract address.
     let out = s.router.execute_strategy(&sender, &500, &s.payload(0));
 
     assert_eq!(out, 500);
@@ -295,14 +296,13 @@ fn swap_event_reports_zero_fees_without_referral() {
 }
 
 #[test]
-fn swap_to_custom_token_skips_trust_for_classic_sender() {
-    use super::support::fee_on_transfer_token_mock::{FotToken, FotTokenClient};
+fn swap_to_custom_token_never_calls_its_trust() {
+    use super::support::trust_spy_token_mock::{TrustSpyToken, TrustSpyTokenClient};
     let env = Env::default();
     let s = setup(&env);
-    // Output is a plain contract token with no `trust` function.
-    let custom = env.register(FotToken, ());
-    let custom_client = FotTokenClient::new(&env, &custom);
-    custom_client.init(&0);
+    // Output is a custom token whose `trust` records every call.
+    let custom = env.register(TrustSpyToken, ());
+    let custom_client = TrustSpyTokenClient::new(&env, &custom);
     let pool = env.register(aquarius_mock::AqPool, ());
     aquarius_mock::AqPoolClient::new(&env, &pool).init(&s.a.address, &custom);
     custom_client.mint(&pool, &500);
@@ -328,5 +328,6 @@ fn swap_to_custom_token_skips_trust_for_classic_sender() {
 
     assert_eq!(out, 500);
     assert_eq!(custom_client.balance(&sender), 500);
+    assert_eq!(custom_client.trust_calls(), 0, "custom token code ran");
     assert!(!authorized_call(&env, "trust"));
 }
