@@ -143,7 +143,9 @@ burns ceiling shares, borrowing mints ceiling debt, and partial repayment
 burns floor debt.
 
 **Trade-off:** accrual touches no account, but close paths and dust handling
-do not all follow these rules; see [formulas](../reference/formulas.md).
+do not all follow these rules; see [formulas](../reference/formulas.md). The
+rounding residue stays in market cash as extra backing; no entrypoint pays it
+out.
 
 <a id="adr-0012"></a>
 

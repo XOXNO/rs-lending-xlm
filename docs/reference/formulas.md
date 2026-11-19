@@ -101,6 +101,11 @@ skip a 100% ceiling, since cash bounds them. Withdrawal, net settlement and
 revenue claims reject zero total supply with outstanding debt. These checks do
 not establish full backing after every mutation.
 
+Directed rounding leaves cash that no share claims. Each full withdrawal or
+full repayment adds less than one native unit. This residue counts as backing
+in the shortfall check and as borrowable cash. No entrypoint pays it out; only
+a pool upgrade can move it.
+
 ### Revenue payout
 
 Payout is capped by cash and the floor-valued claim:
