@@ -1,0 +1,90 @@
+name: Registry Publish
+
+# Publishes a released tag's WASM to the Stellar Registry as xoxno/<contract>,
+# testnet first, then mainnet. Runs after Release Build in its own workflow so
+# a registry failure never turns the release red; re-run it, or dispatch it
+# with the tag, to retry. Already-published versions are skipped.
+
+on:
+  workflow_run:
+    workflows: ["Release Build"]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Released tag to publish (e.g. v1.2.0)"
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  resolve:
+    name: Resolve released tag
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.tag.outputs.tag }}
+    steps:
+      - id: tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+          INPUT_TAG: ${{ inputs.tag }}
+          RUN_REF: ${{ github.event.workflow_run.head_branch }}
+        run: |
+          tag="${INPUT_TAG:-$RUN_REF}"
+          # Dry runs and branch runs publish no release, so there is nothing to do.
+          published=$(gh release view "$tag" -R "$GITHUB_REPOSITORY" --json isDraft --jq '.isDraft | not' 2>/dev/null || echo false)
+          if [ "$published" != "true" ]; then
+            echo "No published release for '$tag'; skipping."
+            tag=""
+          fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
+  # The packages list is Release Build's RELEASE_CONTRACTS. REGISTRY_PUBLISH_SECRET_KEY
+  # can live only in each environment: GitHub resolves the reference in the
+  # called job, which runs in that environment.
+  testnet:
+    name: Publish to Stellar Registry (testnet)
+    needs: resolve
+    if: needs.resolve.outputs.tag != ''
+    concurrency:
+      group: registry-publish-testnet-${{ needs.resolve.outputs.tag }}
+      cancel-in-progress: false
+    permissions:
+      contents: write
+      attestations: read
+    uses: stellar-registry/actions/.github/workflows/registry-publish-assets.yml@3c895388e1648aefcc9991308595f57d1c365d12 # v2.1.0
+    with:
+      release_tag: ${{ needs.resolve.outputs.tag }}
+      version: ${{ needs.resolve.outputs.tag }}
+      packages: controller pool governance price_aggregator position_nft defindex_strategy aggregator xoxno-oracle-adapter curator
+      name_prefix: "xoxno/"
+      network: testnet
+      attestation_signer_workflow: ${{ github.repository }}/.github/workflows/release.yml
+      environment: registry-testnet
+    secrets:
+      signing_key: ${{ secrets.REGISTRY_PUBLISH_SECRET_KEY }}
+      release_token: ${{ secrets.GITHUB_TOKEN }}
+
+  mainnet:
+    name: Publish to Stellar Registry (mainnet)
+    needs: [resolve, testnet]
+    concurrency:
+      group: registry-publish-mainnet-${{ needs.resolve.outputs.tag }}
+      cancel-in-progress: false
+    permissions:
+      contents: write
+      attestations: read
+    uses: stellar-registry/actions/.github/workflows/registry-publish-assets.yml@3c895388e1648aefcc9991308595f57d1c365d12 # v2.1.0
+    with:
+      release_tag: ${{ needs.resolve.outputs.tag }}
+      version: ${{ needs.resolve.outputs.tag }}
+      packages: controller pool governance price_aggregator position_nft defindex_strategy aggregator xoxno-oracle-adapter curator
+      name_prefix: "xoxno/"
+      network: mainnet
+      attestation_signer_workflow: ${{ github.repository }}/.github/workflows/release.yml
+      environment: registry-mainnet
+    secrets:
+      signing_key: ${{ secrets.REGISTRY_PUBLISH_SECRET_KEY }}
+      release_token: ${{ secrets.GITHUB_TOKEN }}
