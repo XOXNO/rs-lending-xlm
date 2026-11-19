@@ -37,6 +37,12 @@
 # S3-MC-1: spoke 5 deliberately treats its USD assets as correlated. PYUSD's
 #          200k supply / 150k borrow entry caps limit new exposure and its 2%
 #          cross-source tolerance bounds divergence; interest can exceed caps.
+# S3-MC-2: spoke 10 Ethena Correlated deliberately treats sUSDe and USDe as
+#          correlated for 10x loops. RedStone pushes both feeds in one batch
+#          and prices sUSDe as the exchange rate times the USDe market price,
+#          so a USDe depeg moves both. Only an independent RedStone fault on
+#          one feed breaks the pair. sUSDe 150k supply and USDe 400k borrow
+#          entry caps bound new exposure.
 
 mainnet 5 USDC EURC CA526Y2NQWGWVVQ7RFFPGAZMU66PSYJ3UC2MTVAV4ZU7OM5BOPHDXUSG S3-CR-1 1.014397 pending config fix: spoke 5 USDC LT below 0.898
 mainnet 5 USDC EURC CAFJZQWSED6YAWZU3GWRTOCNPPCGBN32L7QV43XX5LZLFTK6JLN34DLN S3-CR-1 1.014397 pending config fix: spoke 5 USDC LT below 0.898
@@ -46,3 +52,4 @@ mainnet 5 USST PYUSD CA526Y2NQWGWVVQ7RFFPGAZMU66PSYJ3UC2MTVAV4ZU7OM5BOPHDXUSG S3
 mainnet 5 PYUSD USDC CA526Y2NQWGWVVQ7RFFPGAZMU66PSYJ3UC2MTVAV4ZU7OM5BOPHDXUSG S3-MC-1 1.012241 accepted correlated-stable risk: PYUSD tolerance 2%; supply entry cap 200k
 mainnet 5 PYUSD EURC CA526Y2NQWGWVVQ7RFFPGAZMU66PSYJ3UC2MTVAV4ZU7OM5BOPHDXUSG S3-MC-1 1.012241 accepted correlated-stable risk: PYUSD tolerance 2%; supply entry cap 200k
 mainnet 5 PYUSD USDT0 CA526Y2NQWGWVVQ7RFFPGAZMU66PSYJ3UC2MTVAV4ZU7OM5BOPHDXUSG S3-MC-1 1.012241 accepted correlated-stable risk: PYUSD tolerance 2%; supply entry cap 200k
+mainnet 10 sUSDe USDe CA526Y2NQWGWVVQ7RFFPGAZMU66PSYJ3UC2MTVAV4ZU7OM5BOPHDXUSG S3-MC-2 1.063955 accepted correlated sUSDe/USDe risk: same RedStone batch; sUSDe supply entry cap 150k, USDe borrow entry cap 400k

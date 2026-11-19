@@ -69,7 +69,7 @@ Generated from `configs/networks.json` and `configs/<network>/*.json` in the pro
 | XLMAQUA_LP | 3 | `CBOHAVUYKQD4C7FIVXEDJCVLUZYUO6RN3VIKEDOTIJGDDV3QN33Y4T4D` | 7 |
 | AQUAUSDC_LP | 3 | `CDOY7ILRR7PDGLBXZUPSENB6XOET77PR2JY3HXDGQS3TS4T764OYBUGO` | 7 |
 
-Configured under a hub that is **not created on-chain** (absent from `hub_ids` in `configs/networks.json`): USDe, sUSDe, USDC_ETHENA, USDT0_ETHENA.
+Configured under a hub that is **not created on-chain** (absent from `hub_ids` in `configs/networks.json`): USDe, sUSDe, USDC_ETHENA.
 
 The decimals column is the oracle configuration value; the pool reads the token contract's own `decimals` at market creation.
 
@@ -88,7 +88,7 @@ Live listing parameters: `get_spoke_asset(spoke_id, hub_asset)`.
 | 7 | Commodities | 8 | XAUM@hub2, XAUMUSDC_LP@hub3, USDC@hub1, EURC@hub1, XLM@hub1, PYUSD@hub1 |
 | 8 | Aquarius Ecosystem | 9 | AQUA@hub3, XLMAQUA_LP@hub3, AQUAUSDC_LP@hub3, USDC@hub1, XLM@hub1, EURC@hub1, PYUSD@hub1 |
 
-Configured but **not created on-chain** (absent from `spoke_ids` in `configs/networks.json`): config key 3 (Spiko RWA), config key 10 (Ethena Loop).
+Configured but **not created on-chain** (absent from `spoke_ids` in `configs/networks.json`): config key 3 (Spiko RWA), config key 10 (Ethena Correlated), config key 11 (Ethena Ecosystem).
 
 ### Blend pools approved for `migrate_from_blend`
 

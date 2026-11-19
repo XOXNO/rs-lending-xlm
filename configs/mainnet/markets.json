@@ -1303,6 +1303,7 @@
       "name": "USDT0_ETHENA",
       "hub_id": 4,
       "asset_address": "CBSJZEIO5C7KC2SF3MKSNXXJSW5G3VTNBX4ATMKUI3B2MR4JKM4R26YF",
+      "enabled": false,
       "oracle": {
         "asset_decimals": 7,
         "max_price_stale_seconds": 93600,
