@@ -1,10 +1,77 @@
-# Live Blend TestnetV2 migrate_from_blend coverage.
+# Live migrate_from_blend coverage against a Blend v2 pool that each run deploys.
 # Request types (Blend v2): 0 supply, 1 withdraw, 2 supply-collateral,
 # 3 withdraw-collateral, 4 borrow, 5 repay.
-# Observed TestnetV2 XLM: c_factor/l_factor 0.90, rates scaled by 1e12.
+# Run pool XLM and USDC: c_factor/l_factor 0.98, rates scaled by 1e12.
 
-blend_pool_id() {
-    jq -r '.pools[0].address // empty' "$REPO_ROOT/configs/$NETWORK/blend.json"
+# Reserve settings copied from testnet pool CAPBMXIQ...5PRW.
+blend_reserve_config() {
+    jq -nc --argjson i "$1" '{index:$i,decimals:7,c_factor:9800000,l_factor:9800000,util:9000000,
+        max_util:9800000,r_base:50000,r_one:500000,r_two:1000000,r_three:10000000,reactivity:1000,
+        supply_cap:"170141183460469231731687303715884105727",enabled:true}'
+}
+
+# Deploys fixture `wasm` and saves its id in `var`. Constructor args follow `--`.
+blend_deploy() {
+    local label="$1" var="$2" wasm="$3"; shift 3
+    if [ -n "${!var:-}" ]; then return 0; fi
+    local base out_f err_f id hash
+    base=$(job_log "$label"); out_f="$base.out" err_f="$base.err"
+    run_deploy "$out_f" "$err_f" -- stellar contract deploy --wasm "$FIXTURE_WASM_DIR/$wasm" \
+        --source "$ADMIN" "${NET_ARGS[@]}" "$@" || true
+    id=$(sanitize_output "$out_f")
+    hash=$(extract_signing_hash "$err_f")
+    is_contract_id "$id" || { record "$label" FAIL deploy "$hash" "" "" "" "" "no contract id: $(tail_err_note "$err_f")"; return 1; }
+    save_state "$var" "$id"
+    record "$label" ok deploy "$hash" "$RES_INSTR" "$RES_READ" "$RES_WRITE" "$RES_FEE" "$id" deployment "$id"
+}
+
+# Deploys this run's Blend pool: the pinned Blend v2 executable, a mock
+# backstop that only answers pool_data, and its own mock oracle. Reserves are
+# XLM and a run-issued USDC distinct from the protocol USDC. The admin seeds
+# both reserves, so utilization starts low on every run.
+flow_blend_pool_setup() {
+    phase blend_pool_setup
+    if [ -n "${BLEND_POOL:-}" ]; then
+        log "blend pool resumed: $BLEND_POOL"
+        return 0
+    fi
+    blend_deploy blend_deploy_backstop BLEND_BACKSTOP mock_blend_backstop.wasm || return 1
+    blend_deploy blend_deploy_oracle BLEND_ORACLE mock_oracle.wasm || return 1
+    issue_sac BLEND_USDC_SAC USDC "$BLEND_ISSUER_ADDR" || return 1
+    classic_batch blend_usdc_trust_admin change_trust "$ADMIN" "trust:USDC:$BLEND_ISSUER_ADDR" || return 1
+    inv blend_usdc_mint "$BLEND_ISSUER" "$BLEND_USDC_SAC" -- mint \
+        --to "$ADMIN_ADDR" --amount 10000000000000 >/dev/null || return 1
+    inv blend_oracle_xlm "$ADMIN" "$BLEND_ORACLE" -- set_price \
+        --asset "{\"Stellar\":\"$XLM_SAC\"}" --price_wad 300000000000000000 >/dev/null || return 1
+    inv blend_oracle_usdc "$ADMIN" "$BLEND_ORACLE" -- set_price \
+        --asset "{\"Stellar\":\"$BLEND_USDC_SAC\"}" --price_wad 1000000000000000000 >/dev/null || return 1
+
+    local pool
+    blend_deploy blend_deploy_pool BLEND_RUN_POOL blend_pool.wasm -- \
+        --admin "$ADMIN_ADDR" --name "xoxno-e2e" --oracle "$BLEND_ORACLE" \
+        --bstop_rate 5000000 --max_positions 6 --min_collateral 0 \
+        --backstop_id "$BLEND_BACKSTOP" --blnd_id "$BLEND_BACKSTOP" || return 1
+    pool="$BLEND_RUN_POOL"
+    local index=0 asset
+    for asset in "$XLM_SAC" "$BLEND_USDC_SAC"; do
+        # A pool in setup status applies queued reserves without a timelock.
+        inv "blend_queue_reserve_$index" "$ADMIN" "$pool" -- queue_set_reserve \
+            --asset "$asset" --metadata "$(blend_reserve_config "$index")" >/dev/null || return 1
+        inv "blend_set_reserve_$index" "$ADMIN" "$pool" -- set_reserve --asset "$asset" >/dev/null || return 1
+        index=$((index + 1))
+    done
+    inv blend_activate "$ADMIN" "$pool" -- set_status --pool_status 0 >/dev/null || return 1
+    jq -e '.status == 0' <<<"$(view blend_pool_config "$pool" -- get_config)" >/dev/null \
+        || { _assert_fail blend_pool_ready "run pool is not active"; return 1; }
+
+    local requests
+    requests=$(jq -nc --arg x "$XLM_SAC" --arg u "$BLEND_USDC_SAC" \
+        '[{request_type:0,address:$x,amount:"10000000000"},{request_type:0,address:$u,amount:"100000000000"}]')
+    inv blend_pool_seed "$ADMIN" "$pool" -- submit \
+        --from "$ADMIN_ADDR" --spender "$ADMIN_ADDR" --to "$ADMIN_ADDR" --requests "$requests" >/dev/null || return 1
+    save_state BLEND_POOL "$pool"
+    record blend_pool_ready ok assert "" "" "" "" "" "pool=$pool backstop=$BLEND_BACKSTOP oracle=$BLEND_ORACLE usdc=$BLEND_USDC_SAC"
+    log "blend pool = $pool"
 }
 
 blend_addr_json() {
@@ -282,10 +349,7 @@ flow_blend_hub_liquidity() {
 
 flow_blend_allowlist() {
     phase blend_allowlist
-    BLEND_POOL="$(blend_pool_id)"
-    [ -n "$BLEND_POOL" ] && [ "$BLEND_POOL" != "null" ] \
-        || die blend_pool "no pools[0].address in configs/$NETWORK/blend.json"
-    save_state BLEND_POOL "$BLEND_POOL"
+    [ -n "${BLEND_POOL:-}" ] || die blend_pool "flow_blend_pool_setup saved no BLEND_POOL"
     log "blend pool = $BLEND_POOL"
 
     # Zero balances on classic SACs still require an EOA trustline. These
@@ -614,7 +678,7 @@ flow_blend_migrate() {
 
     # Frank starts healthy on Blend (30 XLM debt, 200 XLM collateral), so the
     # no-collateral and min-borrow gates are distinguishable from hub #100.
-    # A further Blend borrow then enters the window between c_factor 0.90 and
+    # A further Blend borrow then enters the window between c_factor 0.98 and
     # hub LTV 0.70.
     # The hub has no "cap too low" guard: a debt cap only bounds the
     # flash-borrowed repay, so Blend's dust floor (#1219) rejects a 1-stroop cap
@@ -663,8 +727,8 @@ flow_blend_migrate() {
     blend_assert_ctrl_xlm_clean blend_controller_xlm_clean "$ctrl_xlm_before"
 }
 
-# Obtain the pool's own USDC by borrowing against real XLM. No issuer key,
-# faucet token or similarly named protocol USDC can satisfy this fixture.
+# Obtain the run pool's USDC by borrowing against real XLM. The run issues this
+# USDC for its own pool; the protocol USDC cannot satisfy this fixture.
 flow_blend_multireserve() {
     phase blend_multireserve
     [ "$NETWORK" = testnet ] || return 1
@@ -676,7 +740,7 @@ flow_blend_multireserve() {
     done < <(jq -r '.[].asset' "$RUN_DIR/blend-reserves.json")
     if [ "$count" != 1 ] || [ "$token" = "$USDC_SAC" ]; then
         record blend_multireserve_fixture environment-blocked get_reserve_list "" "" "" "" "" \
-            "requires one real Blend USDC reserve distinct from protocol USDC"
+            "requires one run-pool USDC reserve distinct from protocol USDC"
         return 1
     fi
     decimals=$(jq -r --arg a "$token" '.[] | select(.asset == $a) | .decimals' "$RUN_DIR/blend-reserves.json") || return 1
@@ -684,7 +748,7 @@ flow_blend_multireserve() {
     [ "$decimals" = 7 ] && [ "$actual_decimals" = "$decimals" ] \
         || { _assert_fail blend_multireserve_fixture "USDC fixture requires verified seven decimals"; return 1; }
     save_state BLEND_USDC "$token"
-    record blend_multireserve_fixture ok assert "" "" "" "" "" "real pool reserve=$token; distinct protocol USDC=$USDC_SAC; decimals=$decimals"
+    record blend_multireserve_fixture ok assert "" "" "" "" "" "run pool reserve=$token; distinct protocol USDC=$USDC_SAC; decimals=$decimals"
 
     # SACs need trustlines; contract tokens have no CODE:ISSUER name.
     line=$(view blend_usdc_name "$token" -- name | jq -r .) || return 1
@@ -704,7 +768,7 @@ flow_blend_multireserve() {
     if ! inv blend_multireserve_fund "$ADMIN" "$BLEND_POOL" -- submit \
         --from "$ADMIN_ADDR" --spender "$ADMIN_ADDR" --to "$ADMIN_ADDR" --requests "$requests" >/dev/null; then
         record blend_multireserve_liquidity environment-blocked submit "" "" "" "" "" \
-            "real Blend USDC borrow unavailable; cross-reserve scenarios remain required"
+            "run-pool USDC borrow unavailable; cross-reserve scenarios remain required"
         return 1
     fi
     inv blend_multireserve_hub_seed "$ADMIN" "$CONTROLLER" -- supply \

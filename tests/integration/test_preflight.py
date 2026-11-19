@@ -20,7 +20,8 @@ class Preflight(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             base = Path(directory)
             for name in ('scripts/build_e2e_wasm.sh', 'scripts/strip_spec_docs.py',
-                         'scripts/sdk_manifest.py', 'tests/integration/artifacts.py'):
+                         'scripts/sdk_manifest.py', 'tests/integration/artifacts.py',
+                         'tests/integration/fixtures/blend/blend_pool.wasm'):
                 target = base / name
                 target.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copyfile(ROOT / name, target)
@@ -77,11 +78,22 @@ if 'short-timelock' in args:
             self.assertTrue((base / 'custom target/wasm32v1-none/release/curator.wasm').is_file())
             self.assertEqual(before, {p.name: p.read_bytes() for p in candidates.iterdir()})
             fixtures = base / 'artifacts/wasm/fixtures'
-            self.assertEqual(len(list(fixtures.glob('*.wasm'))), 7)
+            self.assertEqual(len(list(fixtures.glob('*.wasm'))), 9)
             short = fixtures / 'governance_e2e.wasm'
             self.assertIn(b'e2e-short-sensitive-delay', short.read_bytes())
+            # The Blend pool is a pinned third-party executable, copied unchanged.
+            blend = fixtures / 'blend_pool.wasm'
+            self.assertEqual(blend.read_bytes(),
+                             (ROOT / 'tests/integration/fixtures/blend/blend_pool.wasm').read_bytes())
             self.assertTrue(all(p.read_bytes() == b'\0asm\1\0\0\0\0\x0f\x0econtractspecv0'
-                                for p in fixtures.glob('*.wasm') if p != short))
+                                for p in fixtures.glob('*.wasm') if p not in (short, blend)))
+            pinned = base / 'tests/integration/fixtures/blend/blend_pool.wasm'
+            original = pinned.read_bytes()
+            pinned.write_bytes(original + b'\0')
+            tampered = build('fixtures')
+            self.assertNotEqual(tampered.returncode, 0)
+            self.assertIn('does not match its pinned SHA-256', tampered.stderr)
+            pinned.write_bytes(original)
             # The deployable governance build is not replaced by the short one.
             self.assertFalse((base / 'custom target/wasm32v1-none/release/governance_e2e.wasm').exists())
             self.assertNotIn(b'e2e-short-sensitive-delay', (candidates / 'governance.wasm').read_bytes())

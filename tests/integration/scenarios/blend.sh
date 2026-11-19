@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
-# Focused live-testnet migrate_from_blend against the real Blend TestnetV2
-# pool. Covers allowlist, input rejects, market-flag rejects, collateral /
+# Focused live-testnet migrate_from_blend against a Blend v2 pool this run
+# deploys from the pinned executable. Covers allowlist, input rejects, market-flag rejects, collateral /
 # supply / debt migrates, the zero-liability reject, existing-account merge,
 # delegate migrate, remigrate-empty, and the health, debt-cap and min-borrow
 # failures that a web-app happy path does not reach.
@@ -33,7 +33,7 @@ trap 'finish_run $?' EXIT
 trap 'exit 130' INT TERM
 
 wallets() {
-    prefund_wallets admin alice bob carol dave eve frank
+    prefund_wallets admin alice bob carol dave eve frank blendissuer
     new_wallet ADMIN admin || return 1
     new_wallet ALICE alice || return 1
     new_wallet BOB bob || return 1
@@ -41,6 +41,7 @@ wallets() {
     new_wallet DAVE dave || return 1
     new_wallet EVE eve || return 1
     new_wallet FRANK frank || return 1
+    new_wallet BLEND_ISSUER blendissuer || return 1
 }
 run_case wallets wallets || die wallets "wallet preflight failed"
 
@@ -48,10 +49,11 @@ phase deploy
 run_case deploy_protocol deploy_protocol || die deploy_protocol "required case failed"
 
 run_case flow_real_markets flow_real_markets || die flow_real_markets "required case failed"
-# Native XLM only: Blend TestnetV2 USDC is not the protocol USDC SAC, and the
+# Native XLM only: the run pool's USDC is not the protocol USDC SAC, and the
 # aggregator swap is unrelated to migrate_from_blend accounting.
 run_case flow_blend_hub_liquidity flow_blend_hub_liquidity || die flow_blend_hub_liquidity "required case failed"
 
+run_case flow_blend_pool_setup flow_blend_pool_setup || die flow_blend_pool_setup "required case failed"
 run_case flow_blend_allowlist flow_blend_allowlist || die flow_blend_allowlist "required case failed"
 run_case flow_blend_rejects flow_blend_rejects || die flow_blend_rejects "required case failed"
 run_case flow_blend_migrate flow_blend_migrate || die flow_blend_migrate "required case failed"

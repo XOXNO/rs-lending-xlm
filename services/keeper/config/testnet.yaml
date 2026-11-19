@@ -29,7 +29,7 @@ contracts:
   swap_router: CDNTWMWW2WGYTKIZTJYNGNVQQZI4KTC5BQRZ3275KESRX5T4O3AYECL5
   extra_instances: []
   blend_pools:
-    - CCEBVDYM32YNYCVNRXQKDFFPISJJCV557CDZEIRBEE4NCV4KHPQ44HGF # TestnetV2
+    - CAPBMXIQTICKWFPWFDJWMAKBXBPJZUKLNONQH3MLPLLBKQ643CYN5PRW # TestnetV2b
   position_managers: []
 keyvault:
   url: https://unused.vault.azure.net

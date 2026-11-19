@@ -17,6 +17,7 @@ members = [
     "contracts/position-nft",
     "contracts/curator",
     "mock/mock-oracle",
+    "mock/mock-blend-backstop",
     "mock/mock-redstone",
     "mock/flash-loan-receiver",
     "mock/flash-position-receiver",
