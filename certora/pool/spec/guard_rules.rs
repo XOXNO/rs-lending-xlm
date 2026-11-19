@@ -302,6 +302,93 @@ fn withdraw_leaves_no_orphan_debt(
     cvlr_assert!(!(post.supplied == 0 && post.borrowed != 0));
 }
 
+/// A borrow on a market with no supply shares reverts (INV-ACCT-09).
+#[rule]
+fn borrow_leaves_no_orphan_debt(
+    e: Env,
+    admin: Address,
+    asset: Address,
+    amount: i128,
+    supplied: i128,
+    borrowed: i128,
+    position_before: i128,
+) {
+    cvlr_assume!(e.ledger().timestamp() <= u64::MAX / 1_000);
+    cvlr_assume!(amount > 0 && amount <= MAX_FLOW_AMOUNT);
+    cvlr_assume!(supplied >= 0 && supplied <= 20 * RAY);
+    cvlr_assume!(borrowed >= 0 && borrowed <= 20 * RAY);
+    cvlr_assume!(position_before >= 0 && position_before <= borrowed);
+
+    seed(
+        &e,
+        admin,
+        asset.clone(),
+        params(asset.clone(), 0, false),
+        state(
+            supplied,
+            borrowed,
+            0,
+            RAY,
+            RAY,
+            1_000 * ONE_TOKEN,
+            e.ledger().timestamp(),
+        ),
+    );
+
+    let entry = PoolBorrowEntry {
+        action: action(asset.clone(), position_before, amount),
+    };
+    crate::ops::borrow::accounting(&e, &entry);
+    let post = read_state(&e, &asset);
+
+    cvlr_assert!(!(post.supplied == 0 && post.borrowed != 0));
+}
+
+/// A strategy opening on a market with no supply shares reverts (INV-ACCT-09).
+#[rule]
+#[allow(clippy::too_many_arguments)]
+fn create_strategy_leaves_no_orphan_debt(
+    e: Env,
+    admin: Address,
+    asset: Address,
+    amount: i128,
+    supplied: i128,
+    borrowed: i128,
+    position_before: i128,
+    charge_fee: bool,
+) {
+    cvlr_assume!(e.ledger().timestamp() <= u64::MAX / 1_000);
+    cvlr_assume!(amount > 0 && amount <= MAX_FLOW_AMOUNT);
+    cvlr_assume!(supplied >= 0 && supplied <= 20 * RAY);
+    cvlr_assume!(borrowed >= 0 && borrowed <= 20 * RAY);
+    cvlr_assume!(position_before >= 0 && position_before <= borrowed);
+
+    seed(
+        &e,
+        admin,
+        asset.clone(),
+        params(asset.clone(), 0, false),
+        state(
+            supplied,
+            borrowed,
+            0,
+            RAY,
+            RAY,
+            1_000 * ONE_TOKEN,
+            e.ledger().timestamp(),
+        ),
+    );
+
+    crate::ops::strategy::accounting(
+        &e,
+        action(asset.clone(), position_before, amount),
+        charge_fee,
+    );
+    let post = read_state(&e, &asset);
+
+    cvlr_assert!(!(post.supplied == 0 && post.borrowed != 0));
+}
+
 #[rule]
 fn claim_revenue_leaves_no_orphan_debt(
     e: Env,

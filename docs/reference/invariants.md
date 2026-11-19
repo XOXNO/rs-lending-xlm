@@ -177,10 +177,12 @@ exceed the ceiling, so it is not a market-wide bound.
 
 <a id="inv-acct-09"></a>
 
-### INV-ACCT-09 — Selected exits cannot leave debt without supply
+### INV-ACCT-09 — Debt mints and selected exits cannot leave debt without supply
 
-Withdrawal, same-asset net settlement and revenue claims reject a resulting
-zero supplied-share total with non-zero debt shares. This prevents an
+Borrows, strategy openings, withdrawal, same-asset net settlement and revenue
+claims reject a resulting zero supplied-share total with non-zero debt shares.
+A debt mint on a market with no supply shares therefore reverts with
+`PoolInsolvent` (123), even when the market holds cash. This prevents an
 empty-supply state but proves neither full backing nor a liquidation cash
 reserve. Liquidation withdrawal is not exempt: a Transfer seizure that burns a
 market's last supply shares while it has debt reverts with `PoolInsolvent`
@@ -206,10 +208,11 @@ other source, or sends a stale position to the pool, breaks this invariant
 silently.
 
 The `prop_accounting_conservation` property test checks both equalities in
-token units, within 4 units, after every operation. Seed-adjusted cash tests
-subtract seeded pool liquidity, so their cash bound is tight. No on-chain view
-enumerates accounts, so a live network exposes only the spoke-level identity:
-pool supplied minus the sum of spoke usage equals revenue.
+token units, within 4 units, after every operation. It and the seed-adjusted
+cash tests start every market with no seeded liquidity, so their cash bound is
+tight. No on-chain view enumerates accounts, so a live network exposes only
+the spoke-level identity: pool supplied minus the sum of spoke usage equals
+revenue.
 
 <a id="inv-acct-11"></a>
 

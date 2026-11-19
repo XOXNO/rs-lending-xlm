@@ -2648,7 +2648,7 @@ def guards.require_backed_market
   massert (i = 0#i128)
 
 /-- [pool_aeneas::guards::require_supply_for_debt]:
-    Source: 'src/../../../../contracts/pool/src/guards.rs', lines 122:0-126:1 -/
+    Source: 'src/../../../../contracts/pool/src/guards.rs', lines 125:0-129:1 -/
 def guards.require_supply_for_debt
   (env : aeneas_pool_shim.Env) (cache : market_cache.Cache) : Result Unit := do
   let r ← market_cache.Cache.impl.supplied cache
@@ -2816,7 +2816,7 @@ def ops.load_leg
   ok (cache, r)
 
 /-- [pool_aeneas::ops::borrow::mint_debt]:
-    Source: 'src/../../../../contracts/pool/src/ops/borrow.rs', lines 65:0-82:1 -/
+    Source: 'src/../../../../contracts/pool/src/ops/borrow.rs', lines 67:0-85:1 -/
 def ops.borrow.mint_debt
   (env : aeneas_pool_shim.Env) (cache : market_cache.Cache)
   (position : math.fp.Ray) (amount : Std.I128) :
@@ -2832,6 +2832,7 @@ def ops.borrow.mint_debt
   let cache1 ← market_cache.shares.Cache.mint_debt cache minted
   guards.require_within_entry_ceiling env cache1
   guards.require_utilization_below_max env cache1
+  guards.require_supply_for_debt env cache1
   ok (cache1, position1)
 
 /-- [pool_aeneas::ops::borrow::accounting]:

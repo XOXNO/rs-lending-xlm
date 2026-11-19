@@ -315,6 +315,7 @@ theorem mint_debt_ok (env : Env) (c : market_cache.Cache) (pos amount : Std.I128
   obtain ⟨c2, hc2, h⟩ := bind_eq_ok h
   obtain ⟨u6, h6, h⟩ := bind_eq_ok h
   obtain ⟨u5, h5, h⟩ := bind_eq_ok h
+  obtain ⟨_, _, h⟩ := bind_eq_ok h
   simp only [ok.injEq, Prod.mk.injEq] at h
   obtain ⟨rfl, rfl⟩ := h
   have hpos := positive_of_ok _ _ _ h1

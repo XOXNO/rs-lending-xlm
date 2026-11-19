@@ -1343,6 +1343,9 @@ fn test_create_strategy_rejects_insufficient_liquidity() {
 fn test_create_strategy_dust_fee_consumes_entire_payout() {
     let t = TestSetup::new();
     let client = t.client();
+    // A debt mint needs supply shares (INV-ACCT-09).
+    token::StellarAssetClient::new(&t.env, &t.asset).mint(&t.pool, &10_000_000_000);
+    client.supply(&t.sup(0, 10_000_000_000));
     enable_flashloan(&t); // flashloan_fee = 100 bps → min fee 1 on amount 1
     let caller = Address::generate(&t.env);
     let tok = token::Client::new(&t.env, &t.asset);
@@ -1381,6 +1384,27 @@ fn test_create_strategy_dust_fee_consumes_entire_payout() {
         state_after.cash, state_before.cash,
         "net cash unchanged: no outbound transfer and fee remains booked"
     );
+}
+
+/// The fixture holds cash but no supply shares. Neither debt mint may take
+/// that cash (INV-ACCT-09).
+#[test]
+fn test_debt_mints_reject_a_market_without_supply() {
+    let t = TestSetup::new();
+    let client = t.client();
+    let caller = Address::generate(&t.env);
+    let before = t.state_snapshot();
+    assert_eq!((before.supplied, before.borrowed), (0, 0));
+
+    let borrow = flatten_contract_result(client.try_borrow(&caller, &t.bor(0, 1_000)));
+    assert_contract_error(borrow, CollateralError::PoolInsolvent as u32);
+    let strategy =
+        flatten_contract_result(client.try_create_strategy(&caller, &t.action(0, 1_000), &false));
+    assert_contract_error(strategy, CollateralError::PoolInsolvent as u32);
+
+    let after = t.state_snapshot();
+    assert_eq!((after.supplied, after.borrowed), (0, 0));
+    assert_eq!(after.cash, before.cash);
 }
 
 #[test]
@@ -3754,6 +3778,8 @@ fn test_dust_supply_with_residual_debt_keeps_market_live() {
     assert_eq!(t.state_snapshot().borrowed, 0);
 }
 
+/// A market that every supplier has left keeps rounding cash, but rejects a
+/// borrow of it (INV-ACCT-09).
 #[test]
 fn rv_poc_c20_route3_borrow_at_zero_supply() {
     let env = Env::default();
@@ -3781,7 +3807,6 @@ fn rv_poc_c20_route3_borrow_at_zero_supply() {
     let supplier = Address::generate(&t.env);
     let borrower = Address::generate(&t.env);
     let attacker = Address::generate(&t.env);
-    let late_supplier = Address::generate(&t.env);
     let key = hub(&t.asset);
 
     mint(10_000_000_000);
@@ -3803,91 +3828,16 @@ fn rv_poc_c20_route3_borrow_at_zero_supply() {
     client.claim_revenue(&key);
     client.withdraw(&supplier, &false, &t.wdr(supply_scaled, i128::MAX, 0));
     let empty = t.state_snapshot();
-    std::println!(
-        "empty: supplied={} borrowed={} revenue={} cash={}",
-        empty.supplied,
-        empty.borrowed,
-        empty.revenue,
-        empty.cash
-    );
     assert_eq!(empty.supplied, 0);
     assert_eq!(empty.borrowed, 0);
     assert!(empty.cash > 0, "fixture must leave rounding cash");
 
-    let stolen = empty.cash;
-    let attack = client.borrow(&attacker, &t.bor(0, stolen)).get_unchecked(0);
-    let after_borrow = t.state_snapshot();
-    std::println!(
-        "zero-supply borrow of {stolen}: supplied={} borrowed={} cash={}",
-        after_borrow.supplied,
-        after_borrow.borrowed,
-        after_borrow.cash
-    );
-    assert_eq!(after_borrow.supplied, 0);
-    assert!(after_borrow.borrowed > 0);
-
-    for step in 0..3u64 {
-        t.advance_time(30 * 86_400 + step);
-        client.update_indexes(&vec![&t.env, key.clone()]);
-        let s = t.state_snapshot();
-        std::println!(
-            "accrual {step}: supplied={} borrowed={} revenue={} util={} supply_index={}",
-            s.supplied,
-            s.borrowed,
-            s.revenue,
-            client.get_utilisation(&key),
-            s.supply_index
-        );
-    }
-
-    mint(5_000_000_000);
-    let late_scaled = client
-        .supply(&t.sup(0, 5_000_000_000))
-        .get_unchecked(0)
-        .position
-        .scaled_amount;
-    t.advance_time(30 * 86_400);
-    client.update_indexes(&vec![&t.env, key.clone()]);
-    let full_exit = client.try_withdraw(&late_supplier, &false, &t.wdr(late_scaled, i128::MAX, 0));
-    std::println!("late supplier full exit while dust debt is open -> {full_exit:?}");
-    let partial = client
-        .withdraw(
-            &late_supplier,
-            &false,
-            &t.wdr(late_scaled, 4_999_999_990, 0),
-        )
-        .get_unchecked(0);
-    std::println!(
-        "late supplier partial exit {} scaled_left={}",
-        partial.actual_amount,
-        partial.position.scaled_amount
-    );
-
-    let owed = client.get_borrowed_amount(&key);
-    mint(owed + 10);
-    let closed = client
-        .repay(&attacker, &t.ract(attack.position.scaled_amount, owed + 10))
-        .get_unchecked(0);
-    std::println!(
-        "attacker debt {owed} repaid, scaled left={}",
-        closed.position.scaled_amount
-    );
-    assert_eq!(closed.position.scaled_amount, 0);
-
-    let rest = client
-        .withdraw(
-            &late_supplier,
-            &false,
-            &t.wdr(partial.position.scaled_amount, i128::MAX, 0),
-        )
-        .get_unchecked(0)
-        .actual_amount;
-    let total = partial.actual_amount + rest;
-    std::println!("late supplier deposited 5000000000, withdrew {total} in all");
-    assert!(
-        total >= 5_000_000_000 - 1,
-        "late supplier loses at most rounding"
-    );
+    // A borrow of the leftover cash would leave debt without supply.
+    let result = flatten_contract_result(client.try_borrow(&attacker, &t.bor(0, empty.cash)));
+    assert_contract_error(result, CollateralError::PoolInsolvent as u32);
+    let after = t.state_snapshot();
+    assert_eq!((after.supplied, after.borrowed), (0, 0));
+    assert_eq!(after.cash, empty.cash);
 }
 
 #[test]
