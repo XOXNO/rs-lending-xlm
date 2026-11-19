@@ -276,7 +276,10 @@ accepted prices of that key with every other provider fixed:
 - On a scaled source (factor times quote), a provider serving the factor feed
   reaches `max_factor_wad / min_factor_wad` times its reach on the quote key.
 - A two-source key whose legs have different provider sets is exempt from the
-  10% single-source band cap, so its band does not bound reach to 11/9.
+  10% single-source band cap, so its band does not bound reach to 11/9. If a
+  provider serves both legs, the factor range of each scaled leg it feeds
+  must stay within that 10% cap. That factor range, not the band, limits the
+  provider's reach.
 
 A provider serving both a collateral key and a debt key moves both at once;
 lenders are safe from it only while

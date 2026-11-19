@@ -1404,3 +1404,95 @@ fn market_leg_past_its_own_budget_is_stale_under_a_loose_asset_ceiling() {
     market.set_price(&String::from_str(&env, "MKT"), &WAD);
     assert_eq!(hard_price(&env, &client, key).price_wad, WAD);
 }
+
+/// A two-leg oracle whose legs share provider `x` is exempt from the 10%
+/// single-source band cap, because its legs trust {x, y} and {x}: the sets
+/// differ. `x` alone then moves both legs together and the accepted price
+/// with them. The underlying's price, from `y`, does not move.
+#[test]
+fn shared_provider_oracle_escapes_the_single_source_band_cap() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (_owner, client) = register_agg(&env);
+    let (x, x_feed) = register_feed(&env);
+    let (y, y_feed) = register_feed(&env);
+    let id = |s: &str| String::from_str(&env, s);
+    let (band_min, band_max) = (20_000 * WAD, 300_000 * WAD);
+
+    // The underlying U at $100,000, priced by y alone.
+    let u = PriceKey::Token(Address::generate(&env));
+    y_feed.set_price(&id("U/USD"), &(100_000 * WAD));
+    let mut u_oracle = redstone_single(&env, &y, "U/USD", 900);
+    u_oracle.min_sanity_price_wad = 90_000 * WAD;
+    u_oracle.max_sanity_price_wad = 110_000 * WAD;
+    client.set_oracle(&u, &u_oracle);
+
+    // T: leg 1 = (T-per-U rate from x, allowed 1 to 10) * U; leg 2 = T/USD from x.
+    let t = PriceKey::Token(Address::generate(&env));
+    x_feed.set_price(&id("T/U"), &WAD);
+    x_feed.set_price(&id("T/USD"), &(100_000 * WAD));
+    let rate = FeedSource {
+        provider: ProviderRef::RedStone(MultiFeedRef {
+            contract: x.clone(),
+            feed_id: id("T/U"),
+            nature: FeedNature::Fundamental,
+        }),
+        decimals: 8,
+        max_stale_seconds: 900,
+    };
+    let two_legs = AssetOracle {
+        asset_decimals: 7,
+        max_price_stale_seconds: 900,
+        sources: soroban_sdk::vec![
+            &env,
+            PriceSource::Scaled(ScaledSource {
+                factor: rate,
+                quote: u.clone(),
+                min_factor_wad: WAD,
+                max_factor_wad: 10 * WAD,
+            }),
+            redstone_feed(&env, &x, "T/USD", 900),
+        ],
+        tolerance: OracleTolerance {
+            upper_ratio_bps: 10_500,
+            lower_ratio_bps: 9_524,
+        },
+        independence: IndependencePolicy::AllowShared(soroban_sdk::vec![&env, x.clone()]),
+        min_sanity_price_wad: band_min,
+        max_sanity_price_wad: band_max,
+    };
+
+    // With x as the only source, the same band is rejected.
+    let mut one_leg = two_legs.clone();
+    one_leg.sources = soroban_sdk::vec![&env, redstone_feed(&env, &x, "T/USD", 900)];
+    one_leg.independence = IndependencePolicy::RequireDisjoint;
+    assert_eq!(
+        client.try_set_oracle(&t, &one_leg),
+        Err(Ok(soroban_sdk::Error::from_contract_error(
+            Error::SanityBandTooWideForSingleSource as u32,
+        )))
+    );
+
+    assert_eq!(
+        client.try_set_oracle(&t, &two_legs),
+        Err(Ok(soroban_sdk::Error::from_contract_error(
+            Error::SanityBandTooWideForSingleSource as u32,
+        )))
+    );
+    let mut two_legs = two_legs;
+    if let PriceSource::Scaled(mut scaled) = two_legs.sources.get_unchecked(0) {
+        scaled.max_factor_wad = 103 * WAD / 100;
+        two_legs.sources.set(0, PriceSource::Scaled(scaled));
+    }
+    client.set_oracle(&t, &two_legs);
+    assert_eq!(
+        hard_price(&env, &client, t.clone()).price_wad,
+        100_000 * WAD
+    );
+
+    // x alone reports a rate of 2.9 and a matching direct price.
+    x_feed.set_price(&id("T/U"), &(29 * WAD / 10));
+    x_feed.set_price(&id("T/USD"), &(290_000 * WAD));
+    assert_eq!(hard_price(&env, &client, u).price_wad, 100_000 * WAD);
+    assert!(client.try_prices(&Vec::from_array(&env, [t])).is_err());
+}

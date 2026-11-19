@@ -167,6 +167,10 @@ fn validate_oracle(env: &Env, key: &PriceKey, oracle: &AssetOracle, exact_indepe
         oracle.min_sanity_price_wad,
         oracle.max_sanity_price_wad,
     );
+    let exempt_from_band_cap = derived
+        .second
+        .as_ref()
+        .is_some_and(|second| !validation::same_address_set(&derived.first.trust, &second.trust));
     if oracle.has_lp_source() {
         // Sole-source by construction, so the band is the only backstop.
         validate_lp_sanity_band(
@@ -175,9 +179,6 @@ fn validate_oracle(env: &Env, key: &PriceKey, oracle: &AssetOracle, exact_indepe
             oracle.max_sanity_price_wad,
         );
     } else {
-        let exempt_from_band_cap = derived.second.as_ref().is_some_and(|second| {
-            !validation::same_address_set(&derived.first.trust, &second.trust)
-        });
         validate_single_source_sanity_band(
             env,
             exempt_from_band_cap,
@@ -189,6 +190,18 @@ fn validate_oracle(env: &Env, key: &PriceKey, oracle: &AssetOracle, exact_indepe
 
     for source in oracle.sources.iter() {
         validation::source_shape(env, &source);
+        // A provider on both legs of an exempt pair moves the price as far as
+        // its factor range, so that range keeps the single-source cap.
+        if let (PriceSource::Scaled(scaled), Some(second)) = (&source, derived.second.as_ref()) {
+            let provider = scaled.factor.provider.contract();
+            let shared = derived.first.trust.contains(provider) && second.trust.contains(provider);
+            validate_single_source_sanity_band(
+                env,
+                !(exempt_from_band_cap && shared),
+                scaled.min_factor_wad,
+                scaled.max_factor_wad,
+            );
+        }
     }
 
     let has_lp = oracle.sources.iter().any(|source| source.is_lp());
