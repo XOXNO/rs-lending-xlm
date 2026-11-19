@@ -26,19 +26,19 @@ theorem halfAway_of_trunc (a b t r h : Int) (hb : 0 < b) (hsum : b * t + r = a)
   unfold IsHalfAway IsHalfUp
   by_cases ha : 0 ≤ a
   · have hr0 := hsign1 ha
-    rw [if_pos ha]
+    rw [ite_eq_left ha]
     by_cases h1 : r ≥ h
-    · rw [if_pos h1]; constructor <;> nlinarith
-    · rw [if_neg h1]
+    · rw [ite_eq_left h1]; constructor <;> nlinarith
+    · rw [ite_eq_right h1]
       have h2 : ¬ r ≤ -h := by omega
-      rw [if_neg h2]; constructor <;> nlinarith
+      rw [ite_eq_right h2]; constructor <;> nlinarith
   · have hr0 := hsign2 (by omega)
-    rw [if_neg ha]
+    rw [ite_eq_right ha]
     have h1 : ¬ r ≥ h := by omega
-    rw [if_neg h1]
+    rw [ite_eq_right h1]
     by_cases h2 : r ≤ -h
-    · rw [if_pos h2]; constructor <;> nlinarith
-    · rw [if_neg h2]; constructor <;> nlinarith
+    · rw [ite_eq_left h2]; constructor <;> nlinarith
+    · rw [ite_eq_right h2]; constructor <;> nlinarith
 
 /-- **`div_by_int_half_up` rounds to nearest, ties away from zero, and never
 aborts for a positive divisor.** For every `i128` `a` and every `b > 0` it
@@ -84,7 +84,7 @@ theorem div_by_int_half_up_spec (env : Env) (a b : Std.I128) (hb : 0 < b.val) :
   have hs2' : a.val < 0 → r.val ≤ 0 := by rw [hr]; exact hs2
   by_cases c1 : r ≥ h
   · have c1' : r.val ≥ h.val := by simpa [IScalar.le_equiv] using c1
-    rw [if_pos c1'] at key
+    rw [ite_eq_left c1'] at key
     simp only [c1, ↓reduceIte]
     have hr1 : 1 ≤ r.val := by omega
     have hb2 : 2 ≤ b.val := by omega
@@ -99,12 +99,12 @@ theorem div_by_int_half_up_spec (env : Env) (a b : Std.I128) (hb : 0 < b.val) :
     step as ⟨q, hq⟩
     rw [hq]; exact key
   · have c1' : ¬ r.val ≥ h.val := by simpa [IScalar.le_equiv] using c1
-    rw [if_neg c1'] at key
+    rw [ite_eq_right c1'] at key
     simp only [c1, ↓reduceIte]
     step as ⟨nh, hnh⟩
     by_cases c2 : r ≤ nh
     · have c2' : r.val ≤ -h.val := by simpa [IScalar.le_equiv, hnh] using c2
-      rw [if_pos c2'] at key
+      rw [ite_eq_left c2'] at key
       simp only [c2, ↓reduceIte]
       have hr1 : r.val ≤ -1 := by omega
       have hb2 : 2 ≤ b.val := by omega
@@ -119,7 +119,7 @@ theorem div_by_int_half_up_spec (env : Env) (a b : Std.I128) (hb : 0 < b.val) :
       step as ⟨q, hq⟩
       rw [hq]; exact key
     · have c2' : ¬ r.val ≤ -h.val := by simpa [IScalar.le_equiv, hnh] using c2
-      rw [if_neg c2'] at key
+      rw [ite_eq_right c2'] at key
       simp only [c2, ↓reduceIte, WP.spec_ok]
       exact key
 

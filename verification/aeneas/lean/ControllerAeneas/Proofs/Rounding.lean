@@ -13,11 +13,11 @@ namespace ControllerAeneas.Proofs
 
 theorem isFloor_pos {n d q : Int} (hd : 0 < d) :
     IsFloor n d q ↔ q * d ≤ n ∧ n < q * d + d := by
-  unfold IsFloor; rw [if_pos hd]
+  unfold IsFloor; rw [ite_eq_left hd]
 
 theorem isCeil_pos {n d q : Int} (hd : 0 < d) :
     IsCeil n d q ↔ n ≤ q * d ∧ q * d < n + d := by
-  unfold IsCeil; rw [if_pos hd]
+  unfold IsCeil; rw [ite_eq_left hd]
 
 /-- The floor exists (it is `Int.ediv`). -/
 theorem isFloor_exists (n d : Int) (hd : 0 < d) : ∃ q, IsFloor n d q := by

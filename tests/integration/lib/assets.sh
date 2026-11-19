@@ -13,9 +13,9 @@ sac_wait_live() {
 }
 
 issue_sac() {
-    local var="$1" code="$2"
+    local var="$1" code="$2" issuer="${3:-$ADMIN_ADDR}"
     if [ -n "${!var:-}" ]; then return 0; fi
-    local asset="$code:$ADMIN_ADDR"
+    local asset="$code:$issuer"
     local out_f="$LOG_DIR/sac_$code.out" err_f="$LOG_DIR/sac_$code.err"
     local sac hash
     sac=$(stellar contract id asset --asset "$asset" "${NET_ARGS[@]}")

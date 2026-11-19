@@ -175,29 +175,29 @@ theorem tdiv_isFloor_of_nonneg (a p : Int) (hp : 0 < p) (ha : 0 ≤ a) :
     IsFloor a p (Int.tdiv a p) := by
   have := truncFloor_isFloor a p (by omega) (decide (¬ p ∣ a)) (by simp)
   unfold truncFloor at this
-  rwa [if_neg (by simp; omega)] at this
+  rwa [ite_eq_right (by simp; omega)] at this
 
 /-- Truncating division of a negative value by a positive divisor is the ceiling. -/
 theorem tdiv_isCeil_of_neg (a p : Int) (hp : 0 < p) (ha : a < 0) :
     IsCeil a p (Int.tdiv a p) := by
   have := truncCeil_isCeil a p (by omega) (decide (¬ p ∣ a)) (by simp)
   unfold truncCeil at this
-  rwa [if_neg (by simp; omega)] at this
+  rwa [ite_eq_right (by simp; omega)] at this
 
 /-- When `|a| < p`, the floor of `a / p` (for `a ≥ 0`) is 0. -/
 theorem isFloor_zero_of_small (a p : Int) (hp : 0 < p) (ha : 0 ≤ a) (hap : a < p) :
     IsFloor a p 0 := by
-  unfold IsFloor; rw [if_pos hp]; omega
+  unfold IsFloor; rw [ite_eq_left hp]; omega
 
 /-- When `|a| < p` and `a < 0`, the ceiling of `a / p` is 0. -/
 theorem isCeil_zero_of_small_neg (a p : Int) (hp : 0 < p) (ha : a < 0) (hap : -p < a) :
     IsCeil a p 0 := by
-  unfold IsCeil; rw [if_pos hp]; omega
+  unfold IsCeil; rw [ite_eq_left hp]; omega
 
 /-- When `0 < a < p`, the ceiling of `a / p` is 1. -/
 theorem isCeil_one_of_small_pos (a p : Int) (hp : 0 < p) (ha : 0 < a) (hap : a < p) :
     IsCeil a p 1 := by
-  unfold IsCeil; rw [if_pos hp]; omega
+  unfold IsCeil; rw [ite_eq_left hp]; omega
 
 /-! ## `rescale_floor` -/
 
@@ -303,7 +303,7 @@ theorem rescale_ceil_down_spec (env : Env) (a : Std.I128) (fr dst : Std.U32)
         have hg : ¬ a > 0#i128 := by simp [IScalar.lt_equiv]; omega
         simp [core.convert.num.FromI128Bool.from, hg]
       rw [h1]
-      unfold IsCeil; rw [if_pos hpos]; omega
+      unfold IsCeil; rw [ite_eq_left hpos]; omega
   | some f =>
     rw [hpo] at hp; obtain ⟨hfv, _⟩ := hp
     step as ⟨q, hq⟩
@@ -323,11 +323,11 @@ theorem rescale_ceil_down_spec (env : Env) (a : Std.I128) (fr dst : Std.U32)
       · have hm0 : (m != 0#i128) = true := by
           simp only [bne_iff_ne, ne_eq]; intro e; apply hex; rw [← hm, e]; rfl
         simp only [hm0, ↓reduceIte]
-        rw [if_pos (by simp [hex]; omega)] at hcl
+        rw [ite_eq_left (by simp [hex]; omega)] at hcl
         have htd0 : 0 ≤ Int.tdiv a.val x := Int.tdiv_nonneg ha0 (by omega)
         have hlt : Int.tdiv a.val x < a.val := by
           have h2 := hcl
-          unfold IsCeil at h2; rw [if_pos hpos] at h2; nlinarith
+          unfold IsCeil at h2; rw [ite_eq_left hpos] at h2; nlinarith
         step as ⟨c, hc⟩
         rw [hc, hq]; exact hcl
     · have hge : (a >= 0#i128) = false := by simp [IScalar.le_equiv]; omega

@@ -87,16 +87,6 @@ exclude_re = [
     # every reachable input.
     "soroswap.rs:[0-9]+:42: replace < with <= in swap",
 
-    # --- EQUIVALENT: unobservable against a Stellar Asset Contract ------------
-    # Both build invoker-contract auth for the Comet hop. Against a SAC token
-    # neither is needed: the router calls `approve` directly, so its auth is
-    # implicit, and SAC `transfer_from` requires the spender (the pool), not the
-    # router. With either call deleted, `env.auths()` under `mock_auths` records
-    # the same sender tree. Only a venue mock that demands the router's auth can
-    # kill these.
-    "replace authorize_token_approve with \\(\\)",
-    "replace authorize_comet_swap with \\(\\)",
-
     # --- OUT OF SCOPE: not in the deployed contract ---------------------------
     # Both are `#[cfg(feature = "certora")]` entry points in
     # `contracts/price-aggregator/src/engine.rs` that drive oracle price blending

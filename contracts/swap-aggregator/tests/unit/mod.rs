@@ -13,5 +13,6 @@ mod payload_wire_format;
 mod program_decode;
 mod splits;
 mod sweep;
+mod trustline_and_event;
 mod vault;
 mod venues;

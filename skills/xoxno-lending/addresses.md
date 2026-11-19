@@ -168,6 +168,6 @@ Live listing parameters: `get_spoke_asset(spoke_id, hub_asset)`.
 
 | Pool | Address |
 |---|---|
-| TestnetV2 | `CCEBVDYM32YNYCVNRXQKDFFPISJJCV557CDZEIRBEE4NCV4KHPQ44HGF` |
+| TestnetV2b | `CAPBMXIQTICKWFPWFDJWMAKBXBPJZUKLNONQH3MLPLLBKQ643CYN5PRW` |
 
 Blend pool factory v2: `CDV6RX4CGPCOKGTBFS52V3LMWQGZN3LCQTXF5RVPOOCG4XVMHXQ4NTF6`. The controller is authoritative: `is_blend_pool_approved(pool)`.

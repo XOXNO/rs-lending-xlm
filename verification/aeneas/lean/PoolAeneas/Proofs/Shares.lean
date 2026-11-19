@@ -200,7 +200,7 @@ theorem burn_claimable_revenue_spec (c : market_cache.Cache)
   have hDpos : 0 < D := by rw [← hD]; positivity
   have hT0 : 0 ≤ T.val := IsFloor.nonneg hDpos hnn hT
   have hTD : T.val * D ≤ c.revenue.val * c.supply_index.val := by
-    unfold IsFloor at hT; rw [if_pos hDpos] at hT; exact hT.1
+    unfold IsFloor at hT; rw [ite_eq_left hDpos] at hT; exact hT.1
   generalize hm : core.cmp.impls.OrdI128.min c.cash T = m
   have hmv : m.val = min c.cash.val T.val := by
     rw [← hm]; simp only [core.cmp.impls.OrdI128.min]
@@ -241,7 +241,7 @@ theorem burn_claimable_revenue_spec (c : market_cache.Cache)
       unfold math.fp.Ray.mul_ratio_ceil
       obtain ⟨q, hq⟩ := isCeil_exists (c.revenue.val * m.val) T.val hTpos
       have hq' := hq
-      unfold IsCeil at hq'; rw [if_pos hTpos] at hq'
+      unfold IsCeil at hq'; rw [ite_eq_left hTpos] at hq'
       have hqpos : 0 < q := by
         by_contra hc; have hc := not_lt.mp hc
         have : 0 < c.revenue.val * m.val := by positivity

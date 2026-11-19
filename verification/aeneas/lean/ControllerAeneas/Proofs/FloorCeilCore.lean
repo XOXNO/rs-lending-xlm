@@ -67,7 +67,7 @@ theorem div_ceil_i256_spec (env : Env) (n d : Int) (hd : d ≠ 0)
       simp only [↓reduceIte, bind_ok]
       rcases hnn rfl with h0 | hs
       · exact absurd (h0 ▸ hzero) hex
-      · rw [if_pos (by simp [hex, hs])] at hcl
+      · rw [ite_eq_left (by simp [hex, hs])] at hcl
         step as ⟨one, hone⟩
         apply WP.spec_mono (hadd one (by simp [hone]))
         intro c hc; rw [hc]; exact hcl
@@ -79,14 +79,14 @@ theorem div_ceil_i256_spec (env : Env) (n d : Int) (hd : d ≠ 0)
         have hdec : (decide (decide (n < 0) = decide ((d : Int) < 0))) = true := by
           simp [hs]
         simp only [hdec, ↓reduceIte]
-        rw [if_pos (by simp [hex, hs])] at hcl
+        rw [ite_eq_left (by simp [hex, hs])] at hcl
         step as ⟨one, hone⟩
         apply WP.spec_mono (hadd one (by simp [hone]))
         intro c hc; rw [hc]; exact hcl
       · have hdec : (decide (decide (n < 0) = decide ((d : Int) < 0))) = false := by
           by_cases hn0 : n < 0 <;> by_cases hd0 : d < 0 <;> simp_all
         simp only [hdec, Bool.false_eq_true, ↓reduceIte, WP.spec_ok]
-        rwa [if_neg (by simp [hs])] at hcl
+        rwa [ite_eq_right (by simp [hs])] at hcl
 
 /-! ## Ceiling, native `i128` path -/
 
@@ -129,13 +129,13 @@ theorem div_ceil_i128_spec (p d : Std.I128) (hd : d.val ≠ 0) :
         rw [hq] at hadd
         obtain ⟨_, _, hqv, _⟩ := hadd
         rw [hqv, ht]
-        rw [if_pos (by simp [hex, hs])] at hcl
+        rw [ite_eq_left (by simp [hex, hs])] at hcl
         simpa using hcl
       · have hne : ¬ ((p < 0#i128) = (d < 0#i128)) := by
           intro h; apply hs; simpa [IScalar.lt_equiv] using h
         simp only [hne, ↓reduceIte, WP.spec_ok, Option.some.injEq]
         rintro q rfl
-        rw [ht]; rwa [if_neg (by simp [hs])] at hcl
+        rw [ht]; rwa [ite_eq_right (by simp [hs])] at hcl
 
 /-! ## `mul_div_ceil` -/
 

@@ -172,9 +172,11 @@ contract. Observations:
 * **The executed plan's real post-liquidation HF.** `HitsTarget` uses the
   estimate's rate `δ`; the executed seizure goes through
   `calculate_seized_collateral` (per-asset, `Context` prices) and
-  `whole_unit_repayment`, not extracted here (see
-  [controller.md](controller.md), Not covered), nor is the `#[cfg(test)]`
-  mirror `calculate_post_liquidation_hf`.
+  `whole_unit_repayment`. Those are proved separately
+  ([controller-seizure.md](controller-seizure.md),
+  [controller-repayment.md](controller-repayment.md)), but no theorem chains
+  the estimate to them, and the `#[cfg(test)]` mirror
+  `calculate_post_liquidation_hf` is not extracted.
 * **Exact abort set of `estimate_liquidation_amount` outside `EstDomain`.**
   Only non-abort on `EstDomain` and the necessity counterexample are proved
   (the exact abort condition is proved only for `liquidation_at_target`).

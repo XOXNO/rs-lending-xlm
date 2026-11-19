@@ -5,6 +5,7 @@ is a deployable protocol contract or gates its caller.
 
 | Directory | Purpose |
 | --- | --- |
+| [`mock-blend-backstop`](mock-blend-backstop/src/lib.rs) | Blend v2 backstop that answers `pool_data` only, so a live test pool can be activated |
 | [`flash-loan-receiver`](flash-loan-receiver/README.md) | Receives `execute_flash_loan` callbacks and runs configurable repay, re-entry and failure plans |
 | [`flash-position-receiver`](flash-position-receiver/README.md) | Receives `execute_flash_position` callbacks with a plan set through `set_plan` |
 | [`mock-oracle`](mock-oracle/src/lib.rs) | Reflector SEP-40 price feed with settable prices and timestamps |

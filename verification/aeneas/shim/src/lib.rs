@@ -3,7 +3,7 @@
 //!
 //! Charon translates only the *signatures* of items from this crate, so to
 //! Aeneas every `I256` operation is an opaque function. Their meaning is given
-//! once, in `lean/RatesAeneas/External.lean`, as exact integer arithmetic with
+//! once, in `lean/RatesAeneas/FunsExternal.lean`, as exact integer arithmetic with
 //! the host's 256-bit overflow traps. That file is the trusted base for the
 //! `I256` path; the Rust bodies below exist only so the crate compiles and are
 //! never executed.

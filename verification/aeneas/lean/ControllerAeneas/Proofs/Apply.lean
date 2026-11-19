@@ -84,12 +84,12 @@ theorem check_bad_debt_after_liquidation_eq (env : Env) (ctx : context.Context) 
       simp only [bind_ok]
       by_cases hc : totals.total_collateral.val < totals.total_debt.val ∧
           totals.total_collateral.val ≤ 5 * 10^18
-      · rw [if_pos hc, if_pos (hs.mpr hc)]
+      · rw [ite_eq_left hc, ite_eq_left (hs.mpr hc)]
       · have : b = false := by
           cases b
           · rfl
           · exact absurd (hs.mp rfl) hc
-        rw [if_neg hc, this]; rfl
+        rw [ite_eq_right hc, this]; rfl
     | vis e k => rw [hb] at hs; simp at hs
     | div => rw [hb] at hs; simp at hs
 

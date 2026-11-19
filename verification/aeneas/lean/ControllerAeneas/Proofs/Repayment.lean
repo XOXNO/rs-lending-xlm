@@ -238,7 +238,7 @@ theorem repay_loop_spec (env : Env) (acc : types.Account) (ctx : context.Context
       simp only [aeneas_soroban_shim.Vec.push_back, bind_ok]
       simp only [↓reduceIte, hfeedP, hmiP, math.fp.Wad.checked_add, math.fp.Wad.raw, bind_ok]
       have hU : legUsd ctx acc (k, a) = fv dpr.scaled_amount.val ix.borrow_index.val pr.price_wad.val := by
-        simp only [legUsd]; rw [if_pos (by rw [← hDeq]; omega), hS, hB, hP]
+        simp only [legUsd]; rw [ite_eq_left (by rw [← hDeq]; omega), hS, hB, hP]
       step with pvf_val env dpr.scaled_amount ix.borrow_index pr.price_wad hvdF as ⟨v, hv⟩
       step with checked_add_raw_spec env t v (by rw [hv, ← hU]; constructor <;> omega) as ⟨t1, ht1⟩
       obtain ⟨h1, h2⟩ := hrest_fit t1 (by rw [ht1, hv, hU])
@@ -255,7 +255,7 @@ theorem repay_loop_spec (env : Env) (acc : types.Account) (ctx : context.Context
           by rw [hes]; simp, ?_⟩⟩
       · have : overpaid ctx acc ((k, a) :: P) = (k, a) :: overpaid ctx acc P := by
           simp only [overpaid, List.filter_cons]
-          rw [if_pos (by simp only [decide_eq_true_eq]; rw [← hDeq]; exact hlt)]
+          rw [ite_eq_left (by simp only [decide_eq_true_eq]; rw [← hDeq]; exact hlt)]
         rw [this]
         exact List.Forall₂.cons ⟨rfl, by rw [hex, hDeq]⟩ hrf
       · refine List.Forall₂.cons ⟨rfl, ?_, ?_, ?_, ?_, ?_⟩ hef
@@ -268,12 +268,12 @@ theorem repay_loop_spec (env : Env) (acc : types.Account) (ctx : context.Context
       simp only [hlt, ↓reduceIte, bind_ok]
       have hnot : overpaid ctx acc ((k, a) :: P) = overpaid ctx acc P := by
         simp only [overpaid, List.filter_cons]
-        rw [if_neg (by simp only [decide_eq_true_eq]; rw [← hDeq]; exact hlt)]
+        rw [ite_eq_right (by simp only [decide_eq_true_eq]; rw [← hDeq]; exact hlt)]
       by_cases heq : a = D
       · subst heq
         simp [hfeedP, hmiP, math.fp.Wad.checked_add, math.fp.Wad.raw]
         have hU : legUsd ctx acc (k, a) = fv dpr.scaled_amount.val ix.borrow_index.val pr.price_wad.val := by
-          simp only [legUsd]; rw [if_pos (by rw [← hDeq]), hS, hB, hP]
+          simp only [legUsd]; rw [ite_eq_left (by rw [← hDeq]), hS, hB, hP]
         step with pvf_val env dpr.scaled_amount ix.borrow_index pr.price_wad hvdF as ⟨v, hv⟩
         step with checked_add_raw_spec env t v (by rw [hv, ← hU]; constructor <;> omega) as ⟨t1, ht1⟩
         obtain ⟨h1, h2⟩ := hrest_fit t1 (by rw [ht1, hv, hU])
@@ -298,7 +298,7 @@ theorem repay_loop_spec (env : Env) (acc : types.Account) (ctx : context.Context
         have hlt2 : a.val < D.val := by omega
         simp [heq, hfeedP, hmiP, math.fp.Wad.checked_add, math.fp.Wad.raw]
         have hU : legUsd ctx acc (k, a) = tokUsd a.val pr.asset_decimals.val pr.price_wad.val := by
-          simp only [legUsd]; rw [if_neg (by rw [← hDeq]; omega), hD, hP]
+          simp only [legUsd]; rw [ite_eq_right (by rw [← hDeq]; omega), hD, hP]
         obtain ⟨hf1, hf2⟩ := hpart (by rw [← hDeq]; exact hlt2)
         rw [hD] at hf1; rw [hD, hP] at hf2
         step with usd_value_wad_spec env

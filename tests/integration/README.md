@@ -165,7 +165,7 @@ candidate governance, blocking accidental deploy or publish.
 | `stress` | 5 collateral + 5 debt positions, dual sources, Transfer/Credit max liquidation, five-asset exits, composed providers, delayed submission |
 | `flash-a` | callback success, protected balances, Long/multiple collateral, delegates and rollback snapshots, malicious receiver |
 | `flash-b` | callback success, create-path and dual-path rejections, strategy-mode and flash-loan gates |
-| `blend` | real pool allowlist and reserve addresses; six XLM paths, distinct-token and multi-liability migration; committed-rate shares, refunds, identity, unrelated balances |
+| `blend` | run-deployed Blend pool setup, allowlist and reserve addresses; six XLM paths, distinct-token and multi-liability migration; committed-rate shares, refunds, identity, unrelated balances |
 | `prod-full` | governance operator setup and replay; full enabled-mainnet policy readback; 5 same-hash upgrades with a live contract-owned position on a book with a repaid borrow; readback; governance band, flags, pause after upgrade |
 | `prod-caller` | same operator, filtered caller config: 8 markets + reference BTC, `configs/mainnet` policies; 7/8/9/18-decimal round trips; Chainlink + RedStone USDT0; XOXNO-backed borrowing; contract caller and authority chain |
 | `sdk` | supply/borrow/repay/withdraw, routed multiply, Blend, events/error mapping/delayed signing |
@@ -173,7 +173,8 @@ candidate governance, blocking accidental deploy or publish.
 Environments: `agg-*` live Reflector and quote routes, fresh candidate
 aggregator; `liq-*` isolated SACs and oracle fixtures; `stress` independent
 provider fixtures, deterministic shared-account interleaving; `flash-*` live
-Reflector, existing receiver fixtures; `blend` real Blend TestnetV2 pool;
+Reflector, existing receiver fixtures; `blend` and `sdk` a fresh Blend v2 pool per run from the pinned
+[`blend_pool.wasm`](fixtures/blend/README.md) with a mock backstop;
 `prod-*` disposable policy/wallet roots and explicit provider/LP/token fixtures
 for every enabled mainnet market (`prod-caller`: `production_config.py --only
 caller`); `sdk` published SDK 1.0.221 and Stellar SDK 16.3.0, fresh contracts.

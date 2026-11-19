@@ -205,9 +205,8 @@ fn comet_approval_ledger_covers_current_sequence() {
 /// Only the sender's entry is mocked, so the recorded tree shows what the user must sign. It
 /// fails if the router adds a venue approval or a second token movement to that tree.
 ///
-/// It cannot observe `authorize_token_approve` or `authorize_comet_swap`: against a SAC token
-/// the router's own `approve` needs no extra auth, and `transfer_from` requires the spender
-/// (the pool). `.cargo/mutants.toml` lists their mutants as equivalent.
+/// The pool calls `approve` on the router's input tokens before pulling them. The router
+/// must authorize that nested call itself.
 #[test]
 fn comet_swap_relies_on_router_invoker_auth_not_mocked_auth() {
     let env = Env::default();

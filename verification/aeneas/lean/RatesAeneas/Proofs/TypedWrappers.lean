@@ -110,7 +110,7 @@ theorem bps_from_fraction_ceil_spec (env : Env) (num den : Std.I128) (hd : den.v
 /-- A ceiling share `⌈x*y/d⌉` with `0 ≤ x`, `0 ≤ y ≤ d` lies in `[0, x]`. -/
 theorem isCeil_ratio_bounds {x y d q : Int} (hd : 0 < d) (hx : 0 ≤ x) (hy : 0 ≤ y)
     (hyd : y ≤ d) (h : IsCeil (x * y) d q) : 0 ≤ q ∧ q ≤ x := by
-  unfold IsCeil at h; rw [if_pos hd] at h
+  unfold IsCeil at h; rw [ite_eq_left hd] at h
   obtain ⟨h1, h2⟩ := h
   have hxy : 0 ≤ x * y := Int.mul_nonneg hx hy
   have hxyd : x * y ≤ x * d := Int.mul_le_mul_of_nonneg_left hyd hx

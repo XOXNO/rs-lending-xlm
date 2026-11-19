@@ -256,11 +256,11 @@ theorem div_fit (x : Int) (hxA : x ≤ g.A) : x * 10^27 / g.i ≤ g.s + 10^27 :=
   have := h.A_two; have := h.i0; have := h.s0
   nlinarith
 
-theorem WU_A1 (hw : g.WU) : g.A1 = huD g.S1 (10^9) := by unfold SzLeg.A1; rw [if_pos hw]
-theorem nWU_A1 (hw : ¬ g.WU) : g.A1 = g.Q := by unfold SzLeg.A1; rw [if_neg hw]
-theorem nWU_S1 (hw : ¬ g.WU) : g.S1 = g.S0 := by unfold SzLeg.S1; rw [if_neg hw]
+theorem WU_A1 (hw : g.WU) : g.A1 = huD g.S1 (10^9) := by unfold SzLeg.A1; rw [ite_eq_left hw]
+theorem nWU_A1 (hw : ¬ g.WU) : g.A1 = g.Q := by unfold SzLeg.A1; rw [ite_eq_right hw]
+theorem nWU_S1 (hw : ¬ g.WU) : g.S1 = g.S0 := by unfold SzLeg.S1; rw [ite_eq_right hw]
 theorem nWU_Uns (hw : ¬ g.WU) : g.Uns = 0 := by
-  unfold SzLeg.Uns; rw [if_neg (fun c => hw c.1)]
+  unfold SzLeg.Uns; rw [ite_eq_right (fun c => hw c.1)]
 
 theorem Uns0 : 0 ≤ g.Uns := by
   unfold SzLeg.Uns; split_ifs <;> omega
@@ -367,13 +367,13 @@ theorem S1_le_S0 : g.S1 ≤ g.S0 + (if g.WU ∧ g.rad = true then g.Dd - 1 else 
   unfold SzLeg.S1
   by_cases hw : g.WU
   · by_cases hr : g.rad = true
-    · rw [if_pos hw, if_pos hr, if_pos ⟨hw, hr⟩]
+    · rw [ite_eq_left hw, ite_eq_left hr, ite_eq_left ⟨hw, hr⟩]
       have := sz_clD_bounds g.S0 g.Dd hD
       exact le_trans (min_le_left _ _) (by omega)
-    · rw [if_pos hw, if_neg hr, if_neg (fun c => hr c.2)]
+    · rw [ite_eq_left hw, ite_eq_right hr, ite_eq_right (fun c => hr c.2)]
       have := sz_div_bounds g.S0 g.Dd hD
       omega
-  · rw [if_neg hw, if_neg (fun c => hw c.1)]; omega
+  · rw [ite_eq_right hw, ite_eq_right (fun c => hw c.1)]; omega
 
 /-- **Value of one leg's seizure against its budget.** For an emitted leg
 outside seize-all, with `X = Dd − 1` in the whole-unit round-up branch and

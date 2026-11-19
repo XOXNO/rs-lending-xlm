@@ -8448,6 +8448,96 @@
     ]
   },
   {
+    "id": "flow_blend_pool_setup",
+    "lanes": [
+      "blend",
+      "sdk"
+    ],
+    "contract_methods": [
+      "deploy",
+      "queue_set_reserve",
+      "set_reserve",
+      "set_status",
+      "submit",
+      "assert"
+    ],
+    "execution": "deployment",
+    "required_actions": [
+      {
+        "label": "blend_deploy_backstop",
+        "method": "deploy",
+        "status": "ok",
+        "count": 1,
+        "execution": [
+          "deployment"
+        ]
+      },
+      {
+        "label": "blend_deploy_oracle",
+        "method": "deploy",
+        "status": "ok",
+        "count": 1,
+        "execution": [
+          "deployment"
+        ]
+      },
+      {
+        "label": "blend_deploy_pool",
+        "method": "deploy",
+        "status": "ok",
+        "count": 1,
+        "execution": [
+          "deployment"
+        ]
+      },
+      {
+        "label": "blend_set_reserve_0",
+        "method": "set_reserve",
+        "status": "ok",
+        "count": 1,
+        "execution": [
+          "transaction"
+        ]
+      },
+      {
+        "label": "blend_set_reserve_1",
+        "method": "set_reserve",
+        "status": "ok",
+        "count": 1,
+        "execution": [
+          "transaction"
+        ]
+      },
+      {
+        "label": "blend_activate",
+        "method": "set_status",
+        "status": "ok",
+        "count": 1,
+        "execution": [
+          "transaction"
+        ]
+      },
+      {
+        "label": "blend_pool_seed",
+        "method": "submit",
+        "status": "ok",
+        "count": 1,
+        "execution": [
+          "transaction"
+        ]
+      },
+      {
+        "label": "blend_pool_ready",
+        "method": "assert",
+        "status": "ok",
+        "count": 1,
+        "execution": [
+          "assertion"
+        ]
+      }
+    ]
+  },
+  {
     "id": "flow_blend_allowlist",
     "lanes": [
       "blend",

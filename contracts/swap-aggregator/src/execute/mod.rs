@@ -1,18 +1,21 @@
 //! Strategy orchestration for one `execute_strategy` call.
 //!
 //! Flow: auth → decode program → pull input → optional input fee → run the
-//! instruction stream → optional output fee → min-out check → payout →
-//! residual accrual.
+//! instruction stream → optional output fee → min-out check → trustline →
+//! payout → residual accrual → swap event.
 
 mod residual;
 
-use soroban_sdk::{panic_with_error, token, Address, Env, Map, Vec};
+use soroban_sdk::token::StellarAssetClient;
+use soroban_sdk::xdr::ToXdr;
+use soroban_sdk::{panic_with_error, token, Address, Env, Executable, Map, Vec};
 
 use common::errors::GenericError;
 use common::token::transfer_amount_measured;
 
 use crate::constants::PPM_DENOMINATOR;
 use crate::errors::Error;
+use crate::events::SwapEvent;
 use crate::fees;
 use crate::math::checked_mul;
 use crate::program::{Mode, Op, Opcode, Program};
@@ -27,6 +30,9 @@ use crate::venues;
 /// releases several constituents), which makes a following `Prev` fail closed.
 type PrevOutput = Option<(Address, i128)>;
 
+/// Low byte of the XDR `ScAddressType` for a classic account.
+const SC_ADDRESS_TYPE_ACCOUNT: u8 = 0;
+
 /// Everything the instruction loop needs that does not change between steps.
 struct Ctx<'a> {
     env: &'a Env,
@@ -39,8 +45,8 @@ struct Ctx<'a> {
 /// Runs the strategy in `payload` for `sender` and returns the amount of `token_out` delivered.
 ///
 /// Transfers `total_in` of the input token from `sender` and credits the vault the measured
-/// balance delta. Executes the instruction stream, applies fees, pays `sender`, and
-/// accrues leftover vault balances as admin fee.
+/// balance delta. Executes the instruction stream, applies fees, pays `sender`, accrues leftover
+/// vault balances as admin fee, and publishes [`SwapEvent`].
 ///
 /// Fees apply only with an active referral (see [`fees::apply_fees_on_token`]). They are taken
 /// on the input token unless only the output token is fee-whitelisted.
@@ -96,8 +102,14 @@ pub(crate) fn run(env: Env, sender: Address, total_in: i128, payload: StrategyPa
         false
     };
 
+    let fee_token = if fee_on_input {
+        &input_token
+    } else {
+        &output_token
+    };
+    let mut fees_charged = (0, 0);
     if fee_on_input {
-        fees::apply_fees_on_token(&env, &mut vault, &input_token, referral_id);
+        fees_charged = fees::apply_fees_on_token(&env, &mut vault, fee_token, referral_id);
     }
 
     let ctx = Ctx {
@@ -119,7 +131,7 @@ pub(crate) fn run(env: Env, sender: Address, total_in: i128, payload: StrategyPa
     }
 
     if !fee_on_input {
-        fees::apply_fees_on_token(&env, &mut vault, &output_token, referral_id);
+        fees_charged = fees::apply_fees_on_token(&env, &mut vault, fee_token, referral_id);
     }
 
     let total_out = vault.balance_of(&output_token);
@@ -128,11 +140,37 @@ pub(crate) fn run(env: Env, sender: Address, total_in: i128, payload: StrategyPa
     }
 
     vault.withdraw(&output_token, total_out);
+    ensure_trustline(&env, &output_token, &sender);
     token::Client::new(&env, &output_token).transfer(&router, &sender, &total_out);
 
     residual::accrue_residual_as_revenue(&env, &mut vault);
 
+    SwapEvent {
+        fee_token: fee_token.clone(),
+        sender,
+        token_in: input_token.clone(),
+        token_out: output_token.clone(),
+        amount_in: credited_in,
+        amount_out: total_out,
+        referral_id,
+        static_fee: fees_charged.0,
+        referral_fee: fees_charged.1,
+    }
+    .publish(&env);
+
     total_out
+}
+
+/// Opens a `G...` receiver's missing trustline via the SAC `trust` call (CAP-73).
+///
+/// Skips tokens that are not a Stellar Asset Contract. Needs `receiver`'s signature
+/// only when it creates one. Failures are ignored: the payout transfer reverts the
+/// swap if the trustline is still missing.
+fn ensure_trustline(env: &Env, token: &Address, receiver: &Address) {
+    if !is_account_address(env, receiver) || token.executable() != Some(Executable::StellarAsset) {
+        return;
+    }
+    let _ = StellarAssetClient::new(env, token).try_trust(receiver);
 }
 
 /// Executes one instruction and returns its output token and amount for a
@@ -230,4 +268,9 @@ fn resolve_amount(
                 / PPM_DENOMINATOR
         }
     }
+}
+
+/// Returns whether `address` is a `G...` account. Byte 7 of its XDR is the address type.
+fn is_account_address(env: &Env, address: &Address) -> bool {
+    address.to_xdr(env).get(7) == Some(SC_ADDRESS_TYPE_ACCOUNT)
 }

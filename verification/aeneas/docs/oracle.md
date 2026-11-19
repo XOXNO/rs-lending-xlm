@@ -104,13 +104,14 @@ is `Err(InvalidPrice)`.
 | `try_u256_to_i128_spec` | `Lp.lean` | `common/src/oracle/observation.rs::try_u256_to_i128` | `Some v` iff `v < 2^127` | none | INV-ORACLE-01 | — |
 | `Wad_try_value_of_token_spec` | `Fp.lean` | `common/src/math/fp.rs::Wad::try_value_of_token` | `Some w`, `IsHalfUp (amount·price) (10^dec) w` (one rounding, amount not normalised first); `None` only on `10^dec` overflow, negative input or `w ≥ 2^127` | none | INV-RISK-02 | — |
 | `Wad_try_from_token_upscale_spec` | `Fp.lean` | `fp.rs::Wad::try_from_token_upscale` | `Some(amount·10^(18−dec))` if `amount ≥ 0`, `dec ≤ 18` and it is `< 2^127`; else `None` | none | INV-ORACLE-01 | — |
-| `Wad_try_mul_spec` | `Fp.lean` | `fp.rs::Wad::try_mul` | `Some w`, `IsHalfUp (x·y) WAD w`; `None` only for a negative operand or `w ≥ 2^127` (unused by the oracle) | none | INV-RISK-02 | — |
+| `Wad_try_mul_spec` | `Fp.lean` | `fp.rs::Wad::try_mul` | `Some w`, `IsHalfUp (x·y) WAD w`; `None` only for a negative operand or `w ≥ 2^127` (unused by the LP pricers; the price aggregator uses it) | none | INV-RISK-02 | — |
 | `try_amount_to_wad_spec` | `Lp.lean` | `observation.rs::try_amount_to_wad` | As `Wad_try_from_token_upscale_spec`, `Ok`/`Err` for `Some`/`None` | none | INV-ORACLE-01 | — |
 | `reserve_value_wad_spec` | `Lp.lean` | `lp.rs::reserve_value_wad` | As `Wad_try_value_of_token_spec`, `Ok`/`Err` for `Some`/`None` | none | INV-ORACLE-01, INV-RISK-02 | — |
 | `fair_lp_price_wad_rejects_degenerate` | `Lp.lean` | `lp.rs::fair_lp_price_wad` | `= ok (Err InvalidPrice)` | a reserve, price or share supply `≤ 0` | INV-ORACLE-01 | `lp_price_rejects_degenerate_inputs` |
 | `fair_lp_price_wad_rejects_share_decimals` | `Lp.lean` | same | `Err` for every reserve, price, shares | share `decimals > 18` | INV-ORACLE-01 | `lp_price_rejects_share_decimals_past_wad` |
 | `fair_lp_price_wad_symmetric` | `Lp.lean` | same | `fair(a, b, s) = fair(b, a, s)` | none | — | `lp_price_is_symmetric_under_leg_swap` |
 | `fair_lp_price_wad_value` | `Lp.lean` | same | `Ok(p)`, `IsFloorPos (2·⌊√(va·vb)⌋·WAD) S p`; `Err` iff `p ≥ 2^127` (`docs/reference/formulas.md`, "LP share prices") | reserves, prices, shares `> 0`; helpers give `Ok va`, `Ok vb`, `Ok S`, `S > 0` | INV-ORACLE-01 | — |
+| `fair_lp_ok_formula` | `Lp.lean` | same | Every `Ok p`: the helpers returned `Ok va`, `Ok vb`, `Ok S` and `IsFloorPos (2·⌊√(va·vb)⌋·WAD) S p` (converse of `fair_lp_price_wad_value`) | none | INV-ORACLE-01 | — |
 | `fair_lp_price_wad_balanced` | `Lp.lean` | same | `IsFloorPos (2·v·WAD) S p`: priced at the sum of reserve values | as above with `va = vb = v` | INV-ORACLE-01 | unit test `balanced_pool_prices_at_reserve_value` |
 | `fair_lp_price_wad_fails_closed` | `Lp.lean` | same | `Ok _` or `Err`, every input | none | INV-ORACLE-01 | unit test `absurd_reserve_errors_not_panics` |
 | `solve_stable_d_symmetric` | `LpStable.lean` | `lp_stable.rs::solve_stable_d` | `solve(xa, xb, amp) = solve(xb, xa, amp)` | none | — | unit test `imbalanced_pool_solves_exactly_in_either_leg_order` |
@@ -122,6 +123,8 @@ is `Err(InvalidPrice)`.
 | `fair_stable_lp_price_wad_tracks_cheaper_leg` | `LpStable.lean` | same | Same computation for any leg-`b` price `p₁, p₂ ≥ price_a` | `price_a ≤ p₁`, `price_a ≤ p₂` | — | `stable_lp_price_tracks_only_the_cheaper_leg` |
 | `solve_stable_d_spec` | `StableD.lean` | `lp_stable.rs::solve_stable_d` | `Err` or `Ok(D)`: `1 ≤ D ≤ 2(x+y)`, `G(D+1) > 0`, `G(D−5) ≤ 0` (`D* − 1 < D ≤ D* + 5`), `D = stableNewton(d)` for an iterate `d`, `\|D − d\| ≤ 1` (stopping test); `x`/`y` min/max reserve, `G` below | `amp ∈ [1, 10^6]`, `xa, xb ∈ (0, 10^34]` (the guards' domain) | INV-ORACLE-01 | unit tests `imbalanced_pool_grid_solves_symmetrically` (bounds), `imbalanced_pool_solves_exactly_in_either_leg_order` |
 | `solve_stable_d_loop_spec` | `StableD.lean` | the `for _ in 0..MAX_D_ITERATIONS` loop of `solve_stable_d` | From any iterate `1 ≤ d ≤ 2(x+y)` (the invariant) and counter: result `StableDPost` | `n = 2`, `one = 1`, `1 ≤ x ≤ y ≤ 10^34`, `sum = x+y`, `2 ≤ ann ≤ 2·10^6` (from `solve_stable_d`) | — | — |
+| `stableG_strict` | `StableD.lean` | (math) | `u < v ⇒ G(u) < G(v)` | `K > 0`, `a ≥ 2` | — | — |
+| `post_brackets` | `StableD.lean` | (math) | `StableDPost (Ok D)`: every integer `z` with `G z ≤ 0` is `< D + 1`, every `z` with `G z > 0` is `> D − 5` | `x, y ≥ 1`, `a ≥ 2` | INV-ORACLE-01 | — |
 | `solve_stable_d_ok_post` | `StableD.lean` | `solve_stable_d` | `Ok(D)` ⇒ inputs admitted, `StableDPost D` (so `D ≤ 4·10^34`) | `solve_stable_d = ok (Ok D)` | INV-ORACLE-01 | — |
 | `solve_stable_d_fails_closed` | `StableD.lean` | `solve_stable_d` | `Ok _` or `Err`, every input | none | INV-ORACLE-01 | unit test `absurd_reserve_errors_not_panics` |
 | `fair_stable_lp_price_wad_value` | `StableD.lean` | `lp_stable.rs::fair_stable_lp_price_wad` | `Ok(p)`, `IsFloorPos (D·min(price_a, price_b)) S p` (one floor); `Err` iff `p ≥ 2^127` | reserves, prices, shares `> 0`; `try_amount_to_wad` gives `Ok xa`, `Ok xb`, `Ok S`; `solve_stable_d = Ok D` (`StableDPost` by `solve_stable_d_ok_post`) | INV-ORACLE-01 | unit tests `fair_price_matches_reference_snapshot`, `depeg_marks_to_the_cheaper_leg` (instances) |
@@ -145,7 +148,7 @@ Notation (naturals): `x ≤ y` sorted WAD reserves, `S = x + y`,
 
     G(D) = D³ + K(a − 1)·D − K·a·S        (G(D) = 0  ⇔  a·S + D = a·D + D³/(4xy))
 
-`G` strictly increases (`stableG_mono`), is negative at `D ≤ 0`
+`G` increases (`stableG_mono`; strictly for `K > 0`, `a ≥ 2`: `stableG_strict`), is negative at `D ≤ 0`
 (`stableG_neg`), and `G(S) = S(S² − 4xy) ≥ 0`: one real root
 `D* ∈ (0, S]`. A round from `d` computes `p = ⌊⌊d²/(2x)⌋·d/(2y)⌋` (≈ `d³/K`)
 and Newton's step `d' = ⌊(a·S + 2p)·d / ((a−1)·d + 3p)⌋` (`stableNewton`).

@@ -36,9 +36,13 @@ Steps:
    router's **measured** balance change per hop, never a venue report or
    payload amount.
 4. Revert if output < `total_min_out`.
-5. Send `token_out` to `sender`.
-6. Move leftovers to the admin bucket; `ExcessiveResidual` if one exceeds its
+5. For a `G...` sender and a SAC `token_out`, open a missing trustline with
+   the SAC `trust` call (CAP-73). This needs the sender's signature and 0.5 XLM
+   reserve. A failed call is ignored; step 6 then reverts.
+6. Send `token_out` to `sender`.
+7. Move leftovers to the admin bucket; `ExcessiveResidual` if one exceeds its
    allowance.
+8. Publish `SwapEvent`.
 
 ## Fees
 
@@ -99,8 +103,10 @@ removed.
 
 ## Events
 
-No custom events; ownership changes publish the stock OpenZeppelin `Ownable`
-events ([inherited events](../../docs/reference/events.md#inherited-events)).
+Each swap publishes `SwapEvent` for volume and fee indexing
+([fields](../../docs/reference/events.md#swap-aggregator-events)). Ownership
+changes publish the stock OpenZeppelin `Ownable` events
+([inherited events](../../docs/reference/events.md#inherited-events)).
 
 ## Layout
 
@@ -117,6 +123,7 @@ src/
   vault.rs        invocation-local balance ledger
   venues/         per-DEX hop adapters (aquarius/ and curve.rs have LP mint/burn)
   errors.rs       error codes
+  events.rs       SwapEvent
 tests/unit/       unit tests, mounted by #[path] from lib.rs
 ```
 

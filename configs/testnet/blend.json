@@ -2,13 +2,13 @@
   "pool_factory_v2": "CDV6RX4CGPCOKGTBFS52V3LMWQGZN3LCQTXF5RVPOOCG4XVMHXQ4NTF6",
   "pools": [
     {
-      "name": "TestnetV2",
-      "address": "CCEBVDYM32YNYCVNRXQKDFFPISJJCV557CDZEIRBEE4NCV4KHPQ44HGF",
+      "name": "TestnetV2b",
+      "address": "CAPBMXIQTICKWFPWFDJWMAKBXBPJZUKLNONQH3MLPLLBKQ643CYN5PRW",
       "reserves": [
         "XLM",
         "USDC",
-        "wETH",
-        "wBTC"
+        "CETES",
+        "TESOURO"
       ]
     }
   ]

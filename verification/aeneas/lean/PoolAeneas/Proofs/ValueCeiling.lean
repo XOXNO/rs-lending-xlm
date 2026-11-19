@@ -86,7 +86,7 @@ theorem ValueCeil.of_entry_guard (env : Env) (c : market_cache.Cache) (hinv : Po
 /-- The floor of `n/RAY` is at most its half-up rounding. -/
 theorem isFloor_le_halfUp {n q v : Int} (hq : IsFloor n (10^27) q)
     (hv : IsHalfUp n (10^27) v) : q ≤ v := by
-  unfold IsFloor at hq; rw [if_pos (by norm_num)] at hq
+  unfold IsFloor at hq; rw [ite_eq_left (by norm_num)] at hq
   unfold IsHalfUp at hv
   by_contra hc
   have h1 : (v + 1) * 10^27 ≤ q * 10^27 := by nlinarith
@@ -95,7 +95,7 @@ theorem isFloor_le_halfUp {n q v : Int} (hq : IsFloor n (10^27) q)
 /-- The ceiling of `n/RAY` is at most one above its half-up rounding. -/
 theorem isCeil_le_halfUp_succ {n q v : Int} (hq : IsCeil n (10^27) q)
     (hv : IsHalfUp n (10^27) v) : q ≤ v + 1 := by
-  unfold IsCeil at hq; rw [if_pos (by norm_num)] at hq
+  unfold IsCeil at hq; rw [ite_eq_left (by norm_num)] at hq
   unfold IsHalfUp at hv
   by_contra hc
   have h1 : (v + 2) * 10^27 ≤ q * 10^27 := by nlinarith

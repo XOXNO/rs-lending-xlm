@@ -100,9 +100,9 @@ theorem seized_total_le_budget (gs : List SzLeg) (C B : Int)
       unfold SzLeg.SeizedVal SzLeg.Slack
       split_ifs with he
       · have := h.seized_value_le_budget hsa
-        rw [if_pos (by assumption)] at this; linarith
+        rw [ite_eq_left (by assumption)] at this; linarith
       · have := h.seized_value_le_budget hsa
-        rw [if_neg (by assumption)] at this; linarith
+        rw [ite_eq_right (by assumption)] at this; linarith
       · have := h.L0; have := h.p0; have := h.Dd_pos
         have : 0 ≤ 10^27 * g.p * (10^9 + 1 + 2 * (g.Dd - 1)) := by
           apply mul_nonneg (by positivity); omega

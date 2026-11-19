@@ -136,7 +136,7 @@ theorem apply_bad_debt_spec (c : market_cache.Cache) (bad : math.fp.Ray) (V : In
   have hf := isFloor_ediv (rem.val * 10^27) V hVpos
   have hf0 : 0 ≤ rem.val * 10^27 / V := IsFloor.nonneg hVpos (by positivity) hf
   have hfle : rem.val * 10^27 / V ≤ 10^27 := by
-    have h' := hf; unfold IsFloor at h'; rw [if_pos hVpos] at h'
+    have h' := hf; unfold IsFloor at h'; rw [ite_eq_left hVpos] at h'
     by_contra hc; have hc := not_le.mp hc
     have : (10^27 + 1) * V ≤ (rem.val * 10^27 / V) * V := by nlinarith
     nlinarith
@@ -149,7 +149,7 @@ theorem apply_bad_debt_spec (c : market_cache.Cache) (bad : math.fp.Ray) (V : In
   have hn0 : 0 ≤ c.supply_index.val * f.val / 10^27 :=
     IsFloor.nonneg (by norm_num) (by rw [hff]; positivity) hn
   have hnle : c.supply_index.val * f.val / 10^27 ≤ c.supply_index.val := by
-    have h' := hn; unfold IsFloor at h'; rw [if_pos (by norm_num)] at h'
+    have h' := hn; unfold IsFloor at h'; rw [ite_eq_left (by norm_num)] at h'
     have : c.supply_index.val * f.val ≤ c.supply_index.val * 10^27 := by
       rw [hff]; exact mul_le_mul_of_nonneg_left hfle (by omega)
     nlinarith
@@ -167,8 +167,8 @@ theorem apply_bad_debt_spec (c : market_cache.Cache) (bad : math.fp.Ray) (V : In
   · rw [hmaxv]; omega
   · rw [hmaxv]; omega
   · -- n * V ≤ idx * rem: from n * RAY ≤ idx * f and f * V ≤ rem * RAY
-    have h1 := hnv; unfold IsFloor at h1; rw [if_pos (by norm_num)] at h1
-    have h2 := hfv; unfold IsFloor at h2; rw [if_pos hVpos] at h2
+    have h1 := hnv; unfold IsFloor at h1; rw [ite_eq_left (by norm_num)] at h1
+    have h2 := hfv; unfold IsFloor at h2; rw [ite_eq_left hVpos] at h2
     rw [← hrem]
     have a1 : n.val * V * 10^27 ≤ c.supply_index.val * f.val * V := by nlinarith
     have a2 : c.supply_index.val * (f.val * V) ≤ c.supply_index.val * (rem.val * 10^27) :=

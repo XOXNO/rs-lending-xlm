@@ -609,4 +609,34 @@ theorem fair_stable_lp_price_wad_fails_closed (env : aeneas_oracle_shim.Env)
       core.result.Result.Insts.CoreOpsTry_traitFromResidualResult.from_residual,
       core.convert.FromSame.from]
 
+/-- **`stableG` strictly increases in `D`** (for `K > 0`, `a ≥ 2`).
+Strengthens `stableG_mono` (`≤`): the integer bracket of `StableDPost` then
+pins the real root `D*` of `G`, so `D*−1 < D ≤ D*+5` reads literally. -/
+theorem stableG_strict {K a S u v : Int} (hK : 0 < K) (ha : 2 ≤ a) (huv : u < v) :
+    stableG K a S u < stableG K a S v := by
+  unfold stableG
+  have h1 : 0 < v ^ 2 + u * v + u ^ 2 + K * (a - 1) := by
+    nlinarith [sq_nonneg (u + v), sq_nonneg u, sq_nonneg v, mul_pos hK (by linarith : (0:Int) < a - 1)]
+  have h2 := mul_pos (sub_pos.2 huv) h1
+  nlinarith
+
+/-- **`StableDPost` brackets every integer root of `G`.** For an `Ok D`, any
+integer `z` with `G z ≤ 0` is below `D + 1`, and any `z` with `G z > 0` is
+above `D − 5`. -/
+theorem post_brackets (x y a : Nat) (D : aeneas_oracle_shim.U256) (hx : 1 ≤ x) (hy : 1 ≤ y)
+    (ha : 2 ≤ a) (h : StableDPost x y a (.Ok D)) :
+    (∀ z : Int, stableG (4 * x * y) a (x + y) z ≤ 0 → z < (D.val : Int) + 1) ∧
+    (∀ z : Int, 0 < stableG (4 * x * y) a (x + y) z → (D.val : Int) - 5 < z) := by
+  obtain ⟨_, _, hp, hn, _⟩ := h
+  have hK : (0 : Int) < 4 * (x : Int) * y := by positivity
+  refine ⟨fun z hz => ?_, fun z hz => ?_⟩
+  · by_contra hc; push Not at hc
+    have := stableG_mono (K := 4 * (x:Int) * y) (a := (a:Int)) (S := ((x + y : Nat) : Int)) hK.le
+      (by omega) hc
+    push_cast at *; linarith
+  · by_contra hc; push Not at hc
+    have := stableG_mono (K := 4 * (x:Int) * y) (a := (a:Int)) (S := ((x + y : Nat) : Int)) hK.le
+      (by omega) hc
+    push_cast at *; linarith
+
 end OracleAeneas.Proofs

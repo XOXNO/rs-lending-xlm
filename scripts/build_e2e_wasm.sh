@@ -29,9 +29,14 @@ fixtures)
     mkdir -p "$out"
     # Native registry tests load Cargo's curator.wasm, not the candidate build.
     stellar contract build --locked --package curator --optimize --out-dir target/optimized
-    for pkg in mock-oracle mock-redstone flash-loan-receiver flash-position-receiver script-runner production-fixture; do
+    for pkg in mock-oracle mock-redstone mock-blend-backstop flash-loan-receiver flash-position-receiver script-runner production-fixture; do
         stellar contract build --locked --package "$pkg" --optimize --out-dir "$out"
     done
+    # Blend v2 pool executable for the live Blend lanes; pinned, never rebuilt.
+    blend_pool=tests/integration/fixtures/blend/blend_pool.wasm
+    echo "a41fc53d6753b6c04eb15b021c55052366a4c8e0e21bc72700f461264ec1350e  $blend_pool" | sha256sum --strict --check --quiet \
+        || { echo "$blend_pool does not match its pinned SHA-256" >&2; exit 1; }
+    cp "$blend_pool" "$out/blend_pool.wasm"
     # Governance for live-network runs: the `short-timelock` feature lowers the
     # sensitive delay floor from about 7 days to 12 ledgers. It builds in its
     # own target directory so it never replaces Cargo's deployable
