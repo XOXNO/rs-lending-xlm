@@ -27,6 +27,7 @@ pub struct MarketPreset {
     pub name: &'static str,
     pub decimals: u32,
     pub price_wad: i128,
+    /// Seeded cash, in whole tokens, with the ownerless supply shares that own it.
     pub initial_liquidity: f64,
     pub config: AssetConfigPreset,
     pub params: MarketParamsPreset,

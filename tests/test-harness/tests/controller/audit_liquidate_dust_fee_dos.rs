@@ -31,6 +31,7 @@ fn audit_liquidate_contracts_dust_fee_full_close_dos() {
         .with_market(xlm_preset())
         .with_dust_disabled_all_markets()
         .with_max_utilization_disabled_all_markets()
+        .with_market_liquidity("XLM", 0.0)
         .build();
 
     assert_eq!(t.get_asset_config("XLM").liquidation_fees, 1200);

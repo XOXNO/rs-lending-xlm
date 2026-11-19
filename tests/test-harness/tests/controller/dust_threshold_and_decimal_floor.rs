@@ -102,6 +102,7 @@ fn first_depositor_after_index_growth_cannot_mint_free_value() {
         .with_market(low3())
         .with_min_borrow_collateral_disabled()
         .with_max_utilization_disabled_all_markets()
+        .with_market_liquidity("USDC6", 0.0)
         .build();
 
     t.supply(BOB, "USDC6", 10_000.0);

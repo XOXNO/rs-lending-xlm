@@ -4,7 +4,7 @@ use governance::op::{AdminOperation, CreatePoolArgs, SpokeAssetArgs};
 use soroban_sdk::{token, vec, TryFromVal, Vec};
 
 use crate::core::LendingTest;
-use crate::helpers::{f64_to_i128, hub_asset, HARNESS_SPOKE};
+use crate::helpers::{f64_to_i128, hub_asset, seed_liquidity, HARNESS_SPOKE};
 use crate::presets::unconstrained_test_cap;
 
 impl LendingTest {
@@ -90,7 +90,7 @@ impl LendingTest {
                 .persistent()
                 .get(&key)
                 .expect("hub market state exists after create_market");
-            state.cash += liquidity;
+            seed_liquidity(&self.env, &mut state, liquidity, decimals);
             self.env.storage().persistent().set(&key, &state);
         });
     }
@@ -248,5 +248,26 @@ impl LendingTest {
                 .get(&PoolKey::State(HubAssetKey { hub_id, asset }))
                 .expect("pool state must exist for the hub market")
         })
+    }
+
+    /// Mints `amount` raw units to the pool and books them as cash that no
+    /// supply share owns, like accumulated rounding dust. Lets a test reach a
+    /// guard that only surplus cash exposes.
+    pub fn add_unowned_cash_on_hub(&mut self, hub_id: u32, asset_name: &str, amount: i128) {
+        let market = self.resolve_market(asset_name);
+        let asset = market.asset.clone();
+        let pool = market.pool.clone();
+        market.token_admin.mint(&pool, &amount);
+        self.env.as_contract(&pool, || {
+            let key = PoolKey::State(HubAssetKey { hub_id, asset });
+            let mut state: PoolStateRaw = self
+                .env
+                .storage()
+                .persistent()
+                .get(&key)
+                .expect("pool state must exist for the hub market");
+            state.cash += amount;
+            self.env.storage().persistent().set(&key, &state);
+        });
     }
 }

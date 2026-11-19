@@ -8,6 +8,7 @@ use test_harness::{
 fn test_borrow_above_max_utilization_rejected() {
     let mut t = LendingTest::new()
         .standard_two_asset()
+        .with_market_liquidity("USDC", 0.0)
         .with_market_params("USDC", |p| {
             p.max_utilization = RAY * 85 / 100;
         })
@@ -44,6 +45,7 @@ fn test_borrow_at_max_utilization_succeeds() {
 fn test_max_utilization_uses_index_aware_ratio() {
     let mut t = LendingTest::new()
         .standard_two_asset()
+        .with_market_liquidity("USDC", 0.0)
         .with_market_params("USDC", |p| {
             p.max_utilization = RAY * 85 / 100;
         })
@@ -53,7 +55,9 @@ fn test_max_utilization_uses_index_aware_ratio() {
     t.supply(BOB, "ETH", 1_000.0);
     t.borrow(BOB, "USDC", 800.0);
 
-    t.advance_time(60 * 60 * 24 * 365 * 5);
+    // Two years of accrual lift utilization above 85% while cash still covers
+    // the liquidation buffer.
+    t.advance_time(60 * 60 * 24 * 365 * 2);
     t.update_indexes_for(&["USDC"]);
 
     let result = t.try_borrow(BOB, "USDC", 1.0);
@@ -64,6 +68,7 @@ fn test_max_utilization_uses_index_aware_ratio() {
 fn test_withdraw_pushing_above_max_utilization_rejected() {
     let mut t = LendingTest::new()
         .standard_two_asset()
+        .with_market_liquidity("USDC", 0.0)
         .with_market_params("USDC", |p| {
             p.max_utilization = RAY * 85 / 100;
         })
@@ -81,16 +86,19 @@ fn test_withdraw_pushing_above_max_utilization_rejected() {
 fn test_zero_supply_with_outstanding_borrow_rejected() {
     use test_harness::helpers;
 
-    let mut t = LendingTest::new().standard_two_asset().build();
+    let mut t = LendingTest::new()
+        .standard_two_asset()
+        .with_market_liquidity("USDC", 0.0)
+        .build();
 
     t.supply(ALICE, "USDC", 1_000.0);
     t.supply(BOB, "ETH", 10.0);
     t.borrow(BOB, "USDC", 500.0);
 
-    let pool_addr = t.resolve_market("USDC").pool.clone();
-    let market = t.resolve_market("USDC");
-    let donation_raw = helpers::f64_to_i128(10_000.0, market.decimals);
-    market.token_admin.mint(&pool_addr, &donation_raw);
+    // A donation booked as cash that no share owns lets the full exit pass
+    // the reserve check and reach the supply-for-debt check.
+    let donation_raw = helpers::f64_to_i128(10_000.0, t.resolve_market("USDC").decimals);
+    t.add_unowned_cash_on_hub(helpers::HARNESS_HUB, "USDC", donation_raw);
 
     use soroban_sdk::Vec as SorobanVec;
     let asset_addr = t.resolve_asset("USDC");
@@ -162,6 +170,7 @@ fn test_update_params_rejects_max_above_one() {
 fn withdraw_that_lands_exactly_on_max_utilization_passes_and_one_unit_more_fails() {
     let mut t = LendingTest::new()
         .standard_two_asset()
+        .with_market_liquidity("USDC", 0.0)
         .with_market_params("USDC", |p| p.max_utilization = RAY * 80 / 100)
         .with_min_borrow_collateral_disabled()
         .build();

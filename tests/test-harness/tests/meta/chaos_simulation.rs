@@ -247,7 +247,10 @@ fn test_chaos_bank_run_full_exit() {
 
 #[test]
 fn test_chaos_sustained_high_utilization() {
-    let mut t = LendingTest::new().standard_two_asset().build();
+    let mut t = LendingTest::new()
+        .standard_two_asset()
+        .with_market_liquidity("USDC", 0.0)
+        .build();
 
     t.supply(ALICE, "USDC", 100_000.0);
     t.supply(BOB, "ETH", 100.0);

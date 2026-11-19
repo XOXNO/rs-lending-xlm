@@ -5,12 +5,20 @@ use common::math::fp::Ray;
 use proptest::prelude::*;
 use soroban_sdk::token;
 use std::sync::atomic::{AtomicI64, Ordering};
-use test_harness::presets::{eth_preset, usdc_preset, wbtc_preset};
-use test_harness::{
-    f64_to_i128, hub_asset, seed_fuzz_conservation_book, LendingTest, ALICE, BOB, LIQUIDATOR,
-};
+use test_harness::{hub_asset, seed_fuzz_conservation_book, LendingTest, ALICE, BOB, LIQUIDATOR};
 
 const TOLERANCE_UNITS: i128 = 4;
+
+/// Seeded liquidity carries supply shares that no user holds, so the books
+/// below would not reconcile. Every market starts empty instead.
+fn unseeded_three_asset() -> LendingTest {
+    LendingTest::new()
+        .three_asset_usdc_eth_wbtc()
+        .with_market_liquidity("USDC", 0.0)
+        .with_market_liquidity("ETH", 0.0)
+        .with_market_liquidity("WBTC", 0.0)
+        .build()
+}
 
 fn sum_supply(t: &test_harness::LendingTest, asset: &str) -> i128 {
     USERS
@@ -163,7 +171,7 @@ proptest! {
 
     #[test]
     fn prop_accounting_conservation(ops in prop::collection::vec(op_strategy(), 5..15)) {
-        let mut t = LendingTest::new().three_asset_usdc_eth_wbtc().build();
+        let mut t = unseeded_three_asset();
         seed_fuzz_conservation_book(&mut t);
         let mut last_idx = capture_indexes(&t);
 
@@ -284,17 +292,13 @@ proptest! {
     fn prop_seed_adjusted_cash_conservation_and_token_custody(
         ops in prop::collection::vec(op_strategy(), 5..15)
     ) {
-        let mut t = LendingTest::new().three_asset_usdc_eth_wbtc().build();
+        let mut t = unseeded_three_asset();
 
-        // Straight after build a market holds only its seed: no shares, no debt.
-        let presets = [usdc_preset(), eth_preset(), wbtc_preset()];
+        // Straight after build a market holds no cash, no shares and no debt.
         let mut seeds = [0i128; 3];
         for (i, asset) in ASSETS.iter().enumerate() {
             let s = raw_pool_state(&t, asset);
-            prop_assert_eq!((s.supplied, s.borrowed, s.revenue), (0, 0, 0));
-            let from_preset =
-                f64_to_i128(presets[i].initial_liquidity, t.resolve_market(asset).decimals);
-            prop_assert_eq!(s.cash, from_preset, "{} seed differs from its preset", asset);
+            prop_assert_eq!((s.supplied, s.borrowed, s.revenue, s.cash), (0, 0, 0, 0));
             seeds[i] = s.cash;
         }
 
@@ -340,7 +344,7 @@ proptest! {
         crash_cents in 3u32..70u32,
         liquidation_bps in prop::collection::vec(100u16..=10_000u16, 1..4),
     ) {
-        let mut t = LendingTest::new().three_asset_usdc_eth_wbtc().build();
+        let mut t = unseeded_three_asset();
         let seeds = market_seeds(&t);
         let mut step = 0usize;
 

@@ -7,7 +7,7 @@ use soroban_sdk::testutils::{Address as _, Ledger, LedgerInfo};
 use soroban_sdk::{token, Address, Env, String, TryFromVal};
 
 use crate::core::{LendingTest, MarketState, PendingMarket, PendingSpoke};
-use crate::helpers::{f64_to_i128, hub_asset, HARNESS_HUB, HARNESS_SPOKE};
+use crate::helpers::{f64_to_i128, hub_asset, seed_liquidity, HARNESS_HUB, HARNESS_SPOKE};
 use crate::presets::{
     unconstrained_test_cap, AssetConfigPreset, MarketParamsPreset, MarketPreset, SpokePreset,
     DEFAULT_TOLERANCE, LEDGER_PROTOCOL_VERSION,
@@ -99,6 +99,20 @@ impl LendingTestBuilder {
         for pm in &mut self.pending_markets {
             if pm.name == name {
                 f(&mut pm.params);
+                return self;
+            }
+        }
+        panic!("market '{}' not found -- call .with_market() first", name);
+    }
+
+    /// Sets the seeded liquidity of market `name`, in whole tokens.
+    ///
+    /// Use `0.0` when a test counts supply, utilization or interest from its
+    /// own suppliers only: seeded liquidity carries supply shares.
+    pub fn with_market_liquidity(mut self, name: &str, amount: f64) -> Self {
+        for pm in &mut self.pending_markets {
+            if pm.name == name {
+                pm.initial_liquidity = amount;
                 return self;
             }
         }
@@ -407,7 +421,7 @@ impl LendingTestBuilder {
                 let key = controller::types::PoolKey::State(hub_asset(asset_address.clone()));
                 let mut state: controller::types::PoolStateRaw =
                     env.storage().persistent().get(&key).unwrap();
-                state.cash += liquidity_amount;
+                seed_liquidity(&env, &mut state, liquidity_amount, market_decimals);
                 env.storage().persistent().set(&key, &state);
             });
 

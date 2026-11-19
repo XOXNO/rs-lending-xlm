@@ -97,9 +97,9 @@ Rounding cannot admit utilization above the ceiling. Debt against zero
 floored supply value fails; zero supplied shares and zero debt value skip the
 gate. A debt mint (borrow or strategy opening) is checked at every ceiling, so
 at 100% debt value must not exceed supply value. Withdrawals and revenue claims
-skip a 100% ceiling, since cash bounds them. Withdrawal, net settlement and
-revenue claims reject zero total supply with outstanding debt. These checks do
-not establish full backing after every mutation.
+skip a 100% ceiling, since cash bounds them. Debt mints, withdrawal, net
+settlement and revenue claims reject zero total supply with outstanding debt.
+These checks do not establish full backing after every mutation.
 
 Directed rounding leaves cash that no share claims. Each full withdrawal or
 full repayment adds less than one native unit. This residue counts as backing

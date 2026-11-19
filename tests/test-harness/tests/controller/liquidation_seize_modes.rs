@@ -1276,7 +1276,10 @@ fn the_share_gap_stays_under_one_asset_unit_with_the_supply_index_below_ray() {
 
     for wiped_usdc in [3_000.0f64, 9_000.0, 15_000.0, 18_700.0] {
         for repay_bps in [2_903u32, 6_113, 9_337] {
-            let mut t = LendingTest::new().standard_two_asset().build();
+            let mut t = LendingTest::new()
+                .standard_two_asset()
+                .with_market_liquidity("USDC", 0.0)
+                .build();
             for user in [ALICE, CAROL] {
                 t.supply(user, "USDC", 9_876.54);
             }
