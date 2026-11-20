@@ -294,24 +294,37 @@ Reflector `Twap(records)` admission:
 ```rust
 MIN_ORACLE_RESOLUTION_SECONDS <= resolution <= max_stale
 1 <= records <= MAX_TWAP_RECORDS
-required_span = (records - 1) * resolution <= max_stale
+oldest_sample_age = records * resolution <= max_stale
 ```
 
 `MIN_ORACLE_RESOLUTION_SECONDS` is 60, `MAX_TWAP_RECORDS` 12. Resolution and
-span breaches fail with `InvalidOracleResolution` (222), zero records with
+age breaches fail with `InvalidOracleResolution` (222), zero records with
 `TwapInsufficientObservations` (219), too many with `TwapRecordsOutOfRange`
 (228).
 
-Reads fail on empty history (`ReflectorHistoryEmpty`, 212); on over
-`records + 1` samples, samples closer than `resolution`, or span below
-required (`TwapInsufficientObservations`, 219); and on a future sample
-(`PriceFeedStale`, 206). Samples must be positive.
+A read uses the first `records` samples of the answer, newest first, and
+ignores the rest. It carries the oldest timestamp it uses. The Reflector
+contract answers with `records + 1` samples on a contiguous history. It fills
+a missing round with the round before it, so a skipped round gives fewer
+samples over a longer span.
+
+The oldest used sample is `records - 1` rounds behind the newest. The newest
+sample is one `resolution` old when the next sample is due. With `max_stale`
+at the admission bound, a late or skipped sample makes the read stale.
+
+Reads fail on an empty answer (`ReflectorHistoryEmpty`, 212) and on a future
+used sample (`PriceFeedStale`, 206). Used samples closer than `resolution`,
+or spanning less than `(records - 1) * resolution`, fail with
+`TwapInsufficientObservations` (219). Used samples must be positive. The read
+does not check the samples that it ignores.
 
 ```rust
 mean      = floor(sum(samples) / count(samples))
 price_wad = mean * 10^(18 - feed_decimals)
 timestamp = oldest sample
 ```
+
+`samples` are the samples the read uses.
 
 The upscale is exact; failure gives `InvalidPrice` (217).
 

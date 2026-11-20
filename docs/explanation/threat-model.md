@@ -292,6 +292,44 @@ A pair that still breaks it needs a line in
 and largest accepted product. The check also fails when a declared pair rises
 above that product or sits more than 0.001 below it.
 
+Priced lag is a second path to an accepted price above the market. A leg
+reads its last written price until its next write. After a market move, a
+two-source key serves the midpoint of a leg that has printed the move and a
+leg that has not. Both legs pass their own age checks. The age-spread check
+applies only when both legs are `Market`.
+
+Let `U` be the upper tolerance ratio. Let `n` be the number of samples in the
+leg that prints the move: `records` for `Twap(records)`, 1 for a spot leg. One
+sample holds the new price; when every sample holds it, use `n = 1`. Let `g`
+be the price of the other `n - 1` samples over the price of the late leg. The
+band bounds the mean of the samples against the late leg. It does not bound
+`g`. The served price over the market price is:
+
+```text
+fall:  (1 + 1/U) / (2 * (n/U - (n - 1) * g))
+rise:  (1 + U) / (2 * (n * U - (n - 1) * g))
+```
+
+With `U = 1.10` and equal legs before the move (`g = 1`), the fall ratio is
+1.3125 for `Twap(3)` and 1.05 for a spot leg. With `g = U` it is 1.81 for
+`Twap(3)`. The ratio has no upper bound: after a rise that the late leg did
+not print, the older samples sit above `U` while a fall brings the mean back
+inside the band. When the fall denominator is not positive, the band admits
+any fall. The band rounds its ratio half up, so add 0.5 BPS to `U`.
+
+A borrow or a withdrawal at a fall ratio `r` leaves bad debt when
+`LTV * r > 1`. Liquidation refuses an account whose health factor at the
+market price is above `1 / r`. The rise ratio `q` is below 1, so the key
+understates a debt in the rising asset. That borrow leaves bad debt when
+`LTV > q`.
+
+The lag lasts until the late leg writes or leaves its `max_stale_seconds`
+budget. A late leg past its budget fails the key with `PriceFeedStale`. After
+the late leg writes, the key fails closed while the legs disagree
+([DoS.1](#dos1-detail)). Before either leg prints the move, the key serves the
+old price and no check bounds the gap. The envelope check does not cover
+priced lag.
+
 Borrowers have less protection. The bonus `b` is the curve bonus at the
 reported HF, capped at `HF / LT - 1`, not the base bonus. On the default curve
 (target HF 1.10, maximum bonus at HF 0.80) with LT 60%, a reported HF of 0.98

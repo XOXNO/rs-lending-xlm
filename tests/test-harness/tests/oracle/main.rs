@@ -6,4 +6,5 @@ mod redstone;
 mod redstone_bulk;
 mod tolerance;
 mod twap;
+mod twap_lag;
 mod xoxno;

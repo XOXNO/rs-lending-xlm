@@ -101,10 +101,10 @@ Unless a row adds a response, correct the named input or wait for governance to 
 | 216 `OracleNotConfigured` | No oracle for the key, or the response omits a requested asset. |
 | 217 `InvalidPrice` | Price not positive, or LP fair-value math unrepresentable. Report. |
 | 218 `InvalidStalenessConfig` | Staleness config out of bounds or incompatible with source freshness. |
-| 219 `TwapInsufficientObservations` | Zero records, count below the smoothing minimum, excess history, spacing below resolution, or history not spanning the window (a skipped round passes if it still spans). `Twap` is an equal-weight mean. |
+| 219 `TwapInsufficientObservations` | Zero records, count below the smoothing minimum, spacing below resolution, or history not spanning the window (a skipped round passes if it still spans). `Twap` is an equal-weight mean of the newest `records` samples. |
 | 220 `InvalidOracleBase` | A bare Reflector feed does not quote in USD; a `Scaled` factor's Reflector base is not token X for quote key `Token(X)` (a `Ref` quote or a USD base always fails); an LP source has an invalid binding, key pairing or pool-value floor; or a Curve source has fewer than 2 or more than `MAX_CURVE_COINS` coins. |
 | 221 `InvalidOracleDecimals` | Declared decimals differ from the provider's or are out of range, or a replacement changes the stored `asset_decimals`. Replacements keep it even if the issuer changes decimals; `ConfigureAssetOracle` resolves it from the stored oracle (`oracle(key)`). |
-| 222 `InvalidOracleResolution` | Resolution below minimum or above `max_stale_seconds`, or implied TWAP span above `max_stale_seconds`. |
+| 222 `InvalidOracleResolution` | Resolution below minimum or above `max_stale_seconds`, or TWAP oldest-sample age `records * resolution` above `max_stale_seconds`. |
 | 223 `SanityBoundViolated` | Price outside the stored sanity band. Wait, or have governance rebase the band. |
 | 224 `InvalidSanityBounds` | Band not positive and increasing, above `MAX_REASONABLE_PRICE_WAD`, or narrower than `MIN_SANITY_BAND_BPS`; or scaled-factor minimum <= 0, maximum below minimum or above `MAX_REASONABLE_PRICE_WAD` (factor bounds may be equal; no minimum width). |
 | 225 `OracleCycleDetected` | Key already being resolved up the composition chain. |
