@@ -2,7 +2,7 @@
 """Dry-run publication guard: injected failures and artifact swaps block it."""
 from pathlib import Path
 from copy import deepcopy
-import json, hashlib, subprocess, sys, re
+import json, hashlib, shutil, subprocess, sys, re
 from controlled import MANIFEST
 from controlled import collect as collect_controlled
 import tempfile, textwrap
@@ -243,12 +243,36 @@ for draft, allowed, created in [('',True,True),('true',True,False),('false',Fals
     assert (code == 0) == allowed, f'existing release draft={draft!r}'
     assert ('release create' in calls) == created
     assert ('release upload' in calls) == allowed
-# Registry publication mutates public state too: it waits for the GitHub
-# release and never runs on a dry run, and mainnet waits for testnet.
-registry_testnet = job('registry-publish-testnet')
-assert 'needs: publish' in registry_testnet
-assert "if: github.event_name != 'workflow_dispatch' || !inputs.dry_run" in registry_testnet
-assert 'needs: registry-publish-testnet' in job('registry-publish-mainnet')
+# Registry publication mutates public state too. It runs in its own workflow
+# after a successful Release Build, publishes only a tag whose GitHub release is
+# published (so a dry run publishes nothing), and mainnet waits for testnet.
+assert 'stellar-registry/actions' not in workflow
+registry = (Path(__file__).resolve().parents[2]/'.github/workflows/registry-publish.yml').read_text()
+assert 'workflows: ["Release Build"]' in registry and 'types: [completed]' in registry
+def registry_job(name):
+    return re.split(r'^  \S', registry.split(f'\n  {name}:',1)[1], maxsplit=1, flags=re.M)[0]
+resolve_job = registry_job('resolve')
+assert "github.event.workflow_run.conclusion == 'success'" in resolve_job
+registry_testnet, registry_mainnet = registry_job('testnet'), registry_job('mainnet')
+assert 'needs: resolve' in registry_testnet and "if: needs.resolve.outputs.tag != ''" in registry_testnet
+assert 'needs: [resolve, testnet]' in registry_mainnet
+release_contracts = re.search(r'RELEASE_CONTRACTS: (.*)', workflow).group(1)
+for body in (registry_testnet, registry_mainnet):
+    assert f'packages: {release_contracts}\n' in body
+    assert 'attestation_signer_workflow: ${{ github.repository }}/.github/workflows/release.yml' in body
+tag_script = textwrap.dedent(resolve_job.split('        run: |\n',1)[1])
+jq_dir = Path(shutil.which('jq')).parent
+for release, published in [('{"isDraft":false}',True),('{"isDraft":true}',False),('',False)]:
+    with tempfile.TemporaryDirectory() as directory:
+        gh = Path(directory)/'gh'
+        gh.write_text('#!/usr/bin/env bash\n[ -n "$GH_JSON" ] || exit 1\n'
+            'while [ $# -gt 0 ]; do [ "$1" = --jq ] && { printf %s "$GH_JSON" | jq -r "$2"; exit; }; shift; done\nexit 1\n')
+        gh.chmod(0o755)
+        outputs = Path(directory)/'outputs'
+        subprocess.run(['bash','-ec',tag_script], check=True, capture_output=True, env={
+            'PATH':f'{directory}:{jq_dir}:/usr/bin:/bin', 'GH_JSON':release, 'GITHUB_OUTPUT':str(outputs),
+            'GITHUB_REPOSITORY':'o/r', 'INPUT_TAG':'', 'RUN_REF':'v1.2.3'})
+        assert outputs.read_text() == ('tag=v1.2.3\n' if published else 'tag=\n'), f'release {release!r}'
 print('Release commit and published-release guards passed')
 assert workflow.index('sdk_manifest.py dist') < workflow.index('artifacts.py distribution-create dist') < workflow.index('name: Upload artifact')
 assert 'collect tests/integration/runs "$RUN_TS" artifacts/wasm/deploy' in workflow
