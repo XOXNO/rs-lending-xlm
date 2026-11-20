@@ -30,6 +30,7 @@ START=(
   $M::release_unbacked_repayment
   $M::calculate_seizure_proportions
   $M::process_excess_payment
+  crate::positions::liquidation::plan::build_liquidation_plan
   $A::apply_liquidation_repayments
   $A::apply_liquidation_seizures
   $A::apply_liquidation_share_credit
@@ -44,6 +45,7 @@ OPAQUE=(
   'crate::context::_::load_markets'
   'crate::context::_::cached_pool_address'
   'crate::context::_::require_spoke_asset'
+  'crate::context::_::spoke_config'
   'crate::context::_::apply_spoke_exit'
   'crate::context::_::record_supply_position_update'
   crate::external::fetch_market_index

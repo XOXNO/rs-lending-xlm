@@ -1754,7 +1754,7 @@ def types.HubAssetKey.Insts.CoreCloneClone.clone
   ok { hub_id := i, asset := a }
 
 /-- [controller_aeneas::context::{controller_aeneas::context::Context}::cached_market_index]:
-    Source: 'src/context.rs', lines 47:4-54:5 -/
+    Source: 'src/context.rs', lines 48:4-55:5 -/
 def context.Context.cached_market_index
   (self : context.Context) (hub_asset : types.HubAssetKey) :
   Result (types.MarketIndex × context.Context)
@@ -1797,7 +1797,7 @@ def types.PriceFeed.Insts.CoreConvertFromShared0PriceFeedRaw :
 }
 
 /-- [controller_aeneas::context::{controller_aeneas::context::Context}::cached_price::{impl core::ops::function::FnOnce<(), controller_aeneas::types::PriceFeedRaw> for controller_aeneas::context::{controller_aeneas::context::Context}::cached_price::{closure}<'_0>}::call_once]:
-    Source: 'src/context.rs', lines 94:28-94:93 -/
+    Source: 'src/context.rs', lines 101:28-101:93 -/
 def
   context.Context.cached_price.closure.Insts.CoreOpsFunctionFnOnceTuplePriceFeedRaw.call_once
   (c : context.Context.cached_price.closure) (_ : Unit) :
@@ -1806,7 +1806,7 @@ def
   fail panic
 
 /-- Trait implementation: [controller_aeneas::context::{controller_aeneas::context::Context}::cached_price::{impl core::ops::function::FnOnce<(), controller_aeneas::types::PriceFeedRaw> for controller_aeneas::context::{controller_aeneas::context::Context}::cached_price::{closure}<'_0>}]
-    Source: 'src/context.rs', lines 94:28-94:93 -/
+    Source: 'src/context.rs', lines 101:28-101:93 -/
 @[reducible]
 def
   context.Context.cached_price.closure.Insts.CoreOpsFunctionFnOnceTuplePriceFeedRaw
@@ -1817,7 +1817,7 @@ def
 }
 
 /-- [controller_aeneas::context::{controller_aeneas::context::Context}::cached_price]:
-    Source: 'src/context.rs', lines 90:4-96:5 -/
+    Source: 'src/context.rs', lines 97:4-103:5 -/
 def context.Context.cached_price
   (self : context.Context) (asset : aeneas_soroban_shim.Address) :
   Result (types.PriceFeed × context.Context)
@@ -2768,6 +2768,23 @@ def positions.liquidation.apply.check_bad_debt_after_liquidation
         account_id account totals
     else ok cache
 
+/-- [controller_aeneas::positions::liquidation::curve::{controller_aeneas::positions::liquidation::curve::LiquidationCurve}::from_config]:
+    Source: 'src/positions/liquidation/../../../../../../contracts/controller/src/positions/liquidation/curve.rs', lines 35:4-41:5 -/
+def positions.liquidation.curve.LiquidationCurve.from_config
+  (cfg : types.SpokeConfig) :
+  Result positions.liquidation.curve.LiquidationCurve
+  := do
+  let w ←
+    math.fp.Wad.from (core.convert.IntoFrom (core.convert.FromSame Std.I128))
+      cfg.liquidation_target_hf_wad
+  let w1 ←
+    math.fp.Wad.from (core.convert.IntoFrom (core.convert.FromSame Std.I128))
+      cfg.hf_for_max_bonus_wad
+  let i ← I128.Insts.CoreConvertFromU32.from cfg.liquidation_bonus_factor_bps
+  let b ←
+    math.fp.Bps.from (core.convert.IntoFrom (core.convert.FromSame Std.I128)) i
+  ok { target_hf := w, hf_for_max_bonus := w1, bonus_factor := b }
+
 /-- [controller_aeneas::positions::liquidation::curve::{controller_aeneas::positions::liquidation::curve::LiquidationCurve}::bonus_scale]:
     Source: 'src/positions/liquidation/../../../../../../contracts/controller/src/positions/liquidation/curve.rs', lines 45:4-54:5 -/
 def positions.liquidation.curve.LiquidationCurve.bonus_scale
@@ -3038,6 +3055,106 @@ def positions.liquidation.curve.max_bonus_for_threshold
     let i2 ← numerator / eff_thr_bps
     math.fp.Bps.from (core.convert.IntoFrom (core.convert.FromSame Std.I128))
       i2
+
+/-- [controller_aeneas::positions::liquidation::math::sum_repaid_usd]: loop body 0:
+    Source: 'src/positions/liquidation/../../../../../../contracts/controller/src/positions/liquidation/math.rs', lines 346:4-348:5 -/
+@[rust_loop_body]
+def positions.liquidation.math.sum_repaid_usd_loop.body
+  (env : aeneas_soroban_shim.Env)
+  (iter : aeneas_soroban_shim.VecIter types.RepayEntry) (total : math.fp.Wad) :
+  Result (ControlFlow ((aeneas_soroban_shim.VecIter types.RepayEntry) ×
+    math.fp.Wad) math.fp.Wad)
+  := do
+  let (o, iter1) ←
+    aeneas_soroban_shim.VecIter.Insts.CoreIterTraitsIteratorIterator.next iter
+  match o with
+  | none => ok (done total)
+  | some entry =>
+    let w ←
+      math.fp.Wad.from (core.convert.IntoFrom (core.convert.FromSame Std.I128))
+        entry.usd_wad
+    let total1 ← math.fp.Wad.checked_add total env w
+    ok (cont (iter1, total1))
+
+/-- [controller_aeneas::positions::liquidation::math::sum_repaid_usd]: loop 0:
+    Source: 'src/positions/liquidation/../../../../../../contracts/controller/src/positions/liquidation/math.rs', lines 346:4-348:5 -/
+@[rust_loop]
+def positions.liquidation.math.sum_repaid_usd_loop
+  (iter : aeneas_soroban_shim.VecIter types.RepayEntry)
+  (env : aeneas_soroban_shim.Env) (total : math.fp.Wad) :
+  Result math.fp.Wad
+  := do
+  loop
+    (fun (iter1, total1) => positions.liquidation.math.sum_repaid_usd_loop.body
+      env iter1 total1)
+    (iter, total)
+
+/-- [controller_aeneas::positions::liquidation::math::sum_repaid_usd]:
+    Source: 'src/positions/liquidation/../../../../../../contracts/controller/src/positions/liquidation/math.rs', lines 344:0-350:1 -/
+def positions.liquidation.math.sum_repaid_usd
+  (env : aeneas_soroban_shim.Env)
+  (repaid_tokens : aeneas_soroban_shim.Vec types.RepayEntry) :
+  Result math.fp.Wad
+  := do
+  let iter ← aeneas_soroban_shim.Vec.iter repaid_tokens
+  positions.liquidation.math.sum_repaid_usd_loop iter env math.fp.Wad.ZERO
+
+/-- [controller_aeneas::positions::liquidation::math::{controller_aeneas::positions::liquidation::math::NormalizedRepaymentPlan}::validate]:
+    Source: 'src/positions/liquidation/../../../../../../contracts/controller/src/positions/liquidation/math.rs', lines 39:4-43:5 -/
+def positions.liquidation.math.NormalizedRepaymentPlan.validate
+  (self : positions.liquidation.math.NormalizedRepaymentPlan)
+  (env : aeneas_soroban_shim.Env) :
+  Result Unit
+  := do
+  let w ← positions.liquidation.math.sum_repaid_usd env self.repaid
+  let b ←
+    core.cmp.PartialEq.ne.trait_default math.fp.Wad.Insts.CoreCmpPartialEqWad w
+      self.repay_usd
+  massert (¬ b)
+
+/-- [controller_aeneas::positions::liquidation::math::{controller_aeneas::positions::liquidation::math::LiquidationPlan}::validate]: loop body 0:
+    Source: 'src/positions/liquidation/../../../../../../contracts/controller/src/positions/liquidation/math.rs', lines 58:8-70:5 -/
+@[rust_loop_body]
+def positions.liquidation.math.LiquidationPlan.validate_loop.body
+  (iter : aeneas_soroban_shim.VecIter types.SeizeEntry) :
+  Result (ControlFlow (aeneas_soroban_shim.VecIter types.SeizeEntry) Unit)
+  := do
+  let (o, iter1) ←
+    aeneas_soroban_shim.VecIter.Insts.CoreIterTraitsIteratorIterator.next iter
+  match o with
+  | none => ok (done ())
+  | some entry =>
+    massert (¬ (entry.amount <= 0#i128))
+    massert (¬ (entry.protocol_fee < 0#i128))
+    massert (¬ (entry.protocol_fee > entry.amount))
+    massert (¬ (entry.scaled_amount <= 0#i128))
+    massert (¬ (entry.bonus_scaled < 0#i128))
+    massert (¬ (entry.bonus_scaled > entry.scaled_amount))
+    let i ← I128.Insts.CoreConvertFromU32.from entry.liquidation_fees
+    massert (¬ (i >= constants.production.shared.BPS))
+    ok (cont iter1)
+
+/-- [controller_aeneas::positions::liquidation::math::{controller_aeneas::positions::liquidation::math::LiquidationPlan}::validate]: loop 0:
+    Source: 'src/positions/liquidation/../../../../../../contracts/controller/src/positions/liquidation/math.rs', lines 58:8-70:5 -/
+@[rust_loop]
+def positions.liquidation.math.LiquidationPlan.validate_loop
+  (iter : aeneas_soroban_shim.VecIter types.SeizeEntry) : Result Unit := do
+  loop
+    (fun iter1 => positions.liquidation.math.LiquidationPlan.validate_loop.body
+      iter1)
+    iter
+
+/-- [controller_aeneas::positions::liquidation::math::{controller_aeneas::positions::liquidation::math::LiquidationPlan}::validate]:
+    Source: 'src/positions/liquidation/../../../../../../contracts/controller/src/positions/liquidation/math.rs', lines 55:4-70:5 -/
+def positions.liquidation.math.LiquidationPlan.validate
+  (self : positions.liquidation.math.LiquidationPlan)
+  (env : aeneas_soroban_shim.Env) :
+  Result Unit
+  := do
+  positions.liquidation.math.NormalizedRepaymentPlan.validate self.repayment
+    env
+  let iter ← aeneas_soroban_shim.Vec.iter self.seized
+  positions.liquidation.math.LiquidationPlan.validate_loop iter
 
 /-- [controller_aeneas::storage::iter_typed_positions]: loop body 0:
     Source: 'src/storage.rs', lines 16:4-18:5 -/
@@ -3593,49 +3710,6 @@ def positions.liquidation.math.process_excess_payment
   let current_index ← aeneas_soroban_shim.Vec.len repaid_tokens
   positions.liquidation.math.process_excess_payment_loop env repaid_tokens
     refunds keep_within_quote excess_usd current_index
-
-/-- [controller_aeneas::positions::liquidation::math::sum_repaid_usd]: loop body 0:
-    Source: 'src/positions/liquidation/../../../../../../contracts/controller/src/positions/liquidation/math.rs', lines 346:4-348:5 -/
-@[rust_loop_body]
-def positions.liquidation.math.sum_repaid_usd_loop.body
-  (env : aeneas_soroban_shim.Env)
-  (iter : aeneas_soroban_shim.VecIter types.RepayEntry) (total : math.fp.Wad) :
-  Result (ControlFlow ((aeneas_soroban_shim.VecIter types.RepayEntry) ×
-    math.fp.Wad) math.fp.Wad)
-  := do
-  let (o, iter1) ←
-    aeneas_soroban_shim.VecIter.Insts.CoreIterTraitsIteratorIterator.next iter
-  match o with
-  | none => ok (done total)
-  | some entry =>
-    let w ←
-      math.fp.Wad.from (core.convert.IntoFrom (core.convert.FromSame Std.I128))
-        entry.usd_wad
-    let total1 ← math.fp.Wad.checked_add total env w
-    ok (cont (iter1, total1))
-
-/-- [controller_aeneas::positions::liquidation::math::sum_repaid_usd]: loop 0:
-    Source: 'src/positions/liquidation/../../../../../../contracts/controller/src/positions/liquidation/math.rs', lines 346:4-348:5 -/
-@[rust_loop]
-def positions.liquidation.math.sum_repaid_usd_loop
-  (iter : aeneas_soroban_shim.VecIter types.RepayEntry)
-  (env : aeneas_soroban_shim.Env) (total : math.fp.Wad) :
-  Result math.fp.Wad
-  := do
-  loop
-    (fun (iter1, total1) => positions.liquidation.math.sum_repaid_usd_loop.body
-      env iter1 total1)
-    (iter, total)
-
-/-- [controller_aeneas::positions::liquidation::math::sum_repaid_usd]:
-    Source: 'src/positions/liquidation/../../../../../../contracts/controller/src/positions/liquidation/math.rs', lines 344:0-350:1 -/
-def positions.liquidation.math.sum_repaid_usd
-  (env : aeneas_soroban_shim.Env)
-  (repaid_tokens : aeneas_soroban_shim.Vec types.RepayEntry) :
-  Result math.fp.Wad
-  := do
-  let iter ← aeneas_soroban_shim.Vec.iter repaid_tokens
-  positions.liquidation.math.sum_repaid_usd_loop iter env math.fp.Wad.ZERO
 
 /-- [controller_aeneas::positions::liquidation::math::one_unit_per_leg_usd]: loop body 0:
     Source: 'src/positions/liquidation/../../../../../../contracts/controller/src/positions/liquidation/math.rs', lines 335:4-339:5 -/
@@ -4337,15 +4411,6 @@ def positions.liquidation.math.scale_seizures_to_received
       positions.liquidation.math.scale_seizures_to_received_loop iter env
         received_usd planned_usd scaled
 
-/-- [controller_aeneas::risk::totals::portfolio_hub_keys]:
-    Source: 'src/risk/totals.rs', lines 18:0-24:1 -/
-def risk.totals.portfolio_hub_keys
-  (supply_keys : aeneas_soroban_shim.Vec types.HubAssetKey)
-  (borrow_keys : aeneas_soroban_shim.Vec types.HubAssetKey) :
-  Result (aeneas_soroban_shim.Vec types.HubAssetKey)
-  := do
-  aeneas_soroban_shim.Vec.append supply_keys borrow_keys
-
 /-- [controller_aeneas::storage::iter_debt_positions]: loop body 0:
     Source: 'src/storage.rs', lines 26:4-28:5 -/
 @[rust_loop_body]
@@ -4461,76 +4526,14 @@ def risk.totals.sum_debt_usd_loaded
   let iter ← storage.iter_debt_positions borrow_positions
   risk.totals.sum_debt_usd_loaded_loop iter env cache value math.fp.Wad.ZERO
 
-/-- [controller_aeneas::risk::totals::sum_debt_usd]:
-    Source: 'src/risk/totals.rs', lines 70:0-77:1 -/
-def risk.totals.sum_debt_usd
-  (env : aeneas_soroban_shim.Env) (cache : context.Context)
-  (borrow_positions : aeneas_soroban_shim.Map types.HubAssetKey
-  types.DebtPositionRaw) :
-  Result (math.fp.Wad × context.Context)
+/-- [controller_aeneas::risk::totals::portfolio_hub_keys]:
+    Source: 'src/risk/totals.rs', lines 18:0-24:1 -/
+def risk.totals.portfolio_hub_keys
+  (supply_keys : aeneas_soroban_shim.Vec types.HubAssetKey)
+  (borrow_keys : aeneas_soroban_shim.Vec types.HubAssetKey) :
+  Result (aeneas_soroban_shim.Vec types.HubAssetKey)
   := do
-  let v ← aeneas_soroban_shim.Map.keys borrow_positions
-  let cache1 ← context.Context.load_markets cache v
-  risk.totals.sum_debt_usd_loaded env cache1 borrow_positions
-    risk.totals.DebtValue.HalfUp
-
-/-- [controller_aeneas::risk::totals::calculate_ltv_collateral_wad]: loop body 0:
-    Source: 'src/risk/totals.rs', lines 89:4-102:5 -/
-@[rust_loop_body]
-def risk.totals.calculate_ltv_collateral_wad_loop.body
-  (env : aeneas_soroban_shim.Env)
-  (iter : aeneas_soroban_shim.VecIter (types.HubAssetKey ×
-  types.AccountPosition)) (cache : context.Context) (ltv : math.fp.Wad) :
-  Result (ControlFlow ((aeneas_soroban_shim.VecIter (types.HubAssetKey ×
-    types.AccountPosition)) × context.Context × math.fp.Wad) (math.fp.Wad ×
-    context.Context))
-  := do
-  let (o, iter1) ←
-    aeneas_soroban_shim.VecIter.Insts.CoreIterTraitsIteratorIterator.next iter
-  match o with
-  | none => ok (done (ltv, cache))
-  | some p =>
-    let (hub_asset, position) := p
-    let (feed, cache1) ← context.Context.cached_price cache hub_asset.asset
-    let (market_index, cache2) ←
-      context.Context.cached_market_index cache1 hub_asset
-    let value ←
-      rates.value.position_value_floor env position.scaled_amount
-        market_index.supply_index feed.price
-    let effective_ltv ←
-      core.cmp.Ord.min.trait_default math.fp.Bps.Insts.CoreCmpOrd
-        position.loan_to_value position.liquidation_threshold
-    let w ← math.fp.Bps.apply_to_wad_floor effective_ltv env value
-    let ltv1 ← math.fp.Wad.checked_add ltv env w
-    ok (cont (iter1, cache2, ltv1))
-
-/-- [controller_aeneas::risk::totals::calculate_ltv_collateral_wad]: loop 0:
-    Source: 'src/risk/totals.rs', lines 89:4-102:5 -/
-@[rust_loop]
-def risk.totals.calculate_ltv_collateral_wad_loop
-  (iter : aeneas_soroban_shim.VecIter (types.HubAssetKey ×
-  types.AccountPosition)) (env : aeneas_soroban_shim.Env)
-  (cache : context.Context) (ltv : math.fp.Wad) :
-  Result (math.fp.Wad × context.Context)
-  := do
-  loop
-    (fun (iter1, cache1, ltv1) =>
-      risk.totals.calculate_ltv_collateral_wad_loop.body env iter1 cache1 ltv1)
-    (iter, cache, ltv)
-
-/-- [controller_aeneas::risk::totals::calculate_ltv_collateral_wad]:
-    Source: 'src/risk/totals.rs', lines 81:0-104:1 -/
-def risk.totals.calculate_ltv_collateral_wad
-  (env : aeneas_soroban_shim.Env) (cache : context.Context)
-  (supply_positions : aeneas_soroban_shim.Map types.HubAssetKey
-  types.AccountPositionRaw) :
-  Result (math.fp.Wad × context.Context)
-  := do
-  let v ← aeneas_soroban_shim.Map.keys supply_positions
-  let cache1 ← context.Context.load_markets cache v
-  let iter ← storage.iter_typed_positions supply_positions
-  risk.totals.calculate_ltv_collateral_wad_loop iter env cache1
-    math.fp.Wad.ZERO
+  aeneas_soroban_shim.Vec.append supply_keys borrow_keys
 
 /-- [controller_aeneas::risk::totals::calculate_account_risk_totals_body]: loop body 0:
     Source: 'src/risk/totals.rs', lines 176:4-205:5 -/
@@ -4654,5 +4657,211 @@ def risk.totals.calculate_account_risk_totals
   := do
   risk.totals.calculate_account_risk_totals_body env cache supply_positions
     borrow_positions
+
+/-- [controller_aeneas::positions::liquidation::plan::build_liquidation_plan]: loop body 0:
+    Source: 'src/positions/liquidation/../../../../../../contracts/controller/src/positions/liquidation/plan.rs', lines 24:4-32:5 -/
+@[rust_loop_body]
+def positions.liquidation.plan.build_liquidation_plan_loop0.body
+  (env : aeneas_soroban_shim.Env) (i : Std.U32)
+  (iter : aeneas_soroban_shim.VecIter (types.HubAssetKey × Std.I128))
+  (cache : context.Context) :
+  Result (ControlFlow ((aeneas_soroban_shim.VecIter (types.HubAssetKey ×
+    Std.I128)) × context.Context) context.Context)
+  := do
+  let (o, iter1) ←
+    aeneas_soroban_shim.VecIter.Insts.CoreIterTraitsIteratorIterator.next iter
+  match o with
+  | none => ok (done cache)
+  | some p =>
+    let (hub_asset, _) := p
+    let cache1 ←
+      positions.enforce_spoke_asset_flags env cache i hub_asset
+        positions.FreezePolicy.AllowOnExit
+    ok (cont (iter1, cache1))
+
+/-- [controller_aeneas::positions::liquidation::plan::build_liquidation_plan]: loop 0:
+    Source: 'src/positions/liquidation/../../../../../../contracts/controller/src/positions/liquidation/plan.rs', lines 24:4-32:5 -/
+@[rust_loop]
+def positions.liquidation.plan.build_liquidation_plan_loop0
+  (iter : aeneas_soroban_shim.VecIter (types.HubAssetKey × Std.I128))
+  (env : aeneas_soroban_shim.Env) (i : Std.U32) (cache : context.Context) :
+  Result context.Context
+  := do
+  loop
+    (fun (iter1, cache1) =>
+      positions.liquidation.plan.build_liquidation_plan_loop0.body env i iter1
+      cache1)
+    (iter, cache)
+
+/-- [controller_aeneas::positions::liquidation::plan::build_liquidation_plan]: loop body 1:
+    Source: 'src/positions/liquidation/../../../../../../contracts/controller/src/positions/liquidation/plan.rs', lines 81:4-89:5 -/
+@[rust_loop_body]
+def positions.liquidation.plan.build_liquidation_plan_loop1.body
+  (env : aeneas_soroban_shim.Env) (i : Std.U32)
+  (iter : aeneas_soroban_shim.VecIter types.SeizeEntry)
+  (cache : context.Context) :
+  Result (ControlFlow ((aeneas_soroban_shim.VecIter types.SeizeEntry) ×
+    context.Context) context.Context)
+  := do
+  let (o, iter1) ←
+    aeneas_soroban_shim.VecIter.Insts.CoreIterTraitsIteratorIterator.next iter
+  match o with
+  | none => ok (done cache)
+  | some entry =>
+    let cache1 ←
+      positions.enforce_spoke_asset_flags env cache i entry.hub_asset
+        positions.FreezePolicy.SeizureLeg
+    ok (cont (iter1, cache1))
+
+/-- [controller_aeneas::positions::liquidation::plan::build_liquidation_plan]: loop 1:
+    Source: 'src/positions/liquidation/../../../../../../contracts/controller/src/positions/liquidation/plan.rs', lines 81:4-89:5 -/
+@[rust_loop]
+def positions.liquidation.plan.build_liquidation_plan_loop1
+  (iter : aeneas_soroban_shim.VecIter types.SeizeEntry)
+  (env : aeneas_soroban_shim.Env) (i : Std.U32) (cache : context.Context) :
+  Result context.Context
+  := do
+  loop
+    (fun (iter1, cache1) =>
+      positions.liquidation.plan.build_liquidation_plan_loop1.body env i iter1
+      cache1)
+    (iter, cache)
+
+/-- [controller_aeneas::positions::liquidation::plan::build_liquidation_plan]:
+    Source: 'src/positions/liquidation/../../../../../../contracts/controller/src/positions/liquidation/plan.rs', lines 14:0-97:1 -/
+def positions.liquidation.plan.build_liquidation_plan
+  (env : aeneas_soroban_shim.Env) (account : types.Account)
+  (raw_payments : aeneas_soroban_shim.Vec (types.HubAssetKey × Std.I128))
+  (cache : context.Context) :
+  Result (positions.liquidation.math.LiquidationPlan × context.Context)
+  := do
+  let b ← aeneas_soroban_shim.Map.is_empty account.borrow_positions
+  massert (¬ b)
+  let iter ← aeneas_soroban_shim.Vec.iter raw_payments
+  let cache1 ←
+    positions.liquidation.plan.build_liquidation_plan_loop0 iter env
+      account.spoke_id cache
+  let (totals, cache2) ←
+    risk.totals.calculate_account_risk_totals env cache1
+      account.supply_positions account.borrow_positions
+  let b1 ←
+    core.cmp.PartialOrd.lt.trait_default math.fp.Wad.Insts.CoreCmpPartialOrdWad
+      totals.health_factor math.fp.Wad.ONE
+  massert b1
+  let ((proportion_seized, bonus_bounds), cache3) ←
+    positions.liquidation.math.calculate_seizure_proportions env account
+      totals.total_collateral totals.weighted_collateral cache2
+  let (sc, cache4) ← context.Context.spoke_config cache3 account.spoke_id
+  let curve ← positions.liquidation.curve.LiquidationCurve.from_config sc
+  let (repayment, cache5) ←
+    positions.liquidation.math.normalize_repayment_plan env account
+      raw_payments
+      {
+        total_debt := totals.total_debt,
+        total_collateral := totals.total_collateral,
+        weighted_collateral := totals.weighted_collateral,
+        proportion_seized,
+        hf := totals.health_factor
+      } bonus_bounds curve cache4
+  let ((seized_collaterals, unbacked_usd), cache6) ←
+    positions.liquidation.math.calculate_seized_collateral env account
+      totals.total_collateral repayment cache5
+  let repayment1 ←
+    positions.liquidation.math.release_unbacked_repayment env repayment
+      unbacked_usd
+  let b2 ←
+    core.cmp.PartialOrd.gt.trait_default math.fp.Wad.Insts.CoreCmpPartialOrdWad
+      unbacked_usd math.fp.Wad.ZERO
+  let (cache7, repayment2) ←
+    if b2
+    then
+      do
+      let b3 ← aeneas_soroban_shim.Vec.is_empty seized_collaterals
+      let nrp ←
+        if b3
+        then
+          positions.liquidation.math.release_unbacked_repayment env repayment1
+            repayment1.repay_usd
+        else ok repayment1
+      ok (cache6, nrp)
+    else ok (cache6, repayment1)
+  let iter1 ← aeneas_soroban_shim.Vec.iter seized_collaterals
+  let cache8 ←
+    positions.liquidation.plan.build_liquidation_plan_loop1 iter1 env
+      account.spoke_id cache7
+  positions.liquidation.math.LiquidationPlan.validate
+    { repayment := repayment2, seized := seized_collaterals } env
+  ok ({ repayment := repayment2, seized := seized_collaterals }, cache8)
+
+/-- [controller_aeneas::risk::totals::sum_debt_usd]:
+    Source: 'src/risk/totals.rs', lines 70:0-77:1 -/
+def risk.totals.sum_debt_usd
+  (env : aeneas_soroban_shim.Env) (cache : context.Context)
+  (borrow_positions : aeneas_soroban_shim.Map types.HubAssetKey
+  types.DebtPositionRaw) :
+  Result (math.fp.Wad × context.Context)
+  := do
+  let v ← aeneas_soroban_shim.Map.keys borrow_positions
+  let cache1 ← context.Context.load_markets cache v
+  risk.totals.sum_debt_usd_loaded env cache1 borrow_positions
+    risk.totals.DebtValue.HalfUp
+
+/-- [controller_aeneas::risk::totals::calculate_ltv_collateral_wad]: loop body 0:
+    Source: 'src/risk/totals.rs', lines 89:4-102:5 -/
+@[rust_loop_body]
+def risk.totals.calculate_ltv_collateral_wad_loop.body
+  (env : aeneas_soroban_shim.Env)
+  (iter : aeneas_soroban_shim.VecIter (types.HubAssetKey ×
+  types.AccountPosition)) (cache : context.Context) (ltv : math.fp.Wad) :
+  Result (ControlFlow ((aeneas_soroban_shim.VecIter (types.HubAssetKey ×
+    types.AccountPosition)) × context.Context × math.fp.Wad) (math.fp.Wad ×
+    context.Context))
+  := do
+  let (o, iter1) ←
+    aeneas_soroban_shim.VecIter.Insts.CoreIterTraitsIteratorIterator.next iter
+  match o with
+  | none => ok (done (ltv, cache))
+  | some p =>
+    let (hub_asset, position) := p
+    let (feed, cache1) ← context.Context.cached_price cache hub_asset.asset
+    let (market_index, cache2) ←
+      context.Context.cached_market_index cache1 hub_asset
+    let value ←
+      rates.value.position_value_floor env position.scaled_amount
+        market_index.supply_index feed.price
+    let effective_ltv ←
+      core.cmp.Ord.min.trait_default math.fp.Bps.Insts.CoreCmpOrd
+        position.loan_to_value position.liquidation_threshold
+    let w ← math.fp.Bps.apply_to_wad_floor effective_ltv env value
+    let ltv1 ← math.fp.Wad.checked_add ltv env w
+    ok (cont (iter1, cache2, ltv1))
+
+/-- [controller_aeneas::risk::totals::calculate_ltv_collateral_wad]: loop 0:
+    Source: 'src/risk/totals.rs', lines 89:4-102:5 -/
+@[rust_loop]
+def risk.totals.calculate_ltv_collateral_wad_loop
+  (iter : aeneas_soroban_shim.VecIter (types.HubAssetKey ×
+  types.AccountPosition)) (env : aeneas_soroban_shim.Env)
+  (cache : context.Context) (ltv : math.fp.Wad) :
+  Result (math.fp.Wad × context.Context)
+  := do
+  loop
+    (fun (iter1, cache1, ltv1) =>
+      risk.totals.calculate_ltv_collateral_wad_loop.body env iter1 cache1 ltv1)
+    (iter, cache, ltv)
+
+/-- [controller_aeneas::risk::totals::calculate_ltv_collateral_wad]:
+    Source: 'src/risk/totals.rs', lines 81:0-104:1 -/
+def risk.totals.calculate_ltv_collateral_wad
+  (env : aeneas_soroban_shim.Env) (cache : context.Context)
+  (supply_positions : aeneas_soroban_shim.Map types.HubAssetKey
+  types.AccountPositionRaw) :
+  Result (math.fp.Wad × context.Context)
+  := do
+  let v ← aeneas_soroban_shim.Map.keys supply_positions
+  let cache1 ← context.Context.load_markets cache v
+  let iter ← storage.iter_typed_positions supply_positions
+  risk.totals.calculate_ltv_collateral_wad_loop iter env cache1
+    math.fp.Wad.ZERO
 
 end controller_aeneas

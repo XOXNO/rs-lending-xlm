@@ -24,6 +24,7 @@ impl From<GenericError> for Error {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[repr(u32)]
 pub enum CollateralError {
+    HealthFactorTooHigh = 101,
     DebtPositionNotFound = 120,
     CollateralPositionNotFound = 121,
 }

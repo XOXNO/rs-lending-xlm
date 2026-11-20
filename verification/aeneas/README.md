@@ -94,7 +94,10 @@ returns (does not panic) and its result satisfies `P`. "Never aborts" means
   model within 5.5·10⁻¹⁸ USD.
 * A repayment plan conserves tokens: kept plus refunded equals offered, over
   the merged payment list (`normalize_repayment_plan`).
-* A seizure takes at most what is held.
+* A seizure takes at most what is held. Every plan that
+  `build_liquidation_plan` returns seizes, per supply position, a positive
+  share amount at most the shares held (`build_liquidation_plan_seized_le_held`).
+  This holds for every input, with no domain hypothesis.
 * In a model of the executed plan (credit-mode seizure, full delivery, the
   pool effects and the bonus cap taken as hypotheses), the health factor
   drops by at most a stated rounding allowance, and reaches the curve target
@@ -155,9 +158,11 @@ production code is compiled verbatim through `#[path]` includes.
 * The repayment-plan and health-after theorems assume that the opaque
   `repays_every_debt_leg` returns for every list and context. The real
   function can abort on a market the context has not cached.
-* The LTV refresh bound (`ltv_under_stored_threshold`, audit S-02), the plan
-  builder (`build_liquidation_plan`) and the oracle TWAP, sanity-band and
-  aggregation arithmetic.
+* The LTV refresh bound (`ltv_under_stored_threshold`, audit S-02) and the
+  oracle TWAP, sanity-band and aggregation arithmetic.
+* The plan builder (`build_liquidation_plan`) beyond its seizure bound: that
+  it returns on the production domain, its health-factor gate, its spoke-flag
+  checks and its repayment side.
 * The flash loan before `finalize`.
 * That the StableSwap loop stops before its 255-round cap. If it did not, it
   would return `InvalidPrice`, which is covered.

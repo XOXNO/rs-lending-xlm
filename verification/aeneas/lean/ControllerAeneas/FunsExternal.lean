@@ -365,6 +365,21 @@ def context.Context.cached_pool_address (ctx : context.Context) :
     Result (aeneas_soroban_shim.Address × context.Context) :=
   ok (poolAddress, ctx)
 
+/-- The stored configuration of a spoke as `Context::spoke_config` reads it,
+`None` when the call aborts (no such spoke, or the context is bound to
+another spoke). Uninterpreted. -/
+opaque spokeConfigOf : Std.U32 → Option types.SpokeConfig := fun _ => none
+
+/-- `Context::spoke_config`: the spoke's configuration; aborts if the spoke
+does not exist or the context is bound to another spoke. The modelled caches
+are unchanged (production touches only the spoke-usage and spoke-config
+caches). -/
+def context.Context.spoke_config (ctx : context.Context) (spoke : Std.U32) :
+    Result (types.SpokeConfig × context.Context) :=
+  match spokeConfigOf spoke with
+  | some c => ok (c, ctx)
+  | none => fail .panic
+
 /-- The listed configuration of a hub asset in a spoke, `None` if unlisted.
 Uninterpreted. -/
 opaque spokeAssetConfig : Std.U32 → types.HubAssetKey → Option types.AssetConfig := fun _ _ => none

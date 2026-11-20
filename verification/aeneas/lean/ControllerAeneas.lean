@@ -20,6 +20,8 @@ import ControllerAeneas.Proofs.HealthAfter
 import ControllerAeneas.Proofs.RepayPlan
 -- Health factor of the executed production plan (docs/controller-seizure.md)
 import ControllerAeneas.Proofs.HealthAfterPlan
+-- Plan builder: seizure within the held shares (docs/controller-seizure.md)
+import ControllerAeneas.Proofs.Plan
 import Audit
 
 -- Fails the build on any `sorry`, `native_decide` or added axiom in this
