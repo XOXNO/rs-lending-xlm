@@ -1,8 +1,7 @@
 name: E2E Integration
 
-# Runs the testnet e2e lanes on any ref, on manual dispatch. The `testnet-e2e`
-# job in release.yml runs only for a release (a version tag push or a
-# dispatch with a release tag).
+# Runs the testnet e2e lanes on any ref, on manual dispatch. Release Build
+# runs no live lanes. Run this workflow on a release tag before you deploy it.
 #
 # This workflow builds nothing for distribution, uploads nothing to a release
 # and has no write permission.
@@ -45,11 +44,10 @@ env:
   NETWORK: testnet
 
 concurrency:
-  # Shares the `testnet-e2e` group with release.yml for mutual exclusion: both
-  # workflows drive the same testnet, friendbot and aggregator API, and
-  # overlapping runs fail in ways that look like protocol bugs. Queue, never
-  # cancel: a half-finished run leaves funded wallets and deployed contracts
-  # behind.
+  # One run at a time: runs drive the same testnet, friendbot and aggregator
+  # API, and overlapping runs fail in ways that look like protocol bugs. Queue,
+  # never cancel: a half-finished run leaves funded wallets and deployed
+  # contracts behind.
   group: testnet-e2e
   cancel-in-progress: false
 
