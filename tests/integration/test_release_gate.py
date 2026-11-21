@@ -130,18 +130,18 @@ with tempfile.TemporaryDirectory() as directory:
         except AssertionError: pass
         else: raise AssertionError('workspace failure hidden by selected controlled cases')
 
-# Keep the actual workflow publication behind both job success and exact-byte
+# Keep the actual workflow publication behind build success and exact-byte
 # verification; dry-run dispatch must never enter the GitHub release mutation.
 workflow = (Path(__file__).resolve().parents[2]/'.github/workflows/release.yml').read_text()
 # Queued jobs consume the build checkout's resolved SHA even if its branch or
 # explicit tag moves. Resolve the actual workflow expressions against that move.
-build = workflow.split('  testnet-e2e:',1)[0]
+build = workflow.split('  publish:',1)[0]
 assert 'id: checkout' in build
 # The attested build reads no restorable cache and builds from the committed lockfile.
 BUILD_ACTIONS = {'actions/checkout', 'dtolnay/rust-toolchain', 'actions/setup-node',
     'actions/attest-build-provenance', 'actions/upload-artifact'}
 def build_job_problems(text):
-    job = text.split('  testnet-e2e:',1)[0].split('\n  build:\n',1)[1]
+    job = text.split('  publish:',1)[0].split('\n  build:\n',1)[1]
     problems = []
     for body in re.split(r'^      - ', job, flags=re.M)[1:]:
         action = re.search(r'^\s*uses:\s*([^@\s]+)@', body, re.M)
@@ -169,10 +169,10 @@ contract_builds = [line for line in builder.splitlines() if 'stellar contract bu
 assert contract_builds and all('--locked' in line for line in contract_builds), contract_builds
 output = re.search(r'      source_sha: \$\{\{ (.*?) \}\}', build).group(1)
 refs = re.findall(r'          ref: \$\{\{ (.*?) \}\}', workflow)
-assert len(refs) == 3
+assert len(refs) == 2
 assert refs[0] == 'inputs.tag || github.sha'
 assert output == 'steps.checkout.outputs.commit'
-assert refs[1:] == ['needs.build.outputs.source_sha'] * 2
+assert refs[1:] == ['needs.build.outputs.source_sha']
 def resolve(expression, context):
     return next(context[part.strip()] for part in expression.split('||') if context[part.strip()])
 for tag in ['', 'v1.2.3']:
@@ -190,22 +190,13 @@ def job(name):
     # a comment above it. Jobs that follow `name` are not part of it.
     return re.split(r'^  \S', workflow.split(f'  {name}:',1)[1], maxsplit=1, flags=re.M)[0]
 publish = job('publish')
-assert 'needs: [build, testnet-e2e]' in publish
-assert publish.index('release_gate.py verify') < publish.index('gh release upload')
+assert re.search(r'^    needs: build$', publish, re.M)
+assert publish.index('artifacts.py distribution-check dist') < publish.index('gh release upload')
 assert "if: github.event_name != 'workflow_dispatch' || !inputs.dry_run" in publish
-assert "if: github.event_name == 'workflow_dispatch' && inputs.dry_run && inputs.inject_e2e_failure" in workflow
-assert workflow.index('Inject failed E2E gate') < workflow.index('Run parallel testnet e2e')
-# Only a guaranteed pre-deployment failure may use the hosted runner. Normal
-# dry runs and tag releases retain the live runner and all release lanes.
-e2e = workflow.split('  testnet-e2e:',1)[1].split('  publish:',1)[0]
-runner = re.search(r'    runs-on: \$\{\{ (.*?) \}\}', e2e).group(1)
-guard = re.search(r"      - name: Inject failed E2E gate.*?        if: (.*?)\n", e2e, re.S).group(1)
-assert runner == 'fromJSON(' + guard + ' && \'["ubuntu-latest"]\' || \'["self-hosted","xoxno"]\')'
-injection = e2e.split('      - name: Inject failed E2E gate',1)[1].split('      - name:',1)[0]
-assert re.search(r'^          exit 1$', injection, re.M)
-assert 'continue-on-error:' not in injection
-assert 'continue-on-error:' not in e2e
-assert 'if:' not in e2e.split('      - name: Run parallel testnet e2e',1)[1].split('      - name:',1)[0]
+# Release Build runs no testnet lanes.
+assert list(re.findall(r'^  (\w[\w-]*):$', workflow.split('\njobs:\n',1)[1], re.M)) == ['build', 'publish']
+for live in ['self-hosted', 'parallel_e2e.sh', 'testnet-e2e', 'inject_e2e_failure', 'release_gate.py']:
+    assert live not in workflow, f'release.yml still references {live}'
 
 def step(section, name):
     # A step's text ends at the next step, or at the first line indented less
@@ -275,14 +266,15 @@ for release, published in [('{"isDraft":false}',True),('{"isDraft":true}',False)
         assert outputs.read_text() == ('tag=v1.2.3\n' if published else 'tag=\n'), f'release {release!r}'
 print('Release commit and published-release guards passed')
 assert workflow.index('sdk_manifest.py dist') < workflow.index('artifacts.py distribution-create dist') < workflow.index('name: Upload artifact')
-assert 'collect tests/integration/runs "$RUN_TS" artifacts/wasm/deploy' in workflow
 assert workflow.count('dist/distribution.json') == 3  # Attestation, upload, publication.
 for name in ['e2e.yml','release.yml']:
     content=(Path(__file__).resolve().parents[2]/'.github/workflows'/name).read_text()
     cargo_step=content.split('cargo test --workspace --no-fail-fast 2>&1 | tee controlled-tests.log',1)[0].rsplit('run: |',1)[1]
     assert 'set -o pipefail' in cargo_step, f'{name}: tee masks failed workspace tests'
-    build,live=content.split('  e2e:' if name=='e2e.yml' else '  testnet-e2e:',1)
-    live=live.split('  publish:',1)[0]
+    if name=='release.yml':
+        assert 'e2e-fixtures' not in content and 'artifacts/wasm/fixtures' not in content
+        continue
+    build,live=content.split('  e2e:',1)
     assert build.count('integration-fixtures')==1
     assert 'name: e2e-fixtures' in build and 'name: e2e-fixtures' in live
     assert 'artifacts/wasm/fixtures/*.wasm\n            artifacts/wasm/fixtures/SHA256SUMS' in build

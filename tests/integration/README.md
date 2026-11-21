@@ -1,8 +1,9 @@
-# E2E release gate
+# E2E integration
 
 E2E tests deploy candidate contracts to Stellar testnet and drive live
-transactions, manually or at release. Pull requests run the offline harness,
-RPC-fixture and operator regressions.
+transactions. They run only on demand: locally, or with the manual
+`E2E Integration` workflow (`.github/workflows/e2e.yml`). Release Build and
+pull requests run the offline harness, RPC-fixture and operator regressions.
 
 ## Running the suite
 
@@ -28,7 +29,7 @@ python3 tests/integration/controlled.py controlled-tests.log artifacts/wasm/depl
 NETWORK=testnet RUN_TS="local-$(date +%Y%m%d-%H%M%S)" \
   bash tests/integration/scenarios/parallel_e2e.sh
 
-# Focused smoke; does not satisfy the full release gate.
+# Focused smoke; not a full run.
 NETWORK=testnet RUN_TS="liq-$(date +%Y%m%d-%H%M%S)" E2E_LANES="liq-a liq-b liq-c" \
   bash tests/integration/scenarios/parallel_e2e.sh
 
@@ -128,20 +129,22 @@ Live reports carry no budget numbers. Scenario scripts append
 
 1. Build the canonical artifacts.
 2. Run the offline and contract checks.
-3. Run every live lane in `RELEASE_LANES`.
-4. Publish those exact files.
+3. Publish those exact files.
 
-A passing smoke or mapped ABI is not release acceptance.
+Release Build runs no live lanes. Before a deploy, run `E2E Integration` with
+`lanes=all` on the release tag. That run builds the same commit again; it does
+not test the published files. A passing smoke or mapped ABI is not release
+acceptance.
 
 - Builds consume `stellar contract build --optimize --out-dir` output; Cargo's
   target WASM stays raw. Production artifacts: optimized once, then stripped.
   Fixtures: own output directory.
-- `distribution.json` and its E2E proof record all 26 published files:
-  production/SDK WASM, checksums, SDK/candidate manifests, the distribution
-  manifest itself.
-- Publication rejects missing, extra or changed files, including a substituted
-  manifest. Local proof collection without the packaged bundle cannot
-  authorize publication.
+- `distribution.json` records the hash of every other published file:
+  production/SDK WASM, checksums, SDK/candidate manifests.
+- Publication runs `artifacts.py distribution-check` and rejects missing,
+  extra or changed files.
+- `release_gate.py` binds a local full run to a packaged bundle. No workflow
+  runs it.
 
 ### Governance fixture
 
@@ -288,8 +291,8 @@ testnet cannot observe them over weeks.
 
 ### Acceptance
 
-- A release run must show every required case on fresh worlds; an ABI map,
-  offline regression or partial smoke cannot certify them.
+- A full `E2E Integration` run must show every required case on fresh worlds;
+  an ABI map, offline regression or partial smoke cannot certify them.
 - Production fixture checks preserve enabled policy, caps, fees, rates,
   decimals, hub/spoke relationships and composition, but not real
   external-provider availability.
@@ -297,11 +300,9 @@ testnet cannot observe them over weeks.
   `executable_differs=false`, and survival of controller, pool, NFT,
   price-aggregator, governance and oracle history. No claim about storage
   migration from a different executable.
-- Release dispatch defaults to `dry_run=true`: full gate, every live lane, no
+- Release dispatch defaults to `dry_run=true`: build and offline checks, no
   publication.
-- `inject_e2e_failure=true` stops E2E before deployment; publication must be
-  skipped. Local publication regressions inject failed lanes and wrong
-  artifacts.
+- Local `release_gate.py` regressions inject failed lanes and wrong artifacts.
 - The harness pins published SDK 1.0.221; all four ESM/CJS root and lending
   entrypoints are checked for the native 20M leeway request, returned resources
   and fee, unsigned output, unchanged invocation.
