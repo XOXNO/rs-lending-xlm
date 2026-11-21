@@ -1,16 +1,20 @@
 use super::*;
 use common::oracle::providers::curve::{CurvePool, CurvePoolInfo, CurvePoolScales};
 use common::types::{
-    AssetOracle, FeedNature, FeedSource, IndependencePolicy, MultiFeedRef, OracleTolerance,
-    PriceFeedRaw, PriceSource, ProviderRef, ScaledSource, MAX_CURVE_COINS, MAX_RESOLUTION_DEPTH,
+    AssetOracle, FeedNature, FeedSource, IndependencePolicy, MultiFeedRef, OracleAssetRef,
+    OracleReadMode, OracleTolerance, PriceFeedRaw, PriceSource, ProviderRef, ReflectorFeedRef,
+    ScaledSource, MAX_CURVE_COINS, MAX_RESOLUTION_DEPTH,
 };
+use mock_redstone::MockRedStonePriceFeedClient;
 use soroban_sdk::{
     contract, contractimpl, contracttype,
     testutils::{Address as _, Ledger},
     token, vec, Address, BytesN, ContractExecutable, Error, String, Symbol, Vec,
 };
 
-use crate::test_support::register_redstone_feed;
+use crate::test_support::{
+    register_redstone_feed, sample_run, ScriptedReflector, ScriptedReflectorClient,
+};
 use crate::{registry, PriceAggregator, PriceAggregatorClient};
 
 #[path = "../../../swap-aggregator/tests/fixtures/curve/factory.rs"]
@@ -425,6 +429,49 @@ fn third_coin_controls_freshness() {
     assert_eq!(f.price().timestamp, now - 200);
     prices.set_price_data(&usd, &WAD, &((now - 901) * 1_000), &(now * 1_000));
     assert_eq!(f.read_error(), OracleError::PriceFeedStale);
+}
+
+/// The LP observation carries the oldest coin timestamp and the oldest coin
+/// newest-sample timestamp. Coin 0 is `Twap(3)` at 300 s: oldest round 700 s
+/// old, newest 100 s old. Coin 1 is one sample 300 s old.
+#[test]
+fn read_dates_the_lp_to_the_oldest_coin_and_the_oldest_newest_sample() {
+    let f = Fixture::new(2, false);
+    f.register();
+    let now = f.env.ledger().timestamp();
+    let reflector = f.env.register(ScriptedReflector, ());
+    ScriptedReflectorClient::new(&f.env, &reflector)
+        .script(&300, &sample_run(&f.env, now - 100, 300, 3, 0));
+    let mut twap = feed_oracle(&f.env, &f.feed);
+    twap.sources = vec![
+        &f.env,
+        PriceSource::Feed(FeedSource {
+            provider: ProviderRef::Reflector(ReflectorFeedRef {
+                contract: reflector,
+                asset: OracleAssetRef::Symbol(Symbol::new(&f.env, "C0")),
+                read_mode: OracleReadMode::Twap(3),
+            }),
+            decimals: 14,
+            max_stale_seconds: 900,
+        }),
+    ];
+    let usd = String::from_str(&f.env, "USD");
+    let ts_ms = (now - 300) * 1_000;
+    MockRedStonePriceFeedClient::new(&f.env, &f.feed).set_price_data(&usd, &WAD, &ts_ms, &ts_ms);
+
+    f.env.as_contract(&f.aggregator, || {
+        registry::store_oracle(
+            &f.env,
+            &PriceKey::Token(f.source.coins.get_unchecked(0)),
+            &twap,
+        );
+        let (observation, stale) = read(&mut Session::new(&f.env), &f.key(), &f.source, 18, 0)
+            .unwrap()
+            .unwrap();
+        assert!(!stale);
+        assert_eq!(observation.timestamp, now - 700);
+        assert_eq!(observation.newest_timestamp, now - 300);
+    });
 }
 
 /// A token that reports the decimals it was built with. A Stellar asset

@@ -150,10 +150,10 @@ fn read_spot(
 }
 
 /// Returns the arithmetic mean of the newest `records` Reflector
-/// observations, with the timestamp of the oldest one used. The answer is
-/// newest first; later observations are ignored. Rejects a used history that
-/// is empty, future-dated, mis-ordered, tightly spaced, or shorter than the
-/// window.
+/// observations, with the timestamps of the oldest and the newest one used.
+/// The answer is newest first; later observations are ignored. Rejects a used
+/// history that is empty, future-dated, mis-ordered, tightly spaced, or
+/// shorter than the window.
 fn read_twap(
     session: &Session,
     feed: &ReflectorFeedRef,
@@ -208,5 +208,6 @@ fn read_twap(
     Ok(OracleObservation {
         price_wad,
         timestamp: oldest_ts,
+        newest_timestamp: newest_ts,
     })
 }
