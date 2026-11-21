@@ -535,6 +535,79 @@ impl ReflectorOracle for PlusOneReflector {
     }
 }
 
+/// Serves a scripted `prices` answer. `script` sets the resolution and the
+/// samples, newest first; `prices` returns them whatever `records` is.
+#[contract]
+pub(crate) struct ScriptedReflector;
+
+#[contracttype]
+enum ScriptKey {
+    Resolution,
+    Answer,
+}
+
+#[contractimpl]
+impl ScriptedReflector {
+    pub fn script(env: Env, resolution: u32, answer: Vec<ReflectorPriceData>) {
+        let store = env.storage().instance();
+        store.set(&ScriptKey::Resolution, &resolution);
+        store.set(&ScriptKey::Answer, &answer);
+    }
+}
+
+#[contractimpl]
+impl ReflectorOracle for ScriptedReflector {
+    fn base(env: Env) -> ReflectorAsset {
+        ReflectorAsset::Other(Symbol::new(&env, "USD"))
+    }
+
+    fn decimals(_env: Env) -> u32 {
+        REFLECTOR_DECIMALS
+    }
+
+    fn resolution(env: Env) -> u32 {
+        env.storage()
+            .instance()
+            .get(&ScriptKey::Resolution)
+            .unwrap()
+    }
+
+    fn lastprice(_env: Env, _asset: ReflectorAsset) -> Option<ReflectorPriceData> {
+        None
+    }
+
+    fn prices(env: Env, _asset: ReflectorAsset, _records: u32) -> Option<Vec<ReflectorPriceData>> {
+        env.storage().instance().get(&ScriptKey::Answer)
+    }
+}
+
+/// A sample that quotes `dollars` at `timestamp`.
+pub(crate) fn sample(dollars: i128, timestamp: u64) -> ReflectorPriceData {
+    ReflectorPriceData {
+        price: dollars * REFLECTOR_ONE_RAW,
+        timestamp,
+    }
+}
+
+/// `count` samples one `spacing` apart, newest first. The sample `k` places
+/// behind `newest_ts` quotes `1 + k * step` dollars.
+pub(crate) fn sample_run(
+    env: &Env,
+    newest_ts: u64,
+    spacing: u64,
+    count: u32,
+    step: i128,
+) -> Vec<ReflectorPriceData> {
+    let mut out = Vec::new(env);
+    for back in 0..count {
+        out.push_back(sample(
+            1 + i128::from(back) * step,
+            newest_ts - u64::from(back) * spacing,
+        ));
+    }
+    out
+}
+
 /// A Reflector oracle quoting in a Stellar token rather than in USD, the shape
 /// a DEX oracle has. Its base is set after registration so a test can pair it
 /// with the matching `PriceKey::Token` quote, which is what `attest` requires

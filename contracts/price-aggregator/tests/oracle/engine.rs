@@ -2,11 +2,13 @@ use super::*;
 use crate::registry;
 use crate::session::Session;
 use crate::test_support::{
-    in_contract, register_redstone_feed, CountingReflector, GappedReflector, LongHistoryReflector,
-    TightWindowReflector, TwapReflector, TWAP_GAPPED_OLDER_AGE_SECS, TWAP_OLDER_AGE_SECS,
+    in_contract, register_redstone_feed, sample, sample_run, CountingReflector, GappedReflector,
+    LongHistoryReflector, ScriptedReflector, ScriptedReflectorClient, TightWindowReflector,
+    TwapReflector, REFLECTOR_RESOLUTION_SECS, TWAP_GAPPED_OLDER_AGE_SECS, TWAP_OLDER_AGE_SECS,
 };
 use common::constants::WAD;
 use common::oracle::observation::{MAX_FUTURE_SKEW_SECONDS, MAX_LEG_AGE_SPREAD_SECONDS};
+use common::oracle::providers::reflector::ReflectorPriceData;
 use common::types::{
     AquariusLpSource, AssetOracle, ChainlinkFeedRef, FeedNature, FeedSource, IndependencePolicy,
     MultiFeedRef, OracleAssetRef, OracleReadMode, OracleTolerance, ProviderRef, ReflectorFeedRef,
@@ -885,13 +887,93 @@ fn test_twap_read_accepts_the_current_period_plus_the_window() {
 }
 
 #[test]
-#[should_panic(expected = "Error(Contract, #210)")]
-fn test_twap_read_rejects_more_samples_than_the_window_plus_current() {
+fn test_twap_read_truncates_more_samples_than_the_window_plus_current() {
     let env = Env::default();
     at_now(&env);
     let reflector = env.register(LongHistoryReflector, ());
     in_contract(&env, || {
-        resolve_twap(&env, &reflector, 2);
+        let feed = resolve_twap(&env, &reflector, 2);
+        assert_eq!(feed.price_wad, WAD);
+        assert_eq!(feed.timestamp, NOW - TWAP_OLDER_AGE_SECS);
+    });
+}
+
+/// Scripts `answer` on a fresh `ScriptedReflector` and reads it as
+/// `Twap(records)`.
+fn resolve_scripted(env: &Env, records: u32, answer: Vec<ReflectorPriceData>) -> PriceFeedRaw {
+    let reflector = env.register(ScriptedReflector, ());
+    ScriptedReflectorClient::new(env, &reflector).script(&REFLECTOR_RESOLUTION_SECS, &answer);
+    resolve_twap(env, &reflector, records)
+}
+
+/// Sample `k` quotes `k + 1` dollars, so the newest three give a mean of 2
+/// dollars, dated two rounds back.
+#[test]
+fn test_twap_read_uses_the_newest_records_samples_of_the_answer() {
+    let env = Env::default();
+    at_now(&env);
+    let spacing = u64::from(REFLECTOR_RESOLUTION_SECS);
+    in_contract(&env, || {
+        // As long as `records`, one longer (the public contract), and longer.
+        for count in [3, 4, 5, 12] {
+            let feed = resolve_scripted(&env, 3, sample_run(&env, NOW, spacing, count, 1));
+            assert_eq!(feed.price_wad, 2 * WAD, "{count} samples");
+            assert_eq!(feed.timestamp, NOW - 2 * spacing, "{count} samples");
+        }
+    });
+}
+
+/// A bad tail past the first `records` samples does not fail the read.
+#[test]
+fn test_twap_read_ignores_the_samples_past_records() {
+    let env = Env::default();
+    at_now(&env);
+    let spacing = u64::from(REFLECTOR_RESOLUTION_SECS);
+    in_contract(&env, || {
+        let mut answer = sample_run(&env, NOW, spacing, 3, 1);
+        answer.push_back(sample(0, NOW - 3 * spacing));
+        answer.push_back(sample(9, NOW - 3 * spacing));
+        answer.push_back(sample(9, NOW));
+        answer.push_back(sample(9, NOW + MAX_FUTURE_SKEW_SECONDS + 1));
+        let feed = resolve_scripted(&env, 3, answer);
+        assert_eq!(feed.price_wad, 2 * WAD);
+        assert_eq!(feed.timestamp, NOW - 2 * spacing);
+    });
+}
+
+/// Reflector fills a missing round with the round before it. A skip inside
+/// the window gives `records` samples, one round older. A skip at the window
+/// start adds an older round, which the read drops.
+#[test]
+fn test_twap_read_follows_the_answer_shapes_of_a_skipped_round() {
+    let env = Env::default();
+    at_now(&env);
+    let spacing = u64::from(REFLECTOR_RESOLUTION_SECS);
+    in_contract(&env, || {
+        let skipped_inside = Vec::from_array(
+            &env,
+            [
+                sample(1, NOW),
+                sample(3, NOW - 2 * spacing),
+                sample(5, NOW - 3 * spacing),
+            ],
+        );
+        let feed = resolve_scripted(&env, 3, skipped_inside);
+        assert_eq!(feed.price_wad, 3 * WAD);
+        assert_eq!(feed.timestamp, NOW - 3 * spacing);
+
+        let skipped_at_the_start = Vec::from_array(
+            &env,
+            [
+                sample(1, NOW),
+                sample(2, NOW - spacing),
+                sample(3, NOW - 2 * spacing),
+                sample(9, NOW - 5 * spacing),
+            ],
+        );
+        let feed = resolve_scripted(&env, 3, skipped_at_the_start);
+        assert_eq!(feed.price_wad, 2 * WAD);
+        assert_eq!(feed.timestamp, NOW - 2 * spacing);
     });
 }
 

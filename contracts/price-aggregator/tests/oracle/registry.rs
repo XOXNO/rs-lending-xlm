@@ -2,19 +2,21 @@ use super::*;
 use crate::admin::{set_oracle, set_sanity_band, set_tolerance};
 use crate::session::Session;
 use common::errors::OracleError;
+use common::oracle::observation::{MAX_PRICE_STALE_SECONDS, MAX_TWAP_RECORDS};
 use common::oracle::providers::chainlink::CHAINLINK_DECIMALS;
 use common::oracle::providers::redstone::REDSTONE_DECIMALS;
 use common::types::{
     AquariusLpSource, ChainlinkFeedRef, FeedNature, FeedSource, IndependencePolicy, MultiFeedRef,
-    OracleAssetRef, OracleReadMode, OracleTolerance, PriceSource, ProviderRef, ReflectorFeedRef,
-    ScaledSource, MAX_RESOLUTION_DEPTH,
+    OracleAssetRef, OracleReadMode, OracleTolerance, PriceSource, PriceStatus, ProviderRef,
+    ReflectorFeedRef, ScaledSource, MAX_RESOLUTION_DEPTH,
 };
 use soroban_sdk::testutils::{Address as _, Ledger as _};
-use soroban_sdk::{Address, BytesN, String, Symbol, Vec};
+use soroban_sdk::{Address, BytesN, Error, String, Symbol, Vec};
 
 use crate::test_support::{
-    EmptyReflector, MockAquariusPoolClient, NonUsdReflector, QuotedReflector,
-    QuotedReflectorClient, StubXoxnoAdapter, TwapReflector, XOXNO_SUBMISSION_WINDOW_SECS,
+    sample_run, EmptyReflector, MockAquariusPoolClient, NonUsdReflector, QuotedReflector,
+    QuotedReflectorClient, ScriptedReflector, ScriptedReflectorClient, StubXoxnoAdapter,
+    TwapReflector, XOXNO_SUBMISSION_WINDOW_SECS,
 };
 use crate::{PriceAggregator, PriceAggregatorClient};
 use common::constants::WAD;
@@ -271,6 +273,192 @@ fn test_set_oracle_attests_the_factor_leg_of_a_scaled_source() {
 
         set_oracle(&env, PriceKey::Token(Address::generate(&env)), cfg);
     });
+}
+
+const ROUND_NEWEST_TS: u64 = 1_000_800;
+
+/// Registers an aggregator and a Reflector that answers `Twap(records)` as
+/// the public contract does on a contiguous history: `records + 1` rounds one
+/// `resolution` apart, the newest at `ROUND_NEWEST_TS`.
+fn round_feed(env: &Env, records: u32, resolution: u32) -> (PriceAggregatorClient<'_>, Address) {
+    env.mock_all_auths();
+    let aggregator = env.register(PriceAggregator, (Address::generate(env),));
+    let reflector = env.register(ScriptedReflector, ());
+    let answer = sample_run(env, ROUND_NEWEST_TS, u64::from(resolution), records + 1, 0);
+    ScriptedReflectorClient::new(env, &reflector).script(&resolution, &answer);
+    (PriceAggregatorClient::new(env, &aggregator), reflector)
+}
+
+/// A single `Twap(records)` leg on `contract`. `max_stale` is both the feed
+/// budget and the asset ceiling.
+fn round_twap_oracle(env: &Env, contract: &Address, records: u32, max_stale: u64) -> AssetOracle {
+    let mut leg = reflector_leg(env, contract, 14);
+    leg.provider = ProviderRef::Reflector(ReflectorFeedRef {
+        contract: contract.clone(),
+        asset: OracleAssetRef::Symbol(Symbol::new(env, "BTC")),
+        read_mode: OracleReadMode::Twap(records),
+    });
+    leg.max_stale_seconds = max_stale;
+    let mut cfg = reflector_oracle(env, contract, 14);
+    cfg.max_price_stale_seconds = max_stale;
+    cfg.sources = Vec::from_array(env, [PriceSource::Feed(leg)]);
+    cfg.min_sanity_price_wad = WAD - WAD / 20;
+    cfg.max_sanity_price_wad = WAD + WAD / 20;
+    cfg
+}
+
+/// Quotes `key` when the newest round is `newest_age` seconds old.
+fn quote_at(
+    env: &Env,
+    client: &PriceAggregatorClient,
+    key: &PriceKey,
+    newest_age: u64,
+) -> PriceStatus {
+    env.ledger().set_timestamp(ROUND_NEWEST_TS + newest_age);
+    client
+        .quotes(&Vec::from_array(env, [key.clone()]))
+        .get_unchecked(key.clone())
+}
+
+fn invalid_resolution() -> Error {
+    Error::from_contract_error(OracleError::InvalidOracleResolution as u32)
+}
+
+/// `set_oracle` admits a `Twap(records)` budget only if the oldest used
+/// sample stays fresh until the next round is due.
+#[test]
+fn test_set_oracle_admits_a_twap_budget_only_if_the_oldest_sample_stays_fresh() {
+    for resolution in [60_u32, 300, 900] {
+        // 3 is the smallest record count that `feed_shape` accepts.
+        for records in 3..=MAX_TWAP_RECORDS {
+            let case = (records, resolution);
+            let env = Env::default();
+            let (client, reflector) = round_feed(&env, records, resolution);
+            let due = u64::from(resolution);
+
+            // Age of the oldest used sample when the next round is due.
+            let probe = PriceKey::Token(Address::generate(&env));
+            let wide = round_twap_oracle(&env, &reflector, records, MAX_PRICE_STALE_SECONDS);
+            client.seed_oracle(&probe, &wide);
+            let oldest = quote_at(&env, &client, &probe, due).price_timestamp;
+            let oldest_age = ROUND_NEWEST_TS + due - oldest;
+            assert_eq!(
+                oldest_age,
+                u64::from(records) * u64::from(resolution),
+                "{case:?}"
+            );
+
+            // One second less than that age: rejected, and stale at that read.
+            let short = PriceKey::Token(Address::generate(&env));
+            let config = round_twap_oracle(&env, &reflector, records, oldest_age - 1);
+            assert_eq!(
+                client.try_set_oracle(&short, &config),
+                Err(Ok(invalid_resolution())),
+                "{case:?}"
+            );
+            client.seed_oracle(&short, &config);
+            assert_eq!(
+                quote_at(&env, &client, &short, due).error_code,
+                Some(OracleError::PriceFeedStale as u32),
+                "{case:?}"
+            );
+
+            // Exactly that age: admitted, and fresh until the next round is due.
+            let exact = PriceKey::Token(Address::generate(&env));
+            client.set_oracle(
+                &exact,
+                &round_twap_oracle(&env, &reflector, records, oldest_age),
+            );
+            for newest_age in [0, 1, due - 1, due] {
+                let status = quote_at(&env, &client, &exact, newest_age);
+                assert!(status.valid && !status.stale, "{case:?} at {newest_age}");
+            }
+            // A round that is one second late makes the same read stale.
+            assert_eq!(
+                quote_at(&env, &client, &exact, due + 1).error_code,
+                Some(OracleError::PriceFeedStale as u32),
+                "{case:?}"
+            );
+        }
+    }
+}
+
+/// `Twap(12)` at 300 s needs a 3,600 s budget. A 3,300 s budget is stale on
+/// almost every read.
+#[test]
+fn test_set_oracle_rejects_a_twap_budget_that_is_stale_on_every_read() {
+    let env = Env::default();
+    let (client, reflector) = round_feed(&env, 12, 300);
+    let key = PriceKey::Token(Address::generate(&env));
+    let config = round_twap_oracle(&env, &reflector, 12, 3_300);
+
+    assert_eq!(
+        client.try_set_oracle(&key, &config),
+        Err(Ok(invalid_resolution()))
+    );
+
+    client.seed_oracle(&key, &config);
+    for newest_age in [1, 150, 299, 300] {
+        let status = quote_at(&env, &client, &key, newest_age);
+        assert!(!status.valid, "at {newest_age}");
+        assert_eq!(
+            status.error_code,
+            Some(OracleError::PriceFeedStale as u32),
+            "at {newest_age}"
+        );
+    }
+
+    assert_eq!(
+        client.try_set_oracle(&key, &round_twap_oracle(&env, &reflector, 12, 3_599)),
+        Err(Ok(invalid_resolution()))
+    );
+    client.set_oracle(&key, &round_twap_oracle(&env, &reflector, 12, 3_600));
+    for newest_age in [0, 1, 150, 299, 300] {
+        assert!(
+            quote_at(&env, &client, &key, newest_age).valid,
+            "at {newest_age}"
+        );
+    }
+}
+
+/// The bound applies to the factor leg of a `Scaled` source and uses the feed
+/// budget, not the asset ceiling. `Twap(3)` at 300 s needs 900 s.
+#[test]
+fn test_set_oracle_bounds_the_twap_budget_of_a_scaled_factor_leg() {
+    let env = Env::default();
+    env.ledger().set_timestamp(1_000_000);
+    env.mock_all_auths();
+    let aggregator = env.register(PriceAggregator, (Address::generate(&env),));
+    let client = PriceAggregatorClient::new(&env, &aggregator);
+    let quote_asset = Address::generate(&env);
+    let reflector = env.register(QuotedReflector, ());
+    QuotedReflectorClient::new(&env, &reflector).set_base(&quote_asset);
+    let quote = PriceKey::Token(quote_asset);
+    client.seed_oracle(&quote, &reflector_oracle(&env, &reflector, 14));
+
+    let scaled = |max_stale: u64| {
+        let mut factor = reflector_leg(&env, &reflector, 14);
+        factor.max_stale_seconds = max_stale;
+        let mut cfg = reflector_oracle(&env, &reflector, 14);
+        cfg.sources = Vec::from_array(
+            &env,
+            [PriceSource::Scaled(ScaledSource {
+                factor,
+                quote: quote.clone(),
+                min_factor_wad: 1,
+                max_factor_wad: 10 * WAD,
+            })],
+        );
+        cfg
+    };
+    let key = PriceKey::Token(Address::generate(&env));
+
+    assert_eq!(
+        client.try_set_oracle(&key, &scaled(899)),
+        Err(Ok(invalid_resolution()))
+    );
+    client.set_oracle(&key, &scaled(900));
+    assert_eq!(client.oracle(&key), Some(scaled(900)));
 }
 
 fn xoxno_oracle(env: &Env, contract: &Address, max_stale: u64) -> AssetOracle {

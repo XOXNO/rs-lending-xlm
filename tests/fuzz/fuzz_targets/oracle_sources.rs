@@ -256,13 +256,13 @@ fn build_feed(
         1 + u32::from(f.twap_records) % MAX_TWAP_RECORDS
     };
     if matches!(kind, Kind::ReflectorSpot | Kind::ReflectorTwap) && corrupt != C_STALE_CFG {
-        let span = if kind == Kind::ReflectorTwap {
-            u64::from(records.saturating_sub(1)) * u64::from(resolution)
+        let oldest_age = if kind == Kind::ReflectorTwap {
+            u64::from(records) * u64::from(resolution)
         } else {
             0
         };
         stale = stale
-            .max(span)
+            .max(oldest_age)
             .max(u64::from(resolution))
             .min(MAX_PRICE_STALE_SECONDS);
     }
