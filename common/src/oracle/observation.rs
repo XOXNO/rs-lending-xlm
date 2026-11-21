@@ -30,8 +30,7 @@ pub const MAX_SINGLE_SOURCE_SANITY_BAND_BPS: i128 = 1_000;
 /// Largest gap, in seconds, between the newest-sample timestamps of two
 /// market-nature legs of a blended price before the blend is marked stale.
 ///
-/// A TWAP leg enters the gap with the newest sample in its window. Its
-/// staleness check uses the oldest sample.
+/// A TWAP leg enters the gap with its newest sample; staleness uses its oldest.
 pub const MAX_LEG_AGE_SPREAD_SECONDS: u64 = 3_600;
 
 /// Widest band an LP source may declare, as `(max-min)/(max+min)` in BPS,
