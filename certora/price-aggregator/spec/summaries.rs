@@ -10,13 +10,16 @@ fn read_source_summary(session: &mut Session) -> Option<OracleObservation> {
     nondet_option(|| {
         let price_wad: i128 = nondet();
         let timestamp: u64 = nondet();
+        let newest_timestamp: u64 = nondet();
         let now = session.now_secs();
         cvlr_assume!(price_wad > 0);
-        cvlr_assume!(timestamp <= now.saturating_add(MAX_FUTURE_SKEW_SECONDS));
+        cvlr_assume!(timestamp <= newest_timestamp);
+        cvlr_assume!(newest_timestamp <= now.saturating_add(MAX_FUTURE_SKEW_SECONDS));
 
         OracleObservation {
             price_wad,
             timestamp,
+            newest_timestamp,
         }
     })
 }

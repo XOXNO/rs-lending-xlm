@@ -8,16 +8,32 @@ use common::oracle::observation::{
 use common::oracle::providers::chainlink::ChainlinkRound;
 use common::oracle::providers::redstone::RedStonePriceData;
 use common::oracle::providers::reflector::ReflectorPriceData;
-/// A normalized price observation: a WAD-scaled price and its observation
-/// timestamp in seconds.
+/// A normalized price observation: a WAD-scaled price and the timestamps, in
+/// seconds, of the oldest and the newest sample it uses.
+///
+/// `timestamp` is the oldest sample; the staleness checks and the reported
+/// price timestamp use it. `newest_timestamp` is the newest sample; the
+/// two-leg age-spread check uses it. A one-sample observation carries the
+/// same value in both. A composite observation carries the minimum of each
+/// over its inputs.
 #[cfg_attr(feature = "certora", allow(dead_code))]
 #[derive(Clone, Debug)]
 pub(crate) struct OracleObservation {
     pub price_wad: i128,
     pub timestamp: u64,
+    pub newest_timestamp: u64,
 }
 
 impl OracleObservation {
+    /// Builds an observation from one sample taken at `timestamp`.
+    fn single(price_wad: i128, timestamp: u64) -> Self {
+        OracleObservation {
+            price_wad,
+            timestamp,
+            newest_timestamp: timestamp,
+        }
+    }
+
     /// Builds an observation from a Chainlink round. Rejects a future-dated,
     /// non-positive, oversized, or unnormalizable answer.
     pub(crate) fn from_chainlink(
@@ -28,10 +44,10 @@ impl OracleObservation {
         if is_future_at(now_secs, round.timestamp) {
             return None;
         }
-        Some(OracleObservation {
-            price_wad: try_normalize_positive_price(round.answer.to_i128()?, decimals)?,
-            timestamp: round.timestamp,
-        })
+        Some(Self::single(
+            try_normalize_positive_price(round.answer.to_i128()?, decimals)?,
+            round.timestamp,
+        ))
     }
 
     /// Builds an observation from a RedStone multi-feed payload. Rejects the
@@ -50,10 +66,10 @@ impl OracleObservation {
             return None;
         }
         let raw_price = try_u256_to_i128(&price_data.price)?;
-        Some(OracleObservation {
-            price_wad: try_normalize_positive_price(raw_price, decimals)?,
-            timestamp: write_ts.min(package_ts),
-        })
+        Some(Self::single(
+            try_normalize_positive_price(raw_price, decimals)?,
+            write_ts.min(package_ts),
+        ))
     }
 
     /// Builds an observation from a Reflector price payload. Rejects the
@@ -67,10 +83,10 @@ impl OracleObservation {
         if is_future_at(now_secs, price_data.timestamp) {
             return None;
         }
-        Some(OracleObservation {
-            price_wad: try_normalize_positive_price(price_data.price, decimals)?,
-            timestamp: price_data.timestamp,
-        })
+        Some(Self::single(
+            try_normalize_positive_price(price_data.price, decimals)?,
+            price_data.timestamp,
+        ))
     }
 }
 

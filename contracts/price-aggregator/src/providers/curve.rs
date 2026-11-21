@@ -69,10 +69,12 @@ pub(crate) fn read(
     let client = bound_pool(&env, key, lp, decimals).ok_or(OracleError::UnsupportedCurvePool)?;
     let mut minimum = i128::MAX;
     let mut timestamp = session.now_secs();
+    let mut newest_timestamp = timestamp;
     for coin in lp.coins.iter() {
         let price = engine::resolve_nested(session, &PriceKey::Token(coin), depth + 1)?;
         minimum = minimum.min(price.price_wad);
         timestamp = timestamp.min(price.timestamp);
+        newest_timestamp = newest_timestamp.min(price.newest_timestamp);
     }
     let virtual_price = client
         .try_get_virtual_price()
@@ -92,6 +94,7 @@ pub(crate) fn read(
         OracleObservation {
             price_wad: price_wad.raw(),
             timestamp,
+            newest_timestamp,
         },
         false,
     )))

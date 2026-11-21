@@ -18,12 +18,13 @@ use crate::registry;
 use crate::session::Session;
 use crate::tolerance::{midpoint_price_or_zero, within_tolerance_band};
 
-/// A single source's resolved value: price, observation timestamp, whether it
-/// is considered stale, and the feed nature used to decide whether the two-leg
-/// age-spread bound applies.
+/// A single source's resolved value: price, the timestamps of its oldest and
+/// newest sample, whether it is considered stale, and the feed nature used to
+/// decide whether the two-leg age-spread bound applies.
 struct Reading {
     price_wad: i128,
     timestamp: u64,
+    newest_timestamp: u64,
     stale: bool,
     nature: FeedNature,
 }
@@ -45,12 +46,35 @@ enum Legs {
     Empty,
 }
 
+/// A nested key's resolved price: the WAD price and the timestamps, in
+/// seconds, of the oldest and the newest sample behind it.
+#[derive(Debug)]
+pub(crate) struct NestedPrice {
+    pub price_wad: i128,
+    pub timestamp: u64,
+    pub newest_timestamp: u64,
+}
+
+impl NestedPrice {
+    /// Pairs `feed` with `newest_timestamp`, its newest-sample timestamp.
+    fn new(feed: &PriceFeedRaw, newest_timestamp: u64) -> Self {
+        NestedPrice {
+            price_wad: feed.price_wad,
+            timestamp: feed.timestamp,
+            newest_timestamp,
+        }
+    }
+}
+
 /// The result of resolving an oracle's price: the blended price and timestamp,
 /// each leg's raw value, staleness and deviation flags, and an error when
-/// resolution failed outright.
+/// resolution failed outright. `newest_timestamp` is the newest-sample
+/// timestamp in seconds, the earlier one of two legs; a dependent key reads it
+/// for its own age-spread check.
 pub(crate) struct Outcome {
     pub price_wad: i128,
     pub timestamp: u64,
+    pub newest_timestamp: u64,
     pub first_wad: i128,
     pub second_wad: i128,
     pub stale: bool,
@@ -64,6 +88,7 @@ impl Outcome {
         Outcome {
             price_wad: 0,
             timestamp: 0,
+            newest_timestamp: 0,
             first_wad: 0,
             second_wad: 0,
             stale: false,
@@ -92,6 +117,7 @@ impl Outcome {
         Outcome {
             price_wad: r.price_wad,
             timestamp: r.timestamp,
+            newest_timestamp: r.newest_timestamp,
             first_wad: r.price_wad,
             second_wad: r.price_wad,
             stale: r.stale,
@@ -111,6 +137,7 @@ impl Outcome {
         Outcome {
             price_wad: 0,
             timestamp: reading.timestamp,
+            newest_timestamp: reading.newest_timestamp,
             first_wad,
             second_wad,
             stale: reading.stale,
@@ -222,8 +249,8 @@ pub(crate) fn resolve(session: &mut Session, key: &PriceKey, depth: u32) -> Pric
     if let Some(cached) = session.cached_price(key) {
         return cached;
     }
-    let (feed, _) = compute_hard(session, key, depth, None);
-    session.store_price(key, feed.clone());
+    let (feed, outcome) = compute_hard(session, key, depth, None);
+    session.store_price(key, feed.clone(), outcome.newest_timestamp);
     feed
 }
 
@@ -270,7 +297,7 @@ pub(crate) fn resolve_detailed(
     depth: u32,
 ) -> (PriceFeedRaw, Outcome) {
     let (feed, outcome) = compute_hard(session, key, depth, None);
-    session.store_price(key, feed.clone());
+    session.store_price(key, feed.clone(), outcome.newest_timestamp);
     (feed, outcome)
 }
 
@@ -295,15 +322,15 @@ fn compute_hard(
 /// the outcome fresh, caches either the resulting price or the resulting error
 /// (except configuration-level errors, whose depth and cycle cases depend on
 /// the caller's position) on the session, and returns the corresponding
-/// `Result`.
+/// `Result`. The price carries the key's newest-sample timestamp.
 pub(crate) fn resolve_nested(
     session: &mut Session,
     key: &PriceKey,
     depth: u32,
-) -> Result<PriceFeedRaw, OracleError> {
-    if let Some(cached) = session.cached_price(key) {
+) -> Result<NestedPrice, OracleError> {
+    if let Some((cached, newest_timestamp)) = session.cached_price_with_newest(key) {
         validate_cached_path(session, key, depth)?;
-        return Ok(cached);
+        return Ok(NestedPrice::new(&cached, newest_timestamp));
     }
     if let Some(cached) = session.cached_error(key) {
         validate_cached_path(session, key, depth)?;
@@ -318,8 +345,9 @@ pub(crate) fn resolve_nested(
     }
     let oracle = oracle.ok_or(OracleError::OracleNotConfigured)?;
     let feed = outcome.to_feed(oracle.asset_decimals);
-    session.store_price(key, feed.clone());
-    Ok(feed)
+    let nested = NestedPrice::new(&feed, outcome.newest_timestamp);
+    session.store_price(key, feed, outcome.newest_timestamp);
+    Ok(nested)
 }
 
 /// Validates that resolving `key` from a session cache hit would still respect
@@ -400,7 +428,7 @@ fn resolve_outcome(
 
 /// Converts composed `Legs` into an `Outcome`. For two readings, marks the
 /// outcome stale when either leg is individually stale, or when both legs
-/// are market-nature feeds whose timestamps differ by more than
+/// are market-nature feeds whose newest-sample timestamps differ by more than
 /// `MAX_LEG_AGE_SPREAD_SECONDS`. Takes the earlier of the two timestamps,
 /// flags a deviation when the legs fall outside the oracle's tolerance band, and
 /// sets the blended price to the midpoint of the two legs (zero if the
@@ -413,7 +441,7 @@ fn blend(env: &Env, oracle: &AssetOracle, legs: Legs) -> Outcome {
         Legs::Two { primary, anchor } => {
             let spread_bounded =
                 primary.nature == FeedNature::Market && anchor.nature == FeedNature::Market;
-            let age_spread = primary.timestamp.abs_diff(anchor.timestamp);
+            let age_spread = primary.newest_timestamp.abs_diff(anchor.newest_timestamp);
             let stale = primary.stale
                 || anchor.stale
                 || (spread_bounded && age_spread > MAX_LEG_AGE_SPREAD_SECONDS);
@@ -425,6 +453,7 @@ fn blend(env: &Env, oracle: &AssetOracle, legs: Legs) -> Outcome {
             Outcome {
                 price_wad,
                 timestamp: ts,
+                newest_timestamp: primary.newest_timestamp.min(anchor.newest_timestamp),
                 first_wad: primary.price_wad,
                 second_wad: anchor.price_wad,
                 stale,
@@ -473,6 +502,7 @@ pub(crate) fn blend_partial(
             reading: Reading {
                 price_wad,
                 timestamp,
+                newest_timestamp: timestamp,
                 stale,
                 nature: FeedNature::Market,
             },
@@ -555,6 +585,7 @@ fn read_source(
     Ok(Some(Reading {
         price_wad: observation.price_wad,
         timestamp,
+        newest_timestamp: observation.newest_timestamp,
         stale,
         nature: source_nature(source),
     }))
@@ -619,7 +650,8 @@ fn read_feed(session: &mut Session, feed: &FeedSource) -> Option<(OracleObservat
 /// Reads a scaled source: reads the factor feed (returning `None` if unread),
 /// checks it falls within `scaled.min_factor_wad`/`max_factor_wad`, resolves the
 /// nested `quote` price at `depth + 1`, and multiplies factor and quote into a
-/// price using the earlier of their two timestamps. Returns
+/// price using the earlier of their two timestamps and the earlier of their
+/// two newest-sample timestamps. Returns
 /// `FactorOutOfBounds` if the factor is out of range, the quote's resolution
 /// error if the quote is unusable, and `InvalidPrice` if the multiplication
 /// fails.
@@ -648,6 +680,7 @@ fn read_scaled(
         OracleObservation {
             price_wad: price_wad.raw(),
             timestamp: factor.timestamp.min(quote.timestamp),
+            newest_timestamp: factor.newest_timestamp.min(quote.newest_timestamp),
         },
         factor_stale,
     )))

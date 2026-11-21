@@ -6,11 +6,14 @@
 use super::*;
 
 use crate::registry;
-use crate::test_support::{register_redstone_feed, MockAquariusPool, MockAquariusPoolClient};
+use crate::test_support::{
+    register_redstone_feed, sample_run, MockAquariusPool, MockAquariusPoolClient,
+    ScriptedReflector, ScriptedReflectorClient,
+};
 use common::constants::WAD;
 use common::types::{
-    FeedNature, FeedSource, IndependencePolicy, MultiFeedRef, OracleTolerance, PriceSource,
-    ProviderRef,
+    FeedNature, FeedSource, IndependencePolicy, MultiFeedRef, OracleAssetRef, OracleReadMode,
+    OracleTolerance, PriceSource, ProviderRef, ReflectorFeedRef,
 };
 use soroban_sdk::testutils::{Address as _, Ledger as _};
 use soroban_sdk::{String, Symbol, Vec as SdkVec};
@@ -353,5 +356,81 @@ fn read_stable_refuses_a_key_that_is_not_the_pools_share_token() {
             read(&mut session, &stranger, &lp, 7, 0, true).unwrap_err(),
             OracleError::NoLastPrice
         );
+    });
+}
+
+// --- read timestamps -------------------------------------------------------
+
+/// Stores a one-leg oracle for `key` with a 43,200 s budget.
+fn store_one_leg(env: &Env, key: &PriceKey, leg: PriceSource) {
+    let mut sources = SdkVec::new(env);
+    sources.push_back(leg);
+    registry::store_oracle(
+        env,
+        key,
+        &AssetOracle {
+            asset_decimals: 7,
+            max_price_stale_seconds: 43_200,
+            sources,
+            tolerance: OracleTolerance {
+                upper_ratio_bps: 10_500,
+                lower_ratio_bps: 9_524,
+            },
+            independence: IndependencePolicy::RequireDisjoint,
+            min_sanity_price_wad: WAD / 2,
+            max_sanity_price_wad: 2 * WAD,
+        },
+    );
+}
+
+/// The LP observation carries the older leg timestamp and the older leg
+/// newest-sample timestamp. Leg A is `Twap(3)` at 300 s: oldest round 700 s
+/// old, newest 100 s old. Leg B is one sample 300 s old.
+#[test]
+fn read_dates_the_lp_to_the_older_leg_and_the_older_newest_sample() {
+    let env = Env::default();
+    env.ledger().set_timestamp(NOW);
+    let p = pool_fixture(&env, "constant_product");
+    let lp = lp_source(&p);
+    let key = PriceKey::Token(p.share.clone());
+    let reflector = env.register(ScriptedReflector, ());
+    ScriptedReflectorClient::new(&env, &reflector)
+        .script(&300, &sample_run(&env, NOW - 100, 300, 3, 0));
+    let (adapter, client) = register_redstone_feed(&env);
+    let ts_ms = (NOW - 300) * 1_000;
+    client.set_price_data(&String::from_str(&env, "B"), &WAD, &ts_ms, &ts_ms);
+
+    in_pa(&env, || {
+        store_one_leg(
+            &env,
+            &lp.key_a,
+            PriceSource::Feed(FeedSource {
+                provider: ProviderRef::Reflector(ReflectorFeedRef {
+                    contract: reflector.clone(),
+                    asset: OracleAssetRef::Symbol(Symbol::new(&env, "A")),
+                    read_mode: OracleReadMode::Twap(3),
+                }),
+                decimals: 14,
+                max_stale_seconds: 43_200,
+            }),
+        );
+        store_one_leg(
+            &env,
+            &lp.key_b,
+            PriceSource::Feed(FeedSource {
+                provider: ProviderRef::RedStone(MultiFeedRef {
+                    contract: adapter.clone(),
+                    feed_id: String::from_str(&env, "B"),
+                    nature: FeedNature::Market,
+                }),
+                decimals: 8,
+                max_stale_seconds: 43_200,
+            }),
+        );
+        let mut session = Session::new(&env);
+        let (observation, stale) = read(&mut session, &key, &lp, 7, 0, false).unwrap().unwrap();
+        assert!(!stale);
+        assert_eq!(observation.timestamp, NOW - 700);
+        assert_eq!(observation.newest_timestamp, NOW - 300);
     });
 }

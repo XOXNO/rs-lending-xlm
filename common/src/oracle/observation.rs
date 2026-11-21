@@ -27,10 +27,11 @@ pub const MAX_ORACLE_DECIMALS: u32 = 18;
 
 pub const MAX_SINGLE_SOURCE_SANITY_BAND_BPS: i128 = 1_000;
 
-/// Largest timestamp gap between two market-nature legs of a blended price
-/// before the blend is marked stale.
+/// Largest gap, in seconds, between the newest-sample timestamps of two
+/// market-nature legs of a blended price before the blend is marked stale.
 ///
-/// A TWAP leg carries the timestamp of the oldest sample in its window.
+/// A TWAP leg enters the gap with the newest sample in its window. Its
+/// staleness check uses the oldest sample.
 pub const MAX_LEG_AGE_SPREAD_SECONDS: u64 = 3_600;
 
 /// Widest band an LP source may declare, as `(max-min)/(max+min)` in BPS,

@@ -232,6 +232,343 @@ fn test_two_market_legs_still_cannot_straddle_the_spread_bound() {
     });
 }
 
+// The age-spread check compares the newest sample of each market leg. A
+// `Twap(records)` leg enters it with its newest round, not its oldest.
+
+/// Budget, in seconds, of every leg and of the asset in the spread tests.
+const SPREAD_TEST_BOUND: u64 = 7_200;
+
+/// A `Twap(records)` leg on a fresh `ScriptedReflector`. The answer holds
+/// `records` rounds of 1 dollar, `resolution` seconds apart, the newest
+/// `newest_age` seconds old.
+fn twap_leg(env: &Env, records: u32, resolution: u32, newest_age: u64) -> PriceSource {
+    let reflector = env.register(ScriptedReflector, ());
+    let answer = sample_run(env, NOW - newest_age, u64::from(resolution), records, 0);
+    ScriptedReflectorClient::new(env, &reflector).script(&resolution, &answer);
+    PriceSource::Feed(FeedSource {
+        provider: ProviderRef::Reflector(ReflectorFeedRef {
+            contract: reflector,
+            asset: OracleAssetRef::Symbol(Symbol::new(env, "BTC")),
+            read_mode: OracleReadMode::Twap(records),
+        }),
+        decimals: 14,
+        max_stale_seconds: SPREAD_TEST_BOUND,
+    })
+}
+
+/// A spot multi-feed leg of `nature` on `feed_id`.
+fn spot_leg(env: &Env, adapter: &Address, feed_id: &str, nature: FeedNature) -> PriceSource {
+    PriceSource::Feed(nature_feed(
+        env,
+        adapter,
+        feed_id,
+        SPREAD_TEST_BOUND,
+        nature,
+    ))
+}
+
+/// Registers the aggregator the spread tests read through.
+fn spread_aggregator(env: &Env) -> Address {
+    env.register(crate::PriceAggregator, (Address::generate(env),))
+}
+
+/// Stores `items` on `aggregator` under a fresh token key with a
+/// `SPREAD_TEST_BOUND` asset budget.
+fn spread_key(env: &Env, aggregator: &Address, items: &[PriceSource]) -> PriceKey {
+    let key = PriceKey::Token(Address::generate(env));
+    env.as_contract(aggregator, || {
+        registry::store_oracle(
+            env,
+            &key,
+            &oracle(
+                env,
+                sources(env, items),
+                SPREAD_TEST_BOUND,
+                WAD / 2,
+                2 * WAD,
+            ),
+        );
+    });
+    key
+}
+
+/// The error code of a status read of `key` on `aggregator`. Each key in `primed` is first
+/// read strictly in the same session, so a nested read of it hits the
+/// session cache.
+fn status_code(
+    env: &Env,
+    aggregator: &Address,
+    primed: &[&PriceKey],
+    key: &PriceKey,
+) -> Option<u32> {
+    env.as_contract(aggregator, || {
+        let mut session = Session::new(env);
+        for prime in primed {
+            let _ = resolve(&mut session, prime, 0);
+        }
+        resolve_status(&mut session, key, 0).error_code
+    })
+}
+
+const STALE: Option<u32> = Some(OracleError::PriceFeedStale as u32);
+
+/// E-1 fail-open side. `Twap(12)` at 300 s has its newest round now and its
+/// oldest round 3300 s old. A spot leg may lag the newest round by the bound
+/// and no more. The old check compared the oldest round and let a 6900 s lag
+/// through.
+#[test]
+fn test_a_spot_leg_may_lag_the_newest_twap_round_by_the_spread_bound_only() {
+    let env = Env::default();
+    at_now(&env);
+    let aggregator = spread_aggregator(&env);
+    let (adapter, client) = register_redstone_feed(&env);
+    let key = spread_key(
+        &env,
+        &aggregator,
+        &[
+            twap_leg(&env, 12, 300, 0),
+            spot_leg(&env, &adapter, "SPOT", FeedNature::Market),
+        ],
+    );
+
+    for (age, expected) in [
+        (0, None),
+        (MAX_LEG_AGE_SPREAD_SECONDS, None),
+        (MAX_LEG_AGE_SPREAD_SECONDS + 1, STALE),
+        (6_900, STALE),
+    ] {
+        publish(&client, &env, "SPOT", WAD, age);
+        assert_eq!(
+            status_code(&env, &aggregator, &[], &key),
+            expected,
+            "spot {age} s old"
+        );
+    }
+}
+
+/// E-1 fail-closed side. `Twap(12)` at 600 s has its oldest round 6600 s old,
+/// inside its budget. A fresh spot leg prices beside it. The old check made
+/// this pair stale while the spot leg was younger than 3000 s.
+#[test]
+fn test_a_twap_window_wider_than_the_spread_bound_prices_beside_a_fresh_spot_leg() {
+    let env = Env::default();
+    at_now(&env);
+    let aggregator = spread_aggregator(&env);
+    let (adapter, client) = register_redstone_feed(&env);
+    let key = spread_key(
+        &env,
+        &aggregator,
+        &[
+            twap_leg(&env, 12, 600, 0),
+            spot_leg(&env, &adapter, "SPOT", FeedNature::Market),
+        ],
+    );
+
+    for (age, expected) in [
+        (0, None),
+        (2_999, None),
+        (MAX_LEG_AGE_SPREAD_SECONDS, None),
+        (MAX_LEG_AGE_SPREAD_SECONDS + 1, STALE),
+    ] {
+        publish(&client, &env, "SPOT", WAD, age);
+        assert_eq!(
+            status_code(&env, &aggregator, &[], &key),
+            expected,
+            "spot {age} s old"
+        );
+    }
+}
+
+/// The bound also holds the other way: a TWAP leg whose newest round lags a
+/// fresh spot leg by more than the bound is stale, though every round is
+/// inside the leg's own budget.
+#[test]
+fn test_a_twap_leg_whose_newest_round_lags_a_fresh_spot_leg_is_stale() {
+    let env = Env::default();
+    at_now(&env);
+    let aggregator = spread_aggregator(&env);
+    let (adapter, client) = register_redstone_feed(&env);
+    publish(&client, &env, "SPOT", WAD, 0);
+
+    for (newest_age, expected) in [
+        (MAX_LEG_AGE_SPREAD_SECONDS, None),
+        (MAX_LEG_AGE_SPREAD_SECONDS + 1, STALE),
+    ] {
+        let key = spread_key(
+            &env,
+            &aggregator,
+            &[
+                spot_leg(&env, &adapter, "SPOT", FeedNature::Market),
+                twap_leg(&env, 3, 300, newest_age),
+            ],
+        );
+        assert_eq!(
+            status_code(&env, &aggregator, &[], &key),
+            expected,
+            "newest round {newest_age} s old"
+        );
+    }
+}
+
+/// Two spot market legs keep the bound on both sides of it. A Chainlink leg
+/// and a multi-feed leg each carry one sample.
+#[test]
+fn test_two_spot_market_legs_keep_the_spread_bound() {
+    let env = Env::default();
+    at_now(&env);
+    let aggregator = spread_aggregator(&env);
+    let (adapter, client) = register_redstone_feed(&env);
+    let (proxy, chainlink) = register_redstone_feed(&env);
+    let key = spread_key(
+        &env,
+        &aggregator,
+        &[
+            PriceSource::Feed(chainlink_feed(&env, &proxy, SPREAD_TEST_BOUND)),
+            spot_leg(&env, &adapter, "SPOT", FeedNature::Market),
+        ],
+    );
+    chainlink.set_chainlink_round(&BytesN::from_array(&env, &[9; 32]), &WAD, &NOW);
+
+    for (age, expected) in [
+        (MAX_LEG_AGE_SPREAD_SECONDS, None),
+        (MAX_LEG_AGE_SPREAD_SECONDS + 1, STALE),
+    ] {
+        publish(&client, &env, "SPOT", WAD, age);
+        assert_eq!(
+            status_code(&env, &aggregator, &[], &key),
+            expected,
+            "spot {age} s old"
+        );
+    }
+}
+
+/// A `Fundamental` leg stays exempt beside a TWAP market leg.
+#[test]
+fn test_a_fundamental_leg_may_lag_a_twap_market_leg_past_the_spread_bound() {
+    let env = Env::default();
+    at_now(&env);
+    let aggregator = spread_aggregator(&env);
+    let (adapter, client) = register_redstone_feed(&env);
+    publish(&client, &env, "PEG", WAD, SPREAD_TEST_BOUND);
+    let key = spread_key(
+        &env,
+        &aggregator,
+        &[
+            twap_leg(&env, 12, 300, 0),
+            spot_leg(&env, &adapter, "PEG", FeedNature::Fundamental),
+        ],
+    );
+
+    assert_eq!(status_code(&env, &aggregator, &[], &key), None);
+}
+
+/// A scaled leg enters the check with the older of the newest samples of its
+/// factor and its quote. The quote key is a `Twap(12)` leg at 600 s. Its
+/// oldest round, 6600 s old, does not enter the check. The quote prices from
+/// the session cache when a batch reads it first.
+#[test]
+fn test_a_scaled_leg_over_a_twap_quote_enters_the_check_with_its_newest_samples() {
+    let env = Env::default();
+    at_now(&env);
+    let aggregator = spread_aggregator(&env);
+    let (adapter, client) = register_redstone_feed(&env);
+    let quote = spread_key(&env, &aggregator, &[twap_leg(&env, 12, 600, 0)]);
+    let scaled = PriceSource::Scaled(ScaledSource {
+        factor: nature_feed(
+            &env,
+            &adapter,
+            "RATIO",
+            SPREAD_TEST_BOUND,
+            FeedNature::Market,
+        ),
+        quote: quote.clone(),
+        min_factor_wad: WAD / 2,
+        max_factor_wad: 2 * WAD,
+    });
+    let key = spread_key(
+        &env,
+        &aggregator,
+        &[scaled, spot_leg(&env, &adapter, "SPOT", FeedNature::Market)],
+    );
+
+    for (factor_age, spot_age, expected) in [
+        (0, 0, None),
+        (0, MAX_LEG_AGE_SPREAD_SECONDS, None),
+        (0, MAX_LEG_AGE_SPREAD_SECONDS + 1, STALE),
+        (MAX_LEG_AGE_SPREAD_SECONDS, 0, None),
+        (MAX_LEG_AGE_SPREAD_SECONDS + 1, 0, STALE),
+    ] {
+        publish(&client, &env, "RATIO", WAD, factor_age);
+        publish(&client, &env, "SPOT", WAD, spot_age);
+        let label = (factor_age, spot_age);
+        assert_eq!(
+            status_code(&env, &aggregator, &[], &key),
+            expected,
+            "{label:?}"
+        );
+        assert_eq!(
+            status_code(&env, &aggregator, &[&quote], &key),
+            expected,
+            "{label:?}"
+        );
+    }
+}
+
+/// A two-leg quote key passes on the older of its legs' newest samples. Its
+/// TWAP leg's newest round is now and its spot leg is 3000 s old, so a scaled
+/// leg over it enters the check 3000 s old.
+#[test]
+fn test_a_blended_quote_passes_on_the_older_newest_sample_of_its_legs() {
+    let env = Env::default();
+    at_now(&env);
+    let aggregator = spread_aggregator(&env);
+    let (adapter, client) = register_redstone_feed(&env);
+    publish(&client, &env, "RATIO", WAD, 0);
+    publish(&client, &env, "QSPOT", WAD, 3_000);
+    let quote = spread_key(
+        &env,
+        &aggregator,
+        &[
+            twap_leg(&env, 12, 600, 0),
+            spot_leg(&env, &adapter, "QSPOT", FeedNature::Market),
+        ],
+    );
+    let scaled = PriceSource::Scaled(ScaledSource {
+        factor: nature_feed(
+            &env,
+            &adapter,
+            "RATIO",
+            SPREAD_TEST_BOUND,
+            FeedNature::Market,
+        ),
+        quote: quote.clone(),
+        min_factor_wad: WAD / 2,
+        max_factor_wad: 2 * WAD,
+    });
+    let key = spread_key(
+        &env,
+        &aggregator,
+        &[scaled, spot_leg(&env, &adapter, "SPOT", FeedNature::Market)],
+    );
+
+    for (spot_age, expected) in [
+        (3_000 + MAX_LEG_AGE_SPREAD_SECONDS, None),
+        (3_000 + MAX_LEG_AGE_SPREAD_SECONDS + 1, STALE),
+    ] {
+        publish(&client, &env, "SPOT", WAD, spot_age);
+        assert_eq!(
+            status_code(&env, &aggregator, &[], &key),
+            expected,
+            "spot {spot_age} s old"
+        );
+        assert_eq!(
+            status_code(&env, &aggregator, &[&quote], &key),
+            expected,
+            "spot {spot_age} s old"
+        );
+    }
+}
+
 fn oracle(
     env: &Env,
     sources: Vec<PriceSource>,
@@ -1051,6 +1388,7 @@ fn test_cached_lp_price_still_checks_both_dependency_depths() {
                 asset_decimals: 7,
                 timestamp: NOW,
             },
+            NOW,
         );
 
         assert!(matches!(

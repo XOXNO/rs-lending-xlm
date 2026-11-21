@@ -26,8 +26,11 @@ fn test_price_memo_round_trips_per_key() {
             asset_decimals: 8,
             timestamp: 100,
         },
+        160,
     );
     assert_eq!(session.cached_price(&key).unwrap().price_wad, 7);
+    let (feed, newest_timestamp) = session.cached_price_with_newest(&key).unwrap();
+    assert_eq!((feed.timestamp, newest_timestamp), (100, 160));
 }
 
 #[test]
