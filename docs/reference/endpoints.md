@@ -297,6 +297,8 @@ The open Reflector-compatible and configuration reads return plain values, not `
 
 The [ownership methods](#router-and-xoxno-oracle-ownership) are also exported; the Ownable owner administers it, and lending governance has no XOXNO variants.
 
+The history keeps one entry per `resolution`-second bucket of the write time: the newest aggregate of that bucket, at most 12 entries. `prices` and `price` serve each entry as a round stamped with its bucket start, in seconds. Round timestamps are distinct and at least one resolution apart. `price(asset, timestamp)` serves the newest round written at or before `timestamp`.
+
 Threshold, submission-age, relative-skew and cluster-spread setters do not recompute; the owner calls `recompute_feeds` in bounded batches. `remove_signer` deletes the signer's submissions and recomputes affected feeds. Without quorum, submissions keep the previous aggregate; recomputation or signer removal clears it. Reads check aggregate freshness without reevaluating quorum. Package timestamps allow 60 seconds of future skew after flooring to seconds; equal timestamps from one signer are accepted.
 
 ## DeFindex strategy

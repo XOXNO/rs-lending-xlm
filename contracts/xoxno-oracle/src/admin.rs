@@ -222,8 +222,9 @@ impl XoxnoOracle {
         Ok(())
     }
 
-    /// Sets the price resolution, in seconds, used to decide whether a new
-    /// aggregate replaces or appends to the last history entry.
+    /// Sets the price resolution, in seconds: the width of a history bucket.
+    /// Stored history entries stay as they are; the history reads group them
+    /// by the new resolution.
     #[only_owner]
     pub fn set_resolution(env: Env, resolution: u32) -> Result<(), Error> {
         renew_instance(&env);

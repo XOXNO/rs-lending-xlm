@@ -8,3 +8,4 @@ mod tolerance;
 mod twap;
 mod twap_lag;
 mod xoxno;
+mod xoxno_twap;
