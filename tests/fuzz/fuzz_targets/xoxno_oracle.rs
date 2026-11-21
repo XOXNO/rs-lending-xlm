@@ -20,6 +20,14 @@ use xoxno_oracle::{Error, XoxnoOracle, XoxnoOracleClient};
 
 const NOW: u64 = 1_000_000;
 const MS: u64 = 1_000;
+
+/// Start, in seconds, of the resolution bucket that holds `write_ms`. A zero
+/// resolution counts as one second, as in the contract.
+fn bucket_start(write_ms: u64, resolution: u32) -> u64 {
+    let r = u64::from(resolution.max(1));
+    let s = write_ms / MS;
+    s - s % r
+}
 const SIGNERS: usize = 6;
 const FEEDS: usize = 3;
 const ASSETS: usize = 3;
@@ -157,11 +165,11 @@ impl Model {
             write_ms: now * MS,
         };
         self.agg.insert(feed, agg);
+        let resolution = self.resolution;
         let history = self.history.entry(feed).or_default();
-        let resolution_ms = u64::from(self.resolution) * MS;
-        let replace_last = history
-            .back()
-            .is_some_and(|last| agg.write_ms < last.write_ms.saturating_add(resolution_ms));
+        let replace_last = history.back().is_some_and(|last| {
+            bucket_start(last.write_ms, resolution) == bucket_start(agg.write_ms, resolution)
+        });
         if replace_last {
             *history.back_mut().unwrap() = agg;
         } else {
@@ -209,6 +217,38 @@ impl Model {
             .filter(|h| !h.is_empty())
             .ok_or(Error::NoDataForFeed)?;
         Ok(h.iter().rev().take(limit).copied().collect())
+    }
+
+    /// Rounds that `prices` and `price` serve: the history entries written at
+    /// or before `written_by` (seconds), newest first, one per resolution
+    /// bucket, each stamped with its bucket start. An entry whose bucket is not
+    /// older than the round before it is skipped. `None` where the contract
+    /// answers `None`.
+    fn rounds(
+        &self,
+        feed: usize,
+        now: u64,
+        written_by: u64,
+        limit: usize,
+    ) -> Option<StdVec<(i128, u64)>> {
+        let history = self.history_newest_first(feed, now, MAX_HISTORY).ok()?;
+        let mut rounds = StdVec::new();
+        let mut newer: Option<u64> = None;
+        for e in history {
+            if rounds.len() >= limit {
+                break;
+            }
+            if e.write_ms / MS > written_by {
+                continue;
+            }
+            let ts = bucket_start(e.write_ms, self.resolution);
+            if newer.is_some_and(|n| ts >= n) {
+                continue;
+            }
+            newer = Some(ts);
+            rounds.push((e.price, ts));
+        }
+        Some(rounds)
     }
 
     fn require_signer(&self, signer: usize) -> Result<(), Error> {
@@ -362,9 +402,8 @@ fn check_reads(
         let want_hist: Option<StdVec<(i128, u64)>> = m
             .asset_feed
             .get(&a)
-            .and_then(|f| m.history_newest_first(*f, now, records as usize).ok())
-            .filter(|h| !h.is_empty())
-            .map(|h| h.iter().map(|x| (x.price, x.package_ms / MS)).collect());
+            .and_then(|f| m.rounds(*f, now, u64::MAX, records as usize))
+            .filter(|r| !r.is_empty());
         let got_hist = c.prices(asset, &records).map(|v| {
             v.iter()
                 .map(|p| (p.price, p.timestamp))
@@ -679,17 +718,8 @@ fuzz_target!(|i: In| {
                 let want = m
                     .asset_feed
                     .get(&a)
-                    .and_then(|f| m.history_newest_first(*f, now, MAX_HISTORY).ok())
-                    .and_then(|h| {
-                        h.into_iter().filter(|e| e.package_ms / MS <= at).fold(
-                            None::<Agg>,
-                            |best, e| match best {
-                                Some(b) if e.package_ms <= b.package_ms => Some(b),
-                                _ => Some(e),
-                            },
-                        )
-                    })
-                    .map(|e| (e.price, e.package_ms / MS));
+                    .and_then(|f| m.rounds(*f, now, at, 1))
+                    .and_then(|r| r.first().copied());
                 let got = c.price(&assets[a], &at).map(|p| (p.price, p.timestamp));
                 assert_eq!(got, want, "price(asset {a}, {at}) diverged from the model");
             }

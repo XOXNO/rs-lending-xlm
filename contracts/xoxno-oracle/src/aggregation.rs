@@ -228,18 +228,32 @@ fn median_of(prices: &Vec<i128>) -> i128 {
     sorted.get_unchecked((len - 1) / 2)
 }
 
-/// Appends `aggregate` to `feed_id`'s history, or overwrites the last entry
-/// if its write timestamp falls within one resolution period of the previous
-/// entry. Evicts the oldest entry when the history reaches `MAX_HISTORY_LEN`.
+/// Returns the start, in seconds, of the `resolution`-second bucket that holds
+/// `write_timestamp` (milliseconds). Buckets sit on a fixed grid of multiples
+/// of `resolution`. A zero `resolution` counts as one second. The result is
+/// never later than `write_timestamp`.
+pub(crate) fn bucket_start_seconds(write_timestamp: u64, resolution: u32) -> u64 {
+    let resolution_seconds = u64::from(resolution.max(1));
+    let write_seconds = write_timestamp / MS_PER_SECOND;
+    // `write_seconds % resolution_seconds <= write_seconds`: no underflow.
+    write_seconds - write_seconds % resolution_seconds
+}
+
+/// Records `aggregate` in `feed_id`'s history, one entry per resolution bucket
+/// (see `bucket_start_seconds`). Overwrites the last entry if its write
+/// timestamp falls in the same bucket as `aggregate`'s, so each entry holds the
+/// newest aggregate of its bucket. Otherwise appends `aggregate`, and first
+/// evicts the oldest entry when the history holds `MAX_HISTORY_LEN` entries.
 fn push_history(env: &Env, feed_id: &String, aggregate: RedStonePriceData) {
     let mut history: Vec<RedStonePriceData> =
         load_history(env, feed_id).unwrap_or_else(|| Vec::new(env));
 
-    let resolution_ms = u64::from(load_resolution(env)) * MS_PER_SECOND;
+    let resolution = load_resolution(env);
     let len = history.len();
     let replace_last = len > 0 && {
         let last = history.get_unchecked(len - 1);
-        aggregate.write_timestamp < last.write_timestamp.saturating_add(resolution_ms)
+        bucket_start_seconds(last.write_timestamp, resolution)
+            == bucket_start_seconds(aggregate.write_timestamp, resolution)
     };
 
     if replace_last {
