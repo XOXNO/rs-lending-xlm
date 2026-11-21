@@ -1,13 +1,10 @@
 //! Reflector stand-in that answers `prices` as the public Reflector contract
 //! does.
 //!
-//! The public contract keeps one round per `resolution`. `prices(asset,
-//! records)` walks `records + 1` round slots back from the last round. For
-//! each slot it takes the asset's newest round at or before that slot, and it
-//! returns each round once, newest first. A contiguous history gives
-//! `records + 1` rounds. A missing slot gives the round before it, so the
-//! answer can reach past the window. The contract refuses a round stamped
-//! after the ledger time. `MockReflector` returns `records` samples instead.
+//! `prices(asset, records)` returns `records + 1` rounds on a contiguous
+//! history, newest first. A missing round is filled with the round before it.
+//! A round stamped after the ledger time is refused. `MockReflector` returns
+//! `records` samples instead.
 
 use soroban_sdk::{contract, contractimpl, contracttype, Env, Map, Symbol, Vec};
 

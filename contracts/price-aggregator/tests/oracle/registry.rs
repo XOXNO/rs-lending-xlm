@@ -324,10 +324,8 @@ fn invalid_resolution() -> Error {
     Error::from_contract_error(OracleError::InvalidOracleResolution as u32)
 }
 
-/// A `Twap(records)` read uses the newest `records` rounds and carries the
-/// oldest timestamp it uses. The newest round is one `resolution` old when
-/// the next round is due. `set_oracle` admits a budget only if that read
-/// stays fresh.
+/// `set_oracle` admits a `Twap(records)` budget only if the oldest used
+/// sample stays fresh until the next round is due.
 #[test]
 fn test_set_oracle_admits_a_twap_budget_only_if_the_oldest_sample_stays_fresh() {
     for resolution in [60_u32, 300, 900] {
@@ -338,8 +336,7 @@ fn test_set_oracle_admits_a_twap_budget_only_if_the_oldest_sample_stays_fresh() 
             let (client, reflector) = round_feed(&env, records, resolution);
             let due = u64::from(resolution);
 
-            // The read fixes the bound: the age of the oldest sample it uses
-            // when the next round is due.
+            // Age of the oldest used sample when the next round is due.
             let probe = PriceKey::Token(Address::generate(&env));
             let wide = round_twap_oracle(&env, &reflector, records, MAX_PRICE_STALE_SECONDS);
             client.seed_oracle(&probe, &wide);
@@ -386,10 +383,8 @@ fn test_set_oracle_admits_a_twap_budget_only_if_the_oldest_sample_stays_fresh() 
     }
 }
 
-/// `Twap(12)` at a 300 s resolution uses 12 rounds, so its oldest sample is
-/// 3,300 s behind the newest. A 3,300 s budget is stale on every read after
-/// the second the newest round carries. The smallest admitted budget is
-/// 3,600 s.
+/// `Twap(12)` at 300 s needs a 3,600 s budget. A 3,300 s budget is stale on
+/// almost every read.
 #[test]
 fn test_set_oracle_rejects_a_twap_budget_that_is_stale_on_every_read() {
     let env = Env::default();
@@ -426,9 +421,8 @@ fn test_set_oracle_rejects_a_twap_budget_that_is_stale_on_every_read() {
     }
 }
 
-/// The bound applies to the factor leg of a `Scaled` source, and it reads the
-/// feed budget: the 3,600 s asset ceiling does not admit an 899 s factor.
-/// `QuotedReflector` reports a 300 s resolution, so `Twap(3)` needs 900 s.
+/// The bound applies to the factor leg of a `Scaled` source and uses the feed
+/// budget, not the asset ceiling. `Twap(3)` at 300 s needs 900 s.
 #[test]
 fn test_set_oracle_bounds_the_twap_budget_of_a_scaled_factor_leg() {
     let env = Env::default();

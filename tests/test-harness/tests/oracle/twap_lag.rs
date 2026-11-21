@@ -1,9 +1,6 @@
-//! A two-source key while its push leg has not written. The Reflector leg is
-//! the mean of the newest `records` rounds; the RedStone leg reads its last
-//! written price until its next write. The book lists XLM and USDC with the
-//! LTV, threshold, bonus and fees of mainnet spoke 1 and the mainnet oracle
-//! configs of both keys. `RoundReflector` answers as the public Reflector
-//! contract does.
+//! A two-source key while its push leg has not written. XLM and USDC use the
+//! mainnet spoke 1 listing and oracle configs. `RoundReflector` answers as the
+//! public Reflector contract does.
 
 use controller::types::{
     AssetOracle, FeedNature, FeedSource, IndependencePolicy, MultiFeedRef, OracleAssetRef,
@@ -79,11 +76,9 @@ impl Book {
         Self::with_reflector_start(XLM_START_WAD)
     }
 
-    /// Mainnet spoke 1 listings for XLM and USDC, and the mainnet oracle
-    /// configs of both keys, admitted through governance. Four Reflector
-    /// rounds before `MOVE_ROUND` print XLM at `reflector_start_wad`;
-    /// RedStone wrote `XLM_START_WAD` at the last of them. The ledger time is
-    /// `MOVE_ROUND`.
+    /// Lists XLM and USDC with the mainnet configs. Four Reflector rounds
+    /// before `MOVE_ROUND` print XLM at `reflector_start_wad`; RedStone wrote
+    /// `XLM_START_WAD` at the last of them.
     fn with_reflector_start(reflector_start_wad: i128) -> Self {
         let t = LendingTest::new()
             .with_market(market(
@@ -251,9 +246,8 @@ fn usdc_value_wad(usdc_raw: i128) -> i128 {
     usdc_raw * RAW_USD_WAD
 }
 
-/// XLM falls 36% between two Reflector rounds and RedStone has not written.
-/// The mean of the newest three rounds is 0.11 against 0.125: outside the
-/// 1.10 band. Withdrawal and borrowing on an indebted account fail closed.
+/// XLM falls 36% in one round and RedStone is late. The legs read 0.11 and
+/// 0.125, outside the 1.10 band. Withdraw and borrow fail closed.
 #[test]
 fn test_withdraw_fall_inside_one_round_with_late_push_fails_closed() {
     let mut book = Book::new();
@@ -282,10 +276,9 @@ fn test_withdraw_fall_inside_one_round_with_late_push_fails_closed() {
     assert_eq!(book.t.borrow_balance_raw(ALICE, "USDC"), 37_500 * UNIT);
 }
 
-/// Both legs read 0.125 before the move. The largest fall inside one round
-/// that the band still admits is 27.28%. The key then serves 1.3126 times the
-/// market price. A maximum borrow at LTV 75% stays covered by the collateral
-/// at the market price. A fall of 27.29% fails closed.
+/// The largest one-round fall the band admits is 27.28%. The key serves
+/// 1.3126 times the market price and a maximum borrow stays covered. A fall
+/// of 27.29% fails closed.
 #[test]
 fn test_borrow_largest_admitted_fall_with_late_push_stays_solvent() {
     for (fall_bps, admitted) in [
@@ -328,11 +321,9 @@ fn test_borrow_largest_admitted_fall_with_late_push_stays_solvent() {
     }
 }
 
-/// A limit that the read rule does not bound. Before the move Reflector
-/// prints 0.1275 and RedStone reads 0.125: a 2% gap, inside the band. The
-/// two older rounds then hold the mean up, and the band admits a fall to
-/// 0.086. The key serves 1.3876 times the market price, and a maximum borrow
-/// at LTV 75% exceeds the collateral at the market price by 3.9% of the debt.
+/// Not bounded by the read rule. With a 2% gap between the legs before the
+/// move, the band admits a fall to 0.086. The key serves 1.3876 times the
+/// market price and a maximum borrow is short by 3.9% of the debt.
 #[test]
 fn test_borrow_fall_after_leg_gap_with_late_push_admits_bad_debt() {
     let mut book = Book::with_reflector_start(XLM_START_WAD * 102 / 100);
@@ -386,11 +377,9 @@ fn test_quotes_push_lands_after_fall_fails_closed_until_mean_catches_up() {
     }
 }
 
-/// A limit that the read rule does not bound. Reflector prints a 9% fall in
-/// every round of its window, so the mean equals the market price, and
-/// RedStone is late. The legs stay inside the band. The key serves 1.0495
-/// times the market price, so liquidation refuses an account whose health
-/// factor at the market price is between 0.9529 and 1.
+/// Not bounded by the read rule. After a 9% fall with RedStone late, the key
+/// serves 1.0495 times the market price. Liquidation refuses an account whose
+/// health factor at the market price is between 0.9529 and 1.
 #[test]
 fn test_liquidate_printed_fall_with_late_push_refuses_unhealthy_account() {
     let mut book = Book::new();

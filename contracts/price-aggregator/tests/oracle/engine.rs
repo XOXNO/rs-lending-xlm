@@ -906,9 +906,8 @@ fn resolve_scripted(env: &Env, records: u32, answer: Vec<ReflectorPriceData>) ->
     resolve_twap(env, &reflector, records)
 }
 
-/// The sample `k` places behind the newest quotes `k + 1` dollars, so the
-/// mean and the timestamp both name the samples the read used: the newest
-/// three give 2 dollars, dated two rounds back.
+/// Sample `k` quotes `k + 1` dollars, so the newest three give a mean of 2
+/// dollars, dated two rounds back.
 #[test]
 fn test_twap_read_uses_the_newest_records_samples_of_the_answer() {
     let env = Env::default();
@@ -924,8 +923,7 @@ fn test_twap_read_uses_the_newest_records_samples_of_the_answer() {
     });
 }
 
-/// Samples past the first `records` are not read: a tail that would fail the
-/// price, order, spacing and future-timestamp checks does not fail the read.
+/// A bad tail past the first `records` samples does not fail the read.
 #[test]
 fn test_twap_read_ignores_the_samples_past_records() {
     let env = Env::default();
@@ -943,10 +941,9 @@ fn test_twap_read_ignores_the_samples_past_records() {
     });
 }
 
-/// The public contract fills a missing round slot with the round before it.
-/// A round skipped inside the window makes the answer `records` long and one
-/// round older. A round skipped at the window start adds a round from before
-/// the window, which the read drops.
+/// Reflector fills a missing round with the round before it. A skip inside
+/// the window gives `records` samples, one round older. A skip at the window
+/// start adds an older round, which the read drops.
 #[test]
 fn test_twap_read_follows_the_answer_shapes_of_a_skipped_round() {
     let env = Env::default();

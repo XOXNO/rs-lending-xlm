@@ -1,8 +1,7 @@
 //! Reads prices from Reflector oracle feeds in spot or TWAP mode. `attest`
 //! checks a feed's quote base, decimals and resolution at admission. A TWAP
-//! read takes the newest `records` observations of the answer and checks
-//! their spacing, future timestamps and window coverage before averaging
-//! them.
+//! read averages the newest `records` observations after it checks their
+//! spacing, timestamps and window coverage.
 
 use common::errors::{GenericError, OracleError};
 use common::oracle::observation::{
@@ -23,9 +22,8 @@ use crate::session::Session;
 /// `max_stale`: the quote base is denominated as `quote` requires, reported
 /// decimals match `decimals`, and the resolution is at least
 /// `MIN_ORACLE_RESOLUTION_SECONDS` and at most `max_stale`. For TWAP mode,
-/// also checks that the oldest sample a read uses stays within `max_stale`
-/// while the feed publishes on time; see [`twap_oldest_sample_age`]. Panics
-/// with `InvalidOracleBase`, `InvalidOracleDecimals` or
+/// also requires [`twap_oldest_sample_age`] to be at most `max_stale`.
+/// Panics with `InvalidOracleBase`, `InvalidOracleDecimals` or
 /// `InvalidOracleResolution`.
 ///
 /// `quote` is `None` for a bare feed and `Some` for the factor leg of a
@@ -59,22 +57,15 @@ pub(crate) fn attest(
     }
 }
 
-/// Smallest span in seconds, newest sample to oldest, that a `Twap(records)`
-/// read accepts at `resolution`.
+/// Smallest span in seconds that a `Twap(records)` read accepts.
 fn twap_required_span(records: u32, resolution: u32) -> u64 {
     u64::from(records.saturating_sub(1)).saturating_mul(u64::from(resolution))
 }
 
-/// Largest age in seconds of the oldest sample a `Twap(records)` read uses
-/// while the feed publishes one round per `resolution`.
+/// Age in seconds of the oldest sample a `Twap(records)` read uses when the
+/// next round is due: `records * resolution`.
 ///
-/// A read uses the newest `records` rounds, so its oldest sample is
-/// `records - 1` rounds behind the newest. The newest round is one
-/// `resolution` old when the next round is due. The read carries the oldest
-/// timestamp, so the staleness check sees `records * resolution`.
-///
-/// Panics with `GenericError::MathOverflow` on overflow, which two `u32`
-/// inputs cannot reach in `u64`.
+/// Panics with `GenericError::MathOverflow` on overflow.
 fn twap_oldest_sample_age(env: &Env, records: u32, resolution: u32) -> u64 {
     u64::from(records)
         .checked_mul(u64::from(resolution))
@@ -158,12 +149,11 @@ fn read_spot(
     OracleObservation::from_reflector(now_secs, &price_data, decimals)
 }
 
-/// Computes an arithmetic mean of the newest `records` Reflector
-/// observations, despite the `Twap` name implying a time-weighted average.
-/// The answer is newest first; observations after the first `records` are
-/// ignored. Rejects a used history that is empty, future-dated, mis-ordered,
-/// tightly spaced, or short of the window `records` implies. Returns the mean
-/// with the timestamp of the oldest observation used.
+/// Returns the arithmetic mean of the newest `records` Reflector
+/// observations, with the timestamp of the oldest one used. The answer is
+/// newest first; later observations are ignored. Rejects a used history that
+/// is empty, future-dated, mis-ordered, tightly spaced, or shorter than the
+/// window.
 fn read_twap(
     session: &Session,
     feed: &ReflectorFeedRef,
@@ -182,9 +172,7 @@ fn read_twap(
     if history.is_empty() {
         return Err(OracleError::ReflectorHistoryEmpty);
     }
-    // The public contract answers with one round more than `records`. A
-    // shorter answer has a skipped round or a young history; the span check
-    // below proves coverage.
+    // Reflector answers with `records + 1` rounds. Keep the newest `records`.
     let history = history.slice(..records.min(history.len()));
 
     let resolution = try_reflector_resolution(env, &feed.contract)
@@ -209,7 +197,7 @@ fn read_twap(
         oldest_ts = price_data.timestamp;
     }
 
-    // Minimum window coverage; the loop proves the ordering.
+    // Minimum window coverage.
     if newest_ts.saturating_sub(oldest_ts) < twap_required_span(records, resolution) {
         return Err(OracleError::TwapInsufficientObservations);
     }
