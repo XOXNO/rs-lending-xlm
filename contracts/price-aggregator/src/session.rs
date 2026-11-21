@@ -20,12 +20,13 @@ use crate::{properties, registry};
 /// Caches raw provider feed payloads and per-key resolved prices, errors, and
 /// statuses for the duration of a single resolution pass, and tracks which
 /// keys are currently being resolved so that recursive resolution can detect
-/// cycles.
+/// cycles. Each cached price keeps the newest-sample timestamp (seconds) that
+/// the two-leg age-spread check of a dependent key reads.
 pub(crate) struct Session {
     env: Env,
     feed_cache: Map<(Address, String), RedStonePriceData>,
     resolving_keys: Vec<PriceKey>,
-    key_prices: Map<PriceKey, PriceFeedRaw>,
+    key_prices: Map<PriceKey, (PriceFeedRaw, u64)>,
     key_errors: Map<PriceKey, OracleError>,
     key_statuses: Map<PriceKey, PriceStatus>,
     now_secs: u64,
@@ -101,12 +102,24 @@ impl Session {
     /// Returns the resolved price previously stored for the given key in
     /// this session, if any.
     pub(crate) fn cached_price(&self, key: &PriceKey) -> Option<PriceFeedRaw> {
+        self.cached_price_with_newest(key).map(|(feed, _)| feed)
+    }
+
+    /// Returns the resolved price previously stored for the given key in
+    /// this session, with its newest-sample timestamp in seconds, if any.
+    pub(crate) fn cached_price_with_newest(&self, key: &PriceKey) -> Option<(PriceFeedRaw, u64)> {
         self.key_prices.get(key.clone())
     }
 
-    /// Stores the resolved price for the given key in this session.
-    pub(crate) fn store_price(&mut self, key: &PriceKey, feed: PriceFeedRaw) {
-        self.key_prices.set(key.clone(), feed);
+    /// Stores the resolved price for the given key in this session, with
+    /// `newest_timestamp`, its newest-sample timestamp in seconds.
+    pub(crate) fn store_price(
+        &mut self,
+        key: &PriceKey,
+        feed: PriceFeedRaw,
+        newest_timestamp: u64,
+    ) {
+        self.key_prices.set(key.clone(), (feed, newest_timestamp));
     }
 
     /// Returns the error previously stored for the given key in this

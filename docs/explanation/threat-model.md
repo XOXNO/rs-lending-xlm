@@ -296,7 +296,9 @@ Priced lag is a second path to an accepted price above the market. A leg
 reads its last written price until its next write. After a market move, a
 two-source key serves the midpoint of a leg that has printed the move and a
 leg that has not. Both legs pass their own age checks. The age-spread check
-applies only when both legs are `Market`.
+applies only when both legs are `Market`. It compares the newest sample of
+each leg, so a `Twap(records)` leg counts from its newest round. A spot leg
+can lag that round by at most `MAX_LEG_AGE_SPREAD_SECONDS` (3600 seconds).
 
 Let `U` be the upper tolerance ratio. Let `n` be the number of samples in the
 leg that prints the move: `records` for `Twap(records)`, 1 for a spot leg. One

@@ -242,15 +242,29 @@ ratio_bps = half_up(high * BPS / low)
 deviation = low <= 0 || ratio_bps > upper_ratio_bps
 price_wad = floor((a + b) / 2)
 timestamp = min(timestamp_a, timestamp_b)
+newest    = min(newest_a, newest_b)
 stale     = stale_a || stale_b || spread_too_wide
 ```
 
 `high`/`low` are the larger/smaller leg. Half-up rounding accepts an exact
 ratio under 0.5 BPS above `upper_ratio_bps`; ratio overflow sets `deviation`.
-The spread term of `stale` applies only to two market legs, true when their
-timestamps differ by more than `MAX_LEG_AGE_SPREAD_SECONDS` (3600). A leg-sum
-overflow gives price zero, failing as `InvalidPrice` (217) after any stale or
-tolerance failure.
+The spread term of `stale` applies only to two market legs. It is true when
+the `newest` values of the two legs differ by more than
+`MAX_LEG_AGE_SPREAD_SECONDS` (3600 seconds). A leg-sum overflow gives price zero, failing as `InvalidPrice`
+(217) after any stale or tolerance failure.
+
+Each leg carries two timestamps in seconds. `timestamp` is its oldest sample;
+the staleness checks and the reported price use it. `newest` is its newest
+sample; only the spread term uses it:
+
+| Leg | `timestamp` | `newest` |
+|---|---|---|
+| One-sample feed: Reflector spot, Chainlink, RedStone, XOXNO | the sample | the sample |
+| Reflector `Twap(records)` | oldest used round | newest used round |
+| Scaled, LP, or a nested key | minimum over its inputs | minimum over its inputs |
+
+The TWAP window does not enter the spread term. Admission therefore has no
+rule that relates the window to `MAX_LEG_AGE_SPREAD_SECONDS`.
 
 Admission accepts only this tolerance form, else `BadLastTolerance` (208):
 
@@ -283,6 +297,7 @@ A scaled source multiplies a factor feed by a quote-asset price:
 ```rust
 price_wad = half_up(factor_wad * quote_wad / WAD)
 timestamp = min(factor_timestamp, quote_timestamp)
+newest    = min(factor_newest, quote_newest)
 ```
 
 A factor outside `[min_factor_wad, max_factor_wad]` fails with
@@ -303,10 +318,10 @@ age breaches fail with `InvalidOracleResolution` (222), zero records with
 (228).
 
 A read uses the first `records` samples of the answer, newest first, and
-ignores the rest. It carries the oldest timestamp it uses. The Reflector
-contract answers with `records + 1` samples on a contiguous history. It fills
-a missing round with the round before it, so a skipped round gives fewer
-samples over a longer span.
+ignores the rest. It carries the oldest and the newest timestamp it uses. The
+Reflector contract answers with `records + 1` samples on a contiguous history.
+It fills a missing round with the round before it, so a skipped round gives
+fewer samples over a longer span.
 
 The oldest used sample is `records - 1` rounds behind the newest. The newest
 sample is one `resolution` old when the next sample is due. With `max_stale`
@@ -322,6 +337,7 @@ does not check the samples that it ignores.
 mean      = floor(sum(samples) / count(samples))
 price_wad = mean * 10^(18 - feed_decimals)
 timestamp = oldest sample
+newest    = newest sample
 ```
 
 `samples` are the samples the read uses.
@@ -354,7 +370,7 @@ pool_value_wad = half_up(price_wad * total_shares / 10^share_decimals)
 ```
 
 Below `min_pool_value_wad`: `InsufficientAquariusLiquidity` (235). Timestamp:
-older leg.
+older leg. Newest: older of the two leg `newest` values.
 
 Curve pool (two or three coins), from `get_virtual_price`:
 
@@ -364,7 +380,8 @@ pool_value_wad = floor(price_wad * total_supply / WAD)
 ```
 
 Below `min_pool_value_wad`: `InsufficientCurveLiquidity` (237). Timestamp:
-oldest of ledger time and coin timestamps.
+oldest of ledger time and coin timestamps. Newest: oldest of ledger time and
+coin `newest` values.
 
 ## Liquidation sizing and fees
 

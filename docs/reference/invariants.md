@@ -327,8 +327,10 @@ A configured two-source price needs both usable legs; one surviving leg is no
 fallback. The accepted price is their integer midpoint, rounded down, within
 both the input range and the final sanity band. A partial reading is
 unusable; a stale surviving leg reports staleness before disagreement.
-Separately admitted single-source configurations keep freshness, positivity
-and sanity checks.
+Two `Market` legs are stale when their newest samples are more than
+`MAX_LEG_AGE_SPREAD_SECONDS` apart; see
+[price sources](formulas.md#price-sources). Separately admitted single-source
+configurations keep freshness, positivity and sanity checks.
 
 <a id="inv-oracle-03"></a>
 

@@ -2,7 +2,9 @@ use super::*;
 use crate::admin::{set_oracle, set_sanity_band, set_tolerance};
 use crate::session::Session;
 use common::errors::OracleError;
-use common::oracle::observation::{MAX_PRICE_STALE_SECONDS, MAX_TWAP_RECORDS};
+use common::oracle::observation::{
+    MAX_LEG_AGE_SPREAD_SECONDS, MAX_PRICE_STALE_SECONDS, MAX_TWAP_RECORDS,
+};
 use common::oracle::providers::chainlink::CHAINLINK_DECIMALS;
 use common::oracle::providers::redstone::REDSTONE_DECIMALS;
 use common::types::{
@@ -14,9 +16,9 @@ use soroban_sdk::testutils::{Address as _, Ledger as _};
 use soroban_sdk::{Address, BytesN, Error, String, Symbol, Vec};
 
 use crate::test_support::{
-    sample_run, EmptyReflector, MockAquariusPoolClient, NonUsdReflector, QuotedReflector,
-    QuotedReflectorClient, ScriptedReflector, ScriptedReflectorClient, StubXoxnoAdapter,
-    TwapReflector, XOXNO_SUBMISSION_WINDOW_SECS,
+    register_redstone_feed, sample_run, EmptyReflector, MockAquariusPoolClient, NonUsdReflector,
+    QuotedReflector, QuotedReflectorClient, ScriptedReflector, ScriptedReflectorClient,
+    StubXoxnoAdapter, TwapReflector, XOXNO_SUBMISSION_WINDOW_SECS,
 };
 use crate::{PriceAggregator, PriceAggregatorClient};
 use common::constants::WAD;
@@ -419,6 +421,47 @@ fn test_set_oracle_rejects_a_twap_budget_that_is_stale_on_every_read() {
             "at {newest_age}"
         );
     }
+}
+
+/// E-1: admission and the read agree on a market pair whose TWAP window is
+/// wider than `MAX_LEG_AGE_SPREAD_SECONDS`. `set_oracle` admits `Twap(12)` at
+/// 600 s beside a spot market leg. The pair prices while the spot leg is at
+/// most the bound behind the newest round, through a full round period.
+#[test]
+fn test_set_oracle_admits_a_wide_twap_market_pair_that_prices_beside_a_fresh_spot_leg() {
+    let env = Env::default();
+    let (client, reflector) = round_feed(&env, 12, 600);
+    let (adapter, redstone) = register_redstone_feed(&env);
+    let mut config = round_twap_oracle(&env, &reflector, 12, 7_200);
+    config.sources.push_back(PriceSource::Feed(FeedSource {
+        provider: ProviderRef::RedStone(MultiFeedRef {
+            contract: adapter,
+            feed_id: String::from_str(&env, "SPOT"),
+            nature: FeedNature::Market,
+        }),
+        decimals: REDSTONE_DECIMALS,
+        max_stale_seconds: 7_200,
+    }));
+    let key = PriceKey::Token(Address::generate(&env));
+    let spot = String::from_str(&env, "SPOT");
+    let publish_at = |ts: u64| redstone.set_price_data(&spot, &WAD, &(ts * 1_000), &(ts * 1_000));
+
+    env.ledger().set_timestamp(ROUND_NEWEST_TS);
+    publish_at(ROUND_NEWEST_TS);
+    client.set_oracle(&key, &config);
+
+    for newest_age in [0, 1, 599, 600] {
+        publish_at(ROUND_NEWEST_TS + newest_age);
+        let status = quote_at(&env, &client, &key, newest_age);
+        assert!(status.valid, "fresh spot at {newest_age}: {status:?}");
+    }
+    publish_at(ROUND_NEWEST_TS - MAX_LEG_AGE_SPREAD_SECONDS);
+    assert!(quote_at(&env, &client, &key, 0).valid);
+    publish_at(ROUND_NEWEST_TS - MAX_LEG_AGE_SPREAD_SECONDS - 1);
+    assert_eq!(
+        quote_at(&env, &client, &key, 0).error_code,
+        Some(OracleError::PriceFeedStale as u32)
+    );
 }
 
 /// The bound applies to the factor leg of a `Scaled` source and uses the feed

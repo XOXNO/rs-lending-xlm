@@ -65,7 +65,8 @@ pub(crate) fn attest(
 /// a leg's resolution error if a leg price is unusable, `InvalidPrice` if
 /// the price math fails, and `InsufficientAquariusLiquidity` if the pool
 /// value (WAD) is below `lp.min_pool_value_wad`. On success, the observation
-/// carries the earlier of the two leg timestamps.
+/// carries the earlier of the two leg timestamps and the earlier of the two
+/// leg newest-sample timestamps.
 pub(crate) fn read(
     session: &mut Session,
     key: &PriceKey,
@@ -123,6 +124,7 @@ pub(crate) fn read(
         OracleObservation {
             price_wad,
             timestamp: price_a.timestamp.min(price_b.timestamp),
+            newest_timestamp: price_a.newest_timestamp.min(price_b.newest_timestamp),
         },
         false,
     )))
