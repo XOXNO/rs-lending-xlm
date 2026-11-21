@@ -23,6 +23,32 @@ _xo_assert_aggregate() {
         '(.price | tonumber) == $price and (.package_timestamp | tonumber) == $package and (.write_timestamp | tonumber) == $written'
 }
 
+_xo_ledger_head() {
+    rpc_post 30 '{"jsonrpc":"2.0","id":1,"method":"getLatestLedger"}' \
+        | jq -er 'select(.jsonrpc=="2.0" and .id==1 and (has("error")|not)) | .result
+            | [.sequence, (.closeTime | tonumber? // empty)]
+            | select(length == 2 and all(type=="number" and . > 0 and floor == .))
+            | "\(.[0]) \(.[1])"'
+}
+
+# Waits for a ledger after the current one whose close time leaves at least
+# half of its resolution bucket.
+_xo_history_settle() {
+    local label="$1" resolution="$2" head start seq close attempt
+    head=$(_xo_ledger_head) || { _assert_fail "$label" 'latest ledger unavailable'; return 1; }
+    start="${head%% *}"
+    for ((attempt=1; attempt<=40; attempt++)); do
+        sleep 2
+        head=$(_xo_ledger_head) || { _assert_fail "$label" 'latest ledger unavailable'; return 1; }
+        seq="${head%% *}" close="${head##* }"
+        if [ "$seq" -gt "$start" ] && [ $((close % resolution)) -le $((resolution - resolution / 2)) ]; then
+            return 0
+        fi
+    done
+    _assert_fail "$label" "no ledger after $start with half of a ${resolution}s bucket left"
+    return 1
+}
+
 xo_upgrade_snapshot() {
     local tag="$1" contract="$2" method value state='{}' feed
     for method in get_owner assets feeds base decimals resolution max_stale_seconds max_submission_age_seconds max_relative_skew_seconds max_cluster_spread_bps; do
@@ -107,8 +133,7 @@ flow_xoxno_oracle() {
     nassets=$(view xo_assets "$XO" -- assets | jq 'length' 2>/dev/null)
     [ "${nassets:-0}" -ge 1 ] || _assert_fail xo_assets_len "assets()=$nassets want >= 1"
 
-    # Zero resolution appends every aggregate, even when transactions share a
-    # close timestamp. Restore the production-style value before the upgrade.
+    # Zero resolution is a one-second history bucket.
     inv xo_history_resolution "$ADMIN" "$XO" -- set_resolution --resolution 0 >/dev/null || return 1
 
     # Submission validation chain. Timestamps are milliseconds; anchor a few
@@ -139,6 +164,7 @@ flow_xoxno_oracle() {
     local agg agg2 agg3 hist_before
     agg2=$(view xo_read_aggregate "$XO" -- read_price_data_for_feed --feed_id USDX) || return 1
     _xo_assert_aggregate xo_aggregate_in_band "$agg2" 100000000 "$ts" xo_submit_bob || return 1
+    _xo_history_settle xo_carol_bucket 1 || return 1
     inv xo_submit_carol "$CAROL" "$XO" -- submit_price \
         --signer "$CAROL_ADDR" --feed_id USDX --price 101000000 --package_timestamp $((ts + 4000)) >/dev/null || return 1
     agg3=$(view xo_read_median3 "$XO" -- read_price_data_for_feed --feed_id USDX) || return 1
@@ -166,25 +192,30 @@ flow_xoxno_oracle() {
     hist=$(view xo_batch_rollback_history_read "$XO" -- read_price_history --feed_id USDX --limit 5) || return 1
     _xo_assert_json xo_batch_rollback_history "$hist" --argjson before "$hist_before" '. == $before' || return 1
     xfail_sim xo_batch_rollback_no_xlmx 'Error\(Contract, #7\)' "$ALICE" "$XO" -- read_price_data_for_feed --feed_id XLMX || return 1
+    _xo_history_settle xo_batch_bucket 1 || return 1
     inv xo_batch_submit "$ALICE" "$XO" -- submit_prices \
         --signer "$ALICE_ADDR" --feed_ids '["USDX","XLMX"]' --prices '["103000000","50000000"]' \
         --package_timestamp "$ts2" >/dev/null || return 1
     agg=$(view xo_batch_aggregate "$XO" -- read_price_data_for_feed --feed_id USDX) || return 1
     _xo_assert_aggregate xo_batch_median "$agg" 102000000 "$((ts + 2000))" xo_batch_submit || return 1
 
-    # Reflector conversions use package milliseconds / 1000, not write time.
-    local lp prices at before_first batch xlmx
+    # lastprice reads the package time. price and prices read one round per
+    # one-second write bucket, stamped with the write second.
+    local lp prices at before_first batch xlmx written2 written3 written4
+    written2=$(jq -er '.write_timestamp | tonumber / 1000 | floor' <<<"$agg2") || return 1
+    written3=$(jq -er '.write_timestamp | tonumber / 1000 | floor' <<<"$agg3") || return 1
+    written4=$(jq -er '.write_timestamp | tonumber / 1000 | floor' <<<"$agg") || return 1
     lp=$(view xo_lastprice "$XO" -- lastprice --asset "$usdx") || return 1
     _xo_assert_json xo_lastprice_pos "$lp" --argjson ts "$(((ts + 2000) / 1000))" \
         '(.price | tonumber) == 102000000 and (.timestamp | tonumber) == $ts' || return 1
-    at=$(view xo_price_at "$XO" -- price --asset "$usdx" --timestamp "$((ts / 1000))") || return 1
-    _xo_assert_json xo_price_at_exact "$at" --argjson ts "$((ts / 1000))" \
+    at=$(view xo_price_at "$XO" -- price --asset "$usdx" --timestamp "$written3") || return 1
+    _xo_assert_json xo_price_at_exact "$at" --argjson ts "$written3" \
         '(.price | tonumber) == 101000000 and (.timestamp | tonumber) == $ts' || return 1
-    before_first=$(view xo_price_before_first "$XO" -- price --asset "$usdx" --timestamp "$((ts / 1000 - 1))") || return 1
+    before_first=$(view xo_price_before_first "$XO" -- price --asset "$usdx" --timestamp "$((written2 - 1))") || return 1
     _xo_assert_json xo_price_before_first_null "$before_first" '. == null' || return 1
     prices=$(view xo_prices "$XO" -- prices --asset "$usdx" --records 3) || return 1
-    _xo_assert_json xo_prices_exact "$prices" --argjson ts "$((ts / 1000))" \
-        'map({price:(.price | tonumber), timestamp:(.timestamp | tonumber)}) == [{price:102000000,timestamp:($ts+2)},{price:101000000,timestamp:$ts},{price:100000000,timestamp:$ts}]' || return 1
+    _xo_assert_json xo_prices_exact "$prices" --argjson w2 "$written2" --argjson w3 "$written3" --argjson w4 "$written4" \
+        'map({price:(.price | tonumber), timestamp:(.timestamp | tonumber)}) == [{price:102000000,timestamp:$w4},{price:101000000,timestamp:$w3},{price:100000000,timestamp:$w2}]' || return 1
     hist=$(view xo_history "$XO" -- read_price_history --feed_id USDX --limit 5) || return 1
     _xo_assert_json xo_history_len "$hist" --argjson two "$agg2" --argjson three "$agg3" --argjson latest "$agg" \
         '. == [$latest, $three, $two]' || return 1
@@ -196,6 +227,7 @@ flow_xoxno_oracle() {
     batch=$(view xo_read_batch "$XO" -- read_price_data --feed_ids '["XLMX","USDX","XLMX"]') || return 1
     _xo_assert_json xo_batch_order "$batch" --argjson usd "$agg" --argjson xlm "$xlmx" '. == [$xlm, $usd, $xlm]' || return 1
 
+    _xo_history_settle xo_recompute_bucket 1 || return 1
     inv xo_recompute "$ADMIN" "$XO" -- recompute_feeds --feed_ids '["USDX"]' >/dev/null || return 1
     agg=$(view xo_recompute_read "$XO" -- read_price_data_for_feed --feed_id USDX) || return 1
     _xo_assert_aggregate xo_recompute_exact "$agg" 102000000 "$((ts + 2000))" xo_recompute || return 1
@@ -203,6 +235,7 @@ flow_xoxno_oracle() {
         --feed_ids '["NOPE"]' || return 1
 
     # Removal re-aggregates USDX from Bob/Carol but clears XLMX's lost quorum.
+    _xo_history_settle xo_removal_bucket 1 || return 1
     inv xo_remove_active_alice "$ADMIN" "$XO" -- remove_signer --signer "$ALICE_ADDR" >/dev/null || return 1
     agg=$(view xo_after_removal "$XO" -- read_price_data_for_feed --feed_id USDX) || return 1
     _xo_assert_aggregate xo_removal_median "$agg" 101000000 "$((ts + 2000))" xo_remove_active_alice || return 1
@@ -213,6 +246,7 @@ flow_xoxno_oracle() {
     inv xo_readd_alice "$ADMIN" "$XO" -- add_signer --signer "$ALICE_ADDR" >/dev/null || return 1
     inv xo_recompute_missing_quorum "$ADMIN" "$XO" -- recompute_feeds --feed_ids '["XLMX"]' >/dev/null || return 1
     xfail_sim xo_readd_no_resurrection 'Error\(Contract, #7\)' "$BOB" "$XO" -- read_price_data_for_feed --feed_id XLMX || return 1
+    _xo_history_settle xo_recover_bucket 1 || return 1
     inv xo_recover_submission "$ALICE" "$XO" -- submit_price --signer "$ALICE_ADDR" --feed_id XLMX \
         --price 52000000 --package_timestamp "$((ts2 + 3000))" >/dev/null || return 1
     agg=$(view xo_recovered_read "$XO" -- read_price_data_for_feed --feed_id XLMX) || return 1
@@ -246,6 +280,7 @@ flow_xoxno_oracle() {
         inv xo_upgrade_second "$BOB" "$XO" -- submit_price --signer "$BOB_ADDR" --feed_id UPGRADE --price 100000000 --package_timestamp "$upgrade_ts" >/dev/null || return 1
         upgrade_quote=$(view xo_upgrade_second_quote "$XO" -- read_price_data_for_feed --feed_id UPGRADE) || return 1
         _xo_assert_aggregate xo_upgrade_two_signers "$upgrade_quote" 100000000 "$upgrade_ts" xo_upgrade_second || return 1
+        _xo_history_settle xo_upgrade_third_bucket 60 || return 1
         inv xo_upgrade_third "$CAROL" "$XO" -- submit_price --signer "$CAROL_ADDR" --feed_id UPGRADE --price 100000000 --package_timestamp "$upgrade_ts" >/dev/null || return 1
         upgrade_quote=$(view xo_upgrade_quote "$XO" -- read_price_data_for_feed --feed_id UPGRADE) || return 1
         _xo_assert_aggregate xo_upgrade_quorum "$upgrade_quote" 100000000 "$upgrade_ts" xo_upgrade_third || return 1
