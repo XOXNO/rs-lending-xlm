@@ -9,7 +9,7 @@ use common::oracle::providers::reflector::{ReflectorAsset, ReflectorPriceData};
 
 use soroban_sdk::{contractimpl, Env, String, Symbol, Vec};
 
-use crate::aggregation::MAX_HISTORY_LEN;
+use crate::aggregation::{bucket_start_seconds, MAX_HISTORY_LEN};
 use crate::storage::{
     load_aggregate, load_all_assets, load_all_feeds, load_feed_id, load_history,
     load_max_cluster_spread_bps, load_max_relative_skew, load_max_stale_seconds,
@@ -140,52 +140,78 @@ impl XoxnoOracle {
         Some(to_reflector_price_data(&env, &data))
     }
 
-    /// Returns the history entry for `asset` with the newest package
-    /// timestamp at or before `timestamp` (seconds), converted to
-    /// `ReflectorPriceData`.
+    /// Returns the newest history round of `asset` written at or before
+    /// `timestamp` (seconds). See [`history_rounds`] for what a round holds.
+    /// The answer never holds a price written after `timestamp`, and its
+    /// timestamp is at or before `timestamp`.
     /// Returns `None` if `asset` has no feed mapping, the feed has no current
     /// aggregate or that aggregate is stale, the feed's history is
-    /// unavailable, or no entry satisfies the timestamp bound.
+    /// unavailable, or no round satisfies the timestamp bound.
     pub fn price(env: Env, asset: ReflectorAsset, timestamp: u64) -> Option<ReflectorPriceData> {
-        let feed_id = load_feed_id(&env, &asset)?;
-        let history = Self::read_price_history(env.clone(), feed_id, MAX_HISTORY_LEN).ok()?;
-
-        let mut best: Option<RedStonePriceData> = None;
-        for entry in history.iter() {
-            if millis_to_seconds(entry.package_timestamp) > timestamp {
-                continue;
-            }
-            let closer = match &best {
-                Some(b) => entry.package_timestamp > b.package_timestamp,
-                None => true,
-            };
-            if closer {
-                best = Some(entry);
-            }
-        }
-        best.map(|entry| to_reflector_price_data(&env, &entry))
+        history_rounds(&env, &asset, timestamp, 1)?.first()
     }
 
-    /// Returns up to `records` history entries for `asset`, newest first,
-    /// converted to `ReflectorPriceData`. Returns `None` if `asset` has no
-    /// feed mapping, the feed has no current aggregate or that aggregate is
-    /// stale, or its history is empty or unavailable.
+    /// Returns up to `records` history rounds of `asset`, newest first. See
+    /// [`history_rounds`] for what a round holds. Returns `None` if `asset`
+    /// has no feed mapping, the feed has no current aggregate or that
+    /// aggregate is stale, its history is empty or unavailable, or `records`
+    /// is zero.
     pub fn prices(
         env: Env,
         asset: ReflectorAsset,
         records: u32,
     ) -> Option<Vec<ReflectorPriceData>> {
-        let feed_id = load_feed_id(&env, &asset)?;
-        let history = Self::read_price_history(env.clone(), feed_id, records).ok()?;
-        if history.is_empty() {
+        let rounds = history_rounds(&env, &asset, u64::MAX, records)?;
+        if rounds.is_empty() {
             return None;
         }
-        let mut out = Vec::new(&env);
-        for entry in history.iter() {
-            out.push_back(to_reflector_price_data(&env, &entry));
-        }
-        Some(out)
+        Some(rounds)
     }
+}
+
+/// Returns up to `limit` history rounds of `asset`, newest first, as a
+/// Reflector-style answer. Uses only the stored history entries written at or
+/// before `written_by` (seconds).
+///
+/// A round is the newest such entry of one resolution bucket at the live
+/// resolution: its price, stamped with the bucket start in seconds
+/// ([`bucket_start_seconds`] of the entry's write timestamp). Round timestamps
+/// are distinct, at least one resolution apart and never later than the ledger
+/// time. An entry whose bucket is not older than the round before it is
+/// skipped.
+///
+/// Returns `None` if `asset` has no feed mapping or `read_price_history` fails
+/// for its feed.
+fn history_rounds(
+    env: &Env,
+    asset: &ReflectorAsset,
+    written_by: u64,
+    limit: u32,
+) -> Option<Vec<ReflectorPriceData>> {
+    let feed_id = load_feed_id(env, asset)?;
+    let history = XoxnoOracle::read_price_history(env.clone(), feed_id, MAX_HISTORY_LEN).ok()?;
+    let resolution = load_resolution(env);
+
+    let mut rounds = Vec::new(env);
+    let mut newer_round: Option<u64> = None;
+    for entry in history.iter() {
+        if rounds.len() >= limit {
+            break;
+        }
+        if millis_to_seconds(entry.write_timestamp) > written_by {
+            continue;
+        }
+        let timestamp = bucket_start_seconds(entry.write_timestamp, resolution);
+        if newer_round.is_some_and(|newer| timestamp >= newer) {
+            continue;
+        }
+        newer_round = Some(timestamp);
+        rounds.push_back(ReflectorPriceData {
+            price: u256_to_i128(env, &entry.price),
+            timestamp,
+        });
+    }
+    Some(rounds)
 }
 
 /// Converts a `RedStonePriceData` entry into `ReflectorPriceData`, narrowing

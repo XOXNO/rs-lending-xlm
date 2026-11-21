@@ -23,6 +23,33 @@ when unmapped, missing or stale. A submission needs a known feed, a price in
 `1..=MAX_SUBMITTED_PRICE` and a timestamp no older than the signer's last for
 that feed. `recompute_feeds` runs in footprint-sized batches.
 
+## History
+
+`History(feed_id)` keeps one entry per resolution bucket, at most
+`MAX_HISTORY_LEN` (12) entries. A bucket is the `resolution`-second span
+`[k * resolution, (k + 1) * resolution)` that holds the write time. A zero
+resolution counts as one second.
+
+- A new aggregate in the bucket of the last entry replaces that entry.
+- A new aggregate in a later bucket appends an entry. The oldest entry goes
+  when the history is full.
+- A quorum miss writes no entry.
+
+`prices` and `price` serve rounds, newest first. A round is the newest entry
+of a bucket at the live resolution, stamped with the bucket start in seconds.
+Round timestamps are distinct, at least one resolution apart, and never after
+the ledger time. A Reflector `Twap` read can use them at any signer cadence.
+
+- `prices(asset, records)` returns up to `records` rounds.
+- `price(asset, timestamp)` returns the newest round written at or before
+  `timestamp`.
+- `set_resolution` does not rewrite entries. The reads group them by the new
+  resolution.
+
+`lastprice`, `read_price_data*` and `read_price_history` return stored
+entries. Their timestamps are the oldest clustered package time and the write
+time, in milliseconds (`lastprice`: package time in seconds).
+
 ## Storage and TTL
 
 All keys are variants of `DataKey` in [`src/storage/mod.rs`](src/storage/mod.rs).
@@ -32,7 +59,7 @@ All keys are variants of `DataKey` in [`src/storage/mod.rs`](src/storage/mod.rs)
 | `Signers`, `Threshold`, `MaxStaleSeconds`, `MaxSubmissionAgeSeconds`, `MaxRelativeSkewSeconds`, `MaxClusterSpreadBps`, `Resolution` | instance | Configuration |
 | `LatestSubmission(feed_id, signer)` | persistent | A signer's latest `SignerSubmission` for a feed |
 | `SignerFeeds(signer)` | persistent | Feed ids a signer submitted for |
-| `CurrentAggregate(feed_id)`, `History(feed_id)` | persistent | Latest median and its history |
+| `CurrentAggregate(feed_id)`, `History(feed_id)` | persistent | Latest median, and one entry per resolution bucket ([History](#history)) |
 | `FeedMapping(asset)`, `FeedOwner(feed_id)` | persistent | SEP-40 asset to feed id, and back |
 | `AssetCount`, `AssetAt`, `AssetIndex`, `FeedCount`, `FeedAt`, `FeedIndex` | persistent | Swap-remove indexed asset and feed lists |
 

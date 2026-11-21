@@ -56,3 +56,31 @@ fn median_of_ignores_a_single_extreme_outlier() {
     let honest = vec![&env, 100i128, 101, 99, 100, i128::MAX];
     assert_eq!(median_of(&honest), 100);
 }
+
+#[test]
+fn bucket_start_seconds_floors_to_the_resolution_grid() {
+    // Milliseconds are floored to seconds first.
+    assert_eq!(bucket_start_seconds(10_199_999, 300), 9_900);
+    assert_eq!(bucket_start_seconds(10_200_000, 300), 10_200);
+    assert_eq!(bucket_start_seconds(10_499_999, 300), 10_200);
+    assert_eq!(bucket_start_seconds(10_500_000, 300), 10_500);
+    assert_eq!(bucket_start_seconds(10_201_000, 7), 10_199);
+    assert_eq!(bucket_start_seconds(0, 300), 0);
+    assert_eq!(bucket_start_seconds(299_999, 300), 0);
+}
+
+#[test]
+fn bucket_start_seconds_treats_a_zero_resolution_as_one_second() {
+    assert_eq!(bucket_start_seconds(10_001_999, 0), 10_001);
+    assert_eq!(bucket_start_seconds(10_001_999, 1), 10_001);
+}
+
+#[test]
+fn bucket_start_seconds_never_exceeds_the_write_time_at_the_domain_edges() {
+    let max_seconds = u64::MAX / 1_000;
+    assert_eq!(bucket_start_seconds(u64::MAX, 1), max_seconds);
+    let start = bucket_start_seconds(u64::MAX, u32::MAX);
+    assert!(start <= max_seconds);
+    assert_eq!(start % u64::from(u32::MAX), 0);
+    assert!(max_seconds - start < u64::from(u32::MAX));
+}
