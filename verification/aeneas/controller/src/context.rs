@@ -11,9 +11,10 @@
 //!   `lean/ControllerAeneas/FunsExternal.lean` fills the missing cache
 //!   entries from the price oracle and the pool.
 //! * `cached_pool_address`, `require_spoke_asset`, `apply_spoke_exit` and
-//!   `record_supply_position_update` (used by `liquidation/apply.rs`) are
-//!   opaque: spoke configuration, spoke usage and event buffers are an
-//!   uninterpreted part of the state in the Lean model.
+//!   `record_supply_position_update` (used by `liquidation/apply.rs`) and
+//!   `spoke_config` (used by `liquidation/plan.rs`) are opaque: spoke
+//!   configuration, spoke usage and event buffers are an uninterpreted part
+//!   of the state in the Lean model.
 //!
 //! Spoke usage, configuration caches, event buffers and the pool-address
 //! cache of the production `Context` are not read by the extracted functions
@@ -26,7 +27,7 @@ use crate::math::fp::Ray;
 use crate::spoke_usage::UsageSide;
 use crate::types::{
     AccountPosition, AssetConfig, HubAssetKey, MarketIndex, MarketIndexRaw, PriceFeed,
-    PriceFeedRaw,
+    PriceFeedRaw, SpokeConfig,
 };
 use soroban_sdk::{panic_with_error, Address, Env, Map, Vec};
 
@@ -55,6 +56,12 @@ impl Context {
 
     /// Returns the pool address. Opaque.
     pub(crate) fn cached_pool_address(&mut self) -> Address {
+        unimplemented!("opaque: modelled in FunsExternal.lean")
+    }
+
+    /// Returns the spoke config, loading it once per spoke context; fails if
+    /// the spoke does not exist. Opaque.
+    pub(crate) fn spoke_config(&mut self, _spoke_id: u32) -> SpokeConfig {
         unimplemented!("opaque: modelled in FunsExternal.lean")
     }
 

@@ -3,7 +3,7 @@ name = "controller-aeneas"
 version = "0.0.0"
 publish = false
 edition = "2021"
-description = "Compiles the production controller liquidation code (contracts/controller/src/positions/liquidation/{curve,math,apply}.rs, risk/totals.rs) and common/src/{math,rates} verbatim for Charon/Aeneas extraction to Lean (library ControllerAeneas)"
+description = "Compiles the production controller liquidation code (contracts/controller/src/positions/liquidation/{curve,math,plan,apply}.rs, risk/totals.rs) and common/src/{math,rates} verbatim for Charon/Aeneas extraction to Lean (library ControllerAeneas)"
 
 # Standalone workspace: never part of the root workspace, `make build`, or any
 # deployable Wasm.

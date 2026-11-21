@@ -19,6 +19,9 @@ against the generated `lean/ControllerAeneas/Funs.lean`. Conventions:
 | same | `get_account_bonus_params`, `calculate_seizure_proportions` | proved in [controller-seizure.md](controller-seizure.md) |
 | same | `normalize_repayment_plan`, `whole_unit_repayment`, `release_unbacked_repayment`, `process_excess_payment`, `one_unit_per_*` | proved in [controller-repayment.md](controller-repayment.md) |
 | same | `repays_every_debt_leg` | kept opaque (closure with a mutable capture, [Aeneas issue 5](extraction.md#controller-aeneas-issues)) |
+| same | `LiquidationPlan::validate`, `NormalizedRepaymentPlan::validate` | extracted, not proved |
+| `contracts/controller/src/positions/liquidation/plan.rs` | `build_liquidation_plan` | seizure at most the held shares proved in [controller-seizure.md](controller-seizure.md#plan-builder-seizure-within-the-held-shares); that it returns is not proved |
+| `contracts/controller/src/positions/liquidation/curve.rs` | `LiquidationCurve::from_config` | extracted, not proved |
 | `contracts/controller/src/positions/liquidation/apply.rs` | `apply_liquidation_repayments`, `credited_shares`, `check_bad_debt_after_liquidation` | proved |
 | same | `apply_liquidation_seizures`, `apply_liquidation_share_credit`, `credit_supply_shares` | extracted, not proved (their observable effects are external calls) |
 | `contracts/controller/src/risk/totals.rs` | `calculate_account_risk_totals`, `calculate_ltv_collateral_wad`, `sum_debt_usd` (and `sum_debt_usd_loaded`, `portfolio_hub_keys`) | proved (exact sums, INV-RISK-02 conservativeness) |
@@ -222,6 +225,8 @@ Per entry of the respective map or list:
   only.
 * **`aggregate_positive_payments`** — extracted verbatim; the repayment
   theorem takes its merged list as a hypothesis.
+* **`build_liquidation_plan`** — only its seizure bound is proved
+  ([gaps](controller-seizure.md#not-covered)).
 
 Other documents list their own gaps. Error codes and `Vec`/`Map` model
 limits: [README](../README.md#not-covered),

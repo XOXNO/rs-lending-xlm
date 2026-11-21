@@ -26,7 +26,7 @@ build.
   the typed `fp` wrappers.
 * `common/src/rates/{scaling,value}.rs` (`src/rates.rs`, with the `pub use`
   lines of `rates/mod.rs`); `curve`, `index`, `compound`, `simulate` unneeded.
-* `contracts/controller/src/positions/liquidation/{curve,math,apply}.rs`
+* `contracts/controller/src/positions/liquidation/{curve,math,plan,apply}.rs`
   (`src/positions/liquidation/mod.rs`).
 
 **Generated from production.** `controller/gen_totals.py` (run by
@@ -61,7 +61,8 @@ resolve to this crate.
   `aggregate_positive_payments`, `aggregate_payments`,
   `aggregate_payment_amount`, verbatim from
   `contracts/controller/src/payments.rs`; `transfer_amount_measured` opaque.
-* `src/context.rs`: the [Context model](#controller-trusted-base).
+* `src/context.rs`: the [Context model](#controller-trusted-base);
+  `spoke_config` is opaque.
 * `src/storage.rs`: `iter_typed_positions` / `iter_debt_positions`.
   Production's `map.iter().map(|(k, raw)| (k, From::from(&raw)))` becomes a
   loop pushing the same items in order and returning the vector's iterator
@@ -81,8 +82,9 @@ resolve to this crate.
 
 `../check_standins.py`, run first by `run.sh`, compares the copied items in
 `controller/src` (`types.rs`, `cached_price`, payment aggregation,
-`make_pool_action`, ...) with production. An adapted stand-in pins the hash
-of the item it replaces.
+`make_pool_action`, ...) with production. An adapted or opaque stand-in
+(`cached_market_index`, `load_markets`, `spoke_config`, ...) pins the hash of
+the item it replaces.
 
 **Scripts.** `controller/extract.sh` lists the roots (`--start-from`) and
 opaque items (`--opaque`) and passes `--inline-anon-consts`
@@ -142,16 +144,19 @@ the models in `lean/ControllerAeneas/TypesExternal.lean` and
     the rest of the host state, so theorems hold for every value:
     `poolIndex` (pool's index for a key, used by `fetch_market_index`),
     `oraclePrice` (`None`: the fetch aborts), `poolAddress`,
-    `spokeAssetConfig`, `spokeExitOk`, `spokeFlagsAllow`, `transferReceived`
-    (measured balance change; any token behaviour).
+    `spokeConfigOf`, `spokeAssetConfig`, `spokeExitOk`, `spokeFlagsAllow`,
+    `transferReceived` (measured balance change; any token behaviour).
   * `load_markets` caches each key's missing asset price (aborting if the
     oracle has none) and missing index, keeping cached entries; production
     batches the same fetches.
-  * `cached_pool_address`, `require_spoke_asset`, `apply_spoke_exit`,
-    `record_supply_position_update`, `enforce_spoke_asset_flags`: caches
-    unchanged, abort where production can. In production they touch only
-    spoke usage, configuration caches, event buffers and the pool-address
-    cache.
+  * `cached_pool_address`, `spoke_config`, `require_spoke_asset`,
+    `apply_spoke_exit`, `record_supply_position_update`,
+    `enforce_spoke_asset_flags`: caches unchanged, abort where production
+    can. In production they touch only spoke usage, configuration caches,
+    event buffers and the pool-address cache.
+  * `spoke_config` returns `spokeConfigOf spoke`, and aborts when it is
+    `None`: the spoke does not exist, or the context is bound to another
+    spoke.
   * `transfer_amount_measured` aborts unless `amount > 0`; returns
     `transferReceived`.
   * `apply_repay_batch`, `apply_withdraw_batch`, `pool_seize_positions_call`,

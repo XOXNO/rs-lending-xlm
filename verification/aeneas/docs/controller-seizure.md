@@ -16,10 +16,12 @@ health factor after the executed plan, against the generated
 | `get_account_bonus_params` (and its loop) | exact value, `0 ≤ base ≤ max`, base a weighted average of stamped bonuses |
 | `calculate_seizure_proportions` | exact value, `0 ≤ p ≤ W`, meets the bonus fields of the estimate's `EstDomain` |
 | `rates::scaling::resolve_withdrawal` | value form re-proved on this extraction (`sz_resolve_withdrawal_val`) |
+| `build_liquidation_plan` (`plan.rs`) | every returned plan seizes at most the held shares, per supply position, with no domain hypothesis ([details](#plan-builder-seizure-within-the-held-shares)) |
 | post-liquidation health factor | **headline**: post-HF ≥ pre-HF and ≥ curve target, each up to explicit rounding ([details](#the-post-liquidation-health-factor-in-plain-words)) |
 
 Files (plain, non-`module` Lean under `lean/ControllerAeneas/Proofs/`;
-`lake build ControllerAeneas.Proofs.HealthAfterPlan` builds all):
+`lake build ControllerAeneas.Proofs.HealthAfterPlan ControllerAeneas.Proofs.Plan`
+builds all):
 
 | File | Contents |
 |---|---|
@@ -33,6 +35,7 @@ Files (plain, non-`module` Lean under `lean/ControllerAeneas/Proofs/`;
 | `HealthAfterCombine.lean` | rational-arithmetic combination lemmas |
 | `HealthAfter.lean` | `health_after_hf_preserving`, `health_after_target`, `ha_counterexample` |
 | `HealthAfterPlan.lean` | `plan_credits_sum`, `health_after_executed_plan` |
+| `Plan.lean` | `Rets` (partial correctness), `SeizedFrom`, `calculate_seized_collateral_seized_le_held`, `build_liquidation_plan_seized_computed`, `build_liquidation_plan_seized_le_held`, `seized_le_held_nonvacuous` |
 
 ## Notation
 
@@ -97,6 +100,45 @@ only). "Served" means the context caches the leg's price and index.
 Certora: `liquidation_does_not_increase_seized_collateral` (account level,
 bounded) for `calculate_seized_collateral_entries`.
 
+### Plan builder: seizure within the held shares
+
+All support INV-LIQ-02. These theorems are partial correctness: each one is
+about a call that returned, and holds for every input. `Rets m P` means "if
+`m` returns `r`, then `P r`". "Within" a supply entry `e` means: the same hub
+asset as `e`, and `0 < scaled_amount ≤ e.scaled_amount`.
+
+| Lean name | File | Rust function | Claim | Hypotheses |
+|---|---|---|---|---|
+| `pl_body_rets` | `Plan` | `calculate_seized_collateral` loop body | a returning iteration continues with the rest of the legs; the seizure list is unchanged, or gains one entry within this leg | none |
+| `pl_loop_rets` | `Plan` | generated loop | output `= input ++ out`, `SeizedFrom`: legs in order, at most one entry per leg, each within its leg | none |
+| `calculate_seized_collateral_seized_le_held` | `Plan` | `calculate_seized_collateral` | the returned seizures are `SeizedFrom` the account's supply map | none |
+| `build_liquidation_plan_seized_computed` | `Plan` | `build_liquidation_plan` | the plan's `seized` list is the list one `calculate_seized_collateral` call returned, on the same account, with the total collateral of `calculate_account_risk_totals` on the account's maps | none |
+| `build_liquidation_plan_seized_within` | `Plan` | same | every seizure entry is within some entry of the account's supply map | the call returned the plan |
+| **`build_liquidation_plan_seized_le_held`** | `Plan` | same | every seizure entry names a supplied hub asset (`Map::get` returns a position) with `0 < scaled_amount ≤ position.scaled_amount`; no two entries name the same hub asset | the call returned the plan; distinct supply keys |
+| `seized_le_held_nonvacuous` | `Plan` | `calculate_seized_collateral` | on a concrete account (one position of `10^30` shares, a 100 USD plan at 5%), the call returns exactly one entry of `105·10^27` shares | none |
+| `SeizedFrom.mem`, `.keys_sublist`, `.transport`, `.nil` | `Plan` | (lists) | entries come from legs; the entries' hub assets are a sub-list of the legs' hub assets; transport along `TypedOf` | as stated |
+| `mapLookup_of_mem` | `Plan` | `Map::get` model | with distinct keys, `get` of an entry's key returns that entry's value | distinct keys |
+| `pl_ray_mul_ok`, `pl_bind_ok`, `pl_spec_ok`, `Rets.ok`, `.bind`, `.bind_any`, `.ite` | `Plan` | `Ray::mul`; (logic) | a returning `Ray::mul` has non-negative operands and equals `huD(a·b, R)`; rules for `Rets` | as stated |
+
+`calculate_seized_collateral_entries` states the same per-entry bound under
+the hypotheses of `calculate_seized_collateral_spec`. Those hypotheses make
+the call return; the bound does not need them. The reason, per leg:
+
+* `actual_ray = Ray::mul(s, i)` returns only for `s ≥ 0` and `i ≥ 0`, and
+  equals `huD(s·i, R)` (`mul_div_half_up_returns_iff`).
+* `capped_ray ≤ actual_ray` on both branches.
+* If `capped_ray = actual_ray`, the entry takes exactly `s`.
+* Otherwise `0 < capped_ray < actual_ray`, so `i > 0` and
+  `⌊capped_ray·R/i⌋ ≤ s`.
+* The loop pushes an entry only when `seized_scaled > 0`.
+
+`build_liquidation_plan` passes its account to `calculate_seized_collateral`
+and returns that list unchanged. `release_unbacked_repayment`, the
+seizure-flag loop and `LiquidationPlan::validate` only read it.
+
+Certora: `liquidation_does_not_increase_seized_collateral` (account level,
+bounded).
+
 ### Bonus and seizure proportion
 
 All support INV-LIQ-02 and leave the context unchanged.
@@ -142,6 +184,13 @@ bounds (`AB`, `ShW`, `LB`, `QB`, `S1B`, `A1B`, `wusd_fit`, `part_le`,
 
 ### Why the hypotheses hold in production
 
+* **Distinct supply keys** (`build_liquidation_plan_seized_le_held`). The
+  account's `supply_positions` is a Soroban `Map`, whose keys are unique. The
+  host enforces it; no repository code does. The list model of `Map` does not
+  record it ([trusted base](extraction.md#controller-trusted-base)).
+* **The call returned.** This is the premise of a partial-correctness
+  theorem, not a domain. `seized_le_held_nonvacuous` shows a returning call
+  of `calculate_seized_collateral` with a non-empty list.
 * **`SzLegOK`.** Shares, indexes, prices are non-negative `Ray`/`Wad`; supply
   index ≥ its floor (`0 < i`); oracle prices positive;
   `MAX_ASSET_DECIMALS = 18`; stamped fee rates validated below 100%. `s ≤ 2^126`, `s·i ≤ 2^126·R`:
@@ -248,9 +297,22 @@ No production bug. Observations:
 4. **Every emitted entry passes `LiquidationPlan::validate`'s seizure
    checks** (`calculate_seized_collateral_entries`), except
    `liquidation_fees < BPS`, which depends on the stamped rate (an input).
+5. **`LiquidationPlan::validate` does not compare a seizure with the held
+   shares.** The bound holds by construction
+   (`build_liquidation_plan_seized_le_held`). In credit mode the only runtime
+   check is the `checked_sub` in `apply_liquidation_share_credit`.
 
 ## Not covered
 
+* **`build_liquidation_plan` beyond the seizure bound.** Not proved: that it
+  returns on the production domain; the health-factor gate; the spoke-flag
+  loops; the effect of `release_unbacked_repayment` on the returned
+  repayment; that `LiquidationPlan::validate` passes. The bound covers the
+  `scaled_amount` field. The `amount` field is bounded only under `SzLegOK`
+  (`calculate_seized_collateral_entries`).
+* **A returning call of `build_liquidation_plan` in Lean.** The spoke flags
+  and the spoke configuration are uninterpreted, so no concrete call is
+  evaluated. `seized_le_held_nonvacuous` evaluates the seizure call only.
 * **Exact abort set of the loop.** `SzLegOK` is sufficient, not necessary:
   `B·W ≤ 2^126·p` is the sufficient form of `huD(L·W, p) < 2^127`.
 * **Plan-level `B ≲ C` and post-account domain.** `rep = Σ u_j` and
@@ -280,4 +342,4 @@ No production bug. Observations:
 ## Axioms
 
 `#assert_standard_axioms` (end of `ControllerAeneas.lean`) covers every
-declaration of the ten files ([README](../README.md#trusted-base)).
+declaration of the eleven files ([README](../README.md#trusted-base)).

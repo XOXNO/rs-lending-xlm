@@ -1,5 +1,5 @@
 //! The production controller liquidation code
-//! (`contracts/controller/src/positions/liquidation/{curve,math,apply}.rs`,
+//! (`contracts/controller/src/positions/liquidation/{curve,math,plan,apply}.rs`,
 //! `contracts/controller/src/risk/totals.rs`) and the
 //! common fixed-point and rate code it calls (`common/src/{math,rates}`),
 //! compiled verbatim through `#[path]` includes for extraction to Lean with

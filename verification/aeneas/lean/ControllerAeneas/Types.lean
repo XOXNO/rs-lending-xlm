@@ -177,7 +177,7 @@ structure types.PriceFeedRaw where
   timestamp : Std.U64
 
 /-- [controller_aeneas::context::Context]
-    Source: 'src/context.rs', lines 33:0-37:1
+    Source: 'src/context.rs', lines 34:0-38:1
     Visibility: public -/
 structure context.Context where
   env : aeneas_soroban_shim.Env
@@ -192,6 +192,15 @@ structure context.Context where
 structure types.MarketIndex where
   borrow_index : math.fp.Ray
   supply_index : math.fp.Ray
+
+/-- [controller_aeneas::types::SpokeConfig]
+    Source: 'src/types.rs', lines 14:0-19:1
+    Visibility: public -/
+structure types.SpokeConfig where
+  is_deprecated : Bool
+  liquidation_target_hf_wad : Std.I128
+  hf_for_max_bonus_wad : Std.I128
+  liquidation_bonus_factor_bps : Std.U32
 
 /-- [controller_aeneas::types::AssetConfig]
     Source: 'src/types.rs', lines 218:0-228:1
@@ -229,27 +238,28 @@ structure types.PriceFeed where
   timestamp : Std.U64
 
 /-- [controller_aeneas::errors::OracleError]
-    Source: 'src/errors.rs', lines 39:0-41:1
+    Source: 'src/errors.rs', lines 40:0-42:1
     Visibility: public -/
 @[discriminant u32 [216]]
 inductive errors.OracleError where
 | OracleNotConfigured : errors.OracleError
 
 /-- [controller_aeneas::context::{controller_aeneas::context::Context}::cached_price::{closure}]
-    Source: 'src/context.rs', lines 94:28-94:93 -/
+    Source: 'src/context.rs', lines 101:28-101:93 -/
 @[reducible]
 def context.Context.cached_price.closure := aeneas_soroban_shim.Env
 
 /-- [controller_aeneas::errors::CollateralError]
-    Source: 'src/errors.rs', lines 26:0-29:1
+    Source: 'src/errors.rs', lines 26:0-30:1
     Visibility: public -/
-@[discriminant u32 [120,121]]
+@[discriminant u32 [101,120,121]]
 inductive errors.CollateralError where
+| HealthFactorTooHigh : errors.CollateralError
 | DebtPositionNotFound : errors.CollateralError
 | CollateralPositionNotFound : errors.CollateralError
 
 /-- [controller_aeneas::errors::SpokeError]
-    Source: 'src/errors.rs', lines 51:0-53:1
+    Source: 'src/errors.rs', lines 52:0-54:1
     Visibility: public -/
 @[discriminant u32 [310]]
 inductive errors.SpokeError where
@@ -439,6 +449,12 @@ structure positions.liquidation.math.NormalizedRepaymentPlan where
   full_close : Bool
   repays_all_debt : Bool
   seize_all : Bool
+
+/-- [controller_aeneas::positions::liquidation::math::LiquidationPlan]
+    Source: 'src/positions/liquidation/../../../../../../contracts/controller/src/positions/liquidation/math.rs', lines 46:0-49:1 -/
+structure positions.liquidation.math.LiquidationPlan where
+  repayment : positions.liquidation.math.NormalizedRepaymentPlan
+  seized : aeneas_soroban_shim.Vec types.SeizeEntry
 
 /-- [controller_aeneas::positions::liquidation::math::get_account_bonus_params::{closure#1}]
     Source: 'src/positions/liquidation/../../../../../../contracts/controller/src/positions/liquidation/math.rs', lines 608:28-608:81 -/

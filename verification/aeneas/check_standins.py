@@ -100,6 +100,8 @@ PINNED = [
     (f"{PROD_CTRL}/storage/account.rs", "fn iter_debt_positions", "97f5df0076f209d3"),
     (f"{PROD_CTRL}/context.rs", "impl Context :: fn load_markets", "7f2e1de9f7b6649e"),
     (f"{PROD_CTRL}/context.rs", "impl Context :: fn cached_pool_address", "68daa0e72560d46e"),
+    # Stand-in is opaque: the stored spoke config, or an abort (mismatch / missing spoke).
+    (f"{PROD_CTRL}/context.rs", "impl Context :: fn spoke_config", "31d96480b6bcf4ff"),
     (f"{PROD_CTRL}/positions/mod.rs", "fn enforce_spoke_asset_flags", "a1b19ed5c2e2e027"),
     ("common/src/token.rs", "fn transfer_amount_measured", "6497c79e99147c6a"),
     ("contracts/pool/src/storage.rs", "fn read_state", "5c04601e269733a7"),
