@@ -128,6 +128,43 @@ fn opted_in_but_manager_inactive_rejected() {
 }
 
 #[test]
+fn delegate_grant_requires_an_active_registered_manager() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let admin = Address::generate(&env);
+    let contract_id = env.register(Controller, (admin,));
+    let nft = setup_position_nft(&env, &contract_id);
+    let owner = Address::generate(&env);
+    let account_id = seed_account(&env, &contract_id, &nft, &owner);
+    let manager = Address::generate(&env);
+    let client = crate::ControllerClient::new(&env, &contract_id);
+    client.unpause();
+
+    for config in [None, Some(PositionManagerConfig { is_active: false })] {
+        if let Some(config) = config {
+            env.as_contract(&contract_id, || {
+                storage::set_position_manager(&env, &manager, &config);
+            });
+        }
+        assert_eq!(
+            client.try_add_delegate(&owner, &account_id, &manager),
+            Err(Ok(soroban_sdk::Error::from_contract_error(44)))
+        );
+        env.as_contract(&contract_id, || {
+            assert!(!storage::get_delegates(&env, account_id, &owner).contains(manager.clone()));
+        });
+    }
+
+    env.as_contract(&contract_id, || {
+        storage::set_position_manager(&env, &manager, &PositionManagerConfig { is_active: true });
+    });
+    client.add_delegate(&owner, &account_id, &manager);
+    env.as_contract(&contract_id, || {
+        assert!(storage::get_delegates(&env, account_id, &owner).contains(manager));
+    });
+}
+
+#[test]
 fn require_account_owner_owner_passes() {
     let env = Env::default();
     env.mock_all_auths();

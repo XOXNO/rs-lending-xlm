@@ -1318,6 +1318,27 @@ fn test_set_oracle_rejects_reserve_decimals_the_token_does_not_report() {
 }
 
 #[test]
+#[should_panic(expected = "Error(Contract, #221)")]
+fn test_set_oracle_rejects_reserve_decimals_above_the_supported_range() {
+    let env = Env::default();
+    env.ledger().set_timestamp(1_000_000);
+    with_contract(&env, || {
+        let (_pool, share, mut oracle) = listable_lp(
+            &env,
+            "standard",
+            10_000_000_000,
+            10_000_000_000,
+            10_000_000_000,
+        );
+        let mut lp = lp_of(&oracle);
+        lp.reserve_b_decimals = common::constants::MAX_ASSET_DECIMALS + 1;
+        set_lp(&mut oracle, lp);
+
+        set_oracle(&env, PriceKey::Token(share), oracle);
+    });
+}
+
+#[test]
 #[should_panic(expected = "Error(Contract, #234)")]
 fn test_set_oracle_rejects_a_pool_with_one_empty_reserve() {
     let env = Env::default();
