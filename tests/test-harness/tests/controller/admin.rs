@@ -8,11 +8,7 @@ use test_harness::{
 };
 
 fn upload_pool_wasm(env: &soroban_sdk::Env) -> BytesN<32> {
-    let mut bytes = std::fs::read("target/wasm32v1-none/release/pool.wasm");
-    if bytes.is_err() {
-        bytes = std::fs::read("../../target/wasm32v1-none/release/pool.wasm");
-    }
-    let bytes = bytes.expect("Liquidity pool WASM not found. Run 'make build' first.");
+    let bytes = test_harness::wasm::read_wasm_artifact("POOL_WASM_PATH", "pool.wasm");
     env.deployer()
         .upload_contract_wasm(soroban_sdk::Bytes::from_slice(env, &bytes))
 }

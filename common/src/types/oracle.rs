@@ -207,7 +207,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic]
+    #[should_panic(expected = "#33")]
     fn usd_value_wad_panics_instead_of_wrapping_past_i128() {
         let env = Env::default();
         let feed = PriceFeed {

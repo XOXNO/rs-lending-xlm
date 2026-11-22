@@ -166,6 +166,14 @@ fn test_edit_asset_in_spoke_accepts_high_bonus_low_threshold() {
     };
     t.gov_client()
         .execute_immediate(&admin, &AdminOperation::EditAssetInSpoke(args));
+
+    let updated = t
+        .ctrl_client()
+        .get_spoke_asset(&HARNESS_SPOKE, &hub_asset(asset));
+    assert_eq!(updated.loan_to_value, 4000);
+    assert_eq!(updated.liquidation_threshold, 5000);
+    assert_eq!(updated.liquidation_bonus, 5000);
+    assert_eq!(updated.liquidation_fees, 0);
 }
 
 fn base_oracle_config(t: &LendingTest) -> AssetOracle {

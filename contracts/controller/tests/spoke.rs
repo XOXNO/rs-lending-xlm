@@ -320,14 +320,19 @@ fn ceiling_cap_saturates_instead_of_panicking_at_the_index_floor() {
     let asset = Address::generate(&env);
     env.as_contract(&contract, || {
         let mut ctx = SpokeUsageContext::new(&env, 1);
+        let key = hub(&asset);
         ctx.apply_entry(
             UsageSide::Supply,
-            &hub(&asset),
+            &key,
             Ray::from(RAY),
             common::validation::max_cap_for_decimals(7),
             Ray::from(common::constants::SUPPLY_INDEX_FLOOR_RAW),
             7,
         );
+        ctx.persist();
+        let usage = storage::get_spoke_usage(&env, 1, &key).expect("supply usage was recorded");
+        assert_eq!(usage.supplied_scaled_ray, RAY);
+        assert_eq!(usage.borrowed_scaled_ray, 0);
     });
 }
 

@@ -433,7 +433,7 @@ fn test_ray_checked_sub_ok() {
 }
 
 #[test]
-#[should_panic]
+#[should_panic(expected = "#33")]
 fn test_ray_checked_sub_underflow_panics() {
     let env = Env::default();
     let a = Ray::from(3 * RAY);
@@ -442,7 +442,7 @@ fn test_ray_checked_sub_underflow_panics() {
 }
 
 #[test]
-#[should_panic]
+#[should_panic(expected = "#33")]
 fn test_ray_checked_sub_rejects_negative_self() {
     let env = Env::default();
     let _ = Ray::from(-1).checked_sub(&env, Ray::from(0));
@@ -534,14 +534,14 @@ fn test_ray_mul_exact_products() {
 }
 
 #[test]
-#[should_panic]
+#[should_panic(expected = "#55")]
 fn test_ray_div_by_zero_panics() {
     let env = Env::default();
     let _ = Ray::ONE.div(&env, Ray::ZERO);
 }
 
 #[test]
-#[should_panic]
+#[should_panic(expected = "#33")]
 fn test_ray_mul_overflow_panics() {
     let env = Env::default();
     let _ = Ray::from(i128::MAX).mul(&env, Ray::from(i128::MAX));
@@ -571,7 +571,7 @@ fn test_ray_sub_panics_on_negative_result() {
 }
 
 #[test]
-#[should_panic]
+#[should_panic(expected = "#55")]
 fn test_wad_div_by_zero_panics() {
     let env = Env::default();
     let _ = Wad::ONE.div(&env, Wad::ZERO);
@@ -619,7 +619,7 @@ fn test_ray_checked_add_ok() {
 }
 
 #[test]
-#[should_panic]
+#[should_panic(expected = "#33")]
 fn test_ray_checked_add_overflow_panics() {
     let env = Env::default();
     let _ = Ray::from(i128::MAX).checked_add(&env, Ray::from(1));
@@ -650,7 +650,7 @@ fn test_wad_checked_sub_ok() {
 }
 
 #[test]
-#[should_panic]
+#[should_panic(expected = "#33")]
 fn test_wad_checked_sub_underflow_panics() {
     let env = Env::default();
     let _ = Wad::from(1).checked_sub(&env, Wad::from(2));
@@ -665,7 +665,7 @@ fn test_bps_checked_add_ok() {
 }
 
 #[test]
-#[should_panic]
+#[should_panic(expected = "#33")]
 fn test_bps_checked_add_overflow_panics() {
     let env = Env::default();
     let _ = Bps::from(i128::MAX).checked_add(&env, Bps::from(1));
@@ -766,21 +766,21 @@ fn test_bps_checked_sub_zero_zero_returns_zero() {
 }
 
 #[test]
-#[should_panic]
+#[should_panic(expected = "#33")]
 fn test_ray_checked_sub_negative_rhs_with_zero_self_panics() {
     let env = Env::default();
     let _ = Ray::from(0).checked_sub(&env, Ray::from(-1));
 }
 
 #[test]
-#[should_panic]
+#[should_panic(expected = "#33")]
 fn test_wad_checked_sub_negative_rhs_with_zero_self_panics() {
     let env = Env::default();
     let _ = Wad::from(0).checked_sub(&env, Wad::from(-1));
 }
 
 #[test]
-#[should_panic]
+#[should_panic(expected = "#33")]
 fn test_bps_checked_sub_negative_rhs_with_zero_self_panics() {
     let env = Env::default();
     let _ = Bps::from(0i128).checked_sub(&env, Bps::from(-1i128));
@@ -1520,7 +1520,7 @@ fn test_ray_mul_ray_ratio_floor_saturating() {
 }
 
 #[test]
-#[should_panic]
+#[should_panic(expected = "#55")]
 fn test_ray_mul_ray_ratio_floor_saturating_rejects_a_zero_denominator() {
     let env = Env::default();
     let _ = Ray::ONE.mul_ray_ratio_floor_saturating(&env, Ray::ONE, Ray::ZERO);

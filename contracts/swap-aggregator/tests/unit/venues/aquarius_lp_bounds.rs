@@ -347,6 +347,39 @@ fn mint_tolerates_a_constituent_the_pool_declines_to_pull() {
     );
 }
 
+/// A zero-funded constituent is never touched by the pool. Reading its token
+/// balance anyway would turn an otherwise valid mint into a failed invocation.
+#[test]
+fn mint_skips_balance_read_for_a_zero_funded_constituent() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let (token_a, sac_a) = new_asset(&env, &admin);
+    let unfunded = Address::generate(&env);
+    let pool = env.register(PartialLpPool, ());
+    let share = env
+        .register_stellar_asset_contract_v2(pool.clone())
+        .address();
+    PartialLpPoolClient::new(&env, &pool).init(&token_a, &unfunded, &share);
+
+    let probe = env.register(MintProbe, ());
+    sac_a.mint(&probe, &1_000);
+
+    let report = MintProbeClient::new(&env, &probe).mint(
+        &pool,
+        &share,
+        &vec![&env, token_a.clone(), unfunded],
+        &vec![&env, 1_000i128, 0i128],
+        &1_000i128,
+    );
+
+    assert_eq!(report.get_unchecked(0), 1_000);
+    assert_eq!(report.get_unchecked(1), 0);
+    assert_eq!(report.get_unchecked(2), 0);
+    assert_eq!(token::Client::new(&env, &token_a).balance(&pool), 1_000);
+}
+
 /// The router hands the pool invoker auth for exactly the legs it funds, so a
 /// pool that reaches for a constituent the vault contributed nothing of has no
 /// authorization to spend under.

@@ -315,6 +315,34 @@ fn estimate_band_quotes_the_full_debt_at_the_hf_preserving_cap() {
 }
 
 #[test]
+fn cap_equal_to_base_bonus_keeps_a_solvent_quote_collateral_backed() {
+    let env = Env::default();
+    let curve = LiquidationCurve::from_config(&default_spoke_config());
+    // HF / seizure proportion = 0.945 / 0.9 = 1.05, exactly the base
+    // bonus. The account is solvent, but its collateral covers only
+    // 1030 / 1.05 = 980.952... of the 1000 USD debt at that bonus. The
+    // remainder exceeds the bad-debt dust threshold, so it is not closed.
+    let s = snap(
+        1_000 * WAD,
+        1_030 * WAD,
+        945 * WAD,
+        9 * WAD / 10,
+        945 * WAD / 1000,
+    );
+    assert_eq!(max_hf_preserving_bonus_bps(&s), Some(500));
+    let bounds = BonusBounds {
+        base: Bps::from(500i128),
+        max: max_bonus_for_threshold(&env, s.proportion_seized),
+    };
+
+    let (quote, bonus) = estimate_liquidation_amount(&env, &s, bounds, &curve);
+
+    assert_eq!(bonus.raw(), 500);
+    assert_eq!(quote.raw(), 980_952_380_952_380_952_381);
+    assert!(quote < s.total_debt);
+}
+
+#[test]
 fn estimate_band_at_a_zero_cap_quotes_the_full_debt_at_zero_bonus() {
     let env = Env::default();
     let curve = LiquidationCurve::from_config(&default_spoke_config());

@@ -15,7 +15,7 @@ fn test_to_reflector_asset_symbol_maps_to_other() {
 }
 
 #[test]
-#[should_panic]
+#[should_panic(expected = "#204")]
 fn test_to_reflector_asset_string_panics() {
     let env = Env::default();
     let asset = OracleAssetRef::String(soroban_sdk::String::from_str(&env, "USDC"));

@@ -214,11 +214,11 @@ pub(crate) fn liquidation_estimations_detailed(
 
     let result = build_liquidation_plan(env, &account, debt_payments, &mut cache).into_result();
     if let SeizeMode::Credit(requested) = seize_mode {
-        // `Credit(0)` would create an empty receiver; model it without minting.
+        // `Credit(0)` would create an empty receiver; only its supply slots are
+        // read by the credit-position checks, so model those without minting.
         let receiver = if requested == 0 {
             Account {
                 supply_positions: Map::new(env),
-                borrow_positions: Map::new(env),
                 ..account.clone()
             }
         } else {

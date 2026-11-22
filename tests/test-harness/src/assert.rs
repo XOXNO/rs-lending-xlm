@@ -10,15 +10,19 @@ use crate::helpers::hub_asset;
 use crate::view::PositionType;
 
 fn side_count(env: &Env, account_id: u64, pos_type: PositionType) -> u32 {
-    let key = match pos_type {
-        PositionType::Supply => ControllerKey::SupplyPositions(account_id),
-        PositionType::Borrow => ControllerKey::BorrowPositions(account_id),
-    };
-    env.storage()
-        .persistent()
-        .get::<_, Map<HubAssetKey, controller::types::AccountPositionRaw>>(&key)
-        .map(|m| m.len())
-        .unwrap_or(0)
+    let storage = env.storage().persistent();
+    match pos_type {
+        PositionType::Supply => storage
+            .get::<_, Map<HubAssetKey, controller::types::AccountPositionRaw>>(
+                &ControllerKey::SupplyPositions(account_id),
+            )
+            .map_or(0, |m| m.len()),
+        PositionType::Borrow => storage
+            .get::<_, Map<HubAssetKey, DebtPositionRaw>>(&ControllerKey::BorrowPositions(
+                account_id,
+            ))
+            .map_or(0, |m| m.len()),
+    }
 }
 
 /// `HubAssetKey` is neither `Hash` nor `Ord`, so the map is keyed by the
@@ -100,19 +104,19 @@ impl LendingTest {
         };
 
         self.env.as_contract(&self.controller, || {
-            let map_key = match pos_type {
-                PositionType::Supply => ControllerKey::SupplyPositions(account_id),
-                PositionType::Borrow => ControllerKey::BorrowPositions(account_id),
+            let storage = self.env.storage().persistent();
+            let has_pos = match pos_type {
+                PositionType::Supply => storage
+                    .get::<_, Map<HubAssetKey, controller::types::AccountPositionRaw>>(
+                        &ControllerKey::SupplyPositions(account_id),
+                    )
+                    .is_some_and(|m| m.contains_key(hub_asset(asset.clone()))),
+                PositionType::Borrow => storage
+                    .get::<_, Map<HubAssetKey, DebtPositionRaw>>(&ControllerKey::BorrowPositions(
+                        account_id,
+                    ))
+                    .is_some_and(|m| m.contains_key(hub_asset(asset.clone()))),
             };
-            let has_pos = self
-                .env
-                .storage()
-                .persistent()
-                .get::<_, soroban_sdk::Map<HubAssetKey, controller::types::AccountPositionRaw>>(
-                    &map_key,
-                )
-                .map(|m| m.contains_key(hub_asset(asset.clone())))
-                .unwrap_or(false);
             assert!(
                 has_pos,
                 "'{}' account {} should have {} position for '{}'",

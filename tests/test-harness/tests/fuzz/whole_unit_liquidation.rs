@@ -808,6 +808,11 @@ fn liquidate_step(
             "mirrored bonus disagrees with the estimate; {}",
             &ctx
         );
+        prop_assert!(
+            e.refunds.iter().all(|refund| refund.amount > 0),
+            "a liquidation quote must omit zero-amount refunds; {}",
+            &ctx
+        );
     }
     for (i, leg) in legs.iter().enumerate() {
         if offers[i] > 0 {

@@ -358,11 +358,7 @@ fn owner_revokes_role_immediately() {
 }
 
 fn read_curator_wasm() -> std::vec::Vec<u8> {
-    let path = "target/wasm32v1-none/release/curator.wasm";
-    std::fs::read(path)
-        .or_else(|_| std::fs::read(format!("../{path}")))
-        .or_else(|_| std::fs::read(format!("../../{path}")))
-        .expect("curator WASM not found. Run 'make build' first.")
+    test_harness::wasm::read_wasm_artifact("CURATOR_WASM_PATH", "curator.wasm")
 }
 
 fn register_curator(t: &LendingTest) -> Address {

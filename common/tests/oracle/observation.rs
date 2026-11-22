@@ -39,7 +39,7 @@ fn u256_to_i128_roundtrips() {
 }
 
 #[test]
-#[should_panic]
+#[should_panic(expected = "#206")]
 fn check_not_future_at_rejects_skew() {
     let env = Env::default();
     check_not_future_at(&env, 1_000, 1_100);

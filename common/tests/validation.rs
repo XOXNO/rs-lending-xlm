@@ -264,7 +264,7 @@ fn liquidation_curve_rejects_bonus_factor_above_bps() {
 }
 
 #[test]
-#[should_panic]
+#[should_panic(expected = "#134")]
 fn liquidation_curve_rejects_bonus_factor_zero() {
     let env = Env::default();
 
@@ -486,7 +486,7 @@ fn require_wasm_receiver_rejects_account() {
 }
 
 #[test]
-#[should_panic]
+#[should_panic(expected = "#113")]
 fn test_validate_liquidation_fees_rejects_full_bps() {
     let env = Env::default();
 
@@ -546,7 +546,7 @@ fn lp_sanity_band_admits_a_tenfold_fair_value_range() {
 }
 
 #[test]
-#[should_panic]
+#[should_panic(expected = "#226")]
 fn lp_sanity_band_rejects_a_twentyfold_fair_value_range() {
     let env = Env::default();
 

@@ -3845,6 +3845,7 @@ fn rv_poc_c20_control_two_step_exit_rounding() {
     let t = TestSetup::new();
     let client = t.client();
     let supplier = Address::generate(&t.env);
+    let cash_before = t.state_snapshot().cash;
     token::StellarAssetClient::new(&t.env, &t.asset).mint(&t.pool, &5_000_000_000);
     let scaled = client
         .supply(&t.sup(0, 5_000_000_000))
@@ -3863,10 +3864,9 @@ fn rv_poc_c20_control_two_step_exit_rounding() {
         )
         .get_unchecked(0)
         .actual_amount;
-    std::println!(
-        "control: deposited 5000000000, withdrew {} in all",
-        partial.actual_amount + rest
-    );
+    assert_eq!(partial.actual_amount + rest, 5_000_000_000);
+    assert_eq!(t.state_snapshot().supplied, 0);
+    assert_eq!(t.state_snapshot().cash, cash_before);
 }
 
 /// A market with no seeded cash, so every unit of cash has supply shares
