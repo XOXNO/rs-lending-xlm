@@ -372,7 +372,7 @@ jobs:
       - name: Build wasm fixtures
         env:
           CARGO_TARGET_DIR: target-mutants
-        run: make build
+        run: make deploy-artifacts
 
       - name: Stage fixtures
         env:
@@ -382,11 +382,24 @@ jobs:
           src=target-mutants/wasm32v1-none/release
           dst="$RUNNER_TEMP/wasm-fixtures"
           mkdir -p "$dst"
-          for w in pool controller price_aggregator position_nft flash_loan_receiver swap_aggregator; do
+          for w in pool controller price_aggregator position_nft flash_loan_receiver swap_aggregator \
+                   curator mock_redstone production_fixture; do
             cp "$src/$w.wasm" "$dst/$w.wasm"
           done
           grep -aq set_swap_aggregator "$dst/controller.wasm" \
             || { echo "controller.wasm is missing the set_swap_aggregator export" >&2; exit 1; }
+          (cd "$dst" && sha256sum ./*.wasm > SHA256SUMS)
+          cat "$dst/SHA256SUMS"
+
+      - name: Stage deploy fixtures
+        run: |
+          set -euo pipefail
+          src=artifacts/wasm/deploy
+          dst="$RUNNER_TEMP/wasm-deploy-fixtures"
+          mkdir -p "$dst"
+          for w in controller pool price_aggregator position_nft; do
+            cp "$src/$w.wasm" "$dst/$w.wasm"
+          done
           (cd "$dst" && sha256sum ./*.wasm > SHA256SUMS)
           cat "$dst/SHA256SUMS"
 
@@ -395,6 +408,13 @@ jobs:
         with:
           name: wasm-fixtures-${{ github.run_id }}
           path: ${{ runner.temp }}/wasm-fixtures/
+          overwrite: true
+
+      - name: Upload deploy fixtures
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: wasm-deploy-fixtures-${{ github.run_id }}
+          path: ${{ runner.temp }}/wasm-deploy-fixtures/
           overwrite: true
 
   fuzz-long:
@@ -682,6 +702,18 @@ jobs:
         with:
           name: wasm-fixtures-${{ github.run_id }}
           path: target-mutants/wasm32v1-none/release
+
+      - name: Download deploy fixtures
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: wasm-deploy-fixtures-${{ github.run_id }}
+          path: artifacts/wasm/deploy
+
+      - name: Verify mutation fixtures
+        run: |
+          set -euo pipefail
+          (cd target-mutants/wasm32v1-none/release && sha256sum -c SHA256SUMS)
+          (cd artifacts/wasm/deploy && sha256sum -c SHA256SUMS)
 
       - name: Add tools to PATH
         run: |
