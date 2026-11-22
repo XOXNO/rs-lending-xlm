@@ -73,7 +73,7 @@ The reasons below identify the control-flow condition or measurement artifact. T
 | [`contracts/swap-aggregator/src/venues/aquarius/mint.rs`](../../contracts/swap-aggregator/src/venues/aquarius/mint.rs) | 57, 116 | Zero deposit or minted shares below minimum. |
 | [`contracts/swap-aggregator/src/venues/mod.rs`](../../contracts/swap-aggregator/src/venues/mod.rs) | 112, 115 | Nonpositive hop input or identical input and output token. |
 | [`contracts/swap-aggregator/src/venues/soroswap.rs`](../../contracts/swap-aggregator/src/venues/soroswap.rs) | 26 | Nonpositive amount to fee helper. |
-| [`contracts/xoxno-oracle/src/aggregation.rs`](../../contracts/xoxno-oracle/src/aggregation.rs) | 198 | Arithmetic overflow in the spread comparison has no constructed extreme-value case. |
+| [`contracts/xoxno-oracle/src/aggregation.rs`](../../contracts/xoxno-oracle/src/aggregation.rs) | 198 | This overflow fallback is unreachable through valid submissions: prices are capped at `10^24`, and the largest spread multiplier is `20,000`, so either product is at most `2 × 10^28`, below `i128::MAX`. |
 | [`contracts/xoxno-oracle/src/storage/mod.rs`](../../contracts/xoxno-oracle/src/storage/mod.rs) | 58, 90 | Generated Soroban conversion or serialization path. |
 
 ## Interpreting the gaps
