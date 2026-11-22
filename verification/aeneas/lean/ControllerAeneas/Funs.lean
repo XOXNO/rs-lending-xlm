@@ -3624,13 +3624,20 @@ def positions.liquidation.math.process_excess_payment_loop.body
             let new_usd ←
               core.cmp.Ord.min.trait_default math.fp.Wad.Insts.CoreCmpOrd w1
                 usd
-            let a ←
-              aeneas_soroban_shim.Address.Insts.CoreCloneClone.clone
-                entry.hub_asset.asset
-            let i ← entry.amount - new_amount
-            let refunds1 ←
-              aeneas_soroban_shim.Vec.push_back refunds
-                ({ asset := a, amount := i } : types.PaymentTuple)
+            let refund_amount ← entry.amount - new_amount
+            let (refunds1, hak) ←
+              if refund_amount > 0#i128
+              then
+                do
+                let a ←
+                  aeneas_soroban_shim.Address.Insts.CoreCloneClone.clone
+                    entry.hub_asset.asset
+                let refunds2 ←
+                  aeneas_soroban_shim.Vec.push_back refunds
+                    ({ asset := a, amount := refund_amount } :
+                    types.PaymentTuple)
+                ok (refunds2, entry.hub_asset)
+              else ok (refunds, entry.hub_asset)
             let repaid_tokens1 ←
               if new_amount = 0#i128
               then
@@ -3640,9 +3647,13 @@ def positions.liquidation.math.process_excess_payment_loop.body
                 ok repaid_tokens2
               else
                 do
-                let i1 ← math.fp.Wad.raw new_usd
+                let i ← math.fp.Wad.raw new_usd
                 aeneas_soroban_shim.Vec.set repaid_tokens current_index1
-                  { entry with amount := new_amount, usd_wad := i1 }
+                  {
+                    entry
+                      with
+                      hub_asset := hak, amount := new_amount, usd_wad := i
+                  }
             if keep_within_quote
             then
               let removed_usd ← math.fp.Wad.checked_sub usd env new_usd
@@ -3698,7 +3709,7 @@ def positions.liquidation.math.process_excess_payment_loop
     (repaid_tokens, refunds, remaining_excess_usd, current_index)
 
 /-- [controller_aeneas::positions::liquidation::math::process_excess_payment]:
-    Source: 'src/positions/liquidation/../../../../../../contracts/controller/src/positions/liquidation/math.rs', lines 681:0-756:1 -/
+    Source: 'src/positions/liquidation/../../../../../../contracts/controller/src/positions/liquidation/math.rs', lines 681:0-759:1 -/
 def positions.liquidation.math.process_excess_payment
   (env : aeneas_soroban_shim.Env)
   (repaid_tokens : aeneas_soroban_shim.Vec types.RepayEntry)
@@ -4694,7 +4705,7 @@ def positions.liquidation.plan.build_liquidation_plan_loop0
     (iter, cache)
 
 /-- [controller_aeneas::positions::liquidation::plan::build_liquidation_plan]: loop body 1:
-    Source: 'src/positions/liquidation/../../../../../../contracts/controller/src/positions/liquidation/plan.rs', lines 81:4-89:5 -/
+    Source: 'src/positions/liquidation/../../../../../../contracts/controller/src/positions/liquidation/plan.rs', lines 83:4-91:5 -/
 @[rust_loop_body]
 def positions.liquidation.plan.build_liquidation_plan_loop1.body
   (env : aeneas_soroban_shim.Env) (i : Std.U32)
@@ -4714,7 +4725,7 @@ def positions.liquidation.plan.build_liquidation_plan_loop1.body
     ok (cont (iter1, cache1))
 
 /-- [controller_aeneas::positions::liquidation::plan::build_liquidation_plan]: loop 1:
-    Source: 'src/positions/liquidation/../../../../../../contracts/controller/src/positions/liquidation/plan.rs', lines 81:4-89:5 -/
+    Source: 'src/positions/liquidation/../../../../../../contracts/controller/src/positions/liquidation/plan.rs', lines 83:4-91:5 -/
 @[rust_loop]
 def positions.liquidation.plan.build_liquidation_plan_loop1
   (iter : aeneas_soroban_shim.VecIter types.SeizeEntry)
@@ -4728,7 +4739,7 @@ def positions.liquidation.plan.build_liquidation_plan_loop1
     (iter, cache)
 
 /-- [controller_aeneas::positions::liquidation::plan::build_liquidation_plan]:
-    Source: 'src/positions/liquidation/../../../../../../contracts/controller/src/positions/liquidation/plan.rs', lines 14:0-97:1 -/
+    Source: 'src/positions/liquidation/../../../../../../contracts/controller/src/positions/liquidation/plan.rs', lines 14:0-99:1 -/
 def positions.liquidation.plan.build_liquidation_plan
   (env : aeneas_soroban_shim.Env) (account : types.Account)
   (raw_payments : aeneas_soroban_shim.Vec (types.HubAssetKey × Std.I128))
@@ -4769,29 +4780,20 @@ def positions.liquidation.plan.build_liquidation_plan
   let repayment1 ←
     positions.liquidation.math.release_unbacked_repayment env repayment
       unbacked_usd
-  let b2 ←
-    core.cmp.PartialOrd.gt.trait_default math.fp.Wad.Insts.CoreCmpPartialOrdWad
-      unbacked_usd math.fp.Wad.ZERO
-  let (cache7, repayment2) ←
+  let b2 ← aeneas_soroban_shim.Vec.is_empty seized_collaterals
+  let repayment2 ←
     if b2
     then
-      do
-      let b3 ← aeneas_soroban_shim.Vec.is_empty seized_collaterals
-      let nrp ←
-        if b3
-        then
-          positions.liquidation.math.release_unbacked_repayment env repayment1
-            repayment1.repay_usd
-        else ok repayment1
-      ok (cache6, nrp)
-    else ok (cache6, repayment1)
+      positions.liquidation.math.release_unbacked_repayment env repayment1
+        repayment1.repay_usd
+    else ok repayment1
   let iter1 ← aeneas_soroban_shim.Vec.iter seized_collaterals
-  let cache8 ←
+  let cache7 ←
     positions.liquidation.plan.build_liquidation_plan_loop1 iter1 env
-      account.spoke_id cache7
+      account.spoke_id cache6
   positions.liquidation.math.LiquidationPlan.validate
     { repayment := repayment2, seized := seized_collaterals } env
-  ok ({ repayment := repayment2, seized := seized_collaterals }, cache8)
+  ok ({ repayment := repayment2, seized := seized_collaterals }, cache7)
 
 /-- [controller_aeneas::risk::totals::sum_debt_usd]:
     Source: 'src/risk/totals.rs', lines 70:0-77:1 -/

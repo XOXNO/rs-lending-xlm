@@ -79,6 +79,25 @@ fn remove_absent_delegate_is_noop() {
 }
 
 #[test]
+fn removing_an_unlisted_delegate_preserves_an_existing_grant() {
+    let env = Env::default();
+    let contract_id = env.register(Controller, (Address::generate(&env),));
+    env.as_contract(&contract_id, || {
+        let account_id = 12u64;
+        let owner = Address::generate(&env);
+        let granted = Address::generate(&env);
+        let absent = Address::generate(&env);
+        assert!(add_delegate(&env, account_id, &owner, &granted));
+
+        assert!(!remove_delegate(&env, account_id, &owner, &absent));
+        assert_eq!(
+            get_delegates(&env, account_id, &owner),
+            soroban_sdk::vec![&env, granted]
+        );
+    });
+}
+
+#[test]
 fn add_delegate_accepts_exactly_max_delegates() {
     let env = Env::default();
     let admin = Address::generate(&env);

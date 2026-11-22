@@ -57,6 +57,13 @@ fn count_first_topic(events: &ContractEvents, first: &str) -> usize {
         .count()
 }
 
+#[test]
+fn empty_market_state_batch_emits_no_event() {
+    let env = Env::default();
+    crate::events::emit_market_state_batch(&env, Vec::new(&env));
+    assert_eq!(env.events().all().events().len(), 0);
+}
+
 fn strategy_fee_hub_id(events: &ContractEvents) -> Option<u32> {
     events.events().iter().find_map(|event| {
         let ContractEventBody::V0(body) = &event.body;

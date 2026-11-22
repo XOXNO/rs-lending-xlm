@@ -391,6 +391,29 @@ fn exit_without_usage_row_is_noop_and_does_not_persist() {
     });
 }
 
+#[test]
+fn zero_usage_exit_preserves_an_existing_usage_row() {
+    let env = Env::default();
+    let contract = new_controller(&env);
+    let asset = Address::generate(&env);
+    env.as_contract(&contract, || {
+        let key = hub(&asset);
+        let original = SpokeUsageRaw {
+            supplied_scaled_ray: 17,
+            borrowed_scaled_ray: 9,
+        };
+        storage::set_spoke_usage(&env, 1, &key, &original);
+
+        let mut context = SpokeUsageContext::new(&env, 1);
+        context.apply_exit(UsageSide::Supply, &key, Ray::ZERO);
+        context.persist();
+
+        let after = storage::get_spoke_usage(&env, 1, &key).expect("usage row remains");
+        assert_eq!(after.supplied_scaled_ray, 17);
+        assert_eq!(after.borrowed_scaled_ray, 9);
+    });
+}
+
 /// Entry path must default-insert a zero row so the first supply or borrow is recorded.
 #[test]
 fn entry_without_usage_row_default_inserts_and_persists() {

@@ -87,6 +87,27 @@ fn bonus_at_or_above_target_is_base() {
 }
 
 #[test]
+fn degenerate_bonus_ramp_uses_the_full_bonus_increment() {
+    let env = Env::default();
+    let target = Wad::from(DEFAULT_LIQUIDATION_TARGET_HF_WAD);
+    let hf = target.checked_sub(&env, Wad::from(1));
+    let base = Bps::from(400i128);
+    let max = Bps::from(1_000i128);
+
+    for floor in [target.raw(), target.raw() + 1] {
+        let curve = LiquidationCurve::from_config(&SpokeConfig {
+            hf_for_max_bonus_wad: floor,
+            ..default_spoke_config()
+        });
+        assert_eq!(curve.bonus_scale(&env, hf, target), Wad::ONE);
+        assert_eq!(
+            calculate_linear_bonus_with_target(&env, hf, base, max, &curve, target),
+            max
+        );
+    }
+}
+
+#[test]
 fn bonus_factor_scales_increment() {
     let env = Env::default();
     let base = Bps::from(500i128);

@@ -124,3 +124,20 @@ fn amp_zero_is_rejected() {
     let pool = env.register(StubZeroAmp, ());
     assert_eq!(aquarius_amp_call(&env, &pool), None);
 }
+
+#[contract]
+struct StubShortReserves;
+
+#[contractimpl]
+impl StubShortReserves {
+    pub fn get_reserves(env: Env) -> Vec<u128> {
+        Vec::from_array(&env, [11u128])
+    }
+}
+
+#[test]
+fn malformed_reserve_vector_is_rejected_before_indexing() {
+    let env = Env::default();
+    let pool = env.register(StubShortReserves, ());
+    assert_eq!(aquarius_pool_reserves_call(&env, &pool), None);
+}

@@ -148,3 +148,7 @@ pub(crate) fn feed_index_remove(env: &Env, feed_id: &String) {
     env.storage().persistent().set(&count_key, &last_at);
     renew_persistent_key(env, &count_key);
 }
+
+#[cfg(test)]
+#[path = "../../tests/unit/storage_index.rs"]
+mod tests;

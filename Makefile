@@ -42,7 +42,7 @@ SHELL := /bin/bash
         certora certora-list \
         test test-harness test-verbose test-one test-match test-pool \
         miri-common miri-all \
-        coverage coverage-controller coverage-pool coverage-price-aggregator coverage-merged \
+        coverage coverage-controller coverage-pool coverage-price-aggregator coverage-merged coverage-branches \
         docs-check fmt fmt-check clippy clippy-contracts clippy-fuzz scout scout-host scout-strict \
         access-control-check \
         ops-script-check \
@@ -106,6 +106,8 @@ CERTORA_WASM_RUSTFLAGS := -C link-arg=--allow-undefined -C link-arg=--export=__d
 
 CERTORA_BUILD_JOBS ?= 1
 COV_DIR := target/coverage
+COV_COMMAND ?= cargo llvm-cov
+COV_BRANCH_TARGET_DIR ?= target/branch-cov-target
 TEST_HARNESS_DIR := tests/test-harness
 FUZZ_DIR := tests/fuzz
 
@@ -500,7 +502,7 @@ define COV_RUN_HARNESS
 	cp -R $(TEST_HARNESS_DIR)/test_snapshots/. "$$backup"/ 2>/dev/null || true; \
 	trap 'restore_snapshots' EXIT; \
 	set -o pipefail; \
-	cargo llvm-cov test -p test-harness --no-report --no-fail-fast $(COV_IGNORE) -- $(TEST_THREAD_FLAG) 2>&1 | tee $(COV_DIR)/harness.log | tail -20 \
+	$(COV_COMMAND) test -p test-harness --no-report --no-fail-fast $(COV_IGNORE) -- $(TEST_THREAD_FLAG) 2>&1 | tee $(COV_DIR)/harness.log | tail -20 \
 		|| { grep -E -A12 'panicked at|^failures:|Running tests/' $(COV_DIR)/harness.log | grep -v '\.\.\. ok$$' | head -300; false; }
 endef
 
@@ -584,6 +586,32 @@ coverage-merged:
 	echo "  $(COV_DIR)/merged-report.md"; \
 	echo "  lcov.info  (IDE default; copy of $(COV_DIR)/merged.lcov.info)"; \
 	exit $$harness_status
+
+
+# Nightly-only branch instrumentation runs in a separate Cargo target directory.
+# It does not overwrite the stable line-coverage profiles used by coverage-merged.
+coverage-branches: COV_DIR := target/coverage/branches
+coverage-branches: COV_COMMAND := CARGO_TARGET_DIR=$(COV_BRANCH_TARGET_DIR) cargo +nightly llvm-cov --branch
+coverage-branches:
+	@echo "Running experimental merged Rust branch coverage with nightly..."
+	@mkdir -p $(COV_DIR)
+	@CARGO_TARGET_DIR=$(COV_BRANCH_TARGET_DIR) cargo +nightly llvm-cov clean --workspace
+	@set -o pipefail; $(COV_COMMAND) test -p common --lib --no-report --no-fail-fast $(COV_IGNORE) 2>&1 | tail -5
+	@set -o pipefail; $(COV_COMMAND) test -p pool --no-report --no-fail-fast $(COV_IGNORE) 2>&1 | tail -5
+	@set -o pipefail; $(COV_COMMAND) test -p price-aggregator --features testing --no-report --no-fail-fast $(COV_IGNORE) 2>&1 | tail -5
+	@set -o pipefail; $(COV_COMMAND) test -p controller --lib --no-report --no-fail-fast $(COV_IGNORE) 2>&1 | tail -5
+	@set -o pipefail; $(COV_COMMAND) test -p governance --no-report --no-fail-fast $(COV_IGNORE) 2>&1 | tail -5
+	@set -o pipefail; $(COV_COMMAND) test -p swap-aggregator --no-report --no-fail-fast $(COV_IGNORE) 2>&1 | tail -5
+	@set -o pipefail; $(COV_COMMAND) test -p xoxno-oracle --no-report --no-fail-fast $(COV_IGNORE) 2>&1 | tail -5
+	@set -o pipefail; $(COV_COMMAND) test -p position-nft --no-report --no-fail-fast $(COV_IGNORE) 2>&1 | tail -5
+	@set -o pipefail; $(COV_COMMAND) test -p defindex-strategy --no-report --no-fail-fast $(COV_IGNORE) 2>&1 | tail -5
+	@set -o pipefail; $(COV_COMMAND) test -p curator --no-report --no-fail-fast $(COV_IGNORE) 2>&1 | tail -5
+	@$(COV_RUN_HARNESS)
+	@CARGO_TARGET_DIR=$(COV_BRANCH_TARGET_DIR) cargo +nightly llvm-cov report --json \
+		--output-path $(COV_DIR)/merged.json $(COV_IGNORE) >/dev/null
+	@python3 scripts/branch_coverage_report.py \
+		$(COV_DIR)/merged.json $(COV_DIR)/merged-report.md merged
+	@echo "Reports saved to $(COV_DIR)/merged.json and $(COV_DIR)/merged-report.md"
 
 
 
@@ -2223,6 +2251,7 @@ help-build:
 	$(call H2,Coverage)
 	$(call ROW,make coverage,merged coverage + CLI summary)
 	$(call ROW,make coverage-controller | -pool | -merged,scoped reports)
+	$(call ROW,make coverage-branches,nightly Rust branch report)
 	$(call ROW,make fuzz-coverage,fast math fuzz (corpus replay))
 	$(call ROW,make fuzz-coverage-all,+ contract targets (slow on macOS))
 	$(call ROW,make fuzz-coverage-one TARGET=flow_e2e,[FUZZ_COV_TIME=30])

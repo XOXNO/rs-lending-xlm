@@ -95,6 +95,47 @@ fn first_ltv_restamp_prefetches_the_whole_portfolio_index_batch() {
     });
 }
 
+#[test]
+fn risk_restamp_skips_missing_metadata_and_unowned_nft_without_writing() {
+    let env = Env::default();
+    let controller = env.register(crate::Controller, (Address::generate(&env),));
+    let key = HubAssetKey {
+        hub_id: 1,
+        asset: Address::generate(&env),
+    };
+    let position = AccountPositionRaw {
+        scaled_amount: 1,
+        liquidation_threshold: 8_000,
+        liquidation_bonus: 500,
+        loan_to_value: 7_500,
+        liquidation_fees: 100,
+    };
+    env.as_contract(&controller, || {
+        let missing_meta = 17u64;
+        let mut cache = Context::new_view(&env);
+        sync_account_thresholds(&env, missing_meta, RiskRefreshScope::LtvOnly, &mut cache);
+        assert!(crate::storage::try_get_account_meta(&env, missing_meta).is_none());
+
+        let missing_owner = 18u64;
+        crate::storage::set_account_meta(
+            &env,
+            missing_owner,
+            &common::types::AccountMeta {
+                spoke_id: 1,
+                mode: PositionMode::Normal,
+            },
+        );
+        let mut supplies = Map::new(&env);
+        supplies.set(key.clone(), position.clone());
+        crate::storage::set_supply_positions(&env, missing_owner, &supplies);
+        sync_account_thresholds(&env, missing_owner, RiskRefreshScope::LtvOnly, &mut cache);
+        assert_eq!(
+            crate::storage::get_supply_positions(&env, missing_owner).get(key),
+            Some(position)
+        );
+    });
+}
+
 const STAMPED_LT: i128 = 8_000;
 const STAMPED_LTV: i128 = 7_500;
 const STAMPED_BONUS: i128 = 500;

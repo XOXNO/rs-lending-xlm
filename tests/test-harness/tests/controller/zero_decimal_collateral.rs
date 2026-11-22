@@ -885,8 +885,7 @@ fn zdc_fresh_credit_receiver_cannot_take_a_whole_unit_leg_beside_another() {
                 &vec![&z.t.env, (z.usdc_key(), debt)],
                 &SeizeMode::Credit(0),
             )
-            .err()
-            .expect("estimate must enforce fresh-receiver isolation")
+            .expect_err("estimate must enforce fresh-receiver isolation")
             .expect("contract error");
     assert_eq!(
         estimate_error,

@@ -89,6 +89,15 @@ fn in_pa<T>(env: &Env, body: impl FnOnce() -> T) -> T {
     env.as_contract(&id, body)
 }
 
+#[test]
+fn synthetic_key_and_missing_token_contract_cannot_bind_an_lp() {
+    let env = Env::default();
+    let p = pool_fixture(&env, "stable");
+    let key = PriceKey::Ref(Symbol::new(&env, "synthetic"));
+    assert!(bound_tokens(&env, &key, &lp_source(&p)).is_none());
+    assert_eq!(token_decimals(&env, &Address::generate(&env)), None);
+}
+
 // --- attest(stable) --------------------------------------------------------
 
 #[test]
