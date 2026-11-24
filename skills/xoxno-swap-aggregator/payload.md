@@ -60,7 +60,7 @@ Layout from `program.rs`, pinned by contract and quote-server encoder tests.
 | `[1]` | 1 | `token_in` | Index into `assets` |
 | `[2]` | 1 | `token_out` | Index into `assets`; must differ from `token_in` (`SameToken = 25`) |
 | `[3]` | 1 | `min_out` | **Index into `amounts`** of total minimum output; encoders write `0` (`amounts[0] = total_min_out`). An index, never the amount |
-| `[4..8]` | 4 | `referral_id` | `u32` big-endian; `0` = no referral, no fee. Stored referral ids are `u64`; a route cannot name an id above `u32::MAX` |
+| `[4..8]` | 4 | `referral_id` | `u32` big-endian; `0` = no referral, no fee |
 | `[8]` | 1 | `op_count` | `1..=48` (`MAX_OPS`); `0` or above `48` → `EmptyBatch = 1` |
 | `[9]` | 1 | `weight_count` | `0..=32` (`MAX_WEIGHTS`); above → `EmptyBatch = 1` |
 | `[10 + 5·i]` | 5 each | instruction `i` | Below |
