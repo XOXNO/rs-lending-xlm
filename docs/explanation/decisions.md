@@ -383,7 +383,8 @@ contract callback. It requires nonnegative collateral minima, at least one
 positive, an eligible flash-loan debt market, and an open, solvent final
 position.
 
-Minima bind measured controller receipts; pool supply remeasures delivery.
+Minima bind measured controller receipts; the controller remeasures delivery
+into the pool.
 Returned debt is never auto-repaid: it becomes declared collateral, is
 refunded when refund-listed, or stays uncredited.
 

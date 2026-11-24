@@ -276,6 +276,10 @@ lower_ratio_bps == half_up(BPS * BPS / upper_ratio_bps)
 
 `MIN_TOLERANCE` is 150 and `MAX_TOLERANCE` is 2500.
 
+The band check compares `max(legs) / min(legs)` with `upper_ratio_bps` only.
+`lower_ratio_bps` is validated and stored, but the comparison does not read
+it.
+
 Sanity-band admission:
 
 ```rust
