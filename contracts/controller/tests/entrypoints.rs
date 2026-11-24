@@ -6,13 +6,14 @@ extern crate std;
 use super::*;
 use crate::constants::{RAY, WAD};
 use crate::storage;
+use common::errors::GenericError;
 use common::types::{
     AccountMeta, AccountPositionRaw, DebtPositionRaw, HubAssetKey, InterestRateModel,
     MarketIndexRaw, MarketParamsRaw, PoolStateRaw, PoolSyncData, PositionLimits, PositionMode,
     PriceFeedRaw, PriceKey, SpokeAssetArgs, SpokeAssetConfig, SpokeConfig,
 };
 use soroban_sdk::testutils::Address as _;
-use soroban_sdk::{contract, contractimpl, Address, Bytes, BytesN, Env, Map, Vec};
+use soroban_sdk::{contract, contractimpl, Address, Bytes, BytesN, Env, Error, Map, Vec};
 
 #[contract]
 struct ViewPool;
@@ -593,8 +594,11 @@ fn view_wrappers_report_live_and_missing_accounts() {
     let c = client(&env, &id);
     let missing_hub = hub(&env);
     assert!(!c.account_exists(&1u64));
-    assert_eq!(c.get_health_factor(&1u64), i128::MAX);
-    assert!(!c.is_liquidatable(&1u64));
+    let not_found = Some(Ok(Error::from_contract_error(
+        GenericError::AccountNotFound as u32,
+    )));
+    assert_eq!(c.try_get_health_factor(&1u64).err(), not_found);
+    assert_eq!(c.try_is_liquidatable(&1u64).err(), not_found);
     assert_eq!(c.get_total_collateral_usd(&1u64), 0);
     assert_eq!(c.get_total_borrow_usd(&1u64), 0);
     assert_eq!(c.get_ltv_collateral_usd(&1u64), 0);

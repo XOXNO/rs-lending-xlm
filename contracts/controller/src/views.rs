@@ -29,20 +29,21 @@ fn require_view_inputs_bound<T>(env: &Env, values: &Vec<T>) {
 }
 
 /// Returns the account's health factor in WAD, or `i128::MAX` if it has no
-/// debt or does not exist.
+/// debt. A missing account fails with `AccountNotFound`.
 pub(crate) fn health_factor(env: &Env, account_id: u64) -> i128 {
-    let mut cache = Context::new_view(env);
-    match storage::try_get_account(env, account_id) {
-        Some(account) if !account.debt_free() => risk::calculate_account_risk_totals(
-            env,
-            &mut cache,
-            &account.supply_positions,
-            &account.borrow_positions,
-        )
-        .health_factor
-        .raw(),
-        _ => i128::MAX,
+    let account = storage::get_account(env, account_id);
+    if account.debt_free() {
+        return i128::MAX;
     }
+    let mut cache = Context::new_view(env);
+    risk::calculate_account_risk_totals(
+        env,
+        &mut cache,
+        &account.supply_positions,
+        &account.borrow_positions,
+    )
+    .health_factor
+    .raw()
 }
 
 /// Returns whether the account's health factor is below 1.0 (WAD), making it

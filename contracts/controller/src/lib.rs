@@ -411,13 +411,15 @@ impl ControllerInterface for Controller {
         account::remove_delegate(&env, caller, account_id, delegate);
     }
 
-    /// Returns whether the account's health factor is below 1.0 WAD.
+    /// Returns whether the account's health factor is below 1.0 WAD. A
+    /// missing account fails with `AccountNotFound`.
     fn is_liquidatable(env: Env, account_id: u64) -> bool {
         views::can_be_liquidated(&env, account_id)
     }
 
     /// Returns liquidation-weighted collateral divided by debt, in WAD;
-    /// `i128::MAX` if the account has no debt or does not exist.
+    /// `i128::MAX` if the account has no debt. A missing account fails with
+    /// `AccountNotFound`.
     fn get_health_factor(env: Env, account_id: u64) -> i128 {
         views::health_factor(&env, account_id)
     }

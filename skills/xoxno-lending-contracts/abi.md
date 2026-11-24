@@ -74,8 +74,9 @@ amount in full and the pool refunds excess. `Credit(0)` creates a receiving
 - `account_exists(id)`: checks and extends only `AccountMeta(id)`; proves
   nothing about supply/borrow maps, delegates, or NFT storage. Before a
   privileged action, also validate NFT ownership and `get_account_attributes`.
-- `get_health_factor(id)`: WAD; `i128::MAX` for no debt, no account, or a
-  saturated positive ratio.
+- `get_health_factor(id)`: WAD; `i128::MAX` for no debt or a saturated
+  positive ratio. A missing account fails with `AccountNotFound` (`controller #24`), and
+  so does `is_liquidatable(id)`.
 - `get_collateral_amount`, `get_borrow_amount`: accrued token base units,
   half up. `get_account_positions`: raw RAY-scaled shares.
 - `get_market_index`: accrued RAY indexes, no oracle read.

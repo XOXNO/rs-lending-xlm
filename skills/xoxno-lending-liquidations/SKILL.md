@@ -35,8 +35,9 @@ For each candidate:
 
 1. `account_exists(account_id)` is true.
 2. `is_liquidatable(account_id)` is true (on-chain health factor below `1e18`).
-3. `get_health_factor == i128::MAX` is ineligible (missing account, no debt,
-   or saturated ratio); it does not prove debt is absent.
+3. `get_health_factor == i128::MAX` is ineligible (no debt or saturated
+   ratio); it does not prove debt is absent. A missing account fails both
+   views with `AccountNotFound` (`controller #24`).
 
 `HealthFactorTooHigh` (`controller #101`) is legitimate when eligibility
 changes or no target debt remains; identify the panicking contract first.

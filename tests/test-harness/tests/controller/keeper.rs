@@ -159,8 +159,8 @@ fn test_bad_debt_gap_band_resolved_by_liquidation() {
 
     t.assert_no_positions(ALICE);
     assert!(
-        !t.can_be_liquidated_by_id(account_id),
-        "account must be resolved after the gap-band liquidation"
+        !t.account_exists(account_id),
+        "account must be closed after the gap-band liquidation"
     );
 }
 
