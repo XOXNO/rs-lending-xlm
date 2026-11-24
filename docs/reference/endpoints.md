@@ -16,7 +16,7 @@ Every user mutation needs the named caller, payer or liquidator's auth. Pause: "
 | --- | --- | --- | --- |
 | `supply(caller: Address, account_id: u64, spoke_id: u32, assets: Vec<(HubAssetKey, i128)>) -> u64` | Third parties: existing assets only | gated | Measured deposits; id 0 creates a Normal account. A new leg on an indebted account reads its price. |
 | `borrow(caller: Address, account_id: u64, borrows: Vec<(HubAssetKey, i128)>, to: Option<Address>)` | NFT owner/delegate | gated | Recipient defaults to caller. |
-| `withdraw(caller: Address, account_id: u64, withdrawals: Vec<(HubAssetKey, i128)>, to: Option<Address>) -> Vec<(HubAssetKey, i128)>` | NFT owner/delegate | open | `i128::MAX` withdraws the full position; zero also does, but is deprecated. Returns amounts paid. |
+| `withdraw(caller: Address, account_id: u64, withdrawals: Vec<(HubAssetKey, i128)>, to: Option<Address>) -> Vec<(HubAssetKey, i128)>` | NFT owner/delegate | open | Amounts must be positive; `i128::MAX` withdraws the full position. Returns amounts paid. |
 | `repay(caller: Address, account_id: u64, payments: Vec<(HubAssetKey, i128)>)` | None | open | Excess returns to caller. |
 | `liquidate(liquidator: Address, account_id: u64, debt_payments: Vec<(HubAssetKey, i128)>, seize_mode: SeizeMode) -> u64` | None; credit receiver owner/delegate | open | Pro-rata seizure; returns 0 (Transfer) or receiver id (Credit). |
 | `clean_bad_debt(caller: Address, account_id: u64)` | None | open | Needs debt > collateral and collateral <= $5; [socializes](formulas.md#bad-debt), burns NFT. |
@@ -41,7 +41,7 @@ Id `0` creates an account on `supply`, `multiply`, `flash_position`, `migrate_fr
 
 Delegates belong to the granting owner: an NFT transfer disables them, and a transfer back reactivates them unless a later owner replaced or deleted the list. Revoke grants before transferring. Ownership, with collateral control and the debt obligation, transfers atomically.
 
-Payment lists sum duplicate markets in first-appearance order and reject negatives. `supply`, `borrow`, `repay` reject zero. In `withdraw`, an amount at or above the position, such as `i128::MAX`, withdraws all of it. Zero also means full balance but is deprecated: a later release rejects it. Zero plus positive for one market fails with `InvalidPayments`. Flash-position declarations reject duplicates.
+Payment lists sum duplicate markets in first-appearance order and reject negatives. `supply`, `borrow`, `repay` and `withdraw` reject zero. In `withdraw`, an amount at or above the position, such as `i128::MAX`, withdraws all of it; two such legs for one market overflow the sum and fail with `MathOverflow`. Flash-position declarations reject duplicates.
 
 ### Risk checks and pause flags
 

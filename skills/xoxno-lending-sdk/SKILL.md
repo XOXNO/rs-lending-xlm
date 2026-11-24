@@ -104,11 +104,10 @@ conversion or own parser. A full withdrawal passes raw `i128::MAX`
   and position-NFT owner.
 - A position-NFT transfer transfers control of the lending account. Recheck
   ownership before preparing any mutation.
-- Full supply withdrawal uses `amount: '170141183460469231731687303715884105727'` (`i128::MAX`).
-  `'0'` also withdraws all today, but is deprecated: a later controller
-  release rejects it. Full debt repayment sends a
-  ceiled, buffered amount, and the pool refunds the excess. There is no
-  repay-all sentinel.
+- Full supply withdrawal uses `amount: '170141183460469231731687303715884105727'`
+  (`i128::MAX`); `'0'` fails with `AmountMustBePositive` (`#14`). Full debt
+  repayment sends a ceiled, buffered amount, and the pool refunds the excess.
+  There is no repay-all sentinel.
 
 ## Completion gates
 

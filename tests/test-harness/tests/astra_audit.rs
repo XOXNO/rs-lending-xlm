@@ -106,7 +106,7 @@ fn as_audit_credit_receivers_repay_refunds_and_cleanup_conserve_exact_books() {
     assert_eq!(reconcile(&t), baseline);
     let liquidator = t.get_or_create_user(LIQUIDATOR);
     let keys = t.ctrl_client().get_account_positions(&credit).0.keys();
-    let withdrawals = soroban_sdk::Vec::from_iter(&t.env, keys.iter().map(|key| (key, 0i128)));
+    let withdrawals = soroban_sdk::Vec::from_iter(&t.env, keys.iter().map(|key| (key, i128::MAX)));
     t.ctrl_client()
         .withdraw(&liquidator, &credit, &withdrawals, &None);
     assert_eq!(reconcile(&t), baseline);

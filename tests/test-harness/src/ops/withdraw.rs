@@ -13,7 +13,7 @@ impl LendingTest {
 
     /// One withdrawal of `amount` raw units, optionally paid to `recipient`
     /// instead of `user`. An amount at or above the position, such as
-    /// `i128::MAX`, withdraws all of it; so does the deprecated zero.
+    /// `i128::MAX`, withdraws all of it. A zero amount fails.
     fn withdraw_inner(
         &mut self,
         user: &str,
@@ -90,14 +90,33 @@ impl LendingTest {
     }
 
     pub fn withdraw_bulk(&mut self, user: &str, assets: &[(&str, f64)]) {
+        let raw: std::vec::Vec<(&str, i128)> = assets
+            .iter()
+            .map(|(asset_name, amount)| {
+                let decimals = self.resolve_market(asset_name).decimals;
+                (*asset_name, f64_to_i128(*amount, decimals))
+            })
+            .collect();
+        self.withdraw_bulk_raw(user, &raw);
+    }
+
+    /// Withdraws every listed market in full (`i128::MAX` each) in one call.
+    pub fn withdraw_all_bulk(&mut self, user: &str, asset_names: &[&str]) {
+        let raw: std::vec::Vec<(&str, i128)> = asset_names
+            .iter()
+            .map(|asset_name| (*asset_name, i128::MAX))
+            .collect();
+        self.withdraw_bulk_raw(user, &raw);
+    }
+
+    fn withdraw_bulk_raw(&mut self, user: &str, assets: &[(&str, i128)]) {
         let account_id = self.resolve_account_id(user);
         let addr = self.users.get(user).unwrap().address.clone();
 
         let mut soroban_withdrawals: Vec<(HubAssetKey, i128)> = Vec::new(&self.env);
         for (asset_name, amount) in assets {
             let market = self.resolve_market(asset_name);
-            let raw = f64_to_i128(*amount, market.decimals);
-            soroban_withdrawals.push_back((hub_asset(market.asset.clone()), raw));
+            soroban_withdrawals.push_back((hub_asset(market.asset.clone()), *amount));
         }
 
         let ctrl = self.ctrl_client();

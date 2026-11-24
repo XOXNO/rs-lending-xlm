@@ -38,7 +38,7 @@ fee.
 - `buildStellarBorrowTx` / batch: existing account; optional `to` defaults to
   caller.
 - `buildStellarWithdrawTx` / batch: existing account; an amount of
-  `i128::MAX` withdraws all. `'0'` also does, but is deprecated.
+  `i128::MAX` withdraws all. `'0'` fails with `AmountMustBePositive`.
 - `buildStellarRepayTx` / batch: existing account. No repay-all sentinel; a
   payment at or above the debt (rounded up) burns all debt shares and refunds
   the excess.

@@ -394,7 +394,7 @@ fn curve_three_coin_collateral_lifecycle() {
     let withdrawals = ctrl.withdraw(
         &borrower,
         &account,
-        &vec![env, (hub_asset(lp.clone()), 0)],
+        &vec![env, (hub_asset(lp.clone()), i128::MAX)],
         &None,
     );
     let received = withdrawals.get_unchecked(0).1;

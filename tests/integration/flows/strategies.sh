@@ -205,7 +205,7 @@ for side,rows in enumerate(batches[0][2:4]):
         paid=int(check.stdout); assert event_amount==paid, 'event cash differs from principal reference'
         expected=updated
         pool_state[token]['supplied' if side==0 else 'borrowed']+=shares-int(old['scaled_amount'])
-        if close and action==10 and shares: legs[(0,12,ti)]=('withdraw',0)
+        if close and action==10 and shares: legs[(0,12,ti)]=('withdraw',(1<<127)-1)
         if operation=='borrow':
             bps=int(b['tokens'][token]['sync']['params']['flashloan_fee'])
             fee=max(1,(paid*bps+5000)//10000) if bps else 0

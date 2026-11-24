@@ -410,7 +410,7 @@ prod_decimal_roundtrips() {
             --withdrawals "$(pay_vec "$hub" "$asset" "$partial")" --to null >/dev/null || return 1
         assert_int_view_eq "prod_decimal_${decimals}_remaining" "$(raw_sub "$amount" "$partial")" get_collateral_amount --account_id "$acct" --hub_asset "$(hub_key "$hub" "$asset")" || return 1
         inv "prod_decimal_${decimals}_close" "$ALICE" "$CONTROLLER" -- withdraw --caller "$ALICE_ADDR" --account_id "$acct" \
-            --withdrawals "$(pay_vec "$hub" "$asset" 0)" --to null >/dev/null || return 1
+            --withdrawals "$(pay_vec "$hub" "$asset" "$WITHDRAW_ALL")" --to null >/dev/null || return 1
         wallet_post=$(balance "$asset" "$ALICE_ADDR") || return 1
         pool_post=$(balance "$asset" "$POOL") || return 1
         assert_delta "prod_decimal_${decimals}_wallet_restored" "$wallet_pre" "$wallet_post" 0 || return 1
@@ -564,11 +564,11 @@ prod_contract_close() {
     pool_before=$(balance "$asset" "$POOL") || return 1
     controller_before=$(balance "$asset" "$CONTROLLER") || return 1
     wallet_before=$(balance "$asset" "$runner") || return 1
-    ops=$(jq -nc --arg a "$asset" --argjson id "$acct" '[{Withdraw:{account_id:$id,withdrawals:[[{hub_id:1,asset:$a},"0"]],to:null}}]')
+    ops=$(jq -nc --arg a "$asset" --arg all "$WITHDRAW_ALL" --argjson id "$acct" '[{Withdraw:{account_id:$id,withdrawals:[[{hub_id:1,asset:$a},$all]],to:null}}]')
     inv prod_contract_withdraw "$ADMIN" "$runner" -- run --controller "$CONTROLLER" --nft "$POSITION_NFT" --ops "$ops" >/dev/null || return 1
     closed=$(view prod_contract_close_after "$CONTROLLER" -- get_account_positions --account_id "$acct") || return 1
     synced=$(view prod_contract_close_sync "$POOL" -- get_sync_data --hub_asset "$(hub_key 1 "$asset")") || return 1
-    paid=$(lifecycle_amount '"withdraw"' "$(hub_key 1 "$asset")" "$positions" "$closed" "$synced" 0 "$decimals") \
+    paid=$(lifecycle_amount '"withdraw"' "$(hub_key 1 "$asset")" "$positions" "$closed" "$synced" "$WITHDRAW_ALL" "$decimals") \
         || { _assert_fail prod_contract_close_shares 'contract close burned wrong principal'; return 1; }
     record prod_contract_close_shares ok assert "" "" "" "" "" 'exact committed-index contract close payout and shares'
     assert_delta prod_contract_return "$wallet_before" "$(balance "$asset" "$runner")" "$paid" || return 1
@@ -660,7 +660,7 @@ flow_production_lending() {
     assert_hf_at_least prod_lending_hf "$acct" "$WAD" || return 1
     lifecycle_inv prod_lending_repay "$BOB" "$CONTROLLER" -- repay --caller "$BOB_ADDR" --account_id "$acct" --payments "$(pay_vec "$debt_hub" "$debt" 110000000)" >/dev/null || return 1
     assert_int_view_eq prod_lending_debt_zero 0 get_borrow_amount --account_id "$acct" --hub_asset "$(hub_key "$debt_hub" "$debt")" || return 1
-    lifecycle_inv prod_lending_withdraw "$BOB" "$CONTROLLER" -- withdraw --caller "$BOB_ADDR" --account_id "$acct" --withdrawals "$(pay_vec "$hub" "$asset" 0)" --to null >/dev/null || return 1
-    lifecycle_inv prod_lending_unseed "$ADMIN" "$CONTROLLER" -- withdraw --caller "$ADMIN_ADDR" --account_id "$supplier" --withdrawals "$(pay_vec "$debt_hub" "$debt" 0)" --to null >/dev/null || return 1
+    lifecycle_inv prod_lending_withdraw "$BOB" "$CONTROLLER" -- withdraw --caller "$BOB_ADDR" --account_id "$acct" --withdrawals "$(pay_vec "$hub" "$asset" "$WITHDRAW_ALL")" --to null >/dev/null || return 1
+    lifecycle_inv prod_lending_unseed "$ADMIN" "$CONTROLLER" -- withdraw --caller "$ADMIN_ADDR" --account_id "$supplier" --withdrawals "$(pay_vec "$debt_hub" "$debt" "$WITHDRAW_ALL")" --to null >/dev/null || return 1
     assert_bool_view prod_lending_closed false account_exists --account_id "$acct" || return 1
 }

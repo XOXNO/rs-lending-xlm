@@ -41,7 +41,7 @@ Token pulls are separate nested auth; see
 | Operation | Integration behavior to preserve |
 |---|---|
 | `supply` | ID `0` creates and returns a `Normal` account; persist and renew it. Third-party top-up only into an existing supply market. |
-| `borrow` / `withdraw` | `to = None` pays caller; `to` never the pool or controller. `i128::MAX` withdraws all; a zero leg also does, but is deprecated. Use returned actual amounts. Wrapper `withdraw`/`withdraw_all` return `Withdrawal { amount, account_closed }`. |
+| `borrow` / `withdraw` | `to = None` pays caller; `to` never the pool or controller. `i128::MAX` withdraws all; a zero leg fails with `AmountMustBePositive`. Use returned actual amounts. Wrapper `withdraw`/`withdraw_all` return `Withdrawal { amount, account_closed }`. |
 | `repay` | See [repay rules](#repay-rules). |
 | `liquidate` | See [liquidate rules](#liquidate-rules). |
 | `flash_loan` | Receiver approves `amount + fee` to the pool; direct repayment transfer rejected. |
@@ -86,10 +86,9 @@ amount in full and the pool refunds excess. `Credit(0)` creates a receiving
 ## Batch semantics
 
 Payment vectors of `supply`, `borrow`, `withdraw`, `repay`, and `liquidate`
-must be non-empty. Negative amounts fail; zero fails except in a withdrawal
-leg. Duplicate market keys aggregate in first-seen order. In withdrawal, a
-zero leg mixed with a positive leg for one market fails with
-`InvalidPayments`. New supply/debt markets count against position limits.
+must be non-empty. Negative and zero amounts fail. Duplicate market keys
+aggregate in first-seen order; a sum past `i128::MAX` fails with
+`MathOverflow`. New supply/debt markets count against position limits.
 
 `update_account_threshold` has no explicit input bound
 ([`risk/params.rs`](https://github.com/XOXNO/rs-lending-xlm/blob/main/contracts/controller/src/risk/params.rs));

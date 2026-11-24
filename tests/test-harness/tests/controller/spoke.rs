@@ -139,7 +139,7 @@ fn test_deprecated_spoke_debt_free_account_can_withdraw_all_collateral() {
 
     t.remove_spoke_category(2);
 
-    let result = t.try_withdraw(ALICE, "USDC", 0.0);
+    let result = t.try_withdraw_raw(ALICE, "USDC", i128::MAX);
     assert!(
         result.is_ok(),
         "debt-free spoke account should be able to exit after category deprecation; got {result:?}"

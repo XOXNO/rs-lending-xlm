@@ -84,7 +84,7 @@ flow_sdk_lifecycle() {
     DELAY_SIGN_SECONDS=15 lifecycle_checked sdk_lifecycle_submit sdk_borrow "$ALICE" "$CONTROLLER" -- borrow --caller "$ALICE_ADDR" --account_id "$acct" --borrows "$(pay_vec "$PRIMARY_HUB_ID" "$USDC_SAC" 100000000)" --to null >/dev/null || return 1
     lifecycle_checked sdk_lifecycle_submit sdk_repay "$ALICE" "$CONTROLLER" -- repay --caller "$ALICE_ADDR" --account_id "$acct" --payments "$(pay_vec "$PRIMARY_HUB_ID" "$USDC_SAC" 110000000)" >/dev/null || return 1
     assert_borrow_at_most sdk_debt_cleared "$acct" "$USDC_SAC" 0 || return 1
-    lifecycle_checked sdk_lifecycle_submit sdk_withdraw "$ALICE" "$CONTROLLER" -- withdraw --caller "$ALICE_ADDR" --account_id "$acct" --withdrawals "$(pay_vec "$PRIMARY_HUB_ID" "$USDC_SAC" 0)" --to null >/dev/null || return 1
+    lifecycle_checked sdk_lifecycle_submit sdk_withdraw "$ALICE" "$CONTROLLER" -- withdraw --caller "$ALICE_ADDR" --account_id "$acct" --withdrawals "$(pay_vec "$PRIMARY_HUB_ID" "$USDC_SAC" "$WITHDRAW_ALL")" --to null >/dev/null || return 1
     assert_bool_view sdk_closed false account_exists --account_id "$acct"
 }
 
