@@ -115,8 +115,9 @@ impl ControllerInterface for Controller {
     }
 
     /// Withdraws collateral to `to` or the caller and returns actual amounts in
-    /// asset units. Zero withdraws an asset's full position. Requires owner or
-    /// delegate authorization and post-withdrawal solvency.
+    /// asset units. An amount at or above the position, such as `i128::MAX`,
+    /// withdraws all of it. Zero also does, but is deprecated. Requires owner
+    /// or delegate authorization and post-withdrawal solvency.
     fn withdraw(
         env: Env,
         caller: Address,

@@ -37,8 +37,8 @@ fee.
   omitted/zero `accountNonce` opens an account.
 - `buildStellarBorrowTx` / batch: existing account; optional `to` defaults to
   caller.
-- `buildStellarWithdrawTx` / batch: existing account; `amount: '0'` withdraws
-  all.
+- `buildStellarWithdrawTx` / batch: existing account; an amount of
+  `i128::MAX` withdraws all. `'0'` also does, but is deprecated.
 - `buildStellarRepayTx` / batch: existing account. No repay-all sentinel; a
   payment at or above the debt (rounded up) burns all debt shares and refunds
   the excess.

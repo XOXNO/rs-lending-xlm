@@ -34,6 +34,9 @@ pub struct HarvestEvent {
 /// DeFindex price-per-share is reported with 12 decimals (RAY → 12-dec rescale).
 const PPS_DECIMALS: u32 = 12;
 
+/// Withdraw amount above any position, so the controller withdraws all of it.
+const WITHDRAW_ALL: i128 = i128::MAX;
+
 /// Error codes returned by the strategy contract's external entry points.
 #[contracterror]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -327,7 +330,11 @@ impl DeFindexStrategyTrait for Strategy {
         }
 
         let is_full_withdraw = amount == balance;
-        let withdraw_amount = if is_full_withdraw { 0 } else { amount };
+        let withdraw_amount = if is_full_withdraw {
+            WITHDRAW_ALL
+        } else {
+            amount
+        };
         ctx.controller.withdraw(
             &ctx.strategy,
             &account_id,
