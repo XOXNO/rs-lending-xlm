@@ -16,6 +16,10 @@ external yield, only emits the supply index as price per share.
 strategy owns each vault's controller account and acts as its owner. Views
 need no auth.
 
+The strategy does not check that `from` is a DeFindex vault. Any address that
+authorizes a deposit gets its own supply-only account, separate from any
+account that address holds on the controller.
+
 ## Entrypoints
 
 Signatures and returns: [endpoint reference](../../docs/reference/endpoints.md#defindex-strategy).
