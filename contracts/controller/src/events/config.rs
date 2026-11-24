@@ -62,6 +62,14 @@ pub struct ApproveBlendPoolEvent {
     pub approved: bool,
 }
 
+/// Position manager eligibility changed.
+#[contractevent(topics = ["config", "position_manager"])]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct UpdatePositionManagerEvent {
+    pub manager: Address,
+    pub is_active: bool,
+}
+
 /// Swap aggregator address changed.
 #[contractevent(topics = ["config", "swap_aggregator"])]
 #[derive(Clone, Debug, Eq, PartialEq)]
