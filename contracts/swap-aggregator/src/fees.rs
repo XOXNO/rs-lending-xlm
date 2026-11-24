@@ -55,7 +55,7 @@ pub(crate) fn apply_fees_on_token(
 ) -> (i128, i128) {
     let (static_fee, referral_fee) = fee_amounts(env, vault.balance_of(token), referral_id);
     let total = checked_add(env, static_fee, referral_fee);
-    if total > 0 {
+    if total != 0 {
         vault.withdraw(token, total);
         storage::accumulate_swap_fees(env, token, referral_id, static_fee, referral_fee);
     }
