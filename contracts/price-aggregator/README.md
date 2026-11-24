@@ -51,7 +51,9 @@ fees and liquidation liquidity.
   rates `10^(36 - coin_decimals)`; a changed executable is unpriceable until
   reviewed and reconfigured.
 - LP sources (Aquarius or Curve) are collateral-only; Curve's lowest-coin price
-  understates LP debt.
+  understates LP debt. No contract enforces this rule. `configs/script.sh`
+  refuses a borrowable LP listing (`refuse_borrowable_lp`, `validateConfigs`),
+  so it is an operator guard.
 - `MAX_CURVE_COINS` is 3; larger pools need own code and resource validation.
 - Mainnet reviewed list: empty. Testnet: the two fixture executables, upstream
   source unknown ([fixture README](../swap-aggregator/tests/fixtures/curve/README.md)).

@@ -190,8 +190,10 @@ fn validate_oracle(env: &Env, key: &PriceKey, oracle: &AssetOracle, exact_indepe
 
     for source in oracle.sources.iter() {
         validation::source_shape(env, &source);
-        // A provider on both legs of an exempt pair moves the price as far as
-        // its factor range, so that range keeps the single-source cap.
+        // A provider on both legs of an exempt pair moves the price up to its
+        // factor range times the upper tolerance ratio: the legs only have to
+        // agree within that ratio, and the price is their midpoint. The factor
+        // range keeps the single-source cap to bound that reach.
         if let (PriceSource::Scaled(scaled), Some(second)) = (&source, derived.second.as_ref()) {
             let provider = scaled.factor.provider.contract();
             let shared = derived.first.trust.contains(provider) && second.trust.contains(provider);

@@ -100,9 +100,10 @@ exists.
 counter that `burn` does not decrement, so a deleted account id cannot return.
 
 **A burned token is inert.** With `Owner(token_id)` removed, `owner_of`,
-`transfer`, `approve`, `renew` and `token_uri` panic `NonExistentToken`.
-`transfer_from` fails with 202 (insufficient approval) when `spender` is
-neither `from` nor its operator, else `NonExistentToken`.
+`transfer`, `approve`, `renew` and `token_uri` panic `NonExistentToken` (200).
+`transfer_from` on a burned or never-minted id also fails with
+`NonExistentToken` (200) for every spender: the approval check reads the
+owner first.
 
 **Transfer cannot escape debt.** The account carries collateral and debt, and
 every solvency check keys on `account_id`, not the holder. An underwater

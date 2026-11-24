@@ -523,8 +523,9 @@ close can record). The first matching rule applies:
 Size offers from `get_liquidation_estimate`, not the curve formula:
 
 - The raised quote is a ceiling; smaller offers are not raised.
-- An offer backing under one unit seizes nothing and reverts with
-  `InvalidPayments` (16).
+- An offer backing under one unit seizes nothing. The controller refunds each
+  offer leg with a positive USD value and reverts with `InvalidPayments` (16)
+  when no leg remains. A leg whose USD value rounds to zero stays paid.
 - An offer between `U / (1 + b)` and the raised quote still takes one unit.
 
 #### Liquidatability of a whole-unit leg
