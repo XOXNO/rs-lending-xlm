@@ -45,14 +45,19 @@ Steps:
    allowance.
 8. Publish `SwapEvent`.
 
+Version 1 sends all net output. Version 2 sends exactly `total_min_out`.
+For version 2, the router measures the sender's credit and reverts if it
+differs from the target. The admin fee bucket receives any net output above
+the target.
+
 ## Fees
 
 Fee, split and residual formulas:
 [formulas](../../docs/reference/formulas.md#swap-router-fees-and-splits).
 `referral_id == 0`, or an unknown or inactive referral, pays no static or
-referral fee; the off-chain quote model matches. The fee is on the input token
-unless only the output token is fee-whitelisted. Leftovers go to the admin
-bucket on every swap.
+referral fee; the off-chain quote model matches. Version 1 charges on input
+unless only the output token is fee-whitelisted. Version 2 charges on gross
+output. Leftovers go to the admin bucket on every swap.
 
 For a 0.50% router fee: `make mainnet setAggregatorFee 5` and
 `make mainnet addAggregatorReferral OWNER 45` with the admin signer
@@ -105,7 +110,8 @@ removed.
 ## Events
 
 Each swap publishes `SwapEvent` for volume and fee indexing
-([fields](../../docs/reference/events.md#swap-aggregator-events)). Ownership
+([fields](../../docs/reference/events.md#swap-aggregator-events)). For version 2,
+`static_fee` includes the fixed-output surplus in `fee_token`. Ownership
 changes publish the stock OpenZeppelin `Ownable` events
 ([inherited events](../../docs/reference/events.md#inherited-events)).
 

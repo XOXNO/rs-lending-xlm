@@ -16,10 +16,10 @@ use crate::constants::PPM_DENOMINATOR;
 use crate::errors::Error;
 use crate::events::SwapEvent;
 use crate::fees;
-use crate::math::checked_mul;
+use crate::math::{checked_add, checked_mul};
 use crate::program::{Mode, Op, Opcode, Program};
 use crate::storage;
-use crate::types::{StrategyPayload, SwapHop};
+use crate::types::{DataKey, StrategyPayload, SwapHop};
 use crate::vault::Vault;
 use crate::venues;
 
@@ -44,8 +44,8 @@ struct Ctx<'a> {
 /// balance delta. Executes the instruction stream, applies fees, pays `sender`, accrues leftover
 /// vault balances as admin fee, and publishes [`SwapEvent`].
 ///
-/// Fees apply only with an active referral (see [`fees::apply_fees_on_token`]). They are taken
-/// on the input token unless only the output token is fee-whitelisted.
+/// Fees apply only with an active referral (see [`fees::apply_fees_on_token`]). Version 2
+/// charges them on output. Version 1 charges on input unless only output is fee-whitelisted.
 ///
 /// Requires `sender`'s authorization. Panics if `total_in` or the declared minimum output is not
 /// positive, if the delivered output falls below the minimum, or if a token's leftover balance
@@ -88,7 +88,8 @@ pub(crate) fn run(env: Env, sender: Address, total_in: i128, payload: StrategyPa
     vault.deposit(&input_token, credited_in);
 
     let referral_id = program.referral_id;
-    let fee_on_input = if referral_id != 0 {
+    let fixed_out = program.fixed_out();
+    let fee_on_input = if !fixed_out && referral_id != 0 {
         let list = storage::load_whitelist(&env);
         let in_wl = list.contains(&input_token);
         let out_wl = list.contains(&output_token);
@@ -130,14 +131,15 @@ pub(crate) fn run(env: Env, sender: Address, total_in: i128, payload: StrategyPa
         fees_charged = fees::apply_fees_on_token(&env, &mut vault, fee_token, referral_id);
     }
 
-    let total_out = vault.balance_of(&output_token);
-    if total_out < total_min_out {
-        panic_with_error!(&env, Error::SlippageExceeded);
-    }
-
-    vault.withdraw(&output_token, total_out);
-    ensure_trustline(&env, &output_token, &sender);
-    token::Client::new(&env, &output_token).transfer(&router, &sender, &total_out);
+    let (payout, surplus) = settle_output(
+        &env,
+        &mut vault,
+        &router,
+        &sender,
+        &output_token,
+        total_min_out,
+        fixed_out,
+    );
 
     residual::accrue_residual_as_revenue(&env, &mut vault);
 
@@ -147,14 +149,55 @@ pub(crate) fn run(env: Env, sender: Address, total_in: i128, payload: StrategyPa
         token_in: input_token.clone(),
         token_out: output_token.clone(),
         amount_in: credited_in,
-        amount_out: total_out,
+        amount_out: payout,
         referral_id,
-        static_fee: fees_charged.0,
+        static_fee: checked_add(&env, fees_charged.0, surplus),
         referral_fee: fees_charged.1,
     }
     .publish(&env);
 
-    total_out
+    payout
+}
+
+/// Returns the sender's payout and the surplus credited to the admin balance.
+fn settle_output(
+    env: &Env,
+    vault: &mut Vault,
+    router: &Address,
+    sender: &Address,
+    output_token: &Address,
+    min_out: i128,
+    fixed_out: bool,
+) -> (i128, i128) {
+    let output = vault.balance_of(output_token);
+    if output < min_out {
+        panic_with_error!(env, Error::SlippageExceeded);
+    }
+
+    vault.withdraw(output_token, output);
+    ensure_trustline(env, output_token, sender);
+    if !fixed_out {
+        token::Client::new(env, output_token).transfer(router, sender, &output);
+        return (output, 0);
+    }
+
+    let received = transfer_amount_measured(
+        env,
+        output_token,
+        router,
+        sender,
+        min_out,
+        GenericError::AmountMustBePositive,
+    );
+    if received != min_out {
+        panic_with_error!(env, Error::SlippageExceeded);
+    }
+
+    let surplus = output - min_out;
+    if surplus > 0 {
+        storage::accumulate_fee(env, DataKey::AdminFee(output_token.clone()), surplus);
+    }
+    (received, surplus)
 }
 
 /// Opens `receiver`'s missing trustline via the SAC `trust` call (CAP-73).

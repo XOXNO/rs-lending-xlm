@@ -7,7 +7,7 @@
 //!
 //! ```text
 //! header (10 bytes)
-//!   [0]      version, must be VERSION
+//!   [0]      version: 1 pays all output, 2 pays exactly the declared minimum
 //!   [1]      token_in   -> assets[..]
 //!   [2]      token_out  -> assets[..]
 //!   [3]      min_out    -> amounts[..]
@@ -35,6 +35,7 @@ use crate::types::SwapVenue;
 
 /// Wire version of the packed program. Bump on any layout change.
 pub(crate) const VERSION: u8 = 1;
+pub(crate) const FIXED_OUT_VERSION: u8 = 2;
 
 /// Header length in bytes.
 const HEADER_LEN: u32 = 10;
@@ -196,7 +197,7 @@ impl Program {
         let mut buf = [0u8; MAX_PROGRAM_BYTES];
         ops.copy_into_slice(&mut buf[..len as usize]);
 
-        if buf[head::VERSION] != VERSION {
+        if !matches!(buf[head::VERSION], VERSION | FIXED_OUT_VERSION) {
             panic_with_error!(env, Error::InvalidRouteXdr);
         }
 
@@ -235,6 +236,10 @@ impl Program {
         };
         program.validate(env, assets, amounts_len, weight_count);
         program
+    }
+
+    pub(crate) fn fixed_out(&self) -> bool {
+        self.buf[head::VERSION] == FIXED_OUT_VERSION
     }
 
     /// Validates every instruction's opcode, mode, and indices before execution begins,

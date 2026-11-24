@@ -14,7 +14,7 @@ use soroban_sdk::{contract, contractimpl, Address, Bytes, Env, Vec};
 use crate::constants::PPM_DENOMINATOR;
 use crate::errors::Error;
 use crate::program::encode::{self, RawOp};
-use crate::program::{Program, VERSION};
+use crate::program::{Program, FIXED_OUT_VERSION, VERSION};
 
 /// Opcode bytes, mirroring `Opcode::from_u8`.
 const OP_SWAP_SOROSWAP: u8 = 0;
@@ -718,7 +718,7 @@ fn decode_rejects_a_payload_from_another_wire_version() {
     let mut raw = [0u8; MAX_PROGRAM_BYTES as usize];
     let len = good.len();
     good.copy_into_slice(&mut raw[..len as usize]);
-    raw[0] = VERSION.wrapping_add(1); // head::VERSION
+    raw[0] = FIXED_OUT_VERSION + 1; // head::VERSION
     let bumped = Bytes::from_slice(&env, &raw[..len as usize]);
 
     assert_eq!(
