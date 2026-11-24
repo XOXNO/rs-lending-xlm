@@ -15,6 +15,7 @@ pub struct SwapEvent {
     pub amount_out: i128,
     pub referral_id: u64,
     pub fee_token: Address,
+    /// Protocol revenue in `fee_token`, including any fixed-output surplus.
     pub static_fee: i128,
     pub referral_fee: i128,
 }

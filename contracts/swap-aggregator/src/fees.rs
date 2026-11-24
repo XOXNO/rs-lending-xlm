@@ -53,6 +53,38 @@ pub(crate) fn apply_fees_on_token(
     token: &Address,
     referral_id: u64,
 ) -> (i128, i128) {
+    let (static_fee, referral_fee) = fee_amounts(env, vault.balance_of(token), referral_id);
+    let total = checked_add(env, static_fee, referral_fee);
+    if total != 0 {
+        vault.withdraw(token, total);
+        storage::accumulate_swap_fees(env, token, referral_id, static_fee, referral_fee);
+    }
+    (static_fee, referral_fee)
+}
+
+/// Reserves fees on the fixed payout and retains all gross output above the
+/// payout plus those fees. Returns protocol revenue and the referral fee.
+pub(crate) fn accrue_fixed_output_fees(
+    env: &Env,
+    vault: &mut Vault,
+    token: &Address,
+    referral_id: u64,
+    payout: i128,
+) -> (i128, i128) {
+    let (static_fee, referral_fee) = fee_amounts(env, payout, referral_id);
+    let configured_fees = checked_add(env, static_fee, referral_fee);
+    let revenue = vault.balance_of(token) - payout;
+    if revenue < configured_fees {
+        panic_with_error!(env, Error::SlippageExceeded);
+    }
+    // The admin receives the configured static fee and all remaining surplus.
+    let protocol_revenue = revenue - referral_fee;
+    vault.withdraw(token, revenue);
+    storage::accumulate_swap_fees(env, token, referral_id, protocol_revenue, referral_fee);
+    (protocol_revenue, referral_fee)
+}
+
+fn fee_amounts(env: &Env, amount: i128, referral_id: u64) -> (i128, i128) {
     if referral_id == 0 {
         return (0, 0);
     }
@@ -65,8 +97,7 @@ pub(crate) fn apply_fees_on_token(
         return (0, 0);
     }
 
-    let balance = vault.balance_of(token);
-    if balance <= 0 {
+    if amount <= 0 {
         return (0, 0);
     }
     let static_fee_bps = storage::static_fee_bps(env);
@@ -82,17 +113,10 @@ pub(crate) fn apply_fees_on_token(
         panic_with_error!(env, Error::FeeTooHigh);
     }
 
-    let static_fee = fee_amount(env, balance, static_fee_bps);
-    let referral_fee = fee_amount(env, balance, cfg.fee_bps);
-    let total = checked_add(env, static_fee, referral_fee);
-    if total <= 0 {
-        return (0, 0);
-    }
-
-    vault.withdraw(token, total);
-
-    storage::accumulate_swap_fees(env, token, referral_id, static_fee, referral_fee);
-    (static_fee, referral_fee)
+    (
+        fee_amount(env, amount, static_fee_bps),
+        fee_amount(env, amount, cfg.fee_bps),
+    )
 }
 
 /// Transfers each positive bucket balance for `tokens` to `recipient` and clears the bucket.

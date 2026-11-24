@@ -46,6 +46,133 @@ fn execute_strategy_route_bytes_decode_and_execute() {
 }
 
 #[test]
+fn fixed_output_pays_the_target_on_split_routes_and_reserves_surplus() {
+    use crate::events::SwapEvent;
+    use crate::program::FIXED_OUT_VERSION;
+    use crate::types::StrategyPayload;
+    use soroban_sdk::testutils::Events as _;
+    use soroban_sdk::xdr::{FromXdr, ToXdr};
+    use soroban_sdk::Event as _;
+
+    use super::support::{path, strategy_xdr_with_referral, sushi_mock};
+    let env = Env::default();
+    env.mock_all_auths();
+    let admin = Address::generate(&env);
+    let sender = Address::generate(&env);
+    let router_addr = env.register(Router, (admin.clone(),));
+    let router = RouterClient::new(&env, &router_addr);
+    let (token_in, input) = new_asset(&env, &admin);
+    let (token_out, output) = new_asset(&env, &admin);
+    let (intermediate, middle) = new_asset(&env, &admin);
+    let steady = env.register(aquarius_mock::AqPool, ());
+    aquarius_mock::AqPoolClient::new(&env, &steady).init(&token_in, &intermediate);
+    let sushi = env.register(sushi_mock::SushiPool, ());
+    sushi_mock::SushiPoolClient::new(&env, &sushi).init(&intermediate, &token_out);
+    let variable = env.register(malicious_aquarius_mock::MaliciousAqPool, ());
+    let pool = malicious_aquarius_mock::MaliciousAqPoolClient::new(&env, &variable);
+
+    input.mint(&sender, &4_000);
+    middle.mint(&steady, &4_000);
+    output.mint(&sushi, &4_000);
+    output.mint(&variable, &4_000);
+    router.add_to_whitelist(&token_in);
+    router.set_static_fee(&100);
+    let referral = router.add_referral(&admin, &100);
+    let legacy_xdr = strategy_xdr_with_referral(
+        &env,
+        token_in.clone(),
+        token_out.clone(),
+        980,
+        alloc::vec![
+            path(
+                alloc::vec![
+                    SwapHop {
+                        venue: SwapVenue::Aquarius,
+                        pool: steady,
+                        token_in: token_in.clone(),
+                        token_out: intermediate.clone(),
+                    },
+                    SwapHop {
+                        venue: SwapVenue::Sushi,
+                        pool: sushi,
+                        token_in: intermediate,
+                        token_out: token_out.clone(),
+                    },
+                ],
+                500_000,
+            ),
+            one_hop_path(
+                &env,
+                SwapVenue::Aquarius,
+                variable.clone(),
+                token_in.clone(),
+                token_out.clone(),
+                500_000,
+            ),
+        ],
+        referral,
+    );
+    let mut payload = StrategyPayload::from_xdr(&env, &legacy_xdr).unwrap();
+    payload.ops.set(0, FIXED_OUT_VERSION);
+    let fixed_xdr = payload.to_xdr(&env);
+
+    // Gross output of 998 covers the payout and two fees rounded down from 9.8.
+    pool.init_with_pull(&token_in, &token_out, &498, &498, &true);
+    assert_eq!(router.execute_strategy(&sender, &1_000, &fixed_xdr), 980);
+    assert_eq!(router.admin_fee_balance(&token_out), 9);
+
+    pool.init_with_pull(&token_in, &token_out, &600, &600, &true);
+    assert_eq!(router.execute_strategy(&sender, &1_000, &fixed_xdr), 980);
+    let expected = SwapEvent {
+        sender: sender.clone(),
+        token_in: token_in.clone(),
+        token_out: token_out.clone(),
+        amount_in: 1_000,
+        amount_out: 980,
+        referral_id: referral,
+        fee_token: token_out.clone(),
+        static_fee: 111,
+        referral_fee: 9,
+    }
+    .to_xdr(&env, &router_addr);
+    assert_eq!(
+        env.events().all().filter_by_contract(&router_addr).events(),
+        &[expected]
+    );
+    assert_eq!(token::Client::new(&env, &token_in).balance(&sender), 2_000);
+    let out_client = token::Client::new(&env, &token_out);
+    assert_eq!(out_client.balance(&sender), 1_960);
+    assert_eq!(router.admin_fee_balance(&token_out), 120);
+    assert_eq!(router.admin_fee_balance(&token_in), 0);
+    assert_eq!(router.referral_fee_balance(&referral, &token_out), 18);
+    assert_eq!(router.referral_fee_balance(&referral, &token_in), 0);
+    assert_eq!(out_client.balance(&router_addr), 138);
+    assert_eq!(
+        env.as_contract(&router_addr, || crate::reserved_fee_balance(
+            &env, &token_out
+        )),
+        138
+    );
+
+    // Gross output covers the payout but is one unit short of the configured fees.
+    pool.init_with_pull(&token_in, &token_out, &497, &497, &true);
+    let err = router
+        .try_execute_strategy(&sender, &1_000, &fixed_xdr)
+        .unwrap_err();
+    assert_eq!(err.unwrap(), Error::SlippageExceeded.into());
+    assert_eq!(token::Client::new(&env, &token_in).balance(&sender), 2_000);
+    assert_eq!(out_client.balance(&router_addr), 138);
+    assert_eq!(router.admin_fee_balance(&token_out), 120);
+
+    pool.init_with_pull(&token_in, &token_out, &600, &600, &true);
+    assert_eq!(router.execute_strategy(&sender, &1_000, &legacy_xdr), 1_090);
+    assert_eq!(out_client.balance(&sender), 3_050);
+    assert_eq!(router.admin_fee_balance(&token_out), 120);
+    assert_eq!(router.admin_fee_balance(&token_in), 10);
+    assert_eq!(router.referral_fee_balance(&referral, &token_in), 10);
+}
+
+#[test]
 fn execute_strategy_rejects_fake_venue_output() {
     let env = Env::default();
     env.mock_all_auths();
