@@ -42,8 +42,11 @@ approvals and delegate permissions.
 | Curator | Registrar registry: hub and spoke ownership, registrar roles, cap grants, and forwarding of registrar calls to governance |
 
 Governance's deployment helpers make governance the owner of the controller
-and price aggregator. The controller deploys one pool and one position NFT
-with itself as their authority. The pool has no ownership-transfer endpoint;
+and price aggregator. Run `deploy_controller` first: `deploy_price_aggregator`
+then calls `set_price_aggregator` on the existing controller. In the other
+order, a timelocked `SetPriceAggregator` operation connects them. The
+controller deploys one pool and one position NFT with itself as their
+authority. The pool has no ownership-transfer endpoint;
 governance and controller ownership can transfer, which changes this authority
 chain.
 
@@ -70,10 +73,11 @@ has a fixed constructor configuration and no administrative rescue interface.
 
 ## Custody and accounting
 
-The pool tracks cash in an accounting book. Supply, repayment, and
-recapitalization credit the tokens actually received, so a token that delivers
-less than requested books the smaller amount, and direct donations do not
-increase booked cash. Measurement cannot establish that an arbitrary token is
+The pool tracks cash in an accounting book. For supply, repayment, and
+recapitalization, the controller measures the balance change of each transfer
+into the pool and passes that amount; the pool credits the amount it is given.
+A token that delivers less than requested therefore books the smaller amount,
+and direct donations do not increase booked cash. Measurement cannot establish that an arbitrary token is
 safe.
 
 The same token can appear in multiple hubs. Its markets keep separate books

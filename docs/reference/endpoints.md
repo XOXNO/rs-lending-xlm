@@ -37,7 +37,7 @@ Every user mutation needs the named caller, payer or liquidator's auth. Pause: "
 
 ### Accounts and authorization
 
-Id `0` creates an account on `supply`, `multiply`, `flash_position`, `migrate_from_blend` and `Credit(0)` liquidation. Spoke binding is permanent. `multiply` and `flash_position` need Multiply, Long or Short mode, matching an existing account. Blend migration creates a Normal account; an existing destination need not be Normal.
+Id `0` creates an account on `supply`, `multiply`, `flash_position`, `migrate_from_blend` and `Credit(0)` liquidation. Spoke binding is permanent. `multiply` and `flash_position` need Multiply, Long or Short mode, matching an existing account. `supply` into an existing account checks only the spoke, so it accepts an account of any mode. Blend migration creates a Normal account; an existing destination need not be Normal.
 
 Delegates belong to the granting owner: an NFT transfer disables them, and a transfer back reactivates them unless a later owner replaced or deleted the list. Revoke grants before transferring. Ownership, with collateral control and the debt obligation, transfers atomically.
 
@@ -45,7 +45,9 @@ Payment lists sum duplicate markets in first-appearance order and reject negativ
 
 ### Risk checks and pause flags
 
-After pool accounting, `borrow`, `withdraw` and the six account strategies require LTV-weighted collateral >= debt, HF >= 1, and, with debt left, the minimum-borrow floor. `supply` and `repay` skip them; repayment loads debt positions only. Liquidation has its own rules ([formulas](formulas.md#valuation-and-health)).
+After pool accounting, `borrow`, `withdraw` and the six account strategies require LTV-weighted collateral >= debt, HF >= 1, and, with debt left, the minimum-borrow floor. With debt left, each supply leg in an asset below `MIN_BORROWABLE_ASSET_DECIMALS` (3) must also hold at least `MIN_WHOLE_UNIT_COLLATERAL` (2) whole units, else `MinBorrowCollateralNotMet`. `supply` and `repay` skip these checks; repayment loads debt positions only.
+
+A supply leg below 3 decimals cannot sit beside another supply position. A new supply leg that would create such a pair fails with `PositionLimitExceeded`, whether it comes from `supply`, a strategy, Blend migration or a `Credit` seizure. Liquidation has its own rules ([formulas](formulas.md#valuation-and-health)).
 
 | Listing flag | Restriction |
 | --- | --- |
@@ -57,7 +59,7 @@ Seizure checks only `no_seize`; liquidators cannot pick collateral. Global pause
 
 ### Liquidation results
 
-Credit liquidation moves supply shares, not tokens. The receiver must differ from the target, share its spoke and be Normal. `Credit(0)` can create it in a deprecated spoke and is exempt from position limits (an existing receiver is not), so a lowered limit cannot block seizure. Collateral permissions and supply caps do not gate the credit.
+Credit liquidation moves supply shares, not tokens. The receiver must differ from the target, share its spoke and be Normal. `Credit(0)` can create it in a deprecated spoke and is exempt from position limits (an existing receiver is not), so a lowered limit cannot block seizure. Every receiver keeps the rule that a leg below 3 decimals cannot sit beside another supply position. Collateral permissions and supply caps do not gate the credit.
 
 Estimates give gross seizure before fees (token units in Transfer, RAY shares in Credit); `refunds` use debt-token units. Prices, indexes and measured delivery can move execution off the estimate, and same-call dust cleanup can write down a `Credit` receiver's shares ([INV-LIQ-02](invariants.md#inv-liq-02)).
 
@@ -72,7 +74,7 @@ Estimates give gross seizure before fees (token units in Transfer, RAY shares in
 - have nonnegative minimums, at least one positive;
 - be met by measured controller receipts from the callback.
 
-Pool supply remeasures receipts. Caps are checked as each pool result merges. Supply and the declared debt position must stay open after finalization.
+Before any token moves, each declared asset must be listed, not paused or frozen, and usable as collateral, and the account's position limits apply. The controller measures the transfer of each receipt into the pool again before the pool credits it. Caps are checked as each pool result merges. Supply and the declared debt position must stay open after finalization.
 
 Refund assets must be unique, listed in the debt hub and account spoke, not declared as collateral, and at most the maximum supply-position count. They need an active spoke and existing listing; collateralizable, borrowable, paused and frozen flags are ignored. Only gains above pre-callback balances return to the caller. Refunding the debt token does not repay the minted debt.
 
@@ -213,8 +215,8 @@ The window closes 120,960 ledgers after the ready ledger. A later `execute` fail
 | `revoke_blend_pool(caller: Address, pool: Address)` | GUARDIAN_ROLE; immediate, revocation only |
 | `revoke_role_immediate(account: Address, role: Symbol)` | Owner; only guardian/oracle/curator roles |
 | `execute_self(op: AdminOperation, salt: BytesN<32>)` | Ready scheduled self-operation; permissionless |
-| `propose_canceller_reset(new_cancellers: Vec<Address>, salt: BytesN<32>) -> BytesN<32>` | Owner; schedule uncancellable recovery |
-| `execute_canceller_reset(new_cancellers: Vec<Address>, salt: BytesN<32>)` | Ready recovery; permissionless |
+| `propose_canceller_reset(new_cancellers: Vec<Address>, salt: BytesN<32>) -> BytesN<32>` | Owner; schedule uncancellable recovery. The list is not checked when scheduled |
+| `execute_canceller_reset(new_cancellers: Vec<Address>, salt: BytesN<32>)` | Ready recovery; permissionless. Revokes every CANCELLER except the owner, then grants the list; an empty list leaves the owner as the only canceller. Include the curator to keep its `cancel_proposal` path |
 | `accept_ownership()` | Pending owner; synchronizes access-control admin and roles |
 
 Open views and resolvers:
@@ -278,7 +280,7 @@ Constructor `(owner: Address)` sets the owner and emits OwnershipTransferComplet
 | `quotes(keys: Vec<PriceKey>) -> Map<PriceKey, PriceStatus>` | Open; resolution failures return as status; host, storage, budget and cross-contract traps still abort |
 | `price_spread(key: PriceKey) -> (i128, i128)` | Open; fails on an unusable price |
 | `oracle(key: PriceKey) -> Option<AssetOracle>` | Open view |
-| `set_oracle(key: PriceKey, oracle: AssetOracle)` | Owner; a replacement keeps the stored `asset_decimals` |
+| `set_oracle(key: PriceKey, oracle: AssetOracle)` | Owner; a replacement must carry the stored `asset_decimals`, else `InvalidOracleDecimals` |
 | `set_sanity_band(key: PriceKey, min_wad: i128, max_wad: i128)` | Owner; tightens only |
 | `set_tolerance(key: PriceKey, tolerance: OracleTolerance)` | Owner |
 | `upgrade(new_wasm_hash: BytesN<32>)` | Owner |

@@ -94,14 +94,20 @@ Reopening, global position-manager changes and ordinary upgrades are
 delayed. Controller construction and upgrade pause the controller; pool,
 position NFT, price aggregator and governance upgrades do not pause lending.
 
-A non-owner PROPOSER can schedule listing, cap, curve and limit changes.
+A non-owner PROPOSER can schedule every operation outside the owner-only
+list: hub, spoke and listing changes (`RemoveSpoke` and
+`RelaxSpokeAssetFlags` included), caps, curves, position limits, the
+minimum-borrow floor, liquidity-pool creation and parameter upgrades,
+`ForceSocializeBadDebt`, `Unpause`, `RevokeBlendPool`, a position-manager
+deactivation and role revocations.
 Ownership transfers, code upgrades and migration, the minimum delay, price and
 swap sources, Blend approvals, the revenue accumulator, role grants and
 position-manager activation need the owner as proposer
 ([governance endpoints](../reference/endpoints.md#governance)).
 
 A stolen non-owner PROPOSER key can thus schedule listing flags, risk
-parameters, role revocations, a position-manager deactivation or an unpause,
+parameters, spoke removal, forced bad-debt socialization, role revocations, a
+position-manager deactivation or an unpause,
 but cannot replace code or prices or change the minimum delay. The
 owner-proposed `UpdateGovDelay` can raise the minimum but not lower it below
 `TIMELOCK_MIN_DELAY_LEDGERS` (34,560 ledgers, about 2 days). It waits the

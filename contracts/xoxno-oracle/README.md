@@ -1,7 +1,7 @@
 # XOXNO Oracle
 
 Self-hosted multi-signer price feed. It keeps each registered signer's latest
-submission and computes an N-of-M median at write time; the price aggregator
+submission and computes an N-of-M lower median at write time; the price aggregator
 reads it as one provider.
 
 | | |
