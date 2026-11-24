@@ -8,4 +8,7 @@ fn repro_supply_at_wall_clock_timestamp() {
 
     t.advance_time(1_760_000_000);
     t.supply(ALICE, "USDC", 10_000.0);
+
+    assert_eq!(t.supply_balance_raw(ALICE, "USDC"), 100_000_000_000);
+    assert_eq!(t.token_balance_raw(ALICE, "USDC"), 0);
 }

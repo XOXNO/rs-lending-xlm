@@ -6,7 +6,7 @@ use common::types::{ControllerKey, HubAssetKey, SpokeAssetConfig};
 use curator::{
     CapGrant, Curator, CuratorClient, CuratorError, ROLE_FLAGS, ROLE_MARKET, ROLE_SPOKE,
 };
-use governance::op::{AdminOperation, RoleArgs, SpokeAssetArgs};
+use governance::op::{AdminOperation, RelaxSpokeAssetFlagsArgs, RoleArgs, SpokeAssetArgs};
 use soroban_sdk::testutils::Address as _;
 use soroban_sdk::xdr::{ScErrorCode, ScErrorType};
 use soroban_sdk::{Address, BytesN, Env, Error, Symbol, TryFromVal};
@@ -134,22 +134,7 @@ impl Pair<'_> {
 
     /// Args that restate `listing()` field for field.
     fn restate(&self, config: &SpokeAssetConfig) -> SpokeAssetArgs {
-        SpokeAssetArgs {
-            hub_id: self.hub,
-            asset: self.asset.clone(),
-            spoke_id: self.spoke,
-            can_collateral: config.is_collateralizable,
-            can_borrow: config.is_borrowable,
-            paused: config.paused,
-            frozen: config.frozen,
-            no_seize: config.no_seize,
-            ltv: config.loan_to_value,
-            threshold: config.liquidation_threshold,
-            bonus: config.liquidation_bonus,
-            liquidation_fees: config.liquidation_fees,
-            supply_cap: config.supply_cap,
-            borrow_cap: config.borrow_cap,
-        }
+        restate_listing(self.hub, self.spoke, self.asset.clone(), config)
     }
 
     /// Args that sit exactly on `grant`.
@@ -221,6 +206,41 @@ impl Pair<'_> {
 
     fn queued(&self, op_id: &BytesN<32>) -> bool {
         self.gov.get_operation_ledger(op_id) != 0
+    }
+
+    fn pause_relaxation(&self) -> AdminOperation {
+        AdminOperation::RelaxSpokeAssetFlags(RelaxSpokeAssetFlagsArgs {
+            spoke_id: self.spoke,
+            hub_asset: self.key(),
+            expected_epoch: 0,
+            paused: true,
+            frozen: false,
+            no_seize: false,
+        })
+    }
+}
+
+fn restate_listing(
+    hub_id: u32,
+    spoke_id: u32,
+    asset: Address,
+    config: &SpokeAssetConfig,
+) -> SpokeAssetArgs {
+    SpokeAssetArgs {
+        hub_id,
+        asset,
+        spoke_id,
+        can_collateral: config.is_collateralizable,
+        can_borrow: config.is_borrowable,
+        paused: config.paused,
+        frozen: config.frozen,
+        no_seize: config.no_seize,
+        ltv: config.loan_to_value,
+        threshold: config.liquidation_threshold,
+        bonus: config.liquidation_bonus,
+        liquidation_fees: config.liquidation_fees,
+        supply_cap: config.supply_cap,
+        borrow_cap: config.borrow_cap,
     }
 }
 
@@ -336,6 +356,78 @@ fn a_spoke_owner_freezes_a_foreign_hub_listing_without_a_pause() {
     );
 }
 
+#[test]
+fn a_spoke_owner_may_keep_an_existing_pause_while_freezing_a_foreign_listing() {
+    let env = Env::default();
+    let p = pair(&env);
+    let mut live = live_listing();
+    live.paused = true;
+    p.list(&live);
+
+    p.curator.tighten_flags(
+        &p.other,
+        &p.second,
+        &p.spoke,
+        &p.key(),
+        &true,
+        &true,
+        &false,
+    );
+
+    let after = p.listing();
+    assert_eq!(
+        (after.paused, after.frozen, after.no_seize),
+        (true, true, false)
+    );
+}
+
+#[test]
+fn a_spoke_owner_cannot_add_a_pause_to_a_foreign_listing() {
+    let env = Env::default();
+    let p = pair(&env);
+    p.list(&live_listing());
+
+    assert_eq!(
+        p.curator.try_tighten_flags(
+            &p.other,
+            &p.second,
+            &p.spoke,
+            &p.key(),
+            &true,
+            &true,
+            &false,
+        ),
+        Err(Ok(CuratorError::ForeignPause.into()))
+    );
+    assert!(!p.listing().paused);
+}
+
+#[test]
+fn a_hub_owner_freezes_a_foreign_spoke_without_changing_its_other_flags() {
+    let env = Env::default();
+    let p = pair(&env);
+    let mut live = live_listing();
+    live.paused = true;
+    live.no_seize = true;
+    p.list(&live);
+
+    p.curator.tighten_flags(
+        &p.admin,
+        &p.first,
+        &p.spoke,
+        &p.key(),
+        &false,
+        &true,
+        &false,
+    );
+
+    let after = p.listing();
+    assert_eq!(
+        (after.paused, after.frozen, after.no_seize),
+        (true, true, true)
+    );
+}
+
 // --- propose: which branch a listing edit takes ------------------------------
 
 /// A grantee's edit of a listing in its own spoke is judged against its grant,
@@ -354,6 +446,65 @@ fn a_grantee_raises_a_cap_in_its_own_spoke_within_the_grant() {
         .unwrap()
         .unwrap();
     assert!(p.queued(&op_id));
+}
+
+#[test]
+fn a_grantee_may_propose_a_relaxation_that_keeps_a_foreign_listing_paused() {
+    let env = Env::default();
+    let p = pair(&env);
+    let mut live = live_listing();
+    live.paused = true;
+    p.list(&live);
+
+    let op_id = p
+        .grantee_proposes(p.pause_relaxation(), 60)
+        .unwrap()
+        .unwrap();
+    assert!(p.queued(&op_id));
+}
+
+#[test]
+fn a_grantee_cannot_add_a_pause_to_a_foreign_listing_by_relaxation() {
+    let env = Env::default();
+    let p = pair(&env);
+    p.list(&live_listing());
+
+    assert_eq!(
+        p.grantee_proposes(p.pause_relaxation(), 62),
+        Err(Ok(CuratorError::ForeignPause.into()))
+    );
+    assert!(!p.listing().paused);
+}
+
+#[test]
+fn a_grantee_may_edit_a_foreign_listing_without_lifting_its_existing_pause() {
+    let env = Env::default();
+    let p = pair(&env);
+    let mut live = live_listing();
+    live.paused = true;
+    p.list(&live);
+
+    let op_id = p
+        .grantee_proposes(AdminOperation::EditAssetInSpoke(p.restate(&live)), 61)
+        .unwrap()
+        .unwrap();
+    assert!(p.queued(&op_id));
+}
+
+#[test]
+fn a_grantee_cannot_add_a_pause_to_a_foreign_listing_by_editing() {
+    let env = Env::default();
+    let p = pair(&env);
+    let live = live_listing();
+    p.list(&live);
+    let mut args = p.restate(&live);
+    args.paused = true;
+
+    assert_eq!(
+        p.grantee_proposes(AdminOperation::EditAssetInSpoke(args), 63),
+        Err(Ok(CuratorError::ForeignPause.into()))
+    );
+    assert!(!p.listing().paused);
 }
 
 /// The hub owner lowers a cap of its asset in a spoke it does not own.
@@ -485,6 +636,36 @@ fn a_grantee_lists_exactly_at_the_grant() {
     let p = pair(&env);
     let op_id = p.grantee_proposes(listing_op(&p), 30).unwrap().unwrap();
     assert!(p.queued(&op_id));
+}
+
+#[test]
+fn an_owner_edits_a_listing_in_its_own_hub_and_spoke_without_a_grant() {
+    let env = Env::default();
+    let (owner, gov, curator) = setup(&env);
+    let admin = Address::generate(&env);
+    let registrar = register(&gov, &owner, &curator, &admin);
+    let hub = curator.create_hub(&admin, &registrar);
+    let spoke = curator.add_spoke(&admin, &registrar);
+    let asset = Address::generate(&env);
+    let listing = live_listing();
+    let key = HubAssetKey {
+        hub_id: hub,
+        asset: asset.clone(),
+    };
+    env.as_contract(&gov.controller(), || {
+        env.storage()
+            .persistent()
+            .set(&ControllerKey::SpokeAsset(spoke, key), &listing);
+    });
+
+    let op_id = curator.propose(
+        &admin,
+        &registrar,
+        &AdminOperation::EditAssetInSpoke(restate_listing(hub, spoke, asset, &listing)),
+        &BytesN::from_array(&env, &[64; 32]),
+    );
+
+    assert_ne!(gov.get_operation_ledger(&op_id), 0);
 }
 
 /// One unit past any numeric limit of the grant is outside it.

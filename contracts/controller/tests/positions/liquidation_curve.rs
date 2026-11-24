@@ -87,6 +87,27 @@ fn bonus_at_or_above_target_is_base() {
 }
 
 #[test]
+fn degenerate_bonus_ramp_uses_the_full_bonus_increment() {
+    let env = Env::default();
+    let target = Wad::from(DEFAULT_LIQUIDATION_TARGET_HF_WAD);
+    let hf = target.checked_sub(&env, Wad::from(1));
+    let base = Bps::from(400i128);
+    let max = Bps::from(1_000i128);
+
+    for floor in [target.raw(), target.raw() + 1] {
+        let curve = LiquidationCurve::from_config(&SpokeConfig {
+            hf_for_max_bonus_wad: floor,
+            ..default_spoke_config()
+        });
+        assert_eq!(curve.bonus_scale(&env, hf, target), Wad::ONE);
+        assert_eq!(
+            calculate_linear_bonus_with_target(&env, hf, base, max, &curve, target),
+            max
+        );
+    }
+}
+
+#[test]
 fn bonus_factor_scales_increment() {
     let env = Env::default();
     let base = Bps::from(500i128);
@@ -312,6 +333,34 @@ fn estimate_band_quotes_the_full_debt_at_the_hf_preserving_cap() {
     let (d, bonus) = estimate_liquidation_amount(&env, &s, bounds, &curve);
     assert_eq!(bonus.raw(), 300, "the band pays the HF-preserving cap");
     assert_eq!(d.raw(), s.total_debt.raw(), "the band quotes the full debt");
+}
+
+#[test]
+fn cap_equal_to_base_bonus_keeps_a_solvent_quote_collateral_backed() {
+    let env = Env::default();
+    let curve = LiquidationCurve::from_config(&default_spoke_config());
+    // HF / seizure proportion = 0.945 / 0.9 = 1.05, exactly the base
+    // bonus. The account is solvent, but its collateral covers only
+    // 1030 / 1.05 = 980.952... of the 1000 USD debt at that bonus. The
+    // remainder exceeds the bad-debt dust threshold, so it is not closed.
+    let s = snap(
+        1_000 * WAD,
+        1_030 * WAD,
+        945 * WAD,
+        9 * WAD / 10,
+        945 * WAD / 1000,
+    );
+    assert_eq!(max_hf_preserving_bonus_bps(&s), Some(500));
+    let bounds = BonusBounds {
+        base: Bps::from(500i128),
+        max: max_bonus_for_threshold(&env, s.proportion_seized),
+    };
+
+    let (quote, bonus) = estimate_liquidation_amount(&env, &s, bounds, &curve);
+
+    assert_eq!(bonus.raw(), 500);
+    assert_eq!(quote.raw(), 980_952_380_952_380_952_381);
+    assert!(quote < s.total_debt);
 }
 
 #[test]

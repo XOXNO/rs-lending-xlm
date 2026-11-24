@@ -225,14 +225,17 @@ it in the output (`none` = removed) and `rs` the refunds it appended.
 * `keep`: left unchanged, no refund (a leg with a non-positive amount or a
   zero recorded value is skipped);
 * `trim`: amount lowered to `a ∈ (0, amount]` and value to `u ∈ [0, usd]`,
-  every other field unchanged, one refund of exactly `amount − a` of the
-  leg's asset;
+  every other field unchanged; a refund of exactly `amount − a` is emitted
+  only when that amount is positive;
 * `drop`: removed, one refund of its whole (positive) amount. -/
+def trimRefunds (e : types.RepayEntry) (r : Std.I128) : List types.PaymentTuple :=
+  if r > 0#i128 then [{ asset := e.hub_asset.asset, amount := r }] else []
+
 inductive LegFate (e : types.RepayEntry) : Option types.RepayEntry → List types.PaymentTuple → Prop
   | keep : LegFate e (some e) []
   | trim (a u r : Std.I128) : 0 < a.val → a.val ≤ e.amount.val → 0 ≤ u.val → u.val ≤ e.usd_wad.val →
       r.val = e.amount.val - a.val →
-      LegFate e (some { e with amount := a, usd_wad := u }) [{ asset := e.hub_asset.asset, amount := r }]
+      LegFate e (some { e with amount := a, usd_wad := u }) (trimRefunds e r)
   | drop (r : Std.I128) : 0 < e.amount.val → r.val = e.amount.val →
       LegFate e none [{ asset := e.hub_asset.asset, amount := r }]
 
@@ -384,6 +387,15 @@ theorem rp_drop_mid {P T : List types.RepayEntry} {e : types.RepayEntry} {i : Na
 theorem rp_drop_mid' {P T : List types.RepayEntry} {i : Nat}
     (h : P.length = i) : (P ++ T).drop i = T := by
   subst h; simp
+
+/-- The generated conditional appends a refund only when it is positive. -/
+theorem trim_refund_step (e : types.RepayEntry) (r : Std.I128)
+    (rf : List types.PaymentTuple) :
+    (if r > 0#i128 then
+      ok (rf ++ [{ asset := e.hub_asset.asset, amount := r }], e.hub_asset)
+    else ok (rf, e.hub_asset)) = ok (rf ++ trimRefunds e r, e.hub_asset) := by
+  unfold trimRefunds
+  split_ifs <;> simp
 
 /-- A skipped leg (non-positive amount or zero value): nothing changes. -/
 theorem inv_skip {L : List types.RepayEntry} {r0 : List types.PaymentTuple} {E : Int} {keep : Bool}
@@ -560,6 +572,7 @@ theorem excess_loop_spec (env : Env) (L : List types.RepayEntry) (r0 : List type
         aeneas_soroban_shim.Address.Insts.CoreCloneClone.clone, aeneas_soroban_shim.Vec.push_back,
         math.fp.Wad.raw]
       step as ⟨r, hr⟩
+      simp only [trim_refund_step, bind_ok]
       by_cases ha00 : a = 0#i128
       · have haz : a.val = 0 := by rw [ha00]; rfl
         simp only [ha00, ↓reduceIte, hrm, bind_ok]
@@ -571,6 +584,9 @@ theorem excess_loop_spec (env : Env) (L : List types.RepayEntry) (r0 : List type
           (by simp [usdSum]; linarith) (fun _ => by simp [usdSum]; linarith) (fun h => by cases h)
         simp only [Option.toList_none, List.nil_append] at hi
         rw [← rp_zero_val] at hi
+        have hrpos : r > 0#i128 := by
+          simp [IScalar.lt_equiv, hr, haz, hamp]
+        simp only [trimRefunds, hrpos, ↓reduceIte] at *
         exact ih _ _ _ idx1 hi1 hi
       · have ha0' : 0 < a.val := by
           have : a.val ≠ 0 := fun h => ha00 (IScalar.eq_of_val_eq (by rw [h]; rfl))
@@ -657,25 +673,27 @@ theorem excess_loop_spec (env : Env) (L : List types.RepayEntry) (r0 : List type
             aeneas_soroban_shim.Address.Insts.CoreCloneClone.clone,
             aeneas_soroban_shim.Vec.push_back, math.fp.Wad.raw]
           step as ⟨r, hr⟩
+          simp only [trim_refund_step, bind_ok]
           simp only [ha00, ↓reduceIte, hset, bind_ok]
           have hi := inv_partial hinv0 he
             (LegFate.trim a e.usd_wad r ha1 hale husd0 (le_refl _) hr)
             (by simp [usdSum]) (fun h => by cases h) (fun _ => by simp [usdSum]; linarith)
           simp only [Option.toList_some, List.singleton_append] at hi
           rw [← rp_zero_val] at hi
-          exact ih _ _ _ idx1 hi1 hi
+          simpa using ih _ _ _ idx1 hi1 hi
         · have hnlt : ¬ (e.usd_wad.val < w1.val) := not_lt.mpr hlt2
           simp only [wad_min, hnlt, ↓reduceIte, bind_ok,
             aeneas_soroban_shim.Address.Insts.CoreCloneClone.clone,
             aeneas_soroban_shim.Vec.push_back, math.fp.Wad.raw]
           step as ⟨r, hr⟩
+          simp only [trim_refund_step, bind_ok]
           simp only [ha00, ↓reduceIte, hset, bind_ok]
           have hi := inv_partial hinv0 he
             (LegFate.trim a w1 r ha1 hale hw10 hlt2 hr)
             (by simp [usdSum]; linarith) (fun h => by cases h) (fun _ => by simp [usdSum]; linarith)
           simp only [Option.toList_some, List.singleton_append] at hi
           rw [← rp_zero_val] at hi
-          exact ih _ _ _ idx1 hi1 hi
+          simpa using ih _ _ _ idx1 hi1 hi
 
 /-! ## `process_excess_payment` -/
 
@@ -728,7 +746,14 @@ theorem legFate_amount {e : types.RepayEntry} {o : Option types.RepayEntry}
     amtSum o.toList + refSum rs = e.amount.val := by
   cases h with
   | keep => simp [amtSum, refSum]
-  | trim a u r _ _ _ _ hr => simp [amtSum, refSum, hr]
+  | trim a u r _ hle _ _ hr =>
+    by_cases hpos : r > 0#i128
+    · simp [amtSum, refSum, trimRefunds, hpos, hr]
+    · have hr0 : r.val = 0 := by
+        have hn : ¬ 0 < r.val := by simpa [IScalar.lt_equiv] using hpos
+        omega
+      simp [amtSum, refSum, trimRefunds, hpos]
+      omega
   | drop r _ hr => simp [amtSum, refSum, hr]
 
 /-- Summed over the visited legs: kept plus refunded equals the visited amounts. -/
@@ -788,8 +813,10 @@ theorem legFate_removed_iff {e : types.RepayEntry} {o : Option types.RepayEntry}
   cases h with
   | keep => simp
   | trim a u r ha _ _ _ hr =>
-    refine ⟨by simp; omega, ?_⟩
-    intro x _ r' hr'; simp at hr'; subst hr'; simp; omega
+    by_cases hpos : r > 0#i128
+    · simp [trimRefunds, hpos]
+      omega
+    · simp [trimRefunds, hpos]
   | drop r _ hr => simp [hr]
 
 /-- **No leg goes negative.** If every input amount is non-negative, every
@@ -827,7 +854,10 @@ theorem excess_nonneg {L : List types.RepayEntry} {r0 : List types.PaymentTuple}
     simp only at hrs this he
     cases this with
     | keep => simp at hrs
-    | trim a u r' _ hae _ _ hr' => simp at hrs; subst hrs; simp; omega
+    | trim a u r' _ hae _ _ hr' =>
+      by_cases hpos : r' > 0#i128
+      · simp [trimRefunds, hpos] at hrs; subst hrs; simp; omega
+      · simp [trimRefunds, hpos] at hrs
     | drop r' _ hr' => simp at hrs; subst hrs; simp; omega
 
 /-- Each output leg comes from an input leg: either unchanged, or with the

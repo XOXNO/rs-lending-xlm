@@ -42,7 +42,7 @@ SHELL := /bin/bash
         certora certora-list \
         test test-harness test-verbose test-one test-match test-pool \
         miri-common miri-all \
-        coverage coverage-controller coverage-pool coverage-price-aggregator coverage-merged \
+        coverage coverage-controller coverage-pool coverage-price-aggregator coverage-merged coverage-branches \
         docs-check fmt fmt-check clippy clippy-contracts clippy-fuzz scout scout-host scout-strict \
         access-control-check \
         ops-script-check \
@@ -106,6 +106,8 @@ CERTORA_WASM_RUSTFLAGS := -C link-arg=--allow-undefined -C link-arg=--export=__d
 
 CERTORA_BUILD_JOBS ?= 1
 COV_DIR := target/coverage
+COV_COMMAND ?= cargo llvm-cov
+COV_BRANCH_TARGET_DIR ?= target/branch-cov-target
 TEST_HARNESS_DIR := tests/test-harness
 FUZZ_DIR := tests/fuzz
 
@@ -500,7 +502,7 @@ define COV_RUN_HARNESS
 	cp -R $(TEST_HARNESS_DIR)/test_snapshots/. "$$backup"/ 2>/dev/null || true; \
 	trap 'restore_snapshots' EXIT; \
 	set -o pipefail; \
-	cargo llvm-cov test -p test-harness --no-report --no-fail-fast $(COV_IGNORE) -- $(TEST_THREAD_FLAG) 2>&1 | tee $(COV_DIR)/harness.log | tail -20 \
+	$(COV_COMMAND) test -p test-harness --no-report --no-fail-fast $(COV_IGNORE) -- $(TEST_THREAD_FLAG) 2>&1 | tee $(COV_DIR)/harness.log | tail -20 \
 		|| { grep -E -A12 'panicked at|^failures:|Running tests/' $(COV_DIR)/harness.log | grep -v '\.\.\. ok$$' | head -300; false; }
 endef
 
@@ -584,6 +586,32 @@ coverage-merged:
 	echo "  $(COV_DIR)/merged-report.md"; \
 	echo "  lcov.info  (IDE default; copy of $(COV_DIR)/merged.lcov.info)"; \
 	exit $$harness_status
+
+
+# Nightly-only branch instrumentation runs in a separate Cargo target directory.
+# It does not overwrite the stable line-coverage profiles used by coverage-merged.
+coverage-branches: COV_DIR := target/coverage/branches
+coverage-branches: COV_COMMAND := CARGO_TARGET_DIR=$(COV_BRANCH_TARGET_DIR) cargo +nightly llvm-cov --branch
+coverage-branches:
+	@echo "Running experimental merged Rust branch coverage with nightly..."
+	@mkdir -p $(COV_DIR)
+	@CARGO_TARGET_DIR=$(COV_BRANCH_TARGET_DIR) cargo +nightly llvm-cov clean --workspace
+	@set -o pipefail; $(COV_COMMAND) test -p common --lib --no-report --no-fail-fast $(COV_IGNORE) 2>&1 | tail -5
+	@set -o pipefail; $(COV_COMMAND) test -p pool --no-report --no-fail-fast $(COV_IGNORE) 2>&1 | tail -5
+	@set -o pipefail; $(COV_COMMAND) test -p price-aggregator --features testing --no-report --no-fail-fast $(COV_IGNORE) 2>&1 | tail -5
+	@set -o pipefail; $(COV_COMMAND) test -p controller --lib --no-report --no-fail-fast $(COV_IGNORE) 2>&1 | tail -5
+	@set -o pipefail; $(COV_COMMAND) test -p governance --no-report --no-fail-fast $(COV_IGNORE) 2>&1 | tail -5
+	@set -o pipefail; $(COV_COMMAND) test -p swap-aggregator --no-report --no-fail-fast $(COV_IGNORE) 2>&1 | tail -5
+	@set -o pipefail; $(COV_COMMAND) test -p xoxno-oracle --no-report --no-fail-fast $(COV_IGNORE) 2>&1 | tail -5
+	@set -o pipefail; $(COV_COMMAND) test -p position-nft --no-report --no-fail-fast $(COV_IGNORE) 2>&1 | tail -5
+	@set -o pipefail; $(COV_COMMAND) test -p defindex-strategy --no-report --no-fail-fast $(COV_IGNORE) 2>&1 | tail -5
+	@set -o pipefail; $(COV_COMMAND) test -p curator --no-report --no-fail-fast $(COV_IGNORE) 2>&1 | tail -5
+	@$(COV_RUN_HARNESS)
+	@CARGO_TARGET_DIR=$(COV_BRANCH_TARGET_DIR) cargo +nightly llvm-cov report --json \
+		--output-path $(COV_DIR)/merged.json $(COV_IGNORE) >/dev/null
+	@python3 scripts/branch_coverage_report.py \
+		$(COV_DIR)/merged.json $(COV_DIR)/merged-report.md merged
+	@echo "Reports saved to $(COV_DIR)/merged.json and $(COV_DIR)/merged-report.md"
 
 
 
@@ -841,6 +869,10 @@ MUTANTS_CONTROLLER_WASM := $(abspath $(RELEASE_DIR)/controller.wasm)
 MUTANTS_PRICE_AGGREGATOR_WASM := $(abspath $(RELEASE_DIR)/price_aggregator.wasm)
 MUTANTS_POSITION_NFT_WASM := $(abspath $(RELEASE_DIR)/position_nft.wasm)
 MUTANTS_SWAP_AGGREGATOR_WASM := $(abspath $(RELEASE_DIR)/swap_aggregator.wasm)
+MUTANTS_CURATOR_WASM := $(abspath $(RELEASE_DIR)/curator.wasm)
+MUTANTS_MOCK_REDSTONE_WASM := $(abspath $(RELEASE_DIR)/mock_redstone.wasm)
+MUTANTS_PRODUCTION_FIXTURE_WASM := $(abspath $(RELEASE_DIR)/production_fixture.wasm)
+MUTANTS_STRESS_WASM_DIR := $(abspath $(DEPLOY_DIR))
 
 
 
@@ -850,7 +882,11 @@ MUTANTS_ENV = PROPTEST_CASES=1 PROPTEST_RNG_SEED=0 \
 	CONTROLLER_WASM_PATH="$(MUTANTS_CONTROLLER_WASM)" \
 	PRICE_AGGREGATOR_WASM_PATH="$(MUTANTS_PRICE_AGGREGATOR_WASM)" \
 	POSITION_NFT_WASM_PATH="$(MUTANTS_POSITION_NFT_WASM)" \
-	SWAP_AGGREGATOR_WASM_PATH="$(MUTANTS_SWAP_AGGREGATOR_WASM)"
+	SWAP_AGGREGATOR_WASM_PATH="$(MUTANTS_SWAP_AGGREGATOR_WASM)" \
+	CURATOR_WASM_PATH="$(MUTANTS_CURATOR_WASM)" \
+	MOCK_REDSTONE_WASM_PATH="$(MUTANTS_MOCK_REDSTONE_WASM)" \
+	PRODUCTION_FIXTURE_WASM_PATH="$(MUTANTS_PRODUCTION_FIXTURE_WASM)" \
+	STRESS_BUDGET_WASM_DIR="$(MUTANTS_STRESS_WASM_DIR)"
 
 define run_mutants
 	$(MUTANTS_ENV) python3 scripts/run_mutants.py --label "$@" -- \
@@ -864,10 +900,10 @@ define run_mutants_two_pass
 		--minimum-test-timeout $(MUTANTS_TIMEOUT) $(MUTANTS_RUN_ARGS)
 endef
 
-define run_mutants_three_pass
+define run_mutants_five_pass
 	$(MUTANTS_ENV) python3 scripts/run_mutants.py --label "$@" \
-		--pass='$(2)' --pass='$(3)' --pass='$(4)' -- $(MUTANTS_RUN_MODE) $(1) \
-		--minimum-test-timeout $(MUTANTS_TIMEOUT) $(MUTANTS_RUN_ARGS)
+		--pass='$(2)' --pass='$(3)' --pass='$(4)' --pass='$(5)' --pass='$(6)' \
+		-- $(MUTANTS_RUN_MODE) $(1) --minimum-test-timeout $(MUTANTS_TIMEOUT) $(MUTANTS_RUN_ARGS)
 endef
 
 _mutants-check:
@@ -903,10 +939,11 @@ MUTANTS_FIXTURES_PREBUILT ?=
 _mutants-harness-prepare: _mutants-check
 ifeq ($(MUTANTS_FIXTURES_PREBUILT),)
 	rm -rf $(CARGO_TARGET_DIR)/$(WASM_TARGET)
-	$(MAKE) build
+	$(MAKE) deploy-artifacts
 else
 	@for w in "$(MUTANTS_POOL_WASM)" "$(MUTANTS_CONTROLLER_WASM)" "$(MUTANTS_PRICE_AGGREGATOR_WASM)" "$(MUTANTS_POSITION_NFT_WASM)" \
-		"$(MUTANTS_SWAP_AGGREGATOR_WASM)"; do \
+		"$(MUTANTS_SWAP_AGGREGATOR_WASM)" "$(MUTANTS_CURATOR_WASM)" \
+		"$(MUTANTS_MOCK_REDSTONE_WASM)" "$(MUTANTS_PRODUCTION_FIXTURE_WASM)"; do \
 		[ -s "$$w" ] || { echo "prebuilt fixture missing or empty: $$w"; exit 1; }; \
 	done
 	@[ -s "$(RELEASE_DIR)/SHA256SUMS" ] \
@@ -917,6 +954,10 @@ else
 		|| { echo "prebuilt fixture checksums do not match SHA256SUMS"; exit 1; }
 	@echo "Using prebuilt wasm fixtures from $(RELEASE_DIR) (checksums verified)"
 endif
+	@for w in "$(DEPLOY_DIR)/controller.wasm" "$(DEPLOY_DIR)/pool.wasm" \
+		"$(DEPLOY_DIR)/price_aggregator.wasm" "$(DEPLOY_DIR)/position_nft.wasm"; do \
+		[ -s "$$w" ] || { echo "deploy fixture missing or empty: $$w"; exit 1; }; \
+	done
 	@grep -aq set_swap_aggregator "$(MUTANTS_CONTROLLER_WASM)" \
 		|| { echo "controller.wasm fixture is stale (missing set_swap_aggregator export)"; exit 1; }
 
@@ -929,8 +970,14 @@ mutants: mutants-common mutants-pool mutants-governance \
          mutants-swap-aggregator mutants-position-nft mutants-curator
 
 
+# A return-value mutant in saturating division can leave unrelated rate-model
+# tests running until timeout. Retry any pending mutant against the direct
+# saturation assertion; other survivors still fail the target.
+mutants-math: MUTANTS_TIMEOUT = 120
 mutants-math: _mutants-check
-	$(call run_mutants,--package common --file 'common/src/math/**')
+	$(call run_mutants_two_pass,--package common --file 'common/src/math/**',\
+		--test-package common,\
+		--test-package common --cargo-test-arg test_mul_div_floor_saturating_saturates_toward_the_sign_of_the_quotient)
 
 mutants-rates: _mutants-check
 	$(call run_mutants,--package common --file 'common/src/rates/**')
@@ -942,13 +989,17 @@ mutants-pool-interest: _mutants-check
 
 
 
+# A zeroed rate cap or always-false steepness check can stall unrelated rate
+# simulations. Retry survivors against the direct bound assertions.
 mutants-common: _mutants-harness-prepare
-	$(call run_mutants_three_pass,--package common,\
+	$(call run_mutants_five_pass,--package common,\
 		--test-package common,\
 		--test-package common --test-package controller --test-package pool \
 		--test-package governance,\
 		--test-package common --test-package controller --test-package pool \
-		--test-package governance --test-package test-harness)
+		--test-package governance --test-package test-harness,\
+		--test-package common --cargo-test-arg max_borrow_rate_is_two_ray,\
+		--test-package common --cargo-test-arg test_rate_model_verify_accepts_valid)
 
 
 
@@ -2200,6 +2251,7 @@ help-build:
 	$(call H2,Coverage)
 	$(call ROW,make coverage,merged coverage + CLI summary)
 	$(call ROW,make coverage-controller | -pool | -merged,scoped reports)
+	$(call ROW,make coverage-branches,nightly Rust branch report)
 	$(call ROW,make fuzz-coverage,fast math fuzz (corpus replay))
 	$(call ROW,make fuzz-coverage-all,+ contract targets (slow on macOS))
 	$(call ROW,make fuzz-coverage-one TARGET=flow_e2e,[FUZZ_COV_TIME=30])

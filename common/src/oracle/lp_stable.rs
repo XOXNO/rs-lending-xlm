@@ -347,6 +347,25 @@ mod tests {
     }
 
     #[test]
+    fn rejects_positive_share_supply_that_normalizes_to_zero() {
+        let env = Env::default();
+        let supply = LpSupply {
+            total_shares: 1,
+            decimals: 19,
+        };
+        assert_eq!(
+            fair_stable_lp_price_wad(
+                &env,
+                &leg(10_000_000, 7, WAD),
+                &leg(10_000_000, 7, WAD),
+                &supply,
+                1_500,
+            ),
+            Err(OracleError::InvalidPrice)
+        );
+    }
+
+    #[test]
     fn balanced_pool_prices_near_unit() {
         let env = Env::default();
         for amp in [1u128, 100, 1500, MAX_AMP] {

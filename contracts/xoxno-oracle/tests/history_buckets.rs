@@ -12,7 +12,7 @@ use common::*;
 use ::common::oracle::providers::redstone::RedStonePriceData;
 use ::common::oracle::providers::reflector::{ReflectorAsset, ReflectorPriceData};
 use soroban_sdk::{Address, Env, String, Vec, U256};
-use xoxno_oracle::XoxnoOracleClient;
+use xoxno_oracle::{Error, XoxnoOracleClient};
 
 const RESOLUTION: u64 = TEST_RESOLUTION as u64;
 
@@ -353,6 +353,28 @@ fn purge_feed_removes_the_history_buckets() {
     advance_ledger_seconds(&fx.env, 60);
     fx.submit_all(3_000);
     assert_eq!(fx.rounds(12), [(11_100, 3_000)]);
+}
+
+#[test]
+fn empty_stored_history_fails_closed_while_the_spot_price_remains_available() {
+    let fx = fixture();
+    fx.submit_all(1_000);
+    assert_eq!(
+        fx.client.read_price_data_for_feed(&fx.feed).price.to_u128(),
+        Some(1_000)
+    );
+
+    // A legacy or inconsistent storage entry can contain an empty history
+    // even while the current aggregate is still valid.
+    fx.store_legacy_history(&[]);
+    assert_eq!(
+        fx.client.try_read_price_history(&fx.feed, &1),
+        Err(Ok(Error::NoDataForFeed))
+    );
+    assert_eq!(
+        fx.client.read_price_data_for_feed(&fx.feed).price.to_u128(),
+        Some(1_000)
+    );
 }
 
 /// The spot reads return the stored aggregate: the lower median, the oldest

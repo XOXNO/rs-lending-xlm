@@ -7,9 +7,13 @@ extern crate std;
 
 use super::*;
 
+use crate::constants::TIMELOCK_MIN_DELAY_LEDGERS;
 use crate::test_support::register_governance;
 use common::constants::RAY;
-use common::types::{HubAssetKey, IndependencePolicy, MarketParamsRaw, OracleTolerance};
+use common::types::{
+    HubAssetKey, IndependencePolicy, InterestRateModel, MarketParamsRaw, OracleTolerance,
+    PositionLimits,
+};
 use price_aggregator::PriceAggregatorClient as SeedClient;
 use soroban_sdk::testutils::Address as _;
 use soroban_sdk::{symbol_short, BytesN, String as SorobanString};
@@ -38,14 +42,23 @@ fn nft_args(env: &Env, hash: [u8; 32]) -> DeployPositionNftArgs {
 fn deploy_position_nft_resolves_to_controller_with_standard_delay() {
     let env = Env::default();
     let (gov_id, controller_id) = gov_with_controller(&env);
-    let op = AdminOperation::DeployPositionNft(nft_args(&env, [0x11; 32]));
+    let args = nft_args(&env, [0x11; 32]);
+    let op = AdminOperation::DeployPositionNft(args.clone());
 
     let resolved = env.as_contract(&gov_id, || resolve_op(&env, &op));
 
     assert_eq!(resolved.target, controller_id);
     assert_eq!(resolved.function, Symbol::new(&env, "deploy_position_nft"));
-    // wasm_hash, uri, name, symbol.
-    assert_eq!(resolved.args.len(), 4);
+    assert_eq!(
+        resolved.args,
+        vec![
+            &env,
+            args.wasm_hash.into_val(&env),
+            args.uri.into_val(&env),
+            args.name.into_val(&env),
+            args.symbol.into_val(&env),
+        ]
+    );
     // Standard is safe: the controller reverts with `PositionNftAlreadyDeployed`
     // once an NFT exists. `UpgradePositionNft` has no such guard and is Sensitive.
     assert_eq!(resolved.delay_tier, DelayTier::Standard);
@@ -65,13 +78,14 @@ fn deploy_position_nft_rejects_zero_wasm_hash() {
 fn upgrade_position_nft_resolves_to_controller_with_sensitive_delay() {
     let env = Env::default();
     let (gov_id, controller_id) = gov_with_controller(&env);
-    let op = AdminOperation::UpgradePositionNft(BytesN::from_array(&env, &[0x22; 32]));
+    let hash = BytesN::from_array(&env, &[0x22; 32]);
+    let op = AdminOperation::UpgradePositionNft(hash.clone());
 
     let resolved = env.as_contract(&gov_id, || resolve_op(&env, &op));
 
     assert_eq!(resolved.target, controller_id);
     assert_eq!(resolved.function, Symbol::new(&env, "upgrade_position_nft"));
-    assert_eq!(resolved.args.len(), 1);
+    assert_eq!(resolved.args, vec![&env, hash.into_val(&env)]);
     // Replacing the NFT code under live positions is a Sensitive operation.
     assert_eq!(resolved.delay_tier, DelayTier::Sensitive);
 }
@@ -96,12 +110,13 @@ fn upgrade_price_aggregator_resolves_to_the_aggregator_with_sensitive_delay() {
     let agg_id = env.register(price_aggregator::PriceAggregator, (gov_id.clone(),));
     gov.set_price_aggregator(&agg_id);
 
-    let op = AdminOperation::UpgradePriceAggregator(BytesN::from_array(&env, &[0x33; 32]));
+    let hash = BytesN::from_array(&env, &[0x33; 32]);
+    let op = AdminOperation::UpgradePriceAggregator(hash.clone());
     let resolved = env.as_contract(&gov_id, || resolve_op(&env, &op));
 
     assert_eq!(resolved.target, agg_id, "must target the price aggregator");
     assert_eq!(resolved.function, Symbol::new(&env, "upgrade"));
-    assert_eq!(resolved.args.len(), 1);
+    assert_eq!(resolved.args, vec![&env, hash.into_val(&env)]);
     assert_eq!(resolved.delay_tier, DelayTier::Sensitive);
 }
 
@@ -330,7 +345,8 @@ fn resolve_oracle_keeps_the_stored_unit_of_a_relabelled_token() {
 fn create_liquidity_pool_accepts_the_stored_unit_of_a_relabelled_token() {
     let env = Env::default();
     let (gov_id, controller_id, sac) = gov_with_relabelled_sac(&env, 0);
-    let op = AdminOperation::CreateLiquidityPool(pool_args(&sac, 0));
+    let args = pool_args(&sac, 0);
+    let op = AdminOperation::CreateLiquidityPool(args.clone());
 
     let resolved = env.as_contract(&gov_id, || resolve_op(&env, &op));
 
@@ -338,6 +354,64 @@ fn create_liquidity_pool_accepts_the_stored_unit_of_a_relabelled_token() {
     assert_eq!(
         resolved.function,
         Symbol::new(&env, "create_liquidity_pool")
+    );
+    assert_eq!(resolved.delay_tier, DelayTier::Standard);
+    assert_eq!(
+        resolved.args,
+        vec![
+            &env,
+            args.hub_id.into_val(&env),
+            args.asset.into_val(&env),
+            args.params.into_val(&env),
+        ]
+    );
+}
+
+#[test]
+fn pool_parameter_upgrade_resolves_to_the_controller_with_exact_arguments() {
+    let env = Env::default();
+    let (gov_id, controller_id) = gov_with_controller(&env);
+    let params = InterestRateModel {
+        max_borrow_rate: RAY,
+        base_borrow_rate: 0,
+        slope1: RAY / 100,
+        slope2: RAY / 10,
+        slope3: RAY / 2,
+        mid_utilization: RAY / 2,
+        optimal_utilization: 8 * RAY / 10,
+        max_utilization: 95 * RAY / 100,
+        reserve_factor: 1_000,
+        is_flashloanable: false,
+        flashloan_fee: 0,
+    };
+    let args = UpgradePoolParamsArgs {
+        hub_asset: HubAssetKey {
+            hub_id: 2,
+            asset: Address::generate(&env),
+        },
+        params,
+    };
+
+    let resolved = env.as_contract(&gov_id, || {
+        resolve_op(
+            &env,
+            &AdminOperation::UpgradeLiquidityPoolParams(args.clone()),
+        )
+    });
+
+    assert_eq!(resolved.target, controller_id);
+    assert_eq!(
+        resolved.function,
+        Symbol::new(&env, "upgrade_liquidity_pool_params")
+    );
+    assert_eq!(resolved.delay_tier, DelayTier::Standard);
+    assert_eq!(
+        resolved.args,
+        vec![
+            &env,
+            args.hub_asset.into_val(&env),
+            args.params.into_val(&env),
+        ]
     );
 }
 
@@ -349,4 +423,397 @@ fn create_liquidity_pool_rejects_the_live_unit_of_a_relabelled_token() {
     let op = AdminOperation::CreateLiquidityPool(pool_args(&sac, 7));
 
     env.as_contract(&gov_id, || resolve_op(&env, &op));
+}
+
+#[test]
+fn controller_operations_resolve_their_exact_call_and_delay() {
+    let env = Env::default();
+    let (gov_id, controller_id) = gov_with_controller(&env);
+    let other = Address::generate(&env);
+    let swap = env.register(controller::Controller, (gov_id.clone(),));
+    let key = HubAssetKey {
+        hub_id: 2,
+        asset: other.clone(),
+    };
+    let hash = BytesN::from_array(&env, &[7; 32]);
+    let limits = PositionLimits {
+        max_supply_positions: 5,
+        max_borrow_positions: 4,
+    };
+    let ownership = TransferOwnershipArgs {
+        new_owner: controller_id.clone(),
+        live_until_ledger: 1_000_000,
+    };
+
+    let cases: std::vec::Vec<(&str, AdminOperation, &str, DelayTier, Vec<Val>)> = std::vec![
+        (
+            "set swap aggregator",
+            AdminOperation::SetSwapAggregator(swap.clone()),
+            "set_swap_aggregator",
+            DelayTier::Sensitive,
+            vec![&env, swap.into_val(&env)],
+        ),
+        (
+            "set accumulator",
+            AdminOperation::SetAccumulator(other.clone()),
+            "set_accumulator",
+            DelayTier::Standard,
+            vec![&env, other.clone().into_val(&env)],
+        ),
+        (
+            "position limits",
+            AdminOperation::SetPositionLimits(limits.clone()),
+            "set_position_limits",
+            DelayTier::Standard,
+            vec![&env, limits.into_val(&env)],
+        ),
+        (
+            "borrow collateral floor",
+            AdminOperation::SetMinBorrowCollateralUsd(0),
+            "set_min_borrow_collateral_usd",
+            DelayTier::Standard,
+            vec![&env, 0i128.into_val(&env)],
+        ),
+        (
+            "create hub",
+            AdminOperation::CreateHub,
+            "create_hub",
+            DelayTier::Standard,
+            vec![&env],
+        ),
+        (
+            "add spoke",
+            AdminOperation::AddSpoke,
+            "add_spoke",
+            DelayTier::Standard,
+            vec![&env],
+        ),
+        (
+            "remove spoke",
+            AdminOperation::RemoveSpoke(3),
+            "remove_spoke",
+            DelayTier::Standard,
+            vec![&env, 3u32.into_val(&env)],
+        ),
+        (
+            "remove spoke asset",
+            AdminOperation::RemoveAssetFromSpoke(RemoveAssetFromSpokeArgs {
+                hub_asset: key.clone(),
+                spoke_id: 3,
+            }),
+            "remove_asset_from_spoke",
+            DelayTier::Standard,
+            vec![&env, key.clone().into_val(&env), 3u32.into_val(&env)],
+        ),
+        (
+            "approve blend pool",
+            AdminOperation::ApproveBlendPool(controller_id.clone()),
+            "approve_blend_pool",
+            DelayTier::Standard,
+            vec![&env, controller_id.clone().into_val(&env)],
+        ),
+        (
+            "revoke blend pool",
+            AdminOperation::RevokeBlendPool(controller_id.clone()),
+            "revoke_blend_pool",
+            DelayTier::Standard,
+            vec![&env, controller_id.clone().into_val(&env)],
+        ),
+        (
+            "deploy pool",
+            AdminOperation::DeployPool(hash.clone()),
+            "deploy_pool",
+            DelayTier::Standard,
+            vec![&env, hash.clone().into_val(&env)],
+        ),
+        (
+            "upgrade pool",
+            AdminOperation::UpgradePool(hash.clone()),
+            "upgrade_pool",
+            DelayTier::Sensitive,
+            vec![&env, hash.clone().into_val(&env)],
+        ),
+        (
+            "set position manager",
+            AdminOperation::SetPositionManager(other.clone(), true),
+            "set_position_manager",
+            DelayTier::Sensitive,
+            vec![&env, other.clone().into_val(&env), true.into_val(&env)],
+        ),
+        (
+            "upgrade controller",
+            AdminOperation::UpgradeController(hash.clone()),
+            "upgrade",
+            DelayTier::Sensitive,
+            vec![&env, hash.into_val(&env)],
+        ),
+        (
+            "migrate controller",
+            AdminOperation::MigrateController(2),
+            "migrate",
+            DelayTier::Standard,
+            vec![&env, 2u32.into_val(&env)],
+        ),
+        (
+            "transfer controller ownership",
+            AdminOperation::TransferCtrlOwnership(ownership.clone()),
+            "transfer_ownership",
+            DelayTier::Sensitive,
+            vec![
+                &env,
+                ownership.new_owner.into_val(&env),
+                ownership.live_until_ledger.into_val(&env),
+            ],
+        ),
+        (
+            "force socialize bad debt",
+            AdminOperation::ForceSocializeBadDebt(42),
+            "force_socialize_bad_debt",
+            DelayTier::Sensitive,
+            vec![&env, 42u64.into_val(&env)],
+        ),
+        (
+            "set liquidation curve",
+            AdminOperation::SetSpokeLiquidationCurve(SpokeLiquidationCurveArgs {
+                spoke_id: 3,
+                target_hf_wad: 1_020_000_000_000_000_000,
+                hf_for_max_bonus_wad: 510_000_000_000_000_000,
+                liquidation_bonus_factor_bps: 10_000,
+            }),
+            "set_spoke_liquidation_curve",
+            DelayTier::Standard,
+            vec![
+                &env,
+                3u32.into_val(&env),
+                1_020_000_000_000_000_000i128.into_val(&env),
+                510_000_000_000_000_000i128.into_val(&env),
+                10_000u32.into_val(&env),
+            ],
+        ),
+        (
+            "unpause",
+            AdminOperation::Unpause,
+            "unpause",
+            DelayTier::Standard,
+            vec![&env],
+        ),
+    ];
+
+    for (label, op, function, delay_tier, args) in cases {
+        let resolved = env.as_contract(&gov_id, || resolve_op(&env, &op));
+        assert_eq!(resolved.target, controller_id, "{label}: target");
+        assert_eq!(
+            resolved.function,
+            Symbol::new(&env, function),
+            "{label}: function"
+        );
+        assert_eq!(resolved.delay_tier, delay_tier, "{label}: delay");
+        assert_eq!(resolved.args, args, "{label}: arguments");
+    }
+}
+
+#[test]
+fn oracle_operations_resolve_to_the_aggregator_with_exact_arguments() {
+    let env = Env::default();
+    let (gov_id, _controller_id) = gov_with_controller(&env);
+    let aggregator = env.register(price_aggregator::PriceAggregator, (gov_id.clone(),));
+    crate::GovernanceClient::new(&env, &gov_id).set_price_aggregator(&aggregator);
+
+    let key = PriceKey::Ref(symbol_short!("XLMUSD"));
+    let oracle = token_oracle(&env, 7);
+    let resolved_oracle = resolve_oracle(&env, &key, &oracle);
+    assert_eq!(resolved_oracle.asset_decimals, 0);
+
+    let cases = [
+        (
+            "configure oracle",
+            AdminOperation::ConfigureAssetOracle(ConfigureAssetOracleArgs {
+                key: key.clone(),
+                oracle,
+            }),
+            "set_oracle",
+            vec![
+                &env,
+                key.clone().into_val(&env),
+                resolved_oracle.into_val(&env),
+            ],
+        ),
+        (
+            "edit tolerance",
+            AdminOperation::EditOracleTolerance(EditToleranceArgs {
+                key: key.clone(),
+                tolerance: 500,
+            }),
+            "set_tolerance",
+            vec![
+                &env,
+                key.into_val(&env),
+                OracleTolerance {
+                    upper_ratio_bps: 10_500,
+                    lower_ratio_bps: 9_524,
+                }
+                .into_val(&env),
+            ],
+        ),
+    ];
+
+    for (label, op, function, args) in cases {
+        let resolved = env.as_contract(&gov_id, || resolve_op(&env, &op));
+        assert_eq!(resolved.target, aggregator, "{label}: target");
+        assert_eq!(
+            resolved.function,
+            Symbol::new(&env, function),
+            "{label}: function"
+        );
+        assert_eq!(resolved.delay_tier, DelayTier::Standard, "{label}: delay");
+        assert_eq!(resolved.args, args, "{label}: arguments");
+    }
+}
+
+#[test]
+fn curator_operations_resolve_to_the_supplied_contract_with_exact_arguments() {
+    let env = Env::default();
+    let (gov_id, _controller_id) = gov_with_controller(&env);
+    // Resolution only needs a deployed contract address; execution is covered
+    // by the curator flow tests.
+    let curator = env.register(controller::Controller, (gov_id.clone(),));
+    let admin = Address::generate(&env);
+    let hash = BytesN::from_array(&env, &[0x44; 32]);
+    let registrar = Some(2u32);
+
+    let cases = [
+        (
+            "upgrade curator",
+            AdminOperation::UpgradeCurator(curator.clone(), hash.clone()),
+            "upgrade",
+            vec![&env, hash.into_val(&env)],
+        ),
+        (
+            "suspend registrar",
+            AdminOperation::SuspendCuratorRegistrar(curator.clone(), 2, true),
+            "set_registrar_suspended",
+            vec![&env, 2u32.into_val(&env), true.into_val(&env)],
+        ),
+        (
+            "reassign hub",
+            AdminOperation::ReassignCuratorHub(curator.clone(), 3, registrar),
+            "reassign_hub",
+            vec![&env, 3u32.into_val(&env), registrar.into_val(&env)],
+        ),
+        (
+            "reassign spoke",
+            AdminOperation::ReassignCuratorSpoke(curator.clone(), 4, None),
+            "reassign_spoke",
+            vec![&env, 4u32.into_val(&env), None::<u32>.into_val(&env)],
+        ),
+        (
+            "register registrar",
+            AdminOperation::RegisterCuratorRegistrar(curator.clone(), admin.clone()),
+            "register_registrar",
+            vec![&env, admin.clone().into_val(&env)],
+        ),
+        (
+            "set registrar admin",
+            AdminOperation::SetCuratorRegistrarAdmin(curator.clone(), 2, admin.clone()),
+            "force_set_admin",
+            vec![&env, 2u32.into_val(&env), admin.into_val(&env)],
+        ),
+    ];
+
+    for (label, op, function, args) in cases {
+        let resolved = env.as_contract(&gov_id, || resolve_op(&env, &op));
+        assert_eq!(resolved.target, curator, "{label}: target");
+        assert_eq!(
+            resolved.function,
+            Symbol::new(&env, function),
+            "{label}: function"
+        );
+        assert_eq!(resolved.delay_tier, DelayTier::Sensitive, "{label}: delay");
+        assert_eq!(resolved.args, args, "{label}: arguments");
+    }
+}
+
+#[test]
+fn governance_operations_resolve_to_themselves_with_exact_arguments() {
+    let env = Env::default();
+    let (gov_id, _controller_id) = gov_with_controller(&env);
+    let aggregator = env.register(price_aggregator::PriceAggregator, (gov_id.clone(),));
+    let hash = BytesN::from_array(&env, &[0x55; 32]);
+    let account = Address::generate(&env);
+    let role = Symbol::new(&env, "PROPOSER");
+    let ownership = TransferOwnershipArgs {
+        new_owner: account.clone(),
+        live_until_ledger: 1_000_000,
+    };
+
+    let cases = [
+        (
+            "upgrade governance",
+            AdminOperation::UpgradeGov(hash.clone()),
+            "upgrade",
+            DelayTier::Sensitive,
+            vec![&env, hash.into_val(&env)],
+        ),
+        (
+            "update delay",
+            AdminOperation::UpdateGovDelay(TIMELOCK_MIN_DELAY_LEDGERS),
+            "update_delay",
+            DelayTier::Standard,
+            vec![&env, TIMELOCK_MIN_DELAY_LEDGERS.into_val(&env)],
+        ),
+        (
+            "grant role",
+            AdminOperation::GrantGovRole(RoleArgs {
+                account: account.clone(),
+                role: role.clone(),
+            }),
+            "grant_role",
+            DelayTier::Sensitive,
+            vec![
+                &env,
+                account.clone().into_val(&env),
+                role.clone().into_val(&env),
+            ],
+        ),
+        (
+            "revoke role",
+            AdminOperation::RevokeGovRole(RoleArgs {
+                account: account.clone(),
+                role: role.clone(),
+            }),
+            "revoke_role",
+            DelayTier::Sensitive,
+            vec![&env, account.clone().into_val(&env), role.into_val(&env)],
+        ),
+        (
+            "transfer ownership",
+            AdminOperation::TransferGovOwnership(ownership.clone()),
+            "transfer_ownership",
+            DelayTier::Sensitive,
+            vec![
+                &env,
+                ownership.new_owner.into_val(&env),
+                ownership.live_until_ledger.into_val(&env),
+            ],
+        ),
+        (
+            "set price aggregator",
+            AdminOperation::SetPriceAggregator(aggregator.clone()),
+            "set_price_aggregator",
+            DelayTier::Sensitive,
+            vec![&env, aggregator.into_val(&env)],
+        ),
+    ];
+
+    for (label, op, function, delay_tier, args) in cases {
+        let resolved = env.as_contract(&gov_id, || resolve_op(&env, &op));
+        assert_eq!(resolved.target, gov_id, "{label}: target");
+        assert_eq!(
+            resolved.function,
+            Symbol::new(&env, function),
+            "{label}: function"
+        );
+        assert_eq!(resolved.delay_tier, delay_tier, "{label}: delay");
+        assert_eq!(resolved.args, args, "{label}: arguments");
+    }
 }

@@ -215,7 +215,7 @@ jobs:
 
             const body = [
               marker,
-              '## 📊 Merged native line coverage',
+              '## 📊 Merged native physical source-line coverage',
               '',
               headline,
               '',
@@ -224,7 +224,7 @@ jobs:
               table,
               '</details>',
               '',
-              '<sub>Scope: `make coverage-merged` — includes test-only code under `src/`; excludes test-harness, certora, vendor. Baseline: latest `main` run.</sub>',
+              '<sub>Scope: `make coverage-merged` — counts distinct LCOV DA source lines, includes test-only code under `src/`, and excludes test-harness, certora, vendor. The detailed report also shows LLVM file-summary counts. Baseline: latest `main` run.</sub>',
             ].join('\n');
 
             const { owner, repo } = context.repo;

@@ -99,6 +99,13 @@ fn test_scaled_market_priced_within_default_budget() {
 
     t.supply(ALICE, "XLM", 1_000.0);
     t.borrow(ALICE, "USDC", 100.0);
+
+    let view = index_view(&t, &xlm);
+    assert_eq!(view.price_wad, usd(2));
+    assert!(view.valid);
+    assert_eq!(t.supply_balance_raw(ALICE, "XLM"), 10_000_000_000);
+    assert_eq!(t.borrow_balance_raw(ALICE, "USDC"), 1_000_000_000);
+    assert_eq!(t.token_balance_raw(ALICE, "USDC"), 1_000_000_000);
 }
 
 #[test]

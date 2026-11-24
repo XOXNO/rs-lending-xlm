@@ -247,7 +247,10 @@ fn claim_skips_transfer_when_bucket_is_empty() {
 
     router.claim_admin_fees(&admin, &vec![&env, token.clone()]);
     let id = router.add_referral(&Address::generate(&env), &100);
-    router.claim_referral_fees(&id, &vec![&env, token]);
+    router.claim_referral_fees(&id, &vec![&env, token.clone()]);
+
+    assert_eq!(router.admin_fee_balance(&token), 0);
+    assert_eq!(router.referral_fee_balance(&id, &token), 0);
 }
 
 #[test]

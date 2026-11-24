@@ -25,6 +25,7 @@ mod setup;
 mod strategy;
 mod time;
 mod view;
+pub mod wasm;
 
 mod ops;
 

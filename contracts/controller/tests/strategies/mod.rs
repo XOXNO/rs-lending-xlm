@@ -5,16 +5,100 @@ extern crate std;
 
 use crate::risk::validation::require_authorized_caller;
 use crate::strategies::multiply::{process_multiply, MultiplyParams};
+use crate::strategies::prefetch_strategy_prices;
 use crate::Controller;
-use common::types::{HubAssetKey, PositionMode};
+use common::types::{
+    Account, AccountPositionRaw, DebtPositionRaw, HubAssetKey, PositionMode, PriceFeedRaw, PriceKey,
+};
 use soroban_sdk::testutils::Address as _;
-use soroban_sdk::{Address, Bytes, Env};
+use soroban_sdk::{contract, contractimpl, vec, Address, Bytes, Env, Map, Vec};
+
+#[contract]
+struct PrefetchAggregator;
+
+#[contractimpl]
+impl PrefetchAggregator {
+    pub fn prices(env: Env, keys: Vec<PriceKey>) -> Map<PriceKey, PriceFeedRaw> {
+        env.storage()
+            .instance()
+            .set(&soroban_sdk::symbol_short!("calls"), &keys.len());
+        let mut out = Map::new(&env);
+        for key in keys.iter() {
+            out.set(
+                key,
+                PriceFeedRaw {
+                    price_wad: crate::constants::WAD,
+                    asset_decimals: 7,
+                    timestamp: 0,
+                },
+            );
+        }
+        out
+    }
+
+    pub fn last_batch_size(env: Env) -> u32 {
+        env.storage()
+            .instance()
+            .get(&soroban_sdk::symbol_short!("calls"))
+            .unwrap_or(0)
+    }
+}
 
 fn hub(env: &Env) -> HubAssetKey {
     HubAssetKey {
         hub_id: 1,
         asset: Address::generate(env),
     }
+}
+
+#[test]
+fn strategy_prefetches_account_and_extra_asset_prices() {
+    let env = Env::default();
+    let controller = env.register(Controller, (Address::generate(&env),));
+    let aggregator = env.register(PrefetchAggregator, ());
+    let supply = hub(&env);
+    let debt = hub(&env);
+    let extra = Address::generate(&env);
+    let mut account = Account {
+        owner: Address::generate(&env),
+        spoke_id: 1,
+        mode: PositionMode::Normal,
+        supply_positions: Map::new(&env),
+        borrow_positions: Map::new(&env),
+    };
+    account.supply_positions.set(
+        supply.clone(),
+        AccountPositionRaw {
+            scaled_amount: 1,
+            liquidation_threshold: 8_000,
+            liquidation_bonus: 500,
+            loan_to_value: 7_500,
+            liquidation_fees: 0,
+        },
+    );
+    account
+        .borrow_positions
+        .set(debt.clone(), DebtPositionRaw { scaled_amount: 1 });
+
+    env.as_contract(&controller, || {
+        crate::storage::set_price_aggregator(&env, &aggregator);
+        let mut cache = crate::context::Context::new_view(&env);
+        prefetch_strategy_prices(
+            &mut cache,
+            &account,
+            &vec![&env, supply.asset.clone(), extra.clone()],
+        );
+        assert_eq!(
+            PrefetchAggregatorClient::new(&env, &aggregator).last_batch_size(),
+            3
+        );
+        for asset in [supply.asset, debt.asset, extra] {
+            assert_eq!(
+                cache.cached_price(&asset).price.raw(),
+                crate::constants::WAD
+            );
+        }
+    });
 }
 
 #[test]

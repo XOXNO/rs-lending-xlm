@@ -350,3 +350,7 @@ impl Context {
 #[cfg(test)]
 #[path = "../tests/context/oracle.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "../tests/context/market_indexes.rs"]
+mod market_index_tests;

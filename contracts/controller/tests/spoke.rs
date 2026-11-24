@@ -320,14 +320,19 @@ fn ceiling_cap_saturates_instead_of_panicking_at_the_index_floor() {
     let asset = Address::generate(&env);
     env.as_contract(&contract, || {
         let mut ctx = SpokeUsageContext::new(&env, 1);
+        let key = hub(&asset);
         ctx.apply_entry(
             UsageSide::Supply,
-            &hub(&asset),
+            &key,
             Ray::from(RAY),
             common::validation::max_cap_for_decimals(7),
             Ray::from(common::constants::SUPPLY_INDEX_FLOOR_RAW),
             7,
         );
+        ctx.persist();
+        let usage = storage::get_spoke_usage(&env, 1, &key).expect("supply usage was recorded");
+        assert_eq!(usage.supplied_scaled_ray, RAY);
+        assert_eq!(usage.borrowed_scaled_ray, 0);
     });
 }
 
@@ -383,6 +388,29 @@ fn exit_without_usage_row_is_noop_and_does_not_persist() {
             storage::get_spoke_usage(&env, 1, &hub_asset).is_none(),
             "exit no-insert must not materialize a storage row for a missing usage key"
         );
+    });
+}
+
+#[test]
+fn zero_usage_exit_preserves_an_existing_usage_row() {
+    let env = Env::default();
+    let contract = new_controller(&env);
+    let asset = Address::generate(&env);
+    env.as_contract(&contract, || {
+        let key = hub(&asset);
+        let original = SpokeUsageRaw {
+            supplied_scaled_ray: 17,
+            borrowed_scaled_ray: 9,
+        };
+        storage::set_spoke_usage(&env, 1, &key, &original);
+
+        let mut context = SpokeUsageContext::new(&env, 1);
+        context.apply_exit(UsageSide::Supply, &key, Ray::ZERO);
+        context.persist();
+
+        let after = storage::get_spoke_usage(&env, 1, &key).expect("usage row remains");
+        assert_eq!(after.supplied_scaled_ray, 17);
+        assert_eq!(after.borrowed_scaled_ray, 9);
     });
 }
 

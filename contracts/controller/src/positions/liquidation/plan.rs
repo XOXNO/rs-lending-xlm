@@ -73,7 +73,9 @@ pub(crate) fn build_liquidation_plan(
     let (seized_collaterals, unbacked_usd) =
         calculate_seized_collateral(env, account, totals.total_collateral, &repayment, cache);
     release_unbacked_repayment(env, &mut repayment, unbacked_usd);
-    if unbacked_usd > Wad::ZERO && seized_collaterals.is_empty() {
+    // A seizure can round to zero even when unbacked_usd also rounds to zero.
+    // Never keep payment for a plan with no collateral to deliver.
+    if seized_collaterals.is_empty() {
         let repay_usd = repayment.repay_usd;
         release_unbacked_repayment(env, &mut repayment, repay_usd);
     }

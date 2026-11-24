@@ -55,7 +55,6 @@ fn sample_market_params(asset: &Address) -> MarketParamsRaw {
 
 #[test]
 fn event_position_mode_eq_and_from() {
-    assert_eq!(EventPositionMode::None, EventPositionMode::None);
     assert_ne!(EventPositionMode::Long, EventPositionMode::Short);
     assert_eq!(
         EventPositionMode::from(PositionMode::Normal),

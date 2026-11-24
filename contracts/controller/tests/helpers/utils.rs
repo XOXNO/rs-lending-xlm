@@ -87,3 +87,18 @@ fn aggregate_sums_previous_and_amount() {
         5
     );
 }
+
+#[test]
+fn balance_snapshot_reads_a_duplicate_asset_only_once() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let admin = Address::generate(&env);
+    let holder = Address::generate(&env);
+    let asset = env.register_stellar_asset_contract_v2(admin).address();
+    soroban_sdk::token::StellarAssetClient::new(&env, &asset).mint(&holder, &19);
+
+    let balances = snapshot_balances(&env, &holder, [asset.clone(), asset.clone()]);
+
+    assert_eq!(balances.len(), 1);
+    assert_eq!(balances.get(asset), Some(19));
+}

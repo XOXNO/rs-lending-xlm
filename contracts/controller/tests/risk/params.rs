@@ -2,9 +2,139 @@ use super::*;
 use crate::constants::{THRESHOLD_UPDATE_MIN_HF_RAW, WAD};
 use common::constants::RAY;
 use common::math::fp::Ray;
-use common::types::{DebtPositionRaw, MarketIndexRaw, PositionMode, PriceFeedRaw};
+use common::types::{
+    AccountPositionRaw, DebtPositionRaw, MarketIndexRaw, PositionMode, PriceFeedRaw,
+    SpokeAssetConfig,
+};
 use soroban_sdk::testutils::Address as _;
-use soroban_sdk::{Address, Map};
+use soroban_sdk::{contract, contractimpl, symbol_short, Address, Map, Vec};
+
+#[contract]
+struct RestampIndexPool;
+
+#[contractimpl]
+impl RestampIndexPool {
+    pub fn get_bulk_indexes(env: Env, keys: Vec<HubAssetKey>) -> Vec<MarketIndexRaw> {
+        env.storage()
+            .instance()
+            .set(&symbol_short!("batch"), &keys.len());
+        let mut indexes = Vec::new(&env);
+        for _ in keys.iter() {
+            indexes.push_back(MarketIndexRaw {
+                borrow_index: RAY,
+                supply_index: RAY,
+            });
+        }
+        indexes
+    }
+
+    pub fn batch_size(env: Env) -> u32 {
+        env.storage()
+            .instance()
+            .get(&symbol_short!("batch"))
+            .unwrap_or(0)
+    }
+}
+
+#[test]
+fn first_ltv_restamp_prefetches_the_whole_portfolio_index_batch() {
+    let env = Env::default();
+    let controller = env.register(crate::Controller, (Address::generate(&env),));
+    let pool = env.register(RestampIndexPool, ());
+    let supply = HubAssetKey {
+        hub_id: 1,
+        asset: Address::generate(&env),
+    };
+    let debt = HubAssetKey {
+        hub_id: 1,
+        asset: Address::generate(&env),
+    };
+    let mut account = debt_free_account(&env);
+    account.supply_positions.set(
+        supply.clone(),
+        AccountPositionRaw {
+            scaled_amount: 1,
+            liquidation_threshold: 8_000,
+            liquidation_bonus: 500,
+            loan_to_value: 7_500,
+            liquidation_fees: 100,
+        },
+    );
+    account
+        .borrow_positions
+        .set(debt.clone(), DebtPositionRaw { scaled_amount: 1 });
+
+    env.as_contract(&controller, || {
+        crate::storage::set_pool(&env, &pool);
+        crate::storage::set_spoke_asset(
+            &env,
+            account.spoke_id,
+            &supply,
+            &SpokeAssetConfig {
+                is_collateralizable: true,
+                is_borrowable: false,
+                paused: false,
+                frozen: false,
+                no_seize: false,
+                loan_to_value: 5_000,
+                liquidation_threshold: 8_000,
+                liquidation_bonus: 500,
+                liquidation_fees: 100,
+                supply_cap: 100,
+                borrow_cap: 0,
+            },
+        );
+        let mut cache = Context::new_view(&env);
+
+        assert!(restamp_listed_supply_ltv(&mut cache, &mut account));
+        assert_eq!(
+            account.supply_positions.get_unchecked(supply).loan_to_value,
+            5_000
+        );
+        assert_eq!(RestampIndexPoolClient::new(&env, &pool).batch_size(), 2);
+    });
+}
+
+#[test]
+fn risk_restamp_skips_missing_metadata_and_unowned_nft_without_writing() {
+    let env = Env::default();
+    let controller = env.register(crate::Controller, (Address::generate(&env),));
+    let key = HubAssetKey {
+        hub_id: 1,
+        asset: Address::generate(&env),
+    };
+    let position = AccountPositionRaw {
+        scaled_amount: 1,
+        liquidation_threshold: 8_000,
+        liquidation_bonus: 500,
+        loan_to_value: 7_500,
+        liquidation_fees: 100,
+    };
+    env.as_contract(&controller, || {
+        let missing_meta = 17u64;
+        let mut cache = Context::new_view(&env);
+        sync_account_thresholds(&env, missing_meta, RiskRefreshScope::LtvOnly, &mut cache);
+        assert!(crate::storage::try_get_account_meta(&env, missing_meta).is_none());
+
+        let missing_owner = 18u64;
+        crate::storage::set_account_meta(
+            &env,
+            missing_owner,
+            &common::types::AccountMeta {
+                spoke_id: 1,
+                mode: PositionMode::Normal,
+            },
+        );
+        let mut supplies = Map::new(&env);
+        supplies.set(key.clone(), position.clone());
+        crate::storage::set_supply_positions(&env, missing_owner, &supplies);
+        sync_account_thresholds(&env, missing_owner, RiskRefreshScope::LtvOnly, &mut cache);
+        assert_eq!(
+            crate::storage::get_supply_positions(&env, missing_owner).get(key),
+            Some(position)
+        );
+    });
+}
 
 const STAMPED_LT: i128 = 8_000;
 const STAMPED_LTV: i128 = 7_500;

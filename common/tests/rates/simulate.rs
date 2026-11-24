@@ -10,6 +10,19 @@ use crate::types::PoolStateRaw;
 use soroban_sdk::Env;
 
 #[test]
+fn accrue_step_accepts_a_zero_index_for_an_empty_market() {
+    let env = Env::default();
+    let params = MarketParams::from(&make_test_params_raw(&env));
+
+    let step = accrue_step(&env, &params, Ray::ZERO, Ray::ZERO, Ray::ONE, Ray::ZERO, 0);
+
+    assert_eq!(step.borrow_index, Ray::ONE);
+    assert_eq!(step.supply_index, Ray::ZERO);
+    assert_eq!(step.revenue_shares, Ray::ZERO);
+    assert!(!step.value_capped);
+}
+
+#[test]
 fn test_simulate_update_indexes_nonzero_delta_accrues() {
     let env = Env::default();
     let sync = sample_sync(
@@ -769,11 +782,11 @@ mod accrue_step_value_ceiling {
         assert!(debt > 7 * MAX_MARKET_ENTRY_RAY && debt < MAX_MARKET_VALUE_RAY);
     }
 
-    /// Fifty years on a market at the entry ceiling: the simulator returns,
-    /// and the debt value it implies stops at the ceiling.
+    /// Fifty years on a market at the entry ceiling: the simulator returns
+    /// within a bounded host budget, and its debt value stops at the ceiling.
     #[test]
     fn the_simulator_never_overflows_on_a_market_at_the_entry_ceiling() {
-        let env = unmetered_env();
+        let env = Env::default();
         let sync = sample_sync(
             &env,
             PoolStateRaw {
@@ -786,6 +799,11 @@ mod accrue_step_value_ceiling {
                 cash: 0,
             },
         );
+        // Both projections together cost about 37.5M instructions. A bounded
+        // budget also catches an accrual loop that stops decreasing `remaining`.
+        env.cost_estimate()
+            .budget()
+            .reset_limits(75_000_000, 8_000_000);
         let after = simulate_update_indexes(&env, 50 * MILLISECONDS_PER_YEAR, &sync);
         let debt = value(MAX_MARKET_ENTRY_RAY / 10 * 9, after.borrow_index.raw()).unwrap();
         assert!(debt <= MAX_MARKET_VALUE_RAY);
@@ -798,5 +816,6 @@ mod accrue_step_value_ceiling {
             later.borrow_index, after.borrow_index,
             "interest has stopped"
         );
+        assert!(env.cost_estimate().budget().cpu_instruction_cost() <= 75_000_000);
     }
 }

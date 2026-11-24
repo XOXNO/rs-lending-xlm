@@ -10,6 +10,7 @@ import unittest
 from unittest.mock import patch
 
 import coverage_report
+import branch_coverage_report
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -26,7 +27,10 @@ class ScriptTools(unittest.TestCase):
         with patch.object(coverage_report, 'ROOT', Path('/renamed/checkout')):
             for path in ('/renamed/checkout/contracts/pool/src/lib.rs', '/cached/checkout/common/src/lib.rs',
                          'contracts/pool/src/lib.rs'):
-                source.write_text(f'SF:{path}\nLF:10\nLH:8\n')
+                source.write_text(
+                    f'SF:{path}\nLF:10\nLH:8\n'
+                    + ''.join(f'DA:{line},{int(line <= 8)}\n' for line in range(1, 11))
+                )
                 self.assertEqual(coverage_report.write_report(source, report, 'merged'), (8, 10, 80.0))
         for path in ('/home/.cargo/registry/hyper/src/common/lock.rs',
                      '/work/checkout/mock/mock-foo/src/common/helper.rs',
@@ -40,6 +44,51 @@ class ScriptTools(unittest.TestCase):
             source.write_text(data)
             with self.assertRaises(ValueError):
                 coverage_report.write_report(source, report, 'merged')
+
+    def test_coverage_uses_physical_lines_and_shows_llvm_summary_difference(self):
+        source, report = self.base / 'input.lcov', self.base / 'report.md'
+        source.write_text(
+            'SF:contracts/pool/src/lib.rs\nLF:4\nLH:2\n'
+            'DA:1,3\nDA:2,0\nDA:3,1\n'
+        )
+        hit, total, percent = coverage_report.write_report(source, report, 'merged')
+        self.assertEqual((hit, total), (2, 3))
+        self.assertAlmostEqual(percent, 200 / 3)
+        self.assertIn('| contracts/pool/src/lib.rs | 3 | 2 | 1 | 66.7% | 2 | +1 |', report.read_text())
+        self.assertIn('| contracts/pool/src/lib.rs | 2 |', report.read_text())
+
+    def test_branch_report_rejects_absent_instrumentation_and_lists_missed_sites(self):
+        source, report = self.base / 'input.json', self.base / 'branches.md'
+        branch_file = {
+            'filename': str(ROOT / 'contracts/pool/src/ops/withdraw.rs'),
+            'summary': {'branches': {'count': 2, 'covered': 1}},
+            'branches': [[96, 1, 96, 20, 3, 0, 0, 0, 4]],
+        }
+        source.write_text(json.dumps({'data': [{'files': [branch_file]}]}))
+        self.assertEqual(
+            branch_coverage_report.write_report(source, report, 'merged'),
+            (1, 2, 50.0),
+        )
+        self.assertIn(
+            '| contracts/pool/src/ops/withdraw.rs | 2 | 1 | 1 | 50.0% | 1 | +0 | 96 |',
+            report.read_text(),
+        )
+        branch_file['branches'].append([96, 1, 96, 20, 0, 4, 0, 0, 4])
+        branch_file['summary']['branches'] = {'count': 2, 'covered': 2}
+        source.write_text(json.dumps({'data': [{'files': [branch_file]}]}))
+        self.assertEqual(
+            branch_coverage_report.write_report(source, report, 'merged'),
+            (2, 2, 100.0),
+        )
+        self.assertIn(
+            '| contracts/pool/src/ops/withdraw.rs | 2 | 2 | 0 | 100.0% | 0 | +0 | — |',
+            report.read_text(),
+        )
+        branch_file['summary']['branches'] = {'count': 0, 'covered': 0}
+        branch_file['branches'] = []
+        source.write_text(json.dumps({'data': [{'files': [branch_file]}]}))
+        with self.assertRaisesRegex(ValueError, 'zero branches'):
+            branch_coverage_report.write_report(source, report, 'merged')
 
     def test_scout_incomplete_reports_fail(self):
         valid = self.base / 'pool.json'
@@ -65,7 +114,9 @@ import os, pathlib, sys
 args=sys.argv[1:]; mode=os.environ.get('REVIEW_FAILURE')
 if args[:2]==['llvm-cov','report']:
     if mode=='report': sys.exit(43)
-    pathlib.Path(args[args.index('--output-path')+1]).write_text('SF:contracts/pool/src/lib.rs\\nLF:10\\nLH:8\\n')
+    content='SF:contracts/pool/src/lib.rs\\nLF:10\\nLH:8\\n'
+    content+=''.join(f'DA:{line},{int(line <= 8)}\\n' for line in range(1, 11))
+    pathlib.Path(args[args.index('--output-path')+1]).write_text(content)
 sys.exit(42 if mode=='harness' and 'test-harness' in args else 0)
 ''')
         cargo.chmod(0o755)
@@ -174,12 +225,13 @@ sys.exit(status)
 
     def test_mutation_retry_identity_arguments_and_pass_evidence(self):
         with patch.dict(os.environ, CARGO_TARGET_DIR=str(self.base / 'unrelated-build')):
-            case, result, calls = self.mutation_case(extra='-- --nocapture')
+            case, result, calls = self.mutation_case((2, 3, 3, 3, 0), extra='-- --nocapture')
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertEqual([len(c['names']) for c in calls], [4, 1, 1])
+        self.assertEqual([len(c['names']) for c in calls], [4, 1, 1, 1, 1])
         self.assertEqual(calls[1]['names'], calls[0]['names'][:1])
-        self.assertEqual(calls[2]['names'], calls[1]['names'])
-        self.assertEqual([c['github'] for c in calls], ['false', 'false', 'true'])
+        for call in calls[2:]:
+            self.assertEqual(call['names'], calls[1]['names'])
+        self.assertEqual([c['github'] for c in calls], ['false'] * 4 + ['true'])
         for i, call in enumerate(calls):
             self.assertEqual('--shard' in call['args'], i == 0)
             self.assertEqual('--re' in call['args'], i == 0)
@@ -192,8 +244,10 @@ sys.exit(status)
             self.assertEqual(Path(call['pool_wasm']).resolve(), (case / 'target/wasm32v1-none/release/pool.wasm').resolve())
         self.assertNotIn('test-harness', calls[1]['args'])
         self.assertIn('test-harness', calls[2]['args'])
+        self.assertIn('max_borrow_rate_is_two_ray', calls[3]['args'])
+        self.assertIn('test_rate_model_verify_accepts_valid', calls[4]['args'])
         evidence = case / 'reports/mutants.passes/mutants-common'
-        for i in range(1, 4):
+        for i in range(1, 6):
             self.assertTrue((evidence / f'pass-{i}/mutants.out/log/pass-{i}.log').is_file())
             self.assertTrue((evidence / f'pass-{i}/command.json').is_file())
         first_caught = calls[0]['names'][1]
@@ -204,7 +258,8 @@ sys.exit(status)
     def test_mutation_failure_propagation_and_empty_scope(self):
         for statuses, mode, success, count in [((1,), '', False, 1), ((4,), '', False, 1),
                 ((5,), '', False, 1), ((6,), '', False, 1), ((70,), '', False, 1), ((2, 4), '', False, 2),
-                ((2, 2, 2), '', False, 3), ((2, 3, 3), '', False, 3), ((0,), '', True, 1),
+                ((2, 2, 2, 2, 2), '', False, 5), ((2, 3, 3, 3, 3), '', False, 5),
+                ((0,), '', True, 1),
                 ((0,), 'no-artifacts', False, 1), ((2,), 'foreign', False, 1), ((0,), 'list-failure', False, 0)]:
             with self.subTest(statuses=statuses, mode=mode):
                 _, result, calls = self.mutation_case(statuses, mode=mode)

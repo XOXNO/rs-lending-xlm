@@ -743,6 +743,20 @@ fn zdc_zero_decimal_market_cannot_be_listed_borrowable() {
     );
 }
 
+/// A second deposit into the same whole-unit leg changes its balance without
+/// creating another supply slot.
+#[test]
+fn zdc_a_sole_whole_unit_position_can_be_topped_up_without_opening_a_new_slot() {
+    let mut z = setup(nav(1_000));
+    let id = z.supply("alice", 0, 3);
+
+    let same_id = z.supply("alice", id, 2);
+
+    assert_eq!(same_id, id);
+    assert_eq!(z.collateral_units(id), 5);
+    assert_eq!(z.t.ctrl_client().get_account_positions(&id).0.len(), 1);
+}
+
 /// Whole-unit seizure is pro-rata only on a single collateral leg, so a
 /// sub-3-decimal leg is its account's only supply position, whichever path
 /// adds the second.
@@ -864,6 +878,19 @@ fn zdc_fresh_credit_receiver_cannot_take_a_whole_unit_leg_beside_another() {
     z.t.set_price(LIQ, nav(800));
     assert!(z.t.can_be_liquidated_by_id(id));
     let debt = z.debt_raw(id);
+    let estimate_error =
+        z.t.ctrl_client()
+            .try_get_liquidation_estimate(
+                &id,
+                &vec![&z.t.env, (z.usdc_key(), debt)],
+                &SeizeMode::Credit(0),
+            )
+            .expect_err("estimate must enforce fresh-receiver isolation")
+            .expect("contract error");
+    assert_eq!(
+        estimate_error,
+        Error::from_contract_error(errors::POSITION_LIMIT_EXCEEDED),
+    );
     let err = z.liquidate(id, debt, SeizeMode::Credit(0)).unwrap_err();
     assert_eq!(
         err,

@@ -167,6 +167,25 @@ fn chainlink_round_with_a_zero_timestamp_is_rejected() {
     assert!(!zero.valid);
 }
 
+#[test]
+fn status_resolution_returns_the_cached_status_without_requerying_an_oracle() {
+    let env = Env::default();
+    let key = PriceKey::Token(Address::generate(&env));
+    in_contract(&env, || {
+        let mut session = Session::new(&env);
+        let cached = PriceStatus {
+            final_wad: 123,
+            valid: true,
+            ..PriceStatus::unusable()
+        };
+        session.store_status(&key, cached.clone());
+
+        // No oracle was configured for this key. Recomputing would return an
+        // unusable status; the stored result must be reused within this call.
+        assert_eq!(resolve_status(&mut session, &key, 0), cached);
+    });
+}
+
 /// Mainnet's shape: a fast market leg blended with a slow fundamental leg whose
 /// own bound legitimately allows it to lag by hours.
 const SLOW_LEG_BOUND: u64 = 57_600;
@@ -1323,6 +1342,39 @@ fn test_twap_read_rejects_samples_spaced_tighter_than_the_resolution() {
     in_contract(&env, || {
         resolve_twap(&env, &reflector, 2);
     });
+}
+
+#[test]
+fn test_twap_read_rejects_a_used_sample_beyond_the_future_skew() {
+    let env = Env::default();
+    at_now(&env);
+    let spacing = u64::from(REFLECTOR_RESOLUTION_SECS);
+    let reflector = env.register(ScriptedReflector, ());
+    let client = ScriptedReflectorClient::new(&env, &reflector);
+    let feed = ReflectorFeedRef {
+        contract: reflector,
+        asset: OracleAssetRef::Symbol(Symbol::new(&env, "BTC")),
+        read_mode: OracleReadMode::Twap(2),
+    };
+    for (skew, accepted) in [
+        (MAX_FUTURE_SKEW_SECONDS, true),
+        (MAX_FUTURE_SKEW_SECONDS + 1, false),
+    ] {
+        client.script(
+            &REFLECTOR_RESOLUTION_SECS,
+            &Vec::from_array(&env, [sample(1, NOW + skew), sample(3, NOW - spacing)]),
+        );
+        in_contract(&env, || {
+            let mut session = Session::new(&env);
+            let observation =
+                crate::providers::reflector::read_reflector_source_impl(&mut session, &feed, 14);
+            assert_eq!(observation.is_some(), accepted, "future skew {skew}");
+            if let Some(observation) = observation {
+                assert_eq!(observation.price_wad, 2 * WAD);
+                assert_eq!(observation.timestamp, NOW - spacing);
+            }
+        });
+    }
 }
 
 #[test]

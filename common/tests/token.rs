@@ -22,7 +22,7 @@ fn transfer_amount_measured_rejects_zero() {
 }
 
 #[test]
-#[should_panic]
+#[should_panic(expected = "Error(Storage, MissingValue)")]
 fn transfer_amount_measured_positive_requires_token() {
     let env = Env::default();
     let _ = transfer_amount_measured(

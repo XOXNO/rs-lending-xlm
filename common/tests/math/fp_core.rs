@@ -141,7 +141,7 @@ fn test_mul_div_half_up_exact_half_rounds_up() {
 }
 
 #[test]
-#[should_panic]
+#[should_panic(expected = "#33")]
 fn test_mul_div_half_up_overflow_panics() {
     let env = Env::default();
     let _ = mul_div_half_up(&env, i128::MAX, i128::MAX, 1);
@@ -284,7 +284,7 @@ fn test_mul_div_floor_saturating_saturates_toward_the_sign_of_the_quotient() {
 }
 
 #[test]
-#[should_panic]
+#[should_panic(expected = "#33")]
 fn test_mul_div_floor_overflow_panics() {
     let env = Env::default();
     let _ = mul_div_floor(&env, i128::MAX, i128::MAX, 1);
@@ -306,7 +306,7 @@ fn test_mul_div_ceil_rounds_up_on_remainder() {
 }
 
 #[test]
-#[should_panic]
+#[should_panic(expected = "#33")]
 fn test_mul_div_ceil_overflow_panics() {
     let env = Env::default();
     let _ = mul_div_ceil(&env, i128::MAX, i128::MAX, 1);

@@ -44,13 +44,7 @@ const COIN: i128 = 10_000_000_000;
 
 /// Reads a WASM that `make build` writes; `var` overrides its path.
 fn release_wasm(var: &str, name: &str) -> std::vec::Vec<u8> {
-    let path = std::env::var(var).unwrap_or_else(|_| {
-        format!(
-            "{}/../../target/wasm32v1-none/release/{name}.wasm",
-            env!("CARGO_MANIFEST_DIR")
-        )
-    });
-    std::fs::read(&path).unwrap_or_else(|_| panic!("{path} not found; run `make build` first"))
+    test_harness::wasm::read_wasm_artifact(var, &format!("{name}.wasm"))
 }
 
 fn feed_oracle(env: &Env, feed: &Address, id: &String) -> AssetOracle {

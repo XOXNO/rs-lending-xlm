@@ -418,6 +418,34 @@ fn relisting_never_reuses_a_flags_epoch() {
 }
 
 #[test]
+#[should_panic(expected = "Error(Contract, #308)")]
+fn adding_an_already_listed_asset_is_rejected() {
+    let env = Env::default();
+    let contract = env.register(Controller, (Address::generate(&env),));
+    let asset = Address::generate(&env);
+
+    env.as_contract(&contract, || {
+        seed_spoke_and_pool(&env, 1);
+        let args = listing_args(1, &asset, false, false, false);
+        add_asset_to_spoke(&env, &args);
+        add_asset_to_spoke(&env, &args);
+    });
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #307)")]
+fn removing_an_unlisted_asset_is_rejected() {
+    let env = Env::default();
+    let contract = env.register(Controller, (Address::generate(&env),));
+    let asset = Address::generate(&env);
+
+    env.as_contract(&contract, || {
+        seed_spoke_and_pool(&env, 1);
+        remove_asset_from_spoke(&env, hub(&asset), 1);
+    });
+}
+
+#[test]
 #[should_panic(expected = "Error(Contract, #317)")]
 fn edit_cannot_clear_paused_while_raising_frozen() {
     let env = Env::default();

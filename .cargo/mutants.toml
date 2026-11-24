@@ -59,16 +59,35 @@ exclude_re = [
     # `0 < mid < optimal < RAY`, so neither segment divides by zero there.
     "curve.rs:[0-9]+:(27|38): replace < with <= in calculate_annual_borrow_rate$",
     "observation.rs:[0-9]+:14: replace > with >= in is_stale",
-    "replace > with >= in calculate_annual_borrow_rate",
-    "replace > with >= in update_borrow_index",
-    "replace > with >= in normalize_repayment_plan",
-    "replace > with >= in estimate_liquidation_amount",
-    # `add_liquidity` pushes `before[i] = if amount > 0 { balance(router) } else
-    # { 0 }`, and reads `before[i]` only when `held[i]`, the same `amount`, is
-    # nonzero. At amount == 0 the pushed value is never read, so `>=` only adds
-    # a discarded `balance` read.
-    "venues/aquarius/mint.rs:[0-9]+:36: replace > with >= in add_liquidity",
-
+    # At utilization == ONE and rate == max, the returned cap is the same value.
+    "common/src/rates/curve.rs:[0-9]+:(38|20): replace > with >= in calculate_annual_borrow_rate$",
+    "common/src/rates/index.rs:[0-9]+:24: replace > with >= in update_borrow_index$",
+    # At equality, trimming zero excess runs no loop and changes no repayment.
+    "math.rs:[0-9]+:46: replace > with >= in normalize_repayment_plan$",
+    # At collateral == debt, the curve quotes a full close for a single
+    # collateral leg: its stamped threshold makes HF and seizure proportion
+    # equal up to rounding. Above the $5 dust threshold the resulting target
+    # quote is full debt; below it the dust-close rule makes it full debt.
+    # With multiple collateral legs, whole_unit_repayment returns the curve
+    # quote unchanged. Both branches therefore use the same ideal repayment.
+    "contracts/controller/src/positions/liquidation/math.rs:[0-9]+:43: replace < with <= in normalize_repayment_plan$",
+    "contracts/controller/src/positions/liquidation/curve.rs:[0-9]+:23: replace > with >= in estimate_liquidation_amount$",
+    # Equality contributes zero unseized USD, zero bonus shares, or zero
+    # realised excess. The alternate branch returns the same zero value.
+    "contracts/controller/src/positions/liquidation/math.rs:[0-9]+:42: replace > with >= in calculate_seized_collateral$",
+    "contracts/controller/src/positions/liquidation/math.rs:[0-9]+:39: replace > with >= in calculate_seized_collateral$",
+    "contracts/controller/src/positions/liquidation/math.rs:[0-9]+:43: replace > with >= in calculate_seized_collateral$",
+    # At equality the partial-leg arm keeps zero tokens, refunds the whole
+    # payment, removes the leg, and clears the excess, exactly as the other arm.
+    "contracts/controller/src/positions/liquidation/math.rs:[0-9]+:16: replace > with >= in process_excess_payment$",
+    # The public stable-LP guard rejects any nonpositive raw reserve. Valid
+    # positive reserves with decimals <= 18 upscale to positive WAD reserves;
+    # decimals > 18 fail conversion. Thus solve_stable_d never reaches this
+    # two-reserve check with exactly one nonpositive input. If the public guard
+    # is weakened instead, solve_stable_d rejects the zero reserve and the
+    # converter rejects a negative reserve before the invariant is evaluated.
+    "common/src/oracle/lp_stable.rs:34:9: replace \\|\\| with && in solve_stable_d$",
+    "common/src/oracle/lp_stable.rs:96:9: replace \\|\\| with && in fair_stable_lp_price_wad$",
     # --- EQUIVALENT: boundary-equivalent comparison --------------------------
     "vault.rs:[0-9]+:19: replace < with <= in Vault",
 
@@ -93,8 +112,8 @@ exclude_re = [
     # for the prover. They are unrelated to the Blend integration. Neither the
     # deployed wasm nor an ordinary test build compiles them, so no test can
     # kill these.
-    "replace blend_empty -> Outcome with Default::default\\(\\)",
-    "replace blend_partial -> Outcome with Default::default\\(\\)",
+    "contracts/price-aggregator/src/engine.rs:[0-9]+:5: replace blend_empty -> Outcome with Default::default\\(\\)$",
+    "contracts/price-aggregator/src/engine.rs:[0-9]+:5: replace blend_partial -> Outcome with Default::default\\(\\)$",
 
     # --- EQUIVALENT: reset retains the owner and deduplicates other holders ---
     # For the owner both operands are false. The `while` loop above the grant
@@ -103,7 +122,7 @@ exclude_re = [
     # repeated address reaches it again under `||`: the separation check passes
     # again, and `grant_role_no_auth` returns early for an existing holder. The
     # two forms agree on every reachable input.
-    "replace && with \\|\\| in apply_canceller_reset",
+    "contracts/governance/src/access.rs:[0-9]+:29: replace && with \\|\\| in apply_canceller_reset$",
 
     # --- EQUIVALENT: `^` equals `|` on disjoint role bits -------------------
     # ROLE_MARKET, ROLE_SPOKE and ROLE_FLAGS are the bits 1, 2 and 4. On bits

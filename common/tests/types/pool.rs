@@ -611,6 +611,45 @@ fn test_rate_model_verify_rejects_slope2_above_max() {
 
 #[test]
 #[should_panic(expected = "#129")]
+fn a_negative_slope_takes_priority_over_an_excessive_rate_cap() {
+    let env = Env::default();
+    let mut m = valid_rate_model();
+    m.base_borrow_rate = 0;
+    m.slope1 = 0;
+    m.slope2 = 0;
+    m.slope3 = -1;
+    m.max_borrow_rate = i128::MAX;
+    m.verify(&env);
+}
+
+#[test]
+#[should_panic(expected = "#129")]
+fn a_first_slope_above_a_zero_rate_cap_is_reported_as_nonmonotonic() {
+    let env = Env::default();
+    let mut m = valid_rate_model();
+    m.base_borrow_rate = 0;
+    m.slope1 = 1;
+    m.slope2 = 0;
+    m.slope3 = 0;
+    m.max_borrow_rate = 0;
+    m.verify(&env);
+}
+
+#[test]
+#[should_panic(expected = "#129")]
+fn a_second_slope_above_a_zero_rate_cap_is_reported_as_nonmonotonic() {
+    let env = Env::default();
+    let mut m = valid_rate_model();
+    m.base_borrow_rate = 0;
+    m.slope1 = 0;
+    m.slope2 = 1;
+    m.slope3 = 0;
+    m.max_borrow_rate = 0;
+    m.verify(&env);
+}
+
+#[test]
+#[should_panic(expected = "#129")]
 fn test_rate_model_verify_rejects_a_steep_first_segment_one_unit_wide() {
     // slope1 over a 1-raw-unit segment is a steepness of 10^25 per raw unit;
     // the comparison saturates instead of overflowing and still rejects.

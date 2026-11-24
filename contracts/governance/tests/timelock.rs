@@ -221,6 +221,66 @@ fn execute_after_delay_applies_to_controller() {
 }
 
 #[test]
+fn execute_rejects_self_target_and_keeps_the_ready_operation() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let delay = 10u32;
+    let (admin, gov_id, gov) = register(&env, delay);
+    let salt = zero_salt(&env);
+    let op = AdminOperation::UpdateGovDelay(15);
+    let id = gov.propose(&admin, &op, &salt);
+    env.ledger().with_mut(|l| l.sequence_number += delay);
+    assert_eq!(gov.get_operation_state(&id), OperationState::Ready);
+
+    let wrong_route = gov.try_execute(
+        &gov_id,
+        &Symbol::new(&env, "update_delay"),
+        &Vec::new(&env),
+        &zero_salt(&env),
+        &salt,
+    );
+    assert!(matches!(
+        wrong_route,
+        Err(Ok(error)) if error == soroban_sdk::Error::from_contract_error(34)
+    ));
+    assert_eq!(gov.get_operation_state(&id), OperationState::Ready);
+    gov.execute_self(&op, &salt);
+    assert_eq!(gov.get_min_delay(), 15);
+    assert_eq!(gov.get_operation_state(&id), OperationState::Unset);
+}
+
+#[test]
+fn execute_self_rejects_external_target_and_keeps_the_ready_operation() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let delay = 10u32;
+    let (admin, controller, gov) = register_with_controller(&env, delay);
+    let salt = zero_salt(&env);
+    let limits = PositionLimits {
+        max_supply_positions: 4,
+        max_borrow_positions: 3,
+    };
+    let op = AdminOperation::SetPositionLimits(limits.clone());
+    let id = gov.propose(&admin, &op, &salt);
+    env.ledger().with_mut(|l| l.sequence_number += delay);
+    assert_eq!(gov.get_operation_state(&id), OperationState::Ready);
+
+    assert_eq!(
+        gov.try_execute_self(&op, &salt),
+        Err(Ok(soroban_sdk::Error::from_contract_error(34)))
+    );
+    assert_eq!(gov.get_operation_state(&id), OperationState::Ready);
+    gov.execute(
+        &controller,
+        &Symbol::new(&env, "set_position_limits"),
+        &vec![&env, limits.into_val(&env)],
+        &zero_salt(&env),
+        &salt,
+    );
+    assert_eq!(gov.get_operation_state(&id), OperationState::Unset);
+}
+
+#[test]
 #[should_panic(expected = "Error(Contract, #40)")]
 fn execute_after_grace_period_reverts() {
     let env = Env::default();

@@ -163,6 +163,18 @@ fn view_input_bound_rejects_oversized_asset_vectors() {
 }
 
 #[test]
+fn market_index_view_with_no_assets_returns_no_rows() {
+    use crate::Controller;
+
+    let env = Env::default();
+    let contract_id = env.register(Controller, (Address::generate(&env),));
+    env.as_contract(&contract_id, || {
+        let rows = get_all_market_indexes_detailed(&env, &Vec::new(&env));
+        assert!(rows.is_empty());
+    });
+}
+
+#[test]
 fn aggregate_views_return_zero_for_missing_or_empty_account() {
     use crate::Controller;
     use common::types::{AccountMeta, PositionMode};

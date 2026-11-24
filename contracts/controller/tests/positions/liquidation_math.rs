@@ -10,7 +10,9 @@ use crate::positions::liquidation::curve::{
 use crate::Controller;
 use common::constants::RAY;
 use common::types::SpokeConfig;
-use common::types::{DebtPositionRaw, MarketIndexRaw, PositionMode, PriceFeedRaw};
+use common::types::{
+    AccountPositionRaw, DebtPositionRaw, MarketIndexRaw, PositionLimits, PositionMode, PriceFeedRaw,
+};
 use soroban_sdk::testutils::Address as _;
 use soroban_sdk::{vec, Address};
 
@@ -103,6 +105,61 @@ fn empty_account(env: &Env) -> Account {
     }
 }
 
+#[test]
+fn zero_share_credit_does_not_consume_a_receiver_position_slot() {
+    use crate::positions::liquidation::apply::require_credit_position_limit;
+    use crate::storage;
+
+    let env = Env::default();
+    let contract = env.register(Controller, (Address::generate(&env),));
+    let mut receiver = empty_account(&env);
+    receiver.supply_positions.set(
+        hub_key(&env),
+        AccountPositionRaw {
+            scaled_amount: 1,
+            liquidation_threshold: 0,
+            liquidation_bonus: 0,
+            loan_to_value: 0,
+            liquidation_fees: 0,
+        },
+    );
+
+    let mut zero_credit = seize_entry(&env, 1, 1);
+    zero_credit.bonus_scaled = 1;
+    zero_credit.liquidation_fees = 9_999;
+    let plan = plan_with(&env, 5 * WAD, vec![&env, zero_credit.clone()]);
+    assert_eq!(plan.seized.get_unchecked(0).protocol_fee, 1);
+    plan.validate(&env);
+    assert_eq!(
+        split_seized_shares(
+            &env,
+            Ray::from(zero_credit.scaled_amount),
+            Ray::from(zero_credit.bonus_scaled),
+            zero_credit.liquidation_fees,
+        )
+        .1,
+        Ray::ZERO,
+    );
+
+    env.as_contract(&contract, || {
+        storage::set_position_limits(
+            &env,
+            &PositionLimits {
+                max_supply_positions: 1,
+                max_borrow_positions: 1,
+            },
+        );
+
+        require_credit_position_limit(
+            &env,
+            &receiver,
+            &vec![&env, zero_credit],
+            false,
+            &mut Context::new_view(&env),
+        );
+    });
+}
+
 fn repayment_fixture(env: &Env) -> (Address, HubAssetKey, Account) {
     let contract = env.register(Controller, (Address::generate(env),));
     let asset = Address::generate(env);
@@ -180,6 +237,385 @@ fn run_seizure(env: &Env, fees_bps: u32, repay_usd_raw: i128, bonus_bps: i128) -
         let plan = plan_for_seizure(env, repay_usd_raw, bonus_bps);
         calculate_seized_collateral(env, &account, Wad::from(1_000 * WAD), &plan, &mut cache).0
     })
+}
+
+#[test]
+fn a_positive_dust_collateral_balance_with_zero_usd_value_seizes_nothing() {
+    let env = Env::default();
+    let (contract, key, mut account) = seize_fixture(&env, 0);
+    account.supply_positions.set(
+        key.clone(),
+        AccountPositionRaw {
+            scaled_amount: Ray::from_asset(&env, 1, 18).raw(),
+            liquidation_threshold: 8_000,
+            liquidation_bonus: 500,
+            loan_to_value: 7_500,
+            liquidation_fees: 0,
+        },
+    );
+
+    let (seized, unseized) = env.as_contract(&contract, || {
+        let mut prices = Map::new(&env);
+        prices.set(
+            key.asset.clone(),
+            PriceFeedRaw {
+                price_wad: 1,
+                asset_decimals: 18,
+                timestamp: 0,
+            },
+        );
+        let mut cache = Context::new_view(&env);
+        cache.set_prices(prices);
+        cache.put_market_index(&key, &index_raw());
+        calculate_seized_collateral(
+            &env,
+            &account,
+            Wad::ZERO,
+            &plan_for_seizure(&env, WAD, 500),
+            &mut cache,
+        )
+    });
+
+    assert!(seized.is_empty());
+    assert_eq!(unseized, Wad::ZERO);
+}
+
+#[test]
+fn a_dust_repayment_without_a_seizure_is_fully_refunded() {
+    use crate::positions::liquidation::plan::build_liquidation_plan;
+    use crate::storage;
+
+    let env = Env::default();
+    let contract = env.register(Controller, (Address::generate(&env),));
+    let collateral = hub_key(&env);
+    let debt = hub_key(&env);
+    let mut account = empty_account(&env);
+    account.supply_positions.set(
+        collateral.clone(),
+        AccountPositionRaw {
+            scaled_amount: Ray::from_asset(&env, 1, 18).raw(),
+            liquidation_threshold: 8_000,
+            liquidation_bonus: 500,
+            loan_to_value: 7_500,
+            liquidation_fees: 0,
+        },
+    );
+    account.borrow_positions.set(
+        debt.clone(),
+        DebtPositionRaw {
+            scaled_amount: Ray::from_asset(&env, 6, 18).raw(),
+        },
+    );
+
+    let plan = env.as_contract(&contract, || {
+        storage::set_spoke(&env, account.spoke_id, &default_spoke_config());
+        let mut prices = Map::new(&env);
+        prices.set(
+            collateral.asset.clone(),
+            PriceFeedRaw {
+                price_wad: 3 * WAD,
+                asset_decimals: 18,
+                timestamp: 0,
+            },
+        );
+        prices.set(
+            debt.asset.clone(),
+            PriceFeedRaw {
+                price_wad: WAD,
+                asset_decimals: 18,
+                timestamp: 0,
+            },
+        );
+        let mut cache = Context::new_view(&env);
+        cache.set_prices(prices);
+        cache.put_market_index(&collateral, &index_raw());
+        cache.put_market_index(&debt, &index_raw());
+        build_liquidation_plan(&env, &account, &vec![&env, (debt.clone(), 1)], &mut cache)
+    });
+
+    assert!(plan.seized.is_empty(), "one third of a unit seizes nothing");
+    assert_eq!(plan.repayment.repay_usd, Wad::ZERO);
+    assert!(plan.repayment.repaid.is_empty());
+    assert!(!plan.repayment.full_close);
+    assert_eq!(plan.repayment.refunds.len(), 1);
+    let refund = plan.repayment.refunds.get_unchecked(0);
+    assert_eq!(refund.asset, debt.asset);
+    assert_eq!(refund.amount, 1);
+}
+
+fn low_decimal_whole_unit_quote_with_debt(
+    env: &Env,
+    collateral_scaled: i128,
+    debt_usd: i128,
+) -> Wad {
+    let contract = env.register(Controller, (Address::generate(env),));
+    let collateral = hub_key(env);
+    let debt = hub_key(env);
+    let collateral_usd = collateral_scaled / (RAY / WAD);
+    let mut account = empty_account(env);
+    account.supply_positions.set(
+        collateral.clone(),
+        AccountPositionRaw {
+            scaled_amount: collateral_scaled,
+            liquidation_threshold: 8_000,
+            liquidation_bonus: 500,
+            loan_to_value: 7_500,
+            liquidation_fees: 0,
+        },
+    );
+    account.borrow_positions.set(
+        debt.clone(),
+        DebtPositionRaw {
+            scaled_amount: Ray::from_asset(env, debt_usd / (WAD / 10_000_000), 7).raw(),
+        },
+    );
+
+    let quote = Wad::from(1);
+    env.as_contract(&contract, || {
+        let mut prices = Map::new(env);
+        prices.set(
+            collateral.asset.clone(),
+            PriceFeedRaw {
+                price_wad: WAD,
+                asset_decimals: 2,
+                timestamp: 0,
+            },
+        );
+        prices.set(debt.asset.clone(), feed_raw());
+        let mut cache = Context::new_view(env);
+        cache.set_prices(prices);
+        cache.put_market_index(&collateral, &index_raw());
+        cache.put_market_index(&debt, &index_raw());
+        whole_unit_repayment(
+            env,
+            &account,
+            &snap(
+                debt_usd,
+                collateral_usd,
+                collateral_usd * 8 / 10,
+                8 * WAD / 10,
+                collateral_usd * 8 / 10 * WAD / debt_usd,
+            ),
+            quote,
+            Bps::from(500i128),
+            &mut cache,
+        )
+    })
+}
+
+fn low_decimal_whole_unit_quote(env: &Env, collateral_scaled: i128) -> Wad {
+    let collateral_usd = collateral_scaled / (RAY / WAD);
+    low_decimal_whole_unit_quote_with_debt(env, collateral_scaled, collateral_usd * 9 / 10)
+}
+
+#[test]
+fn whole_unit_repayment_keeps_the_quote_when_collateral_holds_less_than_one_unit() {
+    let env = Env::default();
+    let half_unit = Ray::from_asset(&env, 1, 2).raw() / 2;
+    assert_eq!(Ray::from(half_unit).to_asset_floor(&env, 2), 0);
+
+    assert_eq!(low_decimal_whole_unit_quote(&env, half_unit), Wad::from(1));
+}
+
+#[test]
+fn whole_unit_repayment_raises_the_quote_at_exactly_one_native_unit() {
+    let env = Env::default();
+    let one_unit = Ray::from_asset(&env, 1, 2).raw();
+    assert_eq!(Ray::from(one_unit).to_asset_floor(&env, 2), 1);
+
+    assert_eq!(
+        low_decimal_whole_unit_quote(&env, one_unit),
+        Wad::from(9_000_000_000_000_000i128)
+    );
+}
+
+#[test]
+fn whole_unit_repayment_includes_the_margin_when_one_unit_is_only_a_partial_close() {
+    let env = Env::default();
+    let one_unit = Ray::from_asset(&env, 1, 2).raw();
+    let debt_usd = WAD / 10;
+    let unit_usd = WAD / 100;
+    let margin = (unit_usd / 1_000_000).max(1);
+    let expected = Wad::from(unit_usd + margin).div_ceil(&env, Wad::from(WAD * 10_500 / 10_000));
+
+    assert_eq!(
+        low_decimal_whole_unit_quote_with_debt(&env, one_unit, debt_usd),
+        expected,
+    );
+}
+
+#[test]
+fn insolvent_low_decimal_collateral_uses_only_the_backed_quote() {
+    let env = Env::default();
+    let contract = env.register(Controller, (Address::generate(&env),));
+    let collateral = hub_key(&env);
+    let debt = hub_key(&env);
+    let collateral_usd = WAD / 100;
+    let debt_usd = WAD / 50;
+    let mut account = empty_account(&env);
+    account.supply_positions.set(
+        collateral.clone(),
+        AccountPositionRaw {
+            scaled_amount: Ray::from_asset(&env, 1, 2).raw(),
+            liquidation_threshold: 8_000,
+            liquidation_bonus: 500,
+            loan_to_value: 7_500,
+            liquidation_fees: 0,
+        },
+    );
+    account.borrow_positions.set(
+        debt.clone(),
+        DebtPositionRaw {
+            scaled_amount: Ray::from_asset(&env, debt_usd, 18).raw(),
+        },
+    );
+
+    env.as_contract(&contract, || {
+        let mut prices = Map::new(&env);
+        prices.set(
+            collateral.asset.clone(),
+            PriceFeedRaw {
+                price_wad: WAD,
+                asset_decimals: 2,
+                timestamp: 0,
+            },
+        );
+        prices.set(
+            debt.asset.clone(),
+            PriceFeedRaw {
+                price_wad: WAD,
+                asset_decimals: 18,
+                timestamp: 0,
+            },
+        );
+        let mut cache = Context::new_view(&env);
+        cache.set_prices(prices);
+        cache.put_market_index(&collateral, &index_raw());
+        cache.put_market_index(&debt, &index_raw());
+
+        let s = snap(
+            debt_usd,
+            collateral_usd,
+            collateral_usd * 8 / 10,
+            8 * WAD / 10,
+            4 * WAD / 10,
+        );
+        let bounds = BonusBounds {
+            base: Bps::from(500i128),
+            max: max_bonus_for_threshold(&env, s.proportion_seized),
+        };
+        let curve = LiquidationCurve::from_config(&default_spoke_config());
+        let (backed_quote, _) = estimate_liquidation_amount(&env, &s, bounds, &curve);
+        let plan = normalize_repayment_plan(
+            &env,
+            &account,
+            &vec![&env, (debt, debt_usd)],
+            &s,
+            bounds,
+            &curve,
+            &mut cache,
+        );
+
+        assert_eq!(
+            backed_quote,
+            Wad::from(collateral_usd).div_floor(&env, Wad::from(WAD * 10_500 / 10_000))
+        );
+        assert_eq!(plan.repay_usd, backed_quote);
+        assert!(!plan.full_close);
+    });
+}
+
+#[test]
+fn minimum_borrowable_decimals_do_not_quantize_partial_seizure_shares() {
+    let env = Env::default();
+    let (contract, key, mut account) = seize_fixture(&env, 0);
+    account.supply_positions.set(
+        key.clone(),
+        AccountPositionRaw {
+            scaled_amount: Ray::from_asset(
+                &env,
+                10_i128.pow(MIN_BORROWABLE_ASSET_DECIMALS),
+                MIN_BORROWABLE_ASSET_DECIMALS,
+            )
+            .raw(),
+            liquidation_threshold: 8_000,
+            liquidation_bonus: 500,
+            loan_to_value: 7_500,
+            liquidation_fees: 0,
+        },
+    );
+    let seized = env.as_contract(&contract, || {
+        let mut prices = Map::new(&env);
+        prices.set(
+            key.asset.clone(),
+            PriceFeedRaw {
+                price_wad: 3 * WAD,
+                asset_decimals: MIN_BORROWABLE_ASSET_DECIMALS,
+                timestamp: 0,
+            },
+        );
+        let mut cache = Context::new_view(&env);
+        cache.set_prices(prices);
+        cache.put_market_index(&key, &index_raw());
+        calculate_seized_collateral(
+            &env,
+            &account,
+            Wad::from(3 * WAD),
+            &plan_for_seizure(&env, WAD, 0),
+            &mut cache,
+        )
+        .0
+    });
+
+    let entry = seized.get_unchecked(0);
+    assert_eq!(entry.amount, 10_i128.pow(MIN_BORROWABLE_ASSET_DECIMALS) / 3);
+    assert_eq!(
+        entry.scaled_amount,
+        Wad::from(WAD).div(&env, Wad::from(3 * WAD)).raw() * (RAY / WAD),
+    );
+}
+
+#[test]
+fn exactly_held_fractional_low_decimal_shares_are_a_full_close() {
+    let env = Env::default();
+    let (contract, key, mut account) = seize_fixture(&env, 0);
+    let held_scaled = Ray::from_asset(&env, 5, 2).raw() / 2;
+    account.supply_positions.set(
+        key.clone(),
+        AccountPositionRaw {
+            scaled_amount: held_scaled,
+            liquidation_threshold: 8_000,
+            liquidation_bonus: 500,
+            loan_to_value: 7_500,
+            liquidation_fees: 0,
+        },
+    );
+    let seized = env.as_contract(&contract, || {
+        let mut prices = Map::new(&env);
+        prices.set(
+            key.asset.clone(),
+            PriceFeedRaw {
+                price_wad: WAD,
+                asset_decimals: 2,
+                timestamp: 0,
+            },
+        );
+        let mut cache = Context::new_view(&env);
+        cache.set_prices(prices);
+        cache.put_market_index(&key, &index_raw());
+        calculate_seized_collateral(
+            &env,
+            &account,
+            Wad::from(WAD / 40),
+            &plan_for_seizure(&env, WAD / 40, 0),
+            &mut cache,
+        )
+        .0
+    });
+
+    let entry = seized.get_unchecked(0);
+    assert_eq!(entry.scaled_amount, held_scaled);
+    assert_eq!(entry.amount, 3);
 }
 
 /// One raw unit at about 1e-11 USD per token against a $5 whole-debt quote:
@@ -275,40 +711,136 @@ fn liquidation_plan_validate_rejects_repay_sum_mismatch() {
 #[should_panic(expected = "Error(Contract, #34)")]
 fn liquidation_plan_validate_rejects_zero_seize_amount() {
     let env = Env::default();
-    let mut seized = Vec::new(&env);
     let mut entry = seize_entry(&env, 0, 0);
     entry.scaled_amount = 1;
-    seized.push_back(entry);
-    plan_with(&env, 5 * WAD, seized).validate(&env);
+    validate_single_seizure(&env, entry);
 }
 
 #[test]
 #[should_panic(expected = "Error(Contract, #34)")]
 fn liquidation_plan_validate_rejects_zero_seize_shares() {
     let env = Env::default();
-    let mut seized = Vec::new(&env);
     let mut entry = seize_entry(&env, 1, 0);
     entry.scaled_amount = 0;
-    seized.push_back(entry);
-    plan_with(&env, 5 * WAD, seized).validate(&env);
+    validate_single_seizure(&env, entry);
 }
 
 #[test]
 #[should_panic(expected = "Error(Contract, #34)")]
 fn liquidation_plan_validate_rejects_negative_protocol_fee() {
     let env = Env::default();
-    let mut seized = Vec::new(&env);
-    seized.push_back(seize_entry(&env, 5, -1));
-    plan_with(&env, 5 * WAD, seized).validate(&env);
+    validate_single_seizure(&env, seize_entry(&env, 5, -1));
 }
 
 #[test]
 #[should_panic(expected = "Error(Contract, #34)")]
 fn liquidation_plan_validate_rejects_fee_above_amount() {
     let env = Env::default();
-    let mut seized = Vec::new(&env);
-    seized.push_back(seize_entry(&env, 5, 6));
-    plan_with(&env, 5 * WAD, seized).validate(&env);
+    validate_single_seizure(&env, seize_entry(&env, 5, 6));
+}
+
+fn validate_single_seizure(env: &Env, entry: SeizeEntry) {
+    let mut seized = Vec::new(env);
+    seized.push_back(entry);
+    plan_with(env, 5 * WAD, seized).validate(env);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #34)")]
+fn liquidation_plan_validate_rejects_bonus_shares_above_seized_shares() {
+    let env = Env::default();
+    let mut entry = seize_entry(&env, 5, 0);
+    entry.bonus_scaled = entry.scaled_amount + 1;
+    validate_single_seizure(&env, entry);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #34)")]
+fn liquidation_plan_validate_rejects_negative_bonus_shares() {
+    let env = Env::default();
+    let mut entry = seize_entry(&env, 5, 0);
+    entry.bonus_scaled = -1;
+    validate_single_seizure(&env, entry);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #34)")]
+fn liquidation_plan_validate_rejects_a_full_seizure_fee_rate() {
+    let env = Env::default();
+    let mut entry = seize_entry(&env, 5, 0);
+    entry.liquidation_fees = 10_000;
+    validate_single_seizure(&env, entry);
+}
+
+#[test]
+fn split_seized_shares_assigns_only_bonus_shares_to_protocol_fee() {
+    let env = Env::default();
+    let (fee, liquidator) = split_seized_shares(&env, Ray::from(100), Ray::from(10), 5_000);
+    assert_eq!(fee.raw(), 5);
+    assert_eq!(liquidator.raw(), 95);
+}
+
+#[test]
+fn split_seized_shares_accepts_a_zero_share_input_without_a_fee() {
+    let env = Env::default();
+    let (fee, liquidator) = split_seized_shares(&env, Ray::ZERO, Ray::ZERO, 0);
+    assert_eq!((fee.raw(), liquidator.raw()), (0, 0));
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #34)")]
+fn split_seized_shares_rejects_bonus_above_total_shares() {
+    let env = Env::default();
+    let _ = split_seized_shares(&env, Ray::from(10), Ray::from(11), 5_000);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #34)")]
+fn split_seized_shares_rejects_negative_bonus_shares() {
+    let env = Env::default();
+    let _ = split_seized_shares(&env, Ray::from(10), Ray::from(-1), 5_000);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #34)")]
+fn split_seized_shares_rejects_negative_total_shares() {
+    let env = Env::default();
+    let _ = split_seized_shares(&env, Ray::from(-1), Ray::ZERO, 5_000);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #34)")]
+fn split_seized_shares_rejects_a_full_fee_rate() {
+    let env = Env::default();
+    let _ = split_seized_shares(&env, Ray::from(10), Ray::from(1), 10_000);
+}
+
+#[test]
+fn repays_every_debt_leg_requires_the_ceiling_amount_on_the_matching_asset() {
+    let env = Env::default();
+    let (contract, hub_asset, account) = repayment_fixture(&env);
+    env.as_contract(&contract, || {
+        let mut cache = Context::new_view(&env);
+        cache.set_prices(single_price(&env, &hub_asset.asset));
+        cache.put_market_index(&hub_asset, &index_raw());
+
+        let mut repaid = Vec::new(&env);
+        assert!(!repays_every_debt_leg(&env, &account, &repaid, &mut cache));
+
+        let mut entry = repay_entry(&env, 500_0000000, 500 * WAD);
+        entry.hub_asset = hub_asset.clone();
+        repaid.push_back(entry.clone());
+        assert!(repays_every_debt_leg(&env, &account, &repaid, &mut cache));
+
+        entry.amount -= 1;
+        repaid.set(0, entry.clone());
+        assert!(!repays_every_debt_leg(&env, &account, &repaid, &mut cache));
+
+        entry.amount += 1;
+        entry.hub_asset = hub_key(&env);
+        repaid.set(0, entry);
+        assert!(!repays_every_debt_leg(&env, &account, &repaid, &mut cache));
+    });
 }
 
 #[test]
@@ -439,17 +971,43 @@ fn process_excess_payment_zero_excess_is_noop() {
 #[test]
 fn process_excess_payment_boundary_leg_is_removed() {
     let env = Env::default();
-    let mut repaid = Vec::new(&env);
-    repaid.push_back(repay_entry(&env, stroops(10), 10 * WAD));
-    repaid.push_back(repay_entry(&env, stroops(5), 5 * WAD));
-    let mut refunds = Vec::new(&env);
+    for keep_within_quote in [false, true] {
+        let mut repaid = Vec::new(&env);
+        repaid.push_back(repay_entry(&env, stroops(10), 10 * WAD));
+        repaid.push_back(repay_entry(&env, stroops(5), 5 * WAD));
+        let mut refunds = Vec::new(&env);
 
-    process_excess_payment(&env, &mut repaid, &mut refunds, Wad::from(5 * WAD), false);
+        process_excess_payment(
+            &env,
+            &mut repaid,
+            &mut refunds,
+            Wad::from(5 * WAD),
+            keep_within_quote,
+        );
 
-    assert_eq!(repaid.len(), 1, "the exactly-consumed leg must be removed");
-    assert_eq!(repaid.get_unchecked(0).amount, stroops(10));
-    assert_eq!(refunds.len(), 1);
-    assert_eq!(refunds.get_unchecked(0).amount, stroops(5));
+        assert_eq!(repaid.len(), 1, "the exactly-consumed leg must be removed");
+        assert_eq!(repaid.get_unchecked(0).amount, stroops(10));
+        assert_eq!(refunds.len(), 1);
+        assert_eq!(refunds.get_unchecked(0).amount, stroops(5));
+    }
+}
+
+#[test]
+fn zero_unbacked_repayment_preserves_a_full_close_plan() {
+    let env = Env::default();
+    let mut plan = plan_for_seizure(&env, 5 * WAD, 0);
+    plan.repaid
+        .push_back(repay_entry(&env, stroops(5), 5 * WAD));
+    plan.full_close = true;
+    plan.repays_all_debt = true;
+
+    release_unbacked_repayment(&env, &mut plan, Wad::ZERO);
+
+    assert_eq!(plan.repay_usd.raw(), 5 * WAD);
+    assert_eq!(plan.repaid.len(), 1);
+    assert_eq!(plan.refunds.len(), 0);
+    assert!(plan.full_close);
+    assert!(plan.repays_all_debt);
 }
 
 #[test]
@@ -483,6 +1041,34 @@ fn process_excess_payment_spans_legs_with_pro_rata_split() {
     let kept = repaid.get_unchecked(0);
     assert_eq!(kept.amount, stroops(80));
     assert_eq!(kept.usd_wad, 80 * WAD);
+}
+
+#[test]
+fn process_excess_payment_skips_a_zero_usd_dust_leg_and_trims_the_next_leg() {
+    let env = Env::default();
+    let priced = repay_entry(&env, stroops(5), 5 * WAD);
+    let mut dust = repay_entry(&env, 1, 0);
+    dust.feed.asset_decimals = 18;
+    dust.feed.price_wad = 1;
+    let dust_key = dust.hub_asset.clone();
+    let mut repaid = vec![&env, priced, dust];
+    let mut refunds = Vec::new(&env);
+
+    process_excess_payment(&env, &mut repaid, &mut refunds, Wad::from(WAD), true);
+
+    assert_eq!(repaid.len(), 2);
+    assert_eq!(
+        (
+            repaid.get_unchecked(0).amount,
+            repaid.get_unchecked(0).usd_wad
+        ),
+        (stroops(4), 4 * WAD)
+    );
+    assert_eq!(repaid.get_unchecked(1).hub_asset, dust_key);
+    assert_eq!(repaid.get_unchecked(1).amount, 1);
+    assert_eq!(repaid.get_unchecked(1).usd_wad, 0);
+    assert_eq!(refunds.len(), 1);
+    assert_eq!(refunds.get_unchecked(0).amount, stroops(1));
 }
 
 /// A ceiling-capped leg credited at floor value keeps ceil(backed value), not
@@ -865,6 +1451,68 @@ fn plan_on_insolvent_book(
         normalize_repayment_plan(env, &account, &payments, &s, bounds, &curve, &mut cache)
     });
     (keys, plan)
+}
+
+#[test]
+fn zero_usd_dust_repayment_cannot_mark_an_insolvent_plan_as_seize_all() {
+    let env = Env::default();
+    let contract = env.register(Controller, (Address::generate(&env),));
+    let ordinary = hub_key(&env);
+    let dust = hub_key(&env);
+    let mut account = empty_account(&env);
+    account.borrow_positions.set(
+        ordinary.clone(),
+        DebtPositionRaw {
+            scaled_amount: Ray::from_asset(&env, 10_000_000, 7).raw(),
+        },
+    );
+    account.borrow_positions.set(
+        dust.clone(),
+        DebtPositionRaw {
+            scaled_amount: Ray::from_asset(&env, 1, 18).raw(),
+        },
+    );
+
+    let plan = env.as_contract(&contract, || {
+        let mut prices = Map::new(&env);
+        prices.set(ordinary.asset.clone(), feed_raw());
+        prices.set(
+            dust.asset.clone(),
+            PriceFeedRaw {
+                price_wad: 1,
+                asset_decimals: 18,
+                timestamp: 0,
+            },
+        );
+        let mut cache = Context::new_view(&env);
+        cache.set_prices(prices);
+        cache.put_market_index(&ordinary, &index_raw());
+        cache.put_market_index(&dust, &index_raw());
+
+        let snapshot = snap(WAD, 0, 0, 8 * WAD / 10, 0);
+        let bounds = BonusBounds {
+            base: Bps::from(500i128),
+            max: max_bonus_for_threshold(&env, snapshot.proportion_seized),
+        };
+        let curve = LiquidationCurve::from_config(&default_spoke_config());
+        normalize_repayment_plan(
+            &env,
+            &account,
+            &vec![&env, (dust.clone(), 1i128)],
+            &snapshot,
+            bounds,
+            &curve,
+            &mut cache,
+        )
+    });
+
+    assert_eq!(plan.repaid.len(), 1);
+    assert_eq!(plan.repaid.get_unchecked(0).amount, 1);
+    assert_eq!(plan.repay_usd, Wad::ZERO);
+    assert!(
+        !plan.seize_all,
+        "zero USD repayment cannot seize collateral"
+    );
 }
 
 #[test]
@@ -2126,6 +2774,31 @@ fn an_exactly_covered_account_quotes_the_full_debt_at_zero_bonus_not_the_insolve
     });
 }
 
+#[test]
+fn an_exact_cover_with_zero_stamped_bonus_still_quotes_the_full_debt() {
+    let env = Env::default();
+    let curve = LiquidationCurve::from_config(&default_spoke_config());
+    for collateral in [3 * WAD, 300 * WAD] {
+        let s = snap(
+            collateral,
+            collateral,
+            collateral * 8 / 10,
+            8 * WAD / 10,
+            8 * WAD / 10,
+        );
+        let bounds = BonusBounds {
+            base: Bps::from(0i128),
+            max: max_bonus_for_threshold(&env, s.proportion_seized),
+        };
+
+        assert_eq!(max_hf_preserving_bonus_bps(&s), Some(0));
+        assert_eq!(
+            estimate_liquidation_amount(&env, &s, bounds, &curve),
+            (Wad::from(collateral), Bps::from(0i128)),
+        );
+    }
+}
+
 // --- small-position liquidation profitability -----------------------------
 //
 // A liquidation can lose money to rounding below the position value
@@ -2215,6 +2888,13 @@ fn the_debt_legs_asset_unit_ceiling_is_not_credited() {
         release_unbacked_repayment(&env, &mut plan, Wad::from(WAD / 4));
         let kept = plan.repaid.get_unchecked(0);
         assert_eq!((kept.amount, kept.usd_wad), (2, 3 * WAD / 2));
+        assert_eq!(plan.repay_usd.raw(), 3 * WAD / 2);
+        assert!(
+            plan.refunds.is_empty(),
+            "an unchanged token amount has no refund"
+        );
+        assert!(!plan.full_close);
+        assert!(!plan.repays_all_debt);
     });
 }
 

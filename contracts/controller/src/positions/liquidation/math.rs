@@ -716,10 +716,13 @@ fn process_excess_payment(
             let new_usd = Wad::from_token(env, new_amount, decimals)
                 .mul(env, price)
                 .min(usd);
-            refunds.push_back(PaymentTuple {
-                asset: entry.hub_asset.asset.clone(),
-                amount: entry.amount - new_amount,
-            });
+            let refund_amount = entry.amount - new_amount;
+            if refund_amount > 0 {
+                refunds.push_back(PaymentTuple {
+                    asset: entry.hub_asset.asset.clone(),
+                    amount: refund_amount,
+                });
+            }
             if new_amount == 0 {
                 repaid_tokens.remove(current_index);
             } else {

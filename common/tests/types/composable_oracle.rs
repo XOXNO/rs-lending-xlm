@@ -1,11 +1,11 @@
 use super::*;
 use soroban_sdk::{testutils::Address as _, BytesN, Env, String, Symbol};
 
-fn multi_feed(env: &Env, contract: &Address, xoxno: bool) -> FeedSource {
+fn multi_feed(env: &Env, contract: &Address, xoxno: bool, nature: FeedNature) -> FeedSource {
     let feed = MultiFeedRef {
         contract: contract.clone(),
         feed_id: String::from_str(env, "BTC"),
-        nature: FeedNature::Fundamental,
+        nature,
     };
     FeedSource {
         provider: if xoxno {
@@ -23,10 +23,16 @@ fn provider_variants_expose_their_contract_and_nature() {
     let env = Env::default();
     let contract = Address::generate(&env);
     for xoxno in [false, true] {
-        let feed = multi_feed(&env, &contract, xoxno);
+        let feed = multi_feed(&env, &contract, xoxno, FeedNature::Fundamental);
         assert_eq!(feed.provider.contract(), &contract);
         assert_eq!(feed.provider.nature(), FeedNature::Fundamental);
         assert!(!feed.provider.is_smoothed());
+        assert!(!feed.provider.is_unsmoothed_market_leg());
+
+        let market = multi_feed(&env, &contract, xoxno, FeedNature::Market);
+        assert_eq!(market.provider.contract(), &contract);
+        assert_eq!(market.provider.nature(), FeedNature::Market);
+        assert!(market.provider.is_unsmoothed_market_leg());
     }
 }
 
@@ -127,9 +133,19 @@ fn asset_oracle_identifies_lp_sources() {
 #[test]
 fn feed_source_is_not_lp_and_two_sources_are_dual() {
     let env = Env::default();
-    let feed = PriceSource::Feed(multi_feed(&env, &Address::generate(&env), false));
+    let feed = PriceSource::Feed(multi_feed(
+        &env,
+        &Address::generate(&env),
+        false,
+        FeedNature::Fundamental,
+    ));
     assert!(!feed.is_lp());
-    let second = PriceSource::Feed(multi_feed(&env, &Address::generate(&env), true));
+    let second = PriceSource::Feed(multi_feed(
+        &env,
+        &Address::generate(&env),
+        true,
+        FeedNature::Fundamental,
+    ));
     let oracle = AssetOracle {
         asset_decimals: 7,
         max_price_stale_seconds: 3_600,
