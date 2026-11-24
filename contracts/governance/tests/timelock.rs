@@ -11,6 +11,7 @@ use crate::constants::{
     TIMELOCK_MAX_DELAY_LEDGERS, TIMELOCK_MIN_DELAY_LEDGERS, TIMELOCK_OPERATION_GRACE_LEDGERS,
     TIMELOCK_RECOVERY_MIN_DELAY_LEDGERS, TIMELOCK_SENSITIVE_MIN_DELAY_LEDGERS,
 };
+use crate::events::OperationProposedEvent;
 use crate::op::{
     AdminOperation, ConfigureAssetOracleArgs, EditToleranceArgs, RoleArgs, TransferOwnershipArgs,
 };
@@ -683,6 +684,45 @@ fn revoking_proposer_ok_when_another_remains() {
         .contains(&revoked.to_xdr(&env, &gov.address)));
     assert!(!gov.has_role(&second, &proposer));
     assert!(gov.has_role(&admin, &proposer));
+}
+
+/// Audit I-05: each scheduled operation names its proposer with its id, so a
+/// change made at execution traces back to who proposed it.
+#[test]
+fn proposing_publishes_the_proposer_with_the_operation_id() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (admin, _controller, gov) = register_with_controller(&env, 10);
+
+    let op = AdminOperation::SetPositionLimits(PositionLimits {
+        max_supply_positions: 4,
+        max_borrow_positions: 3,
+    });
+    let id = gov.propose(&admin, &op, &BytesN::from_array(&env, &[7u8; 32]));
+    let proposed = OperationProposedEvent {
+        op_id: id,
+        proposer: admin.clone(),
+    };
+    assert!(env
+        .events()
+        .all()
+        .events()
+        .contains(&proposed.to_xdr(&env, &gov.address)));
+
+    // A canceller reset is proposed by the owner.
+    let reset_id = gov.propose_canceller_reset(
+        &vec![&env, Address::generate(&env)],
+        &BytesN::from_array(&env, &[8u8; 32]),
+    );
+    let reset = OperationProposedEvent {
+        op_id: reset_id,
+        proposer: admin,
+    };
+    assert!(env
+        .events()
+        .all()
+        .events()
+        .contains(&reset.to_xdr(&env, &gov.address)));
 }
 
 #[test]

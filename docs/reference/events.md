@@ -55,6 +55,11 @@ Fields use exact Rust types; nested payloads are defined below.
 | --- | --- | --- |
 | `DeployControllerEvent`<br>`["governance", "deploy_controller"]` | map: `controller: Address, wasm_hash: BytesN<32>` | governance deploy_controller. |
 | `DeployPriceAggregatorEvent`<br>`["governance", "deploy_price_aggregator"]` | map: `price_aggregator: Address, wasm_hash: BytesN<32>` | governance deploy_price_aggregator. |
+| `OperationProposedEvent`<br>`["governance", "operation_proposed"]` | map: `op_id: BytesN<32>, proposer: Address` | propose; propose_canceller_reset, with the owner as proposer. |
+
+A change made at execution, such as a role grant, names governance as its
+caller. To find who proposed it, read the `OperationExecuted` event of the same
+transaction, then the `OperationProposedEvent` with that operation id.
 
 ### Curator events
 
