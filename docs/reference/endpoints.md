@@ -193,6 +193,8 @@ Constructor `(admin: Address, min_delay: u32)` sets owner, access-control admin,
 
 `execute` must match a scheduled hash and predecessor within its window. Anyone can execute a ready operation; no caller or role is checked.
 
+The window closes 120,960 ledgers after the ready ledger. A later `execute` fails with `TimelockOperationExpired` (40). `get_operation_state` has no expired value: an expired operation still reads `Ready` and stays in storage. To detect expiry, compare `get_operation_ledger(id) + 120960` with the current ledger. A CANCELLER can cancel an expired operation, except a recovery operation.
+
 | Endpoint | Authority / effect |
 | --- | --- |
 | `deploy_controller(wasm_hash: BytesN<32>) -> Address` | Owner; one-time deployment |
