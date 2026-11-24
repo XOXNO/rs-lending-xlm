@@ -1,7 +1,9 @@
 use common::types::SeizeMode;
 use controller::constants::{RAY, WAD};
+use soroban_sdk::Error;
 use test_harness::{
-    hub_asset, liquidatable_usdc_eth, usd_cents, usdc_preset, LendingTest, ALICE, LIQUIDATOR,
+    errors, hub_asset, liquidatable_usdc_eth, usd_cents, usdc_preset, LendingTest, ALICE,
+    LIQUIDATOR,
 };
 #[test]
 fn test_total_collateral_usd_multi_asset() {
@@ -158,6 +160,23 @@ fn test_account_exists_view() {
         !t.account_exists(account_id),
         "account should be gone after full close"
     );
+}
+
+#[test]
+fn test_health_views_fail_for_a_closed_account_and_read_max_without_debt() {
+    let mut t = LendingTest::new().with_market(usdc_preset()).build();
+    t.supply(ALICE, "USDC", 1_000.0);
+    let account_id = t.resolve_account_id(ALICE);
+    let ctrl = t.ctrl_client();
+    assert_eq!(ctrl.get_health_factor(&account_id), i128::MAX);
+    assert!(!ctrl.is_liquidatable(&account_id));
+
+    t.withdraw_all(ALICE, "USDC");
+
+    let ctrl = t.ctrl_client();
+    let not_found = Some(Ok(Error::from_contract_error(errors::ACCOUNT_NOT_FOUND)));
+    assert_eq!(ctrl.try_get_health_factor(&account_id).err(), not_found);
+    assert_eq!(ctrl.try_is_liquidatable(&account_id).err(), not_found);
 }
 
 #[test]

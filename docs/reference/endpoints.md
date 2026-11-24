@@ -88,8 +88,8 @@ USD values are WAD.
 
 | View | Result / semantics |
 | --- | --- |
-| `is_liquidatable(account_id: u64) -> bool` | HF < 1 WAD |
-| `get_health_factor(account_id: u64) -> i128` | WAD; i128::MAX if missing or debt-free |
+| `is_liquidatable(account_id: u64) -> bool` | HF < 1 WAD; `AccountNotFound` if missing |
+| `get_health_factor(account_id: u64) -> i128` | WAD; i128::MAX if debt-free; `AccountNotFound` if missing |
 | `get_total_collateral_usd(account_id: u64) -> i128` | Unweighted, half-up; the bad-debt `C` |
 | `get_total_borrow_usd(account_id: u64) -> i128` | Display debt, half-up; cleanup/HF use ceil risk debt |
 | `get_collateral_amount(account_id: u64, hub_asset: HubAssetKey) -> i128` | Token units; zero without position |
