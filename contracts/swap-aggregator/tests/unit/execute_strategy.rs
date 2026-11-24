@@ -116,9 +116,10 @@ fn fixed_output_pays_the_target_on_split_routes_and_reserves_surplus() {
     payload.ops.set(0, FIXED_OUT_VERSION);
     let fixed_xdr = payload.to_xdr(&env);
 
-    pool.init_with_pull(&token_in, &token_out, &500, &500, &true);
+    // Gross output of 998 covers the payout and two fees rounded down from 9.8.
+    pool.init_with_pull(&token_in, &token_out, &498, &498, &true);
     assert_eq!(router.execute_strategy(&sender, &1_000, &fixed_xdr), 980);
-    assert_eq!(router.admin_fee_balance(&token_out), 10);
+    assert_eq!(router.admin_fee_balance(&token_out), 9);
 
     pool.init_with_pull(&token_in, &token_out, &600, &600, &true);
     assert_eq!(router.execute_strategy(&sender, &1_000, &fixed_xdr), 980);
@@ -130,8 +131,8 @@ fn fixed_output_pays_the_target_on_split_routes_and_reserves_surplus() {
         amount_out: 980,
         referral_id: referral,
         fee_token: token_out.clone(),
-        static_fee: 109,
-        referral_fee: 11,
+        static_fee: 111,
+        referral_fee: 9,
     }
     .to_xdr(&env, &router_addr);
     assert_eq!(
@@ -141,31 +142,32 @@ fn fixed_output_pays_the_target_on_split_routes_and_reserves_surplus() {
     assert_eq!(token::Client::new(&env, &token_in).balance(&sender), 2_000);
     let out_client = token::Client::new(&env, &token_out);
     assert_eq!(out_client.balance(&sender), 1_960);
-    assert_eq!(router.admin_fee_balance(&token_out), 119);
+    assert_eq!(router.admin_fee_balance(&token_out), 120);
     assert_eq!(router.admin_fee_balance(&token_in), 0);
-    assert_eq!(router.referral_fee_balance(&referral, &token_out), 21);
+    assert_eq!(router.referral_fee_balance(&referral, &token_out), 18);
     assert_eq!(router.referral_fee_balance(&referral, &token_in), 0);
-    assert_eq!(out_client.balance(&router_addr), 140);
+    assert_eq!(out_client.balance(&router_addr), 138);
     assert_eq!(
         env.as_contract(&router_addr, || crate::reserved_fee_balance(
             &env, &token_out
         )),
-        140
+        138
     );
 
-    pool.init_with_pull(&token_in, &token_out, &490, &490, &true);
+    // Gross output covers the payout but is one unit short of the configured fees.
+    pool.init_with_pull(&token_in, &token_out, &497, &497, &true);
     let err = router
         .try_execute_strategy(&sender, &1_000, &fixed_xdr)
         .unwrap_err();
     assert_eq!(err.unwrap(), Error::SlippageExceeded.into());
     assert_eq!(token::Client::new(&env, &token_in).balance(&sender), 2_000);
-    assert_eq!(out_client.balance(&router_addr), 140);
-    assert_eq!(router.admin_fee_balance(&token_out), 119);
+    assert_eq!(out_client.balance(&router_addr), 138);
+    assert_eq!(router.admin_fee_balance(&token_out), 120);
 
     pool.init_with_pull(&token_in, &token_out, &600, &600, &true);
     assert_eq!(router.execute_strategy(&sender, &1_000, &legacy_xdr), 1_090);
     assert_eq!(out_client.balance(&sender), 3_050);
-    assert_eq!(router.admin_fee_balance(&token_out), 119);
+    assert_eq!(router.admin_fee_balance(&token_out), 120);
     assert_eq!(router.admin_fee_balance(&token_in), 10);
     assert_eq!(router.referral_fee_balance(&referral, &token_in), 10);
 }

@@ -16,10 +16,10 @@ use crate::constants::PPM_DENOMINATOR;
 use crate::errors::Error;
 use crate::events::SwapEvent;
 use crate::fees;
-use crate::math::{checked_add, checked_mul};
+use crate::math::checked_mul;
 use crate::program::{Mode, Op, Opcode, Program};
 use crate::storage;
-use crate::types::{DataKey, StrategyPayload, SwapHop};
+use crate::types::{StrategyPayload, SwapHop};
 use crate::vault::Vault;
 use crate::venues;
 
@@ -45,7 +45,8 @@ struct Ctx<'a> {
 /// vault balances as admin fee, and publishes [`SwapEvent`].
 ///
 /// Fees apply only with an active referral (see [`fees::apply_fees_on_token`]). Version 2
-/// charges them on output. Version 1 charges on input unless only output is fee-whitelisted.
+/// charges them on the fixed payout. Version 1 charges on input unless only output is
+/// fee-whitelisted.
 ///
 /// Requires `sender`'s authorization. Panics if `total_in` or the declared minimum output is not
 /// positive, if the delivered output falls below the minimum, or if a token's leftover balance
@@ -127,11 +128,14 @@ pub(crate) fn run(env: Env, sender: Address, total_in: i128, payload: StrategyPa
         );
     }
 
-    if !fee_on_input {
+    if fixed_out {
+        fees_charged =
+            fees::accrue_fixed_output_fees(&env, &mut vault, fee_token, referral_id, total_min_out);
+    } else if !fee_on_input {
         fees_charged = fees::apply_fees_on_token(&env, &mut vault, fee_token, referral_id);
     }
 
-    let (payout, surplus) = settle_output(
+    let payout = settle_output(
         &env,
         &mut vault,
         &router,
@@ -151,7 +155,7 @@ pub(crate) fn run(env: Env, sender: Address, total_in: i128, payload: StrategyPa
         amount_in: credited_in,
         amount_out: payout,
         referral_id,
-        static_fee: checked_add(&env, fees_charged.0, surplus),
+        static_fee: fees_charged.0,
         referral_fee: fees_charged.1,
     }
     .publish(&env);
@@ -159,7 +163,7 @@ pub(crate) fn run(env: Env, sender: Address, total_in: i128, payload: StrategyPa
     payout
 }
 
-/// Returns the sender's payout and the surplus credited to the admin balance.
+/// Transfers the output remaining after fee accrual and verifies a fixed payout.
 fn settle_output(
     env: &Env,
     vault: &mut Vault,
@@ -168,7 +172,7 @@ fn settle_output(
     output_token: &Address,
     min_out: i128,
     fixed_out: bool,
-) -> (i128, i128) {
+) -> i128 {
     let output = vault.balance_of(output_token);
     if output < min_out {
         panic_with_error!(env, Error::SlippageExceeded);
@@ -178,7 +182,7 @@ fn settle_output(
     ensure_trustline(env, output_token, sender);
     if !fixed_out {
         token::Client::new(env, output_token).transfer(router, sender, &output);
-        return (output, 0);
+        return output;
     }
 
     let received = transfer_amount_measured(
@@ -193,11 +197,7 @@ fn settle_output(
         panic_with_error!(env, Error::SlippageExceeded);
     }
 
-    let surplus = output - min_out;
-    if surplus > 0 {
-        storage::accumulate_fee(env, DataKey::AdminFee(output_token.clone()), surplus);
-    }
-    (received, surplus)
+    received
 }
 
 /// Opens `receiver`'s missing trustline via the SAC `trust` call (CAP-73).

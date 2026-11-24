@@ -56,8 +56,9 @@ Fee, split and residual formulas:
 [formulas](../../docs/reference/formulas.md#swap-router-fees-and-splits).
 `referral_id == 0`, or an unknown or inactive referral, pays no static or
 referral fee; the off-chain quote model matches. Version 1 charges on input
-unless only the output token is fee-whitelisted. Version 2 charges on gross
-output. Leftovers go to the admin bucket on every swap.
+unless only the output token is fee-whitelisted. Version 2 calculates both fees
+on the fixed payout and deducts them from gross output. Leftovers go to the
+admin bucket on every swap.
 
 For a 0.50% router fee: `make mainnet setAggregatorFee 5` and
 `make mainnet addAggregatorReferral OWNER 45` with the admin signer
