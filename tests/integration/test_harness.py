@@ -357,12 +357,13 @@ rc=0; run_case b fn || rc=$?
 awk -F'\\t' '$3=="b_selection" && $4=="FAIL" && $5=="case" && $11 ~ /case selection unreadable \\(jq exit [0-9]+\\)/ {found=1} END {exit !found}' "$ACTIONS_TSV" || exit 7
 ''')
 print('E2E offline harness regressions passed')
-# Teardown batches full withdrawals by account, retaining mixed hub keys and
-# the burn proof. A submitted failure must never fall back to per-asset calls.
+# Teardown batches full withdrawals (WITHDRAW_ALL per leg) by account, retaining
+# mixed hub keys and the burn proof. A submitted failure must never fall back to per-asset calls.
 for count, failure in [(1, False), (5, False), (5, True), (6, False)]:
     keys = [dict(hub_id=i % 2 + 1, asset=f'TOKEN{i // 2}') for i in range(count)]
     positions = [{json.dumps(key): dict(scaled_amount='123') for key in keys}, {}]
     shell(f'''
+source "{HERE}/lib/protocol.sh"
 source "{HERE}/flows/teardown.sh"
 CONTROLLER=CTRL; POSITION_NFT=NFT; ALICE=alice; ALICE_ADDR=OWNER
 positions='{json.dumps(positions)}'
@@ -380,7 +381,7 @@ inv() {{
     [ "$2" = alice ] && [ "$3" = CTRL ] && [ "$5" = withdraw ] || return 1
     [ "$6" = --caller ] && [ "$7" = OWNER ] && [ "$8" = --account_id ] && [ "$9" = 7 ] || return 1
     [ "${{10}}" = --withdrawals ] && [ "${{12}}" = --to ] && [ "${{13}}" = null ] || return 1
-    jq -e --argjson positions "$positions" 'length == {count} and all(.[]; .[1] == "0") and (map(.[0]|tojson)|sort) == ($positions[0]|keys|map(fromjson|tojson)|sort)' <<<"${{11}}" || return 1
+    jq -e --argjson positions "$positions" --arg all "$WITHDRAW_ALL" 'length == {count} and all(.[]; .[1] == $all) and (map(.[0]|tojson)|sort) == ($positions[0]|keys|map(fromjson|tojson)|sort)' <<<"${{11}}" || return 1
     record "$1" {'FAIL' if failure else 'ok'} withdraw
     return {int(failure)}
 }}

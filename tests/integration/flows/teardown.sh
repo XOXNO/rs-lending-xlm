@@ -116,8 +116,8 @@ _td_repay_account() {
     done
 }
 
-# Pass 2: withdraw every position of `id`; amount 0 means "everything", and the
-# controller burns the account once its last position is gone.
+# Pass 2: withdraw every position of `id` with `WITHDRAW_ALL`; the controller
+# burns the account once its last position is gone.
 _td_withdraw_account() {
     local id="$1"
     local exists owner alias pos withdrawals
@@ -127,7 +127,7 @@ _td_withdraw_account() {
     alias=$(_td_wallet_alias "$owner") || return 0
     pos=$(view "td_positions2_$id" "$CONTROLLER" -- get_account_positions --account_id "$id") || return 1
     # The supported account limit is five positions; never split/retry a failed submission.
-    withdrawals=$(jq -ec '.[0] | keys | if length <= 5 then map([fromjson, "0"]) else error("too many positions") end' <<<"$pos") || {
+    withdrawals=$(jq -ec --arg all "$WITHDRAW_ALL" '.[0] | keys | if length <= 5 then map([fromjson, $all]) else error("too many positions") end' <<<"$pos") || {
         _assert_fail "td_positions_$id" "invalid withdrawal positions or more than five assets"
         return 1
     }
