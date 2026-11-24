@@ -1,11 +1,12 @@
 use common::constants::POSITION_LIMIT_MAX;
 use common::errors::{CollateralError, GenericError};
-use common::types::PositionLimits;
+use common::types::{PositionLimits, PositionManagerConfig};
 use soroban_sdk::{assert_with_error, Address, Env};
 
 use crate::events::{
     ApproveBlendPoolEvent, UpdateAccumulatorEvent, UpdateMinBorrowCollateralEvent,
-    UpdatePositionLimitsEvent, UpdatePriceAggregatorEvent, UpdateSwapAggregatorEvent,
+    UpdatePositionLimitsEvent, UpdatePositionManagerEvent, UpdatePriceAggregatorEvent,
+    UpdateSwapAggregatorEvent,
 };
 use crate::storage;
 
@@ -37,6 +38,12 @@ pub(crate) fn set_accumulator(env: &Env, addr: Address) {
 pub(crate) fn set_blend_pool_approval(env: &Env, pool: Address, approved: bool) {
     storage::set_blend_pool_approved(env, &pool, approved);
     ApproveBlendPoolEvent { pool, approved }.publish(env);
+}
+
+/// Updates a position manager's delegation eligibility and emits the new state.
+pub(crate) fn set_position_manager(env: &Env, manager: Address, is_active: bool) {
+    storage::set_position_manager(env, &manager, &PositionManagerConfig { is_active });
+    UpdatePositionManagerEvent { manager, is_active }.publish(env);
 }
 
 /// Stores and emits position limits, each in `1..=POSITION_LIMIT_MAX`.

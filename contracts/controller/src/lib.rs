@@ -39,8 +39,7 @@ use common::errors::SpokeError;
 use common::types::{
     AccountAttributes, AccountPositionRaw, DebtPositionRaw, HubAssetKey, InterestRateModel,
     LiquidationEstimate, MarketIndexRaw, MarketIndexView, MarketParamsRaw, PositionLimits,
-    PositionManagerConfig, PositionMode, SeizeMode, SpokeAssetArgs, SpokeAssetConfig, SpokeConfig,
-    SpokeUsageRaw,
+    PositionMode, SeizeMode, SpokeAssetArgs, SpokeAssetConfig, SpokeConfig, SpokeUsageRaw,
 };
 
 use controller_interface::{ControllerAdmin, ControllerInterface};
@@ -588,7 +587,7 @@ impl ControllerAdmin for Controller {
     fn set_position_manager(env: Env, manager: Address, is_active: bool) {
         renew_then!(
             env,
-            storage::set_position_manager(&env, &manager, &PositionManagerConfig { is_active })
+            config::registry::set_position_manager(&env, manager, is_active)
         )
     }
 

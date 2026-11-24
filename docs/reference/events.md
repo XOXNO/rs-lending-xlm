@@ -31,6 +31,7 @@ Fields use exact Rust types; nested payloads are defined below.
 | `UpdateSpokeAssetEvent`<br>`["config", "spoke_asset"]` | map: `asset: Address, config: SpokeAssetConfig, spoke_id: u32, hub_id: u32` | add_asset_to_spoke, edit_asset_in_spoke, set_spoke_asset_flags, relax_spoke_asset_flags; full post-change listing. |
 | `RemoveSpokeAssetEvent`<br>`["config", "remove_spoke_asset"]` | map: `asset: Address, spoke_id: u32, hub_id: u32` | remove_asset_from_spoke, after zero-usage check. |
 | `ApproveBlendPoolEvent`<br>`["config", "approve_blend_pool"]` | map: `pool: Address, approved: bool` | approve_blend_pool/revoke_blend_pool. |
+| `UpdatePositionManagerEvent`<br>`["config", "position_manager"]` | map: `manager: Address, is_active: bool` | set_position_manager: the timelocked `SetPositionManager` and the GUARDIAN's immediate `deactivate_position_manager`. |
 | `UpdateSwapAggregatorEvent`<br>`["config", "swap_aggregator"]` | map: `swap_aggregator: Address` | set_swap_aggregator. |
 | `UpdatePriceAggregatorEvent`<br>`["config", "price_aggregator"]` | map: `price_aggregator: Address` | set_price_aggregator, including governance deployment. |
 | `UpdateAccumulatorEvent`<br>`["config", "accumulator"]` | map: `accumulator: Address` | set_accumulator. |

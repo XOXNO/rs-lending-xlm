@@ -192,6 +192,34 @@ fn blend_pool_approval_entrypoints_round_trip() {
     assert!(!client.is_blend_pool_approved(&pool));
 }
 
+/// Both governance paths reach `set_position_manager`, so each state change
+/// must publish the new eligibility for indexers.
+#[test]
+fn position_manager_entrypoint_emits_the_new_state() {
+    use crate::events::UpdatePositionManagerEvent;
+    use soroban_sdk::testutils::Events as _;
+    use soroban_sdk::Event as _;
+
+    let env = Env::default();
+    env.mock_all_auths();
+    let contract = new_controller(&env);
+    let client = crate::ControllerClient::new(&env, &contract);
+    let manager = Address::generate(&env);
+
+    for is_active in [true, false] {
+        client.set_position_manager(&manager, &is_active);
+        let expected = UpdatePositionManagerEvent {
+            manager: manager.clone(),
+            is_active,
+        }
+        .to_xdr(&env, &contract);
+        assert!(
+            env.events().all().events().contains(&expected),
+            "missing {expected:?}"
+        );
+    }
+}
+
 #[test]
 fn upgrade_pool_reverts_pool_not_initialized_without_deployed_pool() {
     let env = Env::default();
