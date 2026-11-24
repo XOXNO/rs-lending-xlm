@@ -111,7 +111,9 @@ Mode byte → input sizing (`Mode::from_u8` in `program.rs`, `resolve_amount` in
 
 An unrecognized opcode, out-of-range registry index, or non-`All` mode on
 Burn/Mint → `InvalidRouteXdr = 13`, checked by `Program::decode` before any
-venue call. Checks needing pool metadata run during execution: an Aquarius
+venue call. The `Prev` check runs first. A Burn or Mint with mode `Prev`
+therefore fails with `BrokenTokenChain = 4` unless its predecessor produces
+its share token. Checks needing pool metadata run during execution: an Aquarius
 burn reads `get_tokens` and `share_id` and uses the token count to validate
 the complete burn-floor run.
 

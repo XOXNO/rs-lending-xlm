@@ -98,3 +98,24 @@ fn nobody_executes_before_the_delay_or_after_the_grace_window() {
         "an expired operation stays scheduled; only its execution is refused"
     );
 }
+
+/// `get_operation_state` has no expired value, so an expired operation reads
+/// `Ready` until a canceller removes it.
+#[test]
+fn a_canceller_removes_an_expired_operation() {
+    let t = LendingTest::new().build();
+    let d = delay(&t);
+    let id = propose(&t, 5);
+    t.env
+        .ledger()
+        .with_mut(|l| l.sequence_number += d + GRACE + 1);
+    assert_eq!(
+        t.gov_iface_client().get_operation_state(&id),
+        OperationState::Ready
+    );
+    t.gov_iface_client().cancel(&t.admin(), &id);
+    assert_eq!(
+        t.gov_iface_client().get_operation_state(&id),
+        OperationState::Unset
+    );
+}

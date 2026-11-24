@@ -41,7 +41,7 @@ being the only effect) and `spec_bind_inv` (bind inversion).
 
 `ValidRateModel p` (`Proofs/Curve.lean`) is a subset of
 `InterestRateModel::verify` (`common/src/types/pool.rs`) on `MarketParams`
-fields: `0 ≤ base`, `base ≤ slope1`, `0 ≤ slope2`,
+fields: `0 ≤ base`, `0 ≤ slope1`, `0 ≤ slope2`,
 `0 ≤ slope3`, `slope3 ≤ max`, `base < max`, `max ≤ MAX_BORROW_RATE_RAY = 2·RAY`,
 `base + slope1 + slope2 + slope3 ≤ max`, `0 < mid < optimal < RAY`,
 `optimal ≤ max_utilization ≤ RAY`, `0 ≤ reserve_factor < BPS`.

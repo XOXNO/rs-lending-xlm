@@ -334,8 +334,7 @@ pub fn get_sync_data_summary(_env: &Env, asset: &Address) -> PoolSyncData {
     cvlr_assume!(base_borrow_rate >= 0);
     // `InterestRateModel::verify` bounds each slope by the max rate and orders
     // steepness per unit of utilization, not the slopes themselves.
-    cvlr_assume!(base_borrow_rate <= slope1);
-    cvlr_assume!(slope2 >= 0 && slope3 >= 0);
+    cvlr_assume!(slope1 >= 0 && slope2 >= 0 && slope3 >= 0);
     cvlr_assume!(slope1 <= max_borrow_rate);
     cvlr_assume!(slope2 <= max_borrow_rate);
     cvlr_assume!(slope3 <= max_borrow_rate);

@@ -165,8 +165,8 @@ pub struct InterestRateModel {
 }
 
 impl InterestRateModel {
-    /// Validates that the rate curve is well-formed: a non-negative base rate, `slope1` at
-    /// least the base rate, non-negative `slope2` and `slope3`, each slope at most the max
+    /// Validates that the rate curve is well-formed: a non-negative base rate, non-negative
+    /// `slope1`, `slope2` and `slope3`, each slope at most the max
     /// borrow rate, a max rate within bounds and above the base rate, a curve whose rate at
     /// full utilization (`base + slope1 + slope2 + slope3`) stays at or below the max rate,
     /// a utilization breakpoint sequence that is strictly increasing through
@@ -185,7 +185,7 @@ impl InterestRateModel {
             self.base_borrow_rate >= 0,
             CollateralError::BaseRateNegative
         );
-        if self.slope1 < self.base_borrow_rate
+        if self.slope1 < 0
             || self.slope2 < 0
             || self.slope3 < 0
             || self.slope1 > self.max_borrow_rate
