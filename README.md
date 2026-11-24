@@ -88,7 +88,7 @@ Start with [Architecture](docs/reference/architecture.md).
 | Callable surface and authorization | [Endpoints](docs/reference/endpoints.md) |
 | Event payloads and indexing | [Events](docs/reference/events.md) |
 | Failure codes and causes | [Errors](docs/reference/errors.md) |
-| Operator procedures | [Freeze a listing](docs/reference/runbooks/freeze-a-listing.md), [force-socialize bad debt](docs/reference/runbooks/force-socialize-bad-debt.md) |
+| Operator procedures | [Freeze a listing](docs/reference/runbooks/freeze-a-listing.md), [force-socialize bad debt](docs/reference/runbooks/force-socialize-bad-debt.md), [check caps against the market ceiling](docs/reference/runbooks/check-caps-against-the-market-ceiling.md) |
 | Formal verification | [Certora](certora/README.md), [Aeneas proofs](verification/aeneas/README.md) |
 | Integration guides for agents and SDK users | [Skills](skills/README.md) |
 | Per-contract detail | `contracts/<name>/README.md` |
