@@ -311,6 +311,25 @@ fn test_two_vaults_have_isolated_lending_accounts() {
     assert!(s.client().balance(&vault_b) > 1_000 * UNIT);
 }
 
+/// Nothing checks that `from` is a DeFindex vault. A lending user who is not a
+/// vault deposits and gets an account the strategy owns, apart from its own.
+#[test]
+fn test_a_depositor_that_is_not_a_vault_gets_its_own_account() {
+    let mut s = StrategyTest::new();
+    let alice = s.t.get_or_create_user(ALICE);
+    s.t.resolve_market("USDC")
+        .token_admin
+        .mint(&alice, &(1_000 * UNIT));
+
+    s.client().deposit(&(1_000 * UNIT), &alice);
+
+    let strategy_account = s.live_account_id(&alice);
+    assert!(strategy_account > 0);
+    assert_ne!(strategy_account, s.t.account_id(ALICE));
+    assert_eq!(s.t.get_account_owner(strategy_account), s.client_address);
+    assert_eq!(s.client().balance(&alice), 1_000 * UNIT);
+}
+
 #[test]
 fn test_supply_clears_stale_vault_mapping_after_full_withdraw() {
     let mut s = StrategyTest::new();
