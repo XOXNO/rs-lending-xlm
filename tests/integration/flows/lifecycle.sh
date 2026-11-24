@@ -69,7 +69,7 @@ lifecycle_amount() {
 import json,sys
 method,key,before,after,state=json.loads(sys.argv[1]),json.loads(sys.argv[2]),json.loads(sys.argv[3]),json.loads(sys.argv[4]),json.loads(sys.argv[5])['state']
 amount,decimals=map(int,sys.argv[6:8]); R=10**27; U=10**(27-decimals)
-assert method in ['supply','borrow','repay','withdraw'] and 0<=decimals<=18 and amount>=0
+assert method in ['supply','borrow','repay','withdraw'] and 0<=decimals<=18 and amount>0
 side=0 if method in ['supply','withdraw'] else 1
 index=int(state['supply_index' if side==0 else 'borrow_index']); assert index>0
 shares=lambda p: next((int(v['scaled_amount']) for k,v in p[side].items() if json.loads(k)==key),0)
@@ -83,7 +83,7 @@ elif method=='repay':
     delta=-old if amount>=debt else -(amount*U*R//index)
 else:
     displayed=half(half(old*index,R),U)
-    full=amount==0 or amount>=displayed
+    full=amount>=displayed
     paid=old*index//(R*U) if full else amount
     delta=-old if full else -ceil(amount*U*R,index)
 assert new-old==delta, f'{method}: shares changed {new-old}, expected {delta}'
@@ -205,6 +205,9 @@ view indexes_view "$CONTROLLER" -- get_market_indexes_detailed \
     xfail supply_zero 'Error\(Contract, #14\)' "$ALICE" "$CONTROLLER" -- supply \
         --caller "$ALICE_ADDR" --account_id "$acct" --spoke_id "$PRIMARY_SPOKE_ID" \
         --assets "$(pay_vec "$PRIMARY_HUB_ID" "$XLM_SAC" 0)"
+    xfail withdraw_zero 'Error\(Contract, #14\)' "$ALICE" "$CONTROLLER" -- withdraw \
+        --caller "$ALICE_ADDR" --account_id "$acct" \
+        --withdrawals "$(pay_vec "$PRIMARY_HUB_ID" "$XLM_SAC" 0)" --to null
 
     # Both guards below must fail on collateral (#100). Alice's collateral
     # (1.5k XLM plus half her USDC) far exceeds her debt, so a fixed over-borrow
@@ -298,7 +301,7 @@ usdc_coll=$(view coll_usdc_alice "$CONTROLLER" -- get_collateral_amount \
     leg_withdraw_full_bulk() {
         lifecycle_inv withdraw_full_bulk "$ALICE" "$CONTROLLER" -- withdraw \
             --caller "$ALICE_ADDR" --account_id "$acct" \
-            --withdrawals "$(pay_vec "$PRIMARY_HUB_ID" "$XLM_SAC" 0 "$USDC_SAC" 0)" --to null >/dev/null
+            --withdrawals "$(pay_vec "$PRIMARY_HUB_ID" "$XLM_SAC" "$WITHDRAW_ALL" "$USDC_SAC" "$WITHDRAW_ALL")" --to null >/dev/null
     }
     leg_withdraw_full_bulk
 

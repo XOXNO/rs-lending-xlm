@@ -270,7 +270,7 @@ fn test_no_debt_bulk_full_close_fires_zero_redstone_calls() {
     let bulk_before = rs.bulk_calls();
     let single_before = rs.single_calls();
 
-    t.withdraw_bulk(ALICE, &[("USDC", 0.0), ("ETH", 0.0)]);
+    t.withdraw_all_bulk(ALICE, &["USDC", "ETH"]);
 
     let rs = redstone_counters(&t, &redstone);
     assert_eq!(

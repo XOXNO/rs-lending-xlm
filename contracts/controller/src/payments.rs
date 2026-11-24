@@ -3,7 +3,7 @@ use common::types::{HubAssetKey, HubPayment};
 use soroban_sdk::{panic_with_error, token, Address, Env, Map, Vec};
 
 pub(crate) use common::token::transfer_amount_measured;
-use common::validation::{expect_invariant, require_non_empty_payments, require_nonneg_amount};
+use common::validation::{expect_invariant, require_non_empty_payments, require_positive_amount};
 
 /// Returns the measured balance change since `before`, negative for an outflow.
 /// Custody accounting uses this delta rather than reported transfer amounts.
@@ -51,33 +51,11 @@ pub(crate) fn refund_controller_balance_delta(
     }
 }
 
-/// Meaning of a zero amount when aggregating payment legs.
-#[derive(Clone, Copy, PartialEq)]
-pub(crate) enum ZeroLeg {
-    /// Require strictly positive amounts.
-    Rejected,
-
-    /// Withdraw all; mixing it with a positive amount for the same hub asset
-    /// is rejected.
-    MeansAll,
-}
-
-/// Aggregates hub-asset payments, requiring every amount to be positive.
+/// Aggregates hub-asset payments in first-seen order. Rejects empty input,
+/// zero or negative amounts, and overflow.
 pub(crate) fn aggregate_positive_payments(
     env: &Env,
     payments: &Vec<HubPayment>,
-) -> Vec<HubPayment> {
-    aggregate_payments(env, payments, ZeroLeg::Rejected)
-}
-
-/// Aggregates hub-asset payments in first-seen order. Rejects empty input,
-/// negative amounts, and overflow. Under `MeansAll`, a zero leg sets that
-/// hub asset's total to zero (withdraw all); a zero leg mixed with a positive
-/// leg for the same hub asset fails with `InvalidPayments`.
-pub(crate) fn aggregate_payments(
-    env: &Env,
-    payments: &Vec<HubPayment>,
-    zero_leg: ZeroLeg,
 ) -> Vec<HubPayment> {
     require_non_empty_payments(env, payments);
     let mut order: Vec<HubAssetKey> = Vec::new(env);
@@ -85,7 +63,7 @@ pub(crate) fn aggregate_payments(
 
     for (hub_asset, amount) in payments {
         let previous = totals.get(hub_asset.clone());
-        let next = aggregate_payment_amount(env, previous, amount, zero_leg);
+        let next = aggregate_payment_amount(env, previous, amount);
 
         if previous.is_none() {
             order.push_back(hub_asset.clone());
@@ -102,29 +80,13 @@ pub(crate) fn aggregate_payments(
     result
 }
 
-/// Adds one amount to a hub asset's total under the selected zero policy.
-fn aggregate_payment_amount(
-    env: &Env,
-    previous: Option<i128>,
-    amount: i128,
-    zero_leg: ZeroLeg,
-) -> i128 {
-    // Validate before the zero sentinel can mask a negative amount.
-    require_nonneg_amount(env, amount);
-
-    match (zero_leg, amount, previous) {
-        (ZeroLeg::Rejected, 0, _) => {
-            panic_with_error!(env, GenericError::AmountMustBePositive);
-        }
-        (ZeroLeg::MeansAll, 0, None | Some(0)) => 0,
-        (ZeroLeg::MeansAll, 0, Some(_)) | (ZeroLeg::MeansAll, _, Some(0)) => {
-            panic_with_error!(env, GenericError::InvalidPayments);
-        }
-        (_, amount, previous) => previous
-            .unwrap_or(0)
-            .checked_add(amount)
-            .unwrap_or_else(|| panic_with_error!(env, GenericError::MathOverflow)),
-    }
+/// Adds one positive amount to a hub asset's total.
+fn aggregate_payment_amount(env: &Env, previous: Option<i128>, amount: i128) -> i128 {
+    require_positive_amount(env, amount);
+    previous
+        .unwrap_or(0)
+        .checked_add(amount)
+        .unwrap_or_else(|| panic_with_error!(env, GenericError::MathOverflow))
 }
 
 #[cfg(test)]

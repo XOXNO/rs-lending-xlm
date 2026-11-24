@@ -21,7 +21,7 @@ fn a_failing_last_leg_rolls_back_supply_borrow_and_repay() {
         borrow_op(&t, LAST_CREATED, "ETH", U / 2, None),
         repay_op(&t, LAST_CREATED, "ETH", U / 4),
         // Withdrawing everything with debt still open fails the solvency gate.
-        withdraw_op(&t, LAST_CREATED, "USDC", 0, None),
+        withdraw_op(&t, LAST_CREATED, "USDC", i128::MAX, None),
     ];
     let result = t.run_script(&runner, &ops);
     assert_contract_error(result.map(|_| ()), errors::INSUFFICIENT_COLLATERAL);

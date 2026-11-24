@@ -63,7 +63,7 @@ fn a_self_owned_receiver_can_hand_the_account_away_mid_callback_and_finalize_sti
         .repay(&bob, &id, &vec![&t.env, (eth, f64_to_i128(1.1, 7))]);
     let usdc = hub_asset(t.resolve_asset("USDC"));
     t.ctrl_client()
-        .withdraw(&bob, &id, &vec![&t.env, (usdc, 0)], &None);
+        .withdraw(&bob, &id, &vec![&t.env, (usdc, i128::MAX)], &None);
     assert!(
         !t.account_exists(id),
         "the new owner can unwind what it received"

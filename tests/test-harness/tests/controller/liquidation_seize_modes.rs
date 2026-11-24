@@ -842,7 +842,7 @@ fn transfer_and_credit_agree_on_values_that_do_not_divide_evenly() {
 /// than transfer.
 ///
 /// Credit rounds twice (value to shares, then shares to asset units at withdraw); transfer
-/// rounds once. The withdraw uses the `0` withdraw-all sentinel, so no caller amount adds a
+/// rounds once. The withdraw uses `i128::MAX` (withdraw all), so no caller amount adds a
 /// rounding step.
 #[test]
 fn withdrawing_the_credit_in_the_same_ledger_matches_the_transfer_payout() {
@@ -870,7 +870,7 @@ fn withdrawing_the_credit_in_the_same_ledger_matches_the_transfer_payout() {
     let receiver = t.liquidate_with_mode(LIQUIDATOR, CAROL, "ETH", 0.73, SeizeMode::Credit(0));
 
     let usdc = t.resolve_asset("USDC");
-    let withdrawals = vec![&t.env, (hub_asset(usdc), 0i128)]; // 0 = withdraw all
+    let withdrawals = vec![&t.env, (hub_asset(usdc), i128::MAX)];
     t.ctrl_client()
         .withdraw(&liquidator_addr, &receiver, &withdrawals, &None);
     let credit_payout = t.token_balance_raw(LIQUIDATOR, "USDC") - before_credit;
@@ -981,7 +981,7 @@ fn wbtc_leg_payouts(wbtc_amt: f64) -> (i128, i128) {
 
     let before_credit = t.token_balance_raw(LIQUIDATOR, "WBTC");
     let receiver = t.liquidate_with_mode(LIQUIDATOR, CAROL, "ETH", 1.0, SeizeMode::Credit(0));
-    let withdrawals = vec![&t.env, (hub_asset(t.resolve_asset("WBTC")), 0i128)];
+    let withdrawals = vec![&t.env, (hub_asset(t.resolve_asset("WBTC")), i128::MAX)];
     t.ctrl_client()
         .withdraw(&liquidator_addr, &receiver, &withdrawals, &None);
     let credit_payout = t.token_balance_raw(LIQUIDATOR, "WBTC") - before_credit;

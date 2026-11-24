@@ -1,4 +1,4 @@
-//! `expect_invariant`, `require_nonneg_amount` and
+//! `expect_invariant`, `require_positive_amount` and
 //! `require_non_empty_payments`, copied verbatim from
 //! `common/src/validation.rs` (the rest of that file needs the oracle module
 //! and is not used by the included liquidation code).
@@ -6,8 +6,10 @@
 use crate::errors::GenericError;
 use soroban_sdk::{assert_with_error, panic_with_error, Env, Vec};
 
-pub fn require_nonneg_amount(env: &Env, amount: i128) {
-    assert_with_error!(env, amount >= 0, GenericError::AmountMustBePositive);
+/// Asserts that `amount` is strictly positive, panicking with
+/// `GenericError::AmountMustBePositive` otherwise.
+pub fn require_positive_amount(env: &Env, amount: i128) {
+    assert_with_error!(env, amount > 0, GenericError::AmountMustBePositive);
 }
 
 /// Returns the value contained in `opt`, panicking with

@@ -57,15 +57,14 @@ VERBATIM = [
     ]),
     (f"{CTRL}/context.rs", [f"{PROD_CTRL}/context.rs"], ["impl Context :: fn cached_price"]),
     (f"{CTRL}/payment_legs.rs", [f"{PROD_CTRL}/payments.rs"], [
-        "enum ZeroLeg", "fn aggregate_positive_payments", "fn aggregate_payments",
-        "fn aggregate_payment_amount",
+        "fn aggregate_positive_payments", "fn aggregate_payment_amount",
     ]),
     (f"{CTRL}/positions/mod.rs", [f"{PROD_CTRL}/positions/mod.rs", f"{PROD_CTRL}/positions/supply.rs"], [
         "enum FreezePolicy", "enum WithdrawKind", "fn make_pool_action",
         "fn get_supply_position_or_panic",
     ]),
     (f"{CTRL}/validation.rs", ["common/src/validation.rs"], [
-        "fn require_nonneg_amount", "fn expect_invariant", "fn require_non_empty_payments",
+        "fn require_positive_amount", "fn expect_invariant", "fn require_non_empty_payments",
     ]),
     (f"{CTRL}/collections.rs", ["common/src/collections.rs"], ["fn push_unique_address"]),
     (f"{CTRL}/spoke_usage.rs", [f"{PROD_CTRL}/spoke_usage.rs"], ["enum UsageSide"]),

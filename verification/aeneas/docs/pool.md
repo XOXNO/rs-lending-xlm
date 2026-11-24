@@ -507,9 +507,10 @@ the rows tagged "audit S-03" / "audit S-04". S-03 also uses
    decimals, index `RAY`, position 1: `hu(1·RAY, RAY) = 1`,
    `hu(1, 10^27) = 0 = H ≤ 0`, so `burned = 1`, `gross = 0`, the
    `WithdrawRoundsToZeroShares` assert is skipped, and the position returns
-   0, not 1 (worth `10^-27` units). User-facing `withdraw` maps `amount = 0`
-   to `WITHDRAW_ALL_SENTINEL` (`contracts/controller/src/positions/supply.rs`),
-   so only controller paths passing a literal 0 reach it
+   0, not 1 (worth `10^-27` units). User-facing `withdraw` rejects
+   `amount = 0` (`aggregate_positive_payments`,
+   `contracts/controller/src/payments.rs`), so only controller paths passing
+   a literal 0 reach it
    (`execute_withdrawal` callers, unchecked). Summary fix: in the
    else-branch allow `new_scaled = 0` when `amount == 0` (or
    `0 ≤ new_scaled ≤ position`).

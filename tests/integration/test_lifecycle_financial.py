@@ -7,6 +7,7 @@ from pathlib import Path
 HERE=Path(__file__).resolve().parent
 KEY={'asset':'CTOKEN','hub_id':1}
 R=10**27
+I128_MAX=(1<<127)-1
 
 def position(side,shares):
     p=[{},{}]
@@ -23,11 +24,14 @@ class LifecycleMath(unittest.TestCase):
         for d in [7,8,9,18]:
             u=10**(27-d); i=R+123456789; n=10**d+1
             floor=n*u*R//i; ceil=(n*u*R+i-1)//i
-            for method,old,new,offer,want in [('supply',0,floor,n,n),('borrow',0,ceil,n,n),('repay',ceil,0,n+100,n+1),('withdraw',floor,0,0,n-1)]:
+            for method,old,new,offer,want in [('supply',0,floor,n,n),('borrow',0,ceil,n,n),('repay',ceil,0,n+100,n+1),('withdraw',floor,0,I128_MAX,n-1)]:
                 got=amount(method,old,new,i,offer,d)
                 self.assertEqual(got.returncode,0,got.stderr)
                 self.assertEqual(int(got.stdout),want)
                 self.assertNotEqual(amount(method,old,new+1,i,offer,d).returncode,0)
+    def test_zero_withdraw_is_rejected_not_a_full_close(self):
+        i=R+123456789; u=10**20; old=10**9*u*R//i
+        self.assertNotEqual(amount('withdraw',old,0,i,0,7).returncode,0)
     def test_partial_burn(self):
         for method in ['repay','withdraw']:
             i=R+999; u=10**20; n=17

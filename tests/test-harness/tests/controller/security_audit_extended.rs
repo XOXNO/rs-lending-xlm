@@ -146,7 +146,7 @@ fn refutation_global_pause_withdraw_still_enforces_hf() {
     t.borrow(ALICE, "ETH", 3.0);
     t.pause();
 
-    let drained = t.try_withdraw(ALICE, "USDC", 0.0);
+    let drained = t.try_withdraw_raw(ALICE, "USDC", i128::MAX);
     assert_contract_error(drained, errors::INSUFFICIENT_COLLATERAL);
 }
 

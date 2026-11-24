@@ -105,7 +105,7 @@ fn test_zero_supply_with_outstanding_borrow_rejected() {
     let alice_addr = t.get_or_create_user(ALICE);
     let account_id = t.resolve_account_id(ALICE);
     let withdrawals: SorobanVec<(HubAssetKey, i128)> =
-        soroban_sdk::vec![&t.env, (hub_asset(asset_addr), 0i128)];
+        soroban_sdk::vec![&t.env, (hub_asset(asset_addr), i128::MAX)];
     let ctrl = t.ctrl_client();
     let result = match ctrl.try_withdraw(&alice_addr, &account_id, &withdrawals, &None) {
         Ok(Ok(_)) => Ok(()),

@@ -277,7 +277,7 @@ fn test_withdraw_returns_actual_amounts_on_full_close() {
     t.supply(ALICE, "USDC", 10_000.0);
     let wallet_before = t.token_balance_raw(ALICE, "USDC");
 
-    let paid = t.withdraw_raw_returning(ALICE, "USDC", 0);
+    let paid = t.withdraw_raw_returning(ALICE, "USDC", i128::MAX);
     let (_, paid_amount) = paid.get(0).unwrap();
 
     assert!(
@@ -372,7 +372,7 @@ fn test_withdraw_aggregates_duplicate_assets() {
 }
 
 #[test]
-fn test_withdraw_rejects_mixed_zero_and_positive_legs() {
+fn test_withdraw_rejects_a_zero_leg_alone_or_mixed() {
     let mut t = LendingTest::new()
         .with_market(usdc_preset())
         .with_dust_disabled_all_markets()
@@ -382,7 +382,11 @@ fn test_withdraw_rejects_mixed_zero_and_positive_legs() {
     let usdc = t.resolve_asset("USDC");
     let wallet_before = t.token_balance_raw(ALICE, "USDC");
     let supply_before = t.supply_balance_raw(ALICE, "USDC");
-    // Both leg orders: a zero (withdraw-all) leg cannot mix with a positive one.
+    let alone = vec![&t.env, (hub_asset(usdc.clone()), 0i128)];
+    assert_contract_error(
+        try_withdraw_payments(&mut t, ALICE, alone),
+        errors::AMOUNT_MUST_BE_POSITIVE,
+    );
     for (first, second) in [(5_000_000_000i128, 0i128), (0i128, 5_000_000_000i128)] {
         let withdrawals = vec![
             &t.env,
@@ -391,10 +395,29 @@ fn test_withdraw_rejects_mixed_zero_and_positive_legs() {
         ];
 
         let result = try_withdraw_payments(&mut t, ALICE, withdrawals);
-        assert_contract_error(result, errors::INVALID_PAYMENTS);
+        assert_contract_error(result, errors::AMOUNT_MUST_BE_POSITIVE);
     }
     assert_eq!(t.token_balance_raw(ALICE, "USDC"), wallet_before);
     assert_eq!(t.supply_balance_raw(ALICE, "USDC"), supply_before);
+}
+
+#[test]
+fn test_withdraw_rejects_two_full_legs_for_one_market() {
+    let mut t = LendingTest::new()
+        .with_market(usdc_preset())
+        .with_dust_disabled_all_markets()
+        .build();
+
+    t.supply(ALICE, "USDC", 10_000.0);
+    let usdc = t.resolve_asset("USDC");
+    let withdrawals = vec![
+        &t.env,
+        (hub_asset(usdc.clone()), i128::MAX),
+        (hub_asset(usdc), i128::MAX),
+    ];
+
+    let result = try_withdraw_payments(&mut t, ALICE, withdrawals);
+    assert_contract_error(result, errors::MATH_OVERFLOW);
 }
 
 #[test]

@@ -154,7 +154,7 @@ fn fifty_supply_withdraw_all_loops_never_return_more_than_deposited_plus_interes
             .supply(&alice, &0, &1, &leg(&t, "USDC", deposit));
         t.advance_and_sync(days(3));
         t.ctrl_client()
-            .withdraw(&alice, &account_id, &leg(&t, "USDC", 0), &None);
+            .withdraw(&alice, &account_id, &leg(&t, "USDC", i128::MAX), &None);
         assert!(
             !t.account_exists(account_id),
             "loop {i}: the emptied account burns"

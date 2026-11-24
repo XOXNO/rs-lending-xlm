@@ -52,7 +52,7 @@ flow_nft() {
     xfail nft_revoked_transfer 'Error\(Contract, #202\)' "$BOB" "$POSITION_NFT" -- transfer_from --spender "$BOB_ADDR" --from "$ALICE_ADDR" --to "$BOB_ADDR" --token_id "$acct" || return 1
     view nft_owner_enumeration "$POSITION_NFT" -- get_owner_token_id --owner "$ALICE_ADDR" --index 0 >/dev/null || return 1
     view nft_owner_balance "$POSITION_NFT" -- balance --account "$ALICE_ADDR" >/dev/null || return 1
-    inv nft_new_owner_withdraw "$ALICE" "$CONTROLLER" -- withdraw --caller "$ALICE_ADDR" --account_id "$acct" --withdrawals "$(pay_vec "$PRIMARY_HUB_ID" "$USDC_SAC" 0)" --to null >/dev/null || return 1
+    inv nft_new_owner_withdraw "$ALICE" "$CONTROLLER" -- withdraw --caller "$ALICE_ADDR" --account_id "$acct" --withdrawals "$(pay_vec "$PRIMARY_HUB_ID" "$USDC_SAC" "$WITHDRAW_ALL")" --to null >/dev/null || return 1
     assert_bool_view nft_burned_account false account_exists --account_id "$acct" || return 1
     assert_view_eq_at "$POSITION_NFT" nft_burn_total "$total_before" total_supply || return 1
     nft_assert_enumeration nft_burn_enumeration "$ALICE_ADDR" "$acct" false || return 1

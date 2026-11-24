@@ -21,8 +21,8 @@ Unless a row adds a response, correct the named input or wait for governance to 
 | 8 `WrongToken` | `params.asset_id` differs from the listed asset. |
 | 10 `InvalidWasmHash` | Wasm hash is all zeros. |
 | 13 `AccountNotInMarket` | Account metadata missing, or caller fails the NFT-owner check (renewal and delegate writes need the owner). |
-| 14 `AmountMustBePositive` | Negative input, forbidden zero, or nonpositive measured receipt. Zero withdrawal and zero flash collateral minima are allowed. |
-| 16 `InvalidPayments` | Required list/route empty, forbidden route nonempty, input bound exceeded, duplicate/overlapping flash declarations, empty flash collateral list, a withdrawal mixing zero (withdraw-all) and a positive amount for one market, or a pool `supply`/`borrow`/`withdraw`/`repay` batch repeating a market. Also a liquidation whose trimmed plan keeps no repayment leg, or whose debt token under-delivers while a seized leg is below 3 decimals. |
+| 14 `AmountMustBePositive` | Negative input, forbidden zero (including a zero withdrawal leg), or nonpositive measured receipt. Zero flash collateral minima are allowed. |
+| 16 `InvalidPayments` | Required list/route empty, forbidden route nonempty, input bound exceeded, duplicate/overlapping flash declarations, empty flash collateral list, or a pool `supply`/`borrow`/`withdraw`/`repay` batch repeating a market. Also a liquidation whose trimmed plan keeps no repayment leg, or whose debt token under-delivers while a seized leg is below 3 decimals. |
 | 18 `NotSmartContract` | Address is not a deployed Wasm contract. |
 | 24 `AccountNotFound` | Account or NFT owner unresolvable, or id beyond NFT u32. Some views return empty/zero instead. |
 | 25 `AccountModeMismatch` | Account mode differs from the call's, or a liquidation receiver is not Normal. |

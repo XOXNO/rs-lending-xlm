@@ -100,9 +100,9 @@ The wrapper's `withdraw` and `withdraw_all` return
 `owner_of` fails with `NonExistentToken` (account deleted, NFT burned). Any
 other lookup failure gives `false`; the key stays.
 
-For a full exit, call `withdraw` with `i128::MAX`. In xoxno-contract-sdk 0.3
-and earlier, `withdraw_all` and `WITHDRAW_ALL` send zero, which is
-deprecated: a later controller release rejects it.
+For a full exit, call `withdraw` with `i128::MAX`. In xoxno-contract-sdk
+0.3.0 and earlier, `withdraw_all` and `WITHDRAW_ALL` send zero, which fails
+with `AmountMustBePositive` (`#14`). From 0.3.1 they send `i128::MAX`.
 
 ```rust
 use soroban_sdk::{token, Address, Env};

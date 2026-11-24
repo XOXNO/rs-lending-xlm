@@ -1834,7 +1834,7 @@ def context.Context.cached_price
   ok (pf, self)
 
 /-- [controller_aeneas::validation::require_non_empty_payments]:
-    Source: 'src/validation.rs', lines 20:0-22:1
+    Source: 'src/validation.rs', lines 22:0-24:1
     Visibility: public -/
 def validation.require_non_empty_payments
   {T : Type _} (env : aeneas_soroban_shim.Env)
@@ -1845,7 +1845,7 @@ def validation.require_non_empty_payments
   massert (¬ b)
 
 /-- [controller_aeneas::validation::expect_invariant::{impl core::ops::function::FnOnce<(), T> for controller_aeneas::validation::expect_invariant::{closure}<'_0, '_1, T>}::call_once]:
-    Source: 'src/validation.rs', lines 17:23-17:77 -/
+    Source: 'src/validation.rs', lines 19:23-19:77 -/
 def
   validation.expect_invariant.closure.Insts.CoreOpsFunctionFnOnceTupleT.call_once
   {T : Type _} (c : validation.expect_invariant.closure T) (_ : Unit) :
@@ -1854,7 +1854,7 @@ def
   fail panic
 
 /-- Trait implementation: [controller_aeneas::validation::expect_invariant::{impl core::ops::function::FnOnce<(), T> for controller_aeneas::validation::expect_invariant::{closure}<'_0, '_1, T>}]
-    Source: 'src/validation.rs', lines 17:23-17:77 -/
+    Source: 'src/validation.rs', lines 19:23-19:77 -/
 @[reducible]
 def validation.expect_invariant.closure.Insts.CoreOpsFunctionFnOnceTupleT (T :
   Type _) : core.ops.function.FnOnce (validation.expect_invariant.closure T)
@@ -1864,7 +1864,7 @@ def validation.expect_invariant.closure.Insts.CoreOpsFunctionFnOnceTupleT (T :
 }
 
 /-- [controller_aeneas::validation::expect_invariant]:
-    Source: 'src/validation.rs', lines 16:0-18:1
+    Source: 'src/validation.rs', lines 18:0-20:1
     Visibility: public -/
 def validation.expect_invariant
   {T : Type _} (env : aeneas_soroban_shim.Env) (opt : Option T) :
@@ -1874,15 +1874,15 @@ def validation.expect_invariant
     (validation.expect_invariant.closure.Insts.CoreOpsFunctionFnOnceTupleT T)
     opt env
 
-/-- [controller_aeneas::validation::require_nonneg_amount]:
-    Source: 'src/validation.rs', lines 9:0-11:1
+/-- [controller_aeneas::validation::require_positive_amount]:
+    Source: 'src/validation.rs', lines 11:0-13:1
     Visibility: public -/
-def validation.require_nonneg_amount
+def validation.require_positive_amount
   (env : aeneas_soroban_shim.Env) (amount : Std.I128) : Result Unit := do
-  massert (amount >= 0#i128)
+  massert (amount > 0#i128)
 
 /-- [controller_aeneas::payment_legs::aggregate_payment_amount::{impl core::ops::function::FnOnce<(), i128> for controller_aeneas::payment_legs::aggregate_payment_amount::{closure}<'_0, '_1>}::call_once]:
-    Source: 'src/payment_legs.rs', lines 85:28-85:81 -/
+    Source: 'src/payment_legs.rs', lines 48:24-48:77 -/
 def
   payment_legs.aggregate_payment_amount.closure.Insts.CoreOpsFunctionFnOnceTupleI128.call_once
   (c : payment_legs.aggregate_payment_amount.closure) (_ : Unit) :
@@ -1891,7 +1891,7 @@ def
   fail panic
 
 /-- Trait implementation: [controller_aeneas::payment_legs::aggregate_payment_amount::{impl core::ops::function::FnOnce<(), i128> for controller_aeneas::payment_legs::aggregate_payment_amount::{closure}<'_0, '_1>}]
-    Source: 'src/payment_legs.rs', lines 85:28-85:81 -/
+    Source: 'src/payment_legs.rs', lines 48:24-48:77 -/
 @[reducible]
 def
   payment_legs.aggregate_payment_amount.closure.Insts.CoreOpsFunctionFnOnceTupleI128
@@ -1902,49 +1902,24 @@ def
 }
 
 /-- [controller_aeneas::payment_legs::aggregate_payment_amount]:
-    Source: 'src/payment_legs.rs', lines 65:0-87:1 -/
+    Source: 'src/payment_legs.rs', lines 43:0-49:1 -/
 def payment_legs.aggregate_payment_amount
   (env : aeneas_soroban_shim.Env) (previous : Option Std.I128)
-  (amount : Std.I128) (zero_leg : payment_legs.ZeroLeg) :
+  (amount : Std.I128) :
   Result Std.I128
   := do
-  validation.require_nonneg_amount env amount
-  match zero_leg with
-  | payment_legs.ZeroLeg.Rejected =>
-    match amount with
-    | 0#iscalar => fail panic
-    | _ =>
-      let i ← lift (core.option.Option.unwrap_or previous 0#i128)
-      let o ← lift (I128.checked_add i amount)
-      core.option.Option.unwrap_or_else
-        payment_legs.aggregate_payment_amount.closure.Insts.CoreOpsFunctionFnOnceTupleI128
-        o env
-  | payment_legs.ZeroLeg.MeansAll =>
-    match amount with
-    | 0#iscalar =>
-      match previous with
-      | none => ok 0#i128
-      | some i => match i with
-                  | 0#iscalar => ok 0#i128
-                  | _ => fail panic
-    | _ =>
-      let previous1 ←
-        match previous with
-        | none => ok none
-        | some i => match i with
-                    | 0#iscalar => fail panic
-                    | _ => ok previous
-      let i ← lift (core.option.Option.unwrap_or previous1 0#i128)
-      let o ← lift (I128.checked_add i amount)
-      core.option.Option.unwrap_or_else
-        payment_legs.aggregate_payment_amount.closure.Insts.CoreOpsFunctionFnOnceTupleI128
-        o env
+  validation.require_positive_amount env amount
+  let i ← lift (core.option.Option.unwrap_or previous 0#i128)
+  let o ← lift (I128.checked_add i amount)
+  core.option.Option.unwrap_or_else
+    payment_legs.aggregate_payment_amount.closure.Insts.CoreOpsFunctionFnOnceTupleI128
+    o env
 
-/-- [controller_aeneas::payment_legs::aggregate_payments]: loop body 0:
-    Source: 'src/payment_legs.rs', lines 45:4-53:5 -/
+/-- [controller_aeneas::payment_legs::aggregate_positive_payments]: loop body 0:
+    Source: 'src/payment_legs.rs', lines 23:4-31:5 -/
 @[rust_loop_body]
-def payment_legs.aggregate_payments_loop0.body
-  (env : aeneas_soroban_shim.Env) (zero_leg : payment_legs.ZeroLeg)
+def payment_legs.aggregate_positive_payments_loop0.body
+  (env : aeneas_soroban_shim.Env)
   (iter : aeneas_soroban_shim.VecIter (types.HubAssetKey × Std.I128))
   (order : aeneas_soroban_shim.Vec types.HubAssetKey)
   (totals : aeneas_soroban_shim.Map types.HubAssetKey Std.I128) :
@@ -1962,8 +1937,7 @@ def payment_legs.aggregate_payments_loop0.body
     let (hub_asset, amount) := p
     let hak ← types.HubAssetKey.Insts.CoreCloneClone.clone hub_asset
     let previous ← aeneas_soroban_shim.Map.get totals hak
-    let next ←
-      payment_legs.aggregate_payment_amount env previous amount zero_leg
+    let next ← payment_legs.aggregate_payment_amount env previous amount
     let b := core.option.Option.is_none previous
     let order1 ←
       if b
@@ -1972,26 +1946,27 @@ def payment_legs.aggregate_payments_loop0.body
     let totals1 ← aeneas_soroban_shim.Map.set totals hub_asset next
     ok (cont (iter1, order1, totals1))
 
-/-- [controller_aeneas::payment_legs::aggregate_payments]: loop 0:
-    Source: 'src/payment_legs.rs', lines 45:4-53:5 -/
+/-- [controller_aeneas::payment_legs::aggregate_positive_payments]: loop 0:
+    Source: 'src/payment_legs.rs', lines 23:4-31:5 -/
 @[rust_loop]
-def payment_legs.aggregate_payments_loop0
+def payment_legs.aggregate_positive_payments_loop0
   (iter : aeneas_soroban_shim.VecIter (types.HubAssetKey × Std.I128))
-  (env : aeneas_soroban_shim.Env) (zero_leg : payment_legs.ZeroLeg)
+  (env : aeneas_soroban_shim.Env)
   (order : aeneas_soroban_shim.Vec types.HubAssetKey)
   (totals : aeneas_soroban_shim.Map types.HubAssetKey Std.I128) :
   Result ((aeneas_soroban_shim.Vec types.HubAssetKey) ×
     (aeneas_soroban_shim.Map types.HubAssetKey Std.I128))
   := do
   loop
-    (fun (iter1, order1, totals1) => payment_legs.aggregate_payments_loop0.body
-      env zero_leg iter1 order1 totals1)
+    (fun (iter1, order1, totals1) =>
+      payment_legs.aggregate_positive_payments_loop0.body env iter1 order1
+      totals1)
     (iter, order, totals)
 
-/-- [controller_aeneas::payment_legs::aggregate_payments]: loop body 1:
-    Source: 'src/payment_legs.rs', lines 56:4-59:5 -/
+/-- [controller_aeneas::payment_legs::aggregate_positive_payments]: loop body 1:
+    Source: 'src/payment_legs.rs', lines 34:4-37:5 -/
 @[rust_loop_body]
-def payment_legs.aggregate_payments_loop1.body
+def payment_legs.aggregate_positive_payments_loop1.body
   (env : aeneas_soroban_shim.Env)
   (totals : aeneas_soroban_shim.Map types.HubAssetKey Std.I128)
   (iter : aeneas_soroban_shim.VecIter types.HubAssetKey)
@@ -2012,10 +1987,10 @@ def payment_legs.aggregate_payments_loop1.body
       aeneas_soroban_shim.Vec.push_back result (hub_asset, amount)
     ok (cont (iter1, result1))
 
-/-- [controller_aeneas::payment_legs::aggregate_payments]: loop 1:
-    Source: 'src/payment_legs.rs', lines 56:4-59:5 -/
+/-- [controller_aeneas::payment_legs::aggregate_positive_payments]: loop 1:
+    Source: 'src/payment_legs.rs', lines 34:4-37:5 -/
 @[rust_loop]
-def payment_legs.aggregate_payments_loop1
+def payment_legs.aggregate_positive_payments_loop1
   (iter : aeneas_soroban_shim.VecIter types.HubAssetKey)
   (env : aeneas_soroban_shim.Env)
   (totals : aeneas_soroban_shim.Map types.HubAssetKey Std.I128)
@@ -2023,16 +1998,16 @@ def payment_legs.aggregate_payments_loop1
   Result (aeneas_soroban_shim.Vec (types.HubAssetKey × Std.I128))
   := do
   loop
-    (fun (iter1, result1) => payment_legs.aggregate_payments_loop1.body env
-      totals iter1 result1)
+    (fun (iter1, result1) =>
+      payment_legs.aggregate_positive_payments_loop1.body env totals iter1
+      result1)
     (iter, result)
 
-/-- [controller_aeneas::payment_legs::aggregate_payments]:
-    Source: 'src/payment_legs.rs', lines 36:0-62:1 -/
-def payment_legs.aggregate_payments
+/-- [controller_aeneas::payment_legs::aggregate_positive_payments]:
+    Source: 'src/payment_legs.rs', lines 15:0-40:1 -/
+def payment_legs.aggregate_positive_payments
   (env : aeneas_soroban_shim.Env)
-  (payments : aeneas_soroban_shim.Vec (types.HubAssetKey × Std.I128))
-  (zero_leg : payment_legs.ZeroLeg) :
+  (payments : aeneas_soroban_shim.Vec (types.HubAssetKey × Std.I128)) :
   Result (aeneas_soroban_shim.Vec (types.HubAssetKey × Std.I128))
   := do
   validation.require_non_empty_payments env payments
@@ -2042,22 +2017,13 @@ def payment_legs.aggregate_payments
     Shared0Vec.Insts.CoreIterTraitsCollectIntoIteratorTVecIter.into_iter
       payments
   let (order1, totals1) ←
-    payment_legs.aggregate_payments_loop0 iter env zero_leg order totals
+    payment_legs.aggregate_positive_payments_loop0 iter env order totals
   let result ←
     aeneas_soroban_shim.Vec.new (types.HubAssetKey × Std.I128) env
   let iter1 ←
     aeneas_soroban_shim.Vec.Insts.CoreIterTraitsCollectIntoIteratorTVecIter.into_iter
       order1
-  payment_legs.aggregate_payments_loop1 iter1 env totals1 result
-
-/-- [controller_aeneas::payment_legs::aggregate_positive_payments]:
-    Source: 'src/payment_legs.rs', lines 25:0-30:1 -/
-def payment_legs.aggregate_positive_payments
-  (env : aeneas_soroban_shim.Env)
-  (payments : aeneas_soroban_shim.Vec (types.HubAssetKey × Std.I128)) :
-  Result (aeneas_soroban_shim.Vec (types.HubAssetKey × Std.I128))
-  := do
-  payment_legs.aggregate_payments env payments payment_legs.ZeroLeg.Rejected
+  payment_legs.aggregate_positive_payments_loop1 iter1 env totals1 result
 
 /-- [controller_aeneas::types::{impl core::convert::From<&'_0 controller_aeneas::types::DebtPositionRaw> for controller_aeneas::types::DebtPosition}::from]:
     Source: 'src/types.rs', lines 243:4-247:5

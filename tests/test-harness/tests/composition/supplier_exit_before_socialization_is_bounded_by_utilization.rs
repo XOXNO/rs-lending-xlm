@@ -61,7 +61,7 @@ fn exit_then_clean_then_re_enter_dodges_the_write_down_when_utilization_allows()
     let bob_before = t.supply_balance_raw(BOB, "ETH");
     let ops: Vec<Op> = vec![
         &t.env,
-        withdraw_op(&t, runner_account, "ETH", 0, None),
+        withdraw_op(&t, runner_account, "ETH", i128::MAX, None),
         Op::CleanBadDebt(AccountOp { account_id: victim }),
         supply_op(&t, 0, "ETH", 50 * U),
     ];
@@ -92,7 +92,7 @@ fn the_exit_is_capped_by_max_utilization_and_the_script_reverts_whole() {
     let bob_before = t.supply_balance_raw(BOB, "ETH");
     let ops: Vec<Op> = vec![
         &t.env,
-        withdraw_op(&t, runner_account, "ETH", 0, None),
+        withdraw_op(&t, runner_account, "ETH", i128::MAX, None),
         Op::CleanBadDebt(AccountOp { account_id: victim }),
     ];
     assert_contract_error(

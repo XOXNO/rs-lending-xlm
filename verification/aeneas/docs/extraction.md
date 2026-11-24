@@ -55,11 +55,10 @@ resolve to this crate.
   (verbatim) and a field-less `PoolPositionMutation`.
 * `src/errors.rs`: the raised variants with production codes; codes are not
   modelled, every `panic_with_error!` aborts.
-* `src/validation.rs`: `expect_invariant`, `require_nonneg_amount`,
+* `src/validation.rs`: `expect_invariant`, `require_positive_amount`,
   `require_non_empty_payments`, verbatim.
-* `src/payment_legs.rs` (re-exported as `crate::payments`): `ZeroLeg`,
-  `aggregate_positive_payments`, `aggregate_payments`,
-  `aggregate_payment_amount`, verbatim from
+* `src/payment_legs.rs` (re-exported as `crate::payments`):
+  `aggregate_positive_payments` and `aggregate_payment_amount`, verbatim from
   `contracts/controller/src/payments.rs`; `transfer_amount_measured` opaque.
 * `src/context.rs`: the [Context model](#controller-trusted-base);
   `spoke_config` is opaque.

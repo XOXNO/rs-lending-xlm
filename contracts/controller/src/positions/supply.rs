@@ -7,7 +7,6 @@ use common::types::{
 use soroban_sdk::{assert_with_error, vec, Address, Env, Vec};
 
 use crate::account::{self, require_owner_or_delegate, update_or_remove_supply_position};
-use crate::constants::WITHDRAW_ALL_SENTINEL;
 use crate::context::Context;
 use crate::events;
 use crate::external::pool::{pool_supply_call, pool_withdraw_call};
@@ -148,7 +147,8 @@ pub(crate) fn process_deposit(
 }
 
 /// Withdraws for an authorized owner/delegate and checks post-pool solvency.
-/// Zero requests withdraw all; returns the pool's actual payouts per asset.
+/// An amount at or above the position withdraws all; returns the pool's actual
+/// payouts per asset.
 pub(crate) fn process_withdraw(
     env: &Env,
     caller: &Address,
@@ -164,7 +164,7 @@ pub(crate) fn process_withdraw(
     let recipient = to.unwrap_or_else(|| caller.clone());
     let mut cache = Context::new(env);
     require_external_recipient(env, &mut cache, &recipient);
-    let aggregated = payments::aggregate_payments(env, withdrawals, payments::ZeroLeg::MeansAll);
+    let aggregated = payments::aggregate_positive_payments(env, withdrawals);
 
     let paid = settle_withdraw(env, &mut account, &recipient, &aggregated, &mut cache);
     let _ = enforce_post_pool_solvency(env, &mut cache, &mut account);
@@ -180,7 +180,7 @@ pub(crate) fn process_withdraw(
     paid
 }
 
-/// Enforces exit flags and withdraws the batch, treating zero as withdraw-all.
+/// Enforces exit flags and withdraws the batch.
 /// Returns each asset's actual pool payout.
 fn settle_withdraw(
     env: &Env,
@@ -199,13 +199,8 @@ fn settle_withdraw(
             FreezePolicy::AllowOnExit,
         );
         let position = get_supply_position_or_panic(env, account, &hub_asset);
-        let requested = if amount == 0 {
-            WITHDRAW_ALL_SENTINEL
-        } else {
-            amount
-        };
         entries.push_back(PoolWithdrawEntry {
-            action: make_pool_action(&position, requested, hub_asset.clone()),
+            action: make_pool_action(&position, amount, hub_asset.clone()),
             protocol_fee: 0,
         });
     }

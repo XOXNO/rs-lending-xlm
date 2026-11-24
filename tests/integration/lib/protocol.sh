@@ -545,6 +545,10 @@ hub_vec() {
     echo "$out]"
 }
 
+# Withdraw amount above any position: the pool withdraws all of it. A zero
+# withdraw leg fails with AmountMustBePositive.
+WITHDRAW_ALL=170141183460469231731687303715884105727
+
 pay_vec() {
     local hub_id="$1"
     shift

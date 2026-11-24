@@ -97,7 +97,7 @@ fn borrowing_usdc_on_hub_two_against_usdc_on_hub_one_keeps_both_books_straight()
         .mint(&alice, &debt_units);
     let repay: Vec<(HubAssetKey, i128)> = vec![&t.env, (debt.clone(), debt_units)];
     t.ctrl_client().repay(&alice, &account, &repay);
-    let withdraw: Vec<(HubAssetKey, i128)> = vec![&t.env, (collateral.clone(), 0)];
+    let withdraw: Vec<(HubAssetKey, i128)> = vec![&t.env, (collateral.clone(), i128::MAX)];
     t.ctrl_client().withdraw(&alice, &account, &withdraw, &None);
     assert!(
         !t.account_exists(account),

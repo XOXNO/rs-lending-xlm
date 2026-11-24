@@ -30,62 +30,29 @@ fn aggregate_payments_dedups_and_preserves_order() {
 #[should_panic(expected = "Error(Contract, #14)")]
 fn aggregate_rejects_negative() {
     let env = Env::default();
-    aggregate_payment_amount(&env, None, -1, ZeroLeg::Rejected);
+    aggregate_payment_amount(&env, None, -1);
 }
 
 #[test]
 #[should_panic(expected = "Error(Contract, #14)")]
-fn aggregate_rejects_zero_when_not_withdraw_all() {
+fn aggregate_rejects_zero() {
     let env = Env::default();
-    aggregate_payment_amount(&env, None, 0, ZeroLeg::Rejected);
+    aggregate_payment_amount(&env, None, 0);
 }
 
 #[test]
-fn aggregate_zero_is_withdraw_all_sentinel() {
+#[should_panic(expected = "Error(Contract, #33)")]
+fn aggregate_rejects_overflow() {
     let env = Env::default();
-    assert_eq!(
-        aggregate_payment_amount(&env, None, 0, ZeroLeg::MeansAll),
-        0
-    );
-    assert_eq!(
-        aggregate_payment_amount(&env, Some(0), 0, ZeroLeg::MeansAll),
-        0
-    );
-    assert_eq!(
-        aggregate_payment_amount(&env, None, 5, ZeroLeg::MeansAll),
-        5
-    );
-}
-
-#[test]
-#[should_panic(expected = "Error(Contract, #16)")]
-fn aggregate_rejects_zero_after_a_positive_leg_under_means_all() {
-    let env = Env::default();
-    aggregate_payment_amount(&env, Some(5), 0, ZeroLeg::MeansAll);
-}
-
-#[test]
-#[should_panic(expected = "Error(Contract, #16)")]
-fn aggregate_rejects_a_positive_leg_after_zero_under_means_all() {
-    let env = Env::default();
-    aggregate_payment_amount(&env, Some(0), 5, ZeroLeg::MeansAll);
+    aggregate_payment_amount(&env, Some(i128::MAX), 1);
 }
 
 #[test]
 fn aggregate_sums_previous_and_amount() {
     let env = Env::default();
-    assert_eq!(
-        aggregate_payment_amount(&env, Some(10), 5, ZeroLeg::Rejected),
-        15
-    );
-    assert_eq!(
-        aggregate_payment_amount(&env, None, 7, ZeroLeg::Rejected),
-        7
-    );
-    assert_eq!(
-        aggregate_payment_amount(&env, Some(0), 5, ZeroLeg::Rejected),
-        5
-    );
+    assert_eq!(aggregate_payment_amount(&env, Some(10), 5), 15);
+    assert_eq!(aggregate_payment_amount(&env, None, 7), 7);
+    assert_eq!(aggregate_payment_amount(&env, None, i128::MAX), i128::MAX);
 }
 
 #[test]

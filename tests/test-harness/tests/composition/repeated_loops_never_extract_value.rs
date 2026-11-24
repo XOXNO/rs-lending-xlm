@@ -37,7 +37,7 @@ fn fifty_supply_borrow_repay_withdraw_cycles_leave_the_runner_no_richer() {
         ops.push_back(repay_op(&t, LAST_CREATED, "ETH", U / 100 + i + 1));
         ops.push_back(withdraw_op(&t, LAST_CREATED, "USDC", 100 * U + i, None));
     }
-    ops.push_back(withdraw_op(&t, LAST_CREATED, "USDC", 0, None));
+    ops.push_back(withdraw_op(&t, LAST_CREATED, "USDC", i128::MAX, None));
     t.run_script(&runner, &ops)
         .expect("the cycle is legal fifty times over");
     let usdc_end = t.runner_wallet(&runner, "USDC");
@@ -66,7 +66,7 @@ fn fifty_supply_then_withdraw_all_cycles_return_at_most_the_deposit() {
     let mut ops: Vec<Op> = Vec::new(&t.env);
     for i in 0..50i128 {
         ops.push_back(supply_op(&t, 0, "USDC", 777 * U + i));
-        ops.push_back(withdraw_op(&t, LAST_CREATED, "USDC", 0, None));
+        ops.push_back(withdraw_op(&t, LAST_CREATED, "USDC", i128::MAX, None));
     }
     t.run_script(&runner, &ops)
         .expect("open and close fifty accounts");

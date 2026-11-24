@@ -287,20 +287,13 @@ structure types.PoolSeizeEntry where
   side : types.AccountPositionType
   position : types.ScaledPositionRaw
 
-/-- [controller_aeneas::payment_legs::ZeroLeg]
-    Source: 'src/payment_legs.rs', lines 15:0-22:1 -/
-@[discriminant isize]
-inductive payment_legs.ZeroLeg where
-| Rejected : payment_legs.ZeroLeg
-| MeansAll : payment_legs.ZeroLeg
-
 /-- [controller_aeneas::validation::expect_invariant::{closure}]
-    Source: 'src/validation.rs', lines 17:23-17:77 -/
+    Source: 'src/validation.rs', lines 19:23-19:77 -/
 @[reducible]
 def validation.expect_invariant.closure (T : Type _) := aeneas_soroban_shim.Env
 
 /-- [controller_aeneas::payment_legs::aggregate_payment_amount::{closure}]
-    Source: 'src/payment_legs.rs', lines 85:28-85:81 -/
+    Source: 'src/payment_legs.rs', lines 48:24-48:77 -/
 @[reducible]
 def payment_legs.aggregate_payment_amount.closure := aeneas_soroban_shim.Env
 
