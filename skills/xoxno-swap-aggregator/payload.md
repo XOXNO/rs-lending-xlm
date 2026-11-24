@@ -132,7 +132,8 @@ In order:
 7. Execute the instructions described below.
 8. Apply output-side fees if fees were not taken from input.
 9. Reject output below the encoded floor with `SlippageExceeded` (5).
-10. Transfer the output to the sender.
+10. Open the sender's missing output trustline (Stellar Asset Contract only),
+    then transfer the output to the sender.
 11. Credit permitted residual balances to admin revenue.
 12. Return output in token base units.
 
@@ -154,9 +155,12 @@ sender.
 ## Authorization model
 
 For an account sender, authorization covers the router call and the nested
-input-token transfer; simulation produces this tree, so check it before
-signing. Do not transfer or approve tokens before calling the router: tokens
-sent earlier do not enter the invocation's vault.
+input-token transfer. When the sender has no trustline for a Stellar Asset
+Contract output token, the tree also holds `token_out.trust(sender)`.
+Simulation produces this tree, so check it before signing. Allow only these
+exact children, and refuse every other child. Do not transfer or approve
+tokens before calling the router: tokens sent earlier do not enter the
+invocation's vault.
 
 The router authorizes venue calls itself, with no extra sender signatures:
 

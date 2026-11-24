@@ -69,8 +69,10 @@ Construction requires a nonzero minimum delay and enforces neither update
 bound. Every update is capped at 241920 ledgers. A decrease must stay at or
 above 34560 ledgers (`TIMELOCK_MIN_DELAY_LEDGERS`, about 2 days); a smaller
 constructor delay can be kept or raised while below that floor. Only the owner
-proposes `UpdateGovDelay`, and a decrease takes effect only after the current,
-longer delay. Sensitive and Recovery delays also apply their compiled
+proposes `UpdateGovDelay`. A decrease waits the minimum in force when it was
+proposed, not the minimum at execution. An `UpdateGovDelay` queued before a
+raise can still lower the raised minimum to the floor after the older, shorter
+delay. Sensitive and Recovery delays also apply their compiled
 minimums. These checks bind the deployed implementation, not replacement
 Wasm.
 

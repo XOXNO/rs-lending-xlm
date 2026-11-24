@@ -103,10 +103,14 @@ position-manager activation need the owner as proposer
 A stolen non-owner PROPOSER key can thus schedule listing flags, risk
 parameters, role revocations, a position-manager deactivation or an unpause,
 but cannot replace code or prices or change the minimum delay. The
-owner-proposed `UpdateGovDelay` waits out the current delay and can raise the
-minimum but not lower it below `TIMELOCK_MIN_DELAY_LEDGERS` (34,560 ledgers,
-about 2 days). An owner `UpgradeGov` can still replace governance code and its
-delay rules ([INV-AUTH-05](../reference/invariants.md#inv-auth-05)).
+owner-proposed `UpdateGovDelay` can raise the minimum but not lower it below
+`TIMELOCK_MIN_DELAY_LEDGERS` (34,560 ledgers, about 2 days). It waits the
+minimum in force when it was proposed, not the minimum at execution. An
+`UpdateGovDelay` queued before a raise can therefore still lower the raised
+minimum to the floor after the older, shorter delay. A canceller must cancel
+such a pending decrease to keep a raise. An owner `UpgradeGov` can still
+replace governance code and its delay rules
+([INV-AUTH-05](../reference/invariants.md#inv-auth-05)).
 
 Per [ADR-0006](decisions.md#adr-0006), anyone may execute a ready operation
 within its grace window. A revocation target cannot cancel its own
@@ -198,7 +202,10 @@ pins the pool executable, not its factory, so governance must trust the
 factory admin and each coin's issuer; the
 [price-aggregator README](../../contracts/price-aggregator/README.md#admission-policy)
 lists these assumptions. The lowest-coin price understates an LP held as debt,
-so LP sources are collateral-only and LP markets must not be borrowable.
+so LP sources are collateral-only and LP markets must not be borrowable. No
+contract enforces this rule. It is an operator guard:
+[`configs/script.sh`](../../configs/script.sh) refuses a borrowable LP listing
+in `refuse_borrowable_lp` and in `validateConfigs`.
 
 ## Routes, callbacks, and external integrations
 
@@ -215,8 +222,10 @@ tokens from the caller; an honest simulation records the transfer as a child
 of the caller's authorization entry, and it executes if the caller signs the
 tree. The loss is then the caller's wallet, unbounded by the payload minimum
 or the final risk gate. An honest swap strategy gives the caller no child
-entry, and a direct router swap exactly one input transfer; a client must
-decode the route and refuse any other child. The direct `execute_strategy`
+entry. A direct router swap gives one input transfer. When the sender's
+output trustline is missing, it also gives `token_out.trust(sender)` on the
+Stellar Asset Contract. A client must decode the route, allow only those
+exact children, and refuse every other child. The direct `execute_strategy`
 path has the same exposure for every swap user.
 
 Flash position ([ADR-0020](decisions.md#adr-0020)) leaves fee-free debt that
@@ -278,8 +287,12 @@ accepted prices of that key with every other provider fixed:
 - A two-source key whose legs have different provider sets is exempt from the
   10% single-source band cap, so its band does not bound reach to 11/9. If a
   provider serves both legs, the factor range of each scaled leg it feeds
-  must stay within that 10% cap. That factor range, not the band, limits the
-  provider's reach.
+  must stay within that 10% cap. The two legs only have to agree within the
+  tolerance ratio, and the price is their midpoint. The provider's reach is
+  therefore up to `max_factor_wad / min_factor_wad` times the upper tolerance
+  ratio. A factor range of 11/9 with an upper ratio of 1.25 gives 1.53x. The
+  live SolvBTC and xSolvBTC keys (factor range 1.03, upper ratio 1.05) reach
+  about 1.08x.
 
 A provider serving both a collateral key and a debt key moves both at once;
 lenders are safe from it only while
@@ -385,10 +398,13 @@ during a listing pause. Missing prices and liquidity limits block even
 non-pause-gated entrypoints.
 
 Liquidators bear execution-time bonus, rounding, and route-quality risk. A
-tiny repayment can retire debt while its seizure rounds to zero. Admission
-does not couple collateral price, decimals, bonus and fee to the
-minimum-collateral floor, so expensive low-decimal collateral can seize zero
-even for a $5 repayment; assess this before listing
+plan that seizes nothing refunds every repayment leg with a positive USD
+value, and the call fails with `InvalidPayments` (16) when no leg remains.
+Only a repayment leg whose USD value rounds to zero can retire debt with no
+seizure. Admission does not couple collateral price, decimals, bonus and fee
+to the minimum-collateral floor, so expensive low-decimal collateral can seize
+zero even for a $5 repayment. If the whole plan seizes nothing, that
+liquidation fails; assess this before listing
 ([seizure fixture tests](../../contracts/controller/tests/positions/liquidation_math.rs)).
 Share credit avoids collateral cash payout under the
 [ADR-0019](decisions.md#adr-0019) receiver rules.
@@ -397,7 +413,8 @@ A solvent account whose only leg is below 3 decimals can be closed by a
 one-unit sale whose effective bonus exceeds the quoted `b`, and `bonus_bps`
 shows only `b`
 ([effective bonus](../reference/formulas.md#effective-bonus-of-a-rule-1-full-close)).
-An offer backing less than one unit still seizes nothing. Listing review must
+An offer backing less than one unit still seizes nothing, so the plan refunds
+it and the call fails with `InvalidPayments` (16). Listing review must
 note that expensive units with a low liquidation threshold raise the
 borrower's loss.
 
@@ -578,6 +595,10 @@ LP legs (Aquarius or Curve) add outage causes:
 
 - Liquidity providers can withdraw pool value below `min_pool_value_wad`;
   set that floor well below pool TVL.
+- `min_pool_value_wad` is a USD value (WAD), not a token amount. A fall in a
+  coin price lowers the pool value and can trip the floor without any
+  withdrawal. On a Curve pool, the lowest coin price sets that value. Size the
+  floor for crash scenarios.
 - A Curve leg fails when any coin cannot be priced, a coin's `decimals()`
   read fails or changes, an A ramp lowers pool value below the floor, or the
   executable differs from the pinned hash (a pool-admin upgrade does this

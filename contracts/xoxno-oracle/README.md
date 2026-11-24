@@ -37,8 +37,10 @@ resolution counts as one second.
 
 `prices` and `price` serve rounds, newest first. A round is the newest entry
 of a bucket at the live resolution, stamped with the bucket start in seconds.
-Round timestamps are distinct, at least one resolution apart, and never after
-the ledger time. A Reflector `Twap` read can use them at any signer cadence.
+The bucket holds the write time, not the signed package time. Round
+timestamps are distinct, at least one resolution apart, and never after the
+ledger time. A Reflector `Twap` read therefore measures round age and spacing
+from the writes, not from the signed prices.
 
 - `prices(asset, records)` returns up to `records` rounds.
 - `price(asset, timestamp)` returns the newest round written at or before

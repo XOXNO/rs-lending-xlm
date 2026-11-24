@@ -147,8 +147,10 @@ unique match identifies the hub. Keep repeated collateral addresses across
 hubs (do not deduplicate). If dropped legs allow several matches, use the
 lowest compatible value, or stop if unbounded.
 
-Reject empty `seized_collaterals`: the contract accepts a liquidation that
-repays debt and seizes nothing.
+Reject empty `seized_collaterals`. A plan that seizes nothing refunds every
+repayment leg with a positive USD value. If no leg remains, the call fails
+with `InvalidPayments` (16). A leg whose USD value rounds to zero stays paid,
+so the contract accepts that dust repayment with no seizure.
 
 For every paired collateral `(hub_id, asset)`:
 
