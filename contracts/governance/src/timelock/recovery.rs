@@ -8,6 +8,7 @@ use soroban_sdk::{Address, BytesN, Env, Vec};
 use stellar_governance::timelock::{schedule_operation, set_execute_operation};
 
 use crate::access::{self};
+use crate::events::OperationProposedEvent;
 use crate::storage;
 use crate::timelock::*;
 
@@ -23,6 +24,11 @@ pub(crate) fn propose_canceller_reset(
     let delay = operation_delay(env, DelayTier::Recovery);
     let id = schedule_operation(env, &operation, delay);
     storage::mark_recovery_op(env, &id);
+    OperationProposedEvent {
+        op_id: id.clone(),
+        proposer: access::owner_or_panic(env),
+    }
+    .publish(env);
     id
 }
 

@@ -14,6 +14,7 @@ use stellar_governance::timelock::{
 };
 
 use crate::access::{self, CANCELLER_ROLE, PROPOSER_ROLE};
+use crate::events::OperationProposedEvent;
 use crate::op::apply_self_op;
 use crate::op::AdminOperation;
 use crate::storage;
@@ -82,6 +83,11 @@ pub(crate) fn propose(
     if let AdminOperation::RevokeGovRole(args) = op {
         storage::mark_role_revocation_target(env, &operation_id, &args.account);
     }
+    OperationProposedEvent {
+        op_id: operation_id.clone(),
+        proposer: proposer.clone(),
+    }
+    .publish(env);
     operation_id
 }
 
