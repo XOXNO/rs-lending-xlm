@@ -145,8 +145,8 @@ Each slope is its whole segment's rise, so validation compares steepness per
 unit of utilization, exactly and without division:
 `slope1 / mid <= slope2 / (optimal - mid) <= slope3 / (RAY - optimal)`
 (`slope1 * (optimal - mid) <= slope2 * mid`, likewise at optimal). Equal
-steepness passes. Slopes must be non-negative and at most max, with `slope1` at
-least base. These imply `base + slope1 + slope2 < max`, so the segment above
+steepness passes. Slopes must be non-negative and at most max. These imply
+`base + slope1 + slope2 < max`, so the segment above
 optimal always has room below the cap: a positive `slope3` leaves it, and
 `slope3 = 0` forces `slope1 = slope2 = 0`, when `max > base` leaves it.
 
