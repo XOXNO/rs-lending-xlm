@@ -122,7 +122,7 @@ around the swap. Keep `maxSplits` at 1 and `maxHops` at 2
 `xoxno-ui/src/modules/swap/soroswap.ts`); a 4-hop `swap_collateral` hit
 `Budget, ExceededLimit` on testnet. Re-quote with smaller limits when your
 simulation fails that way. Caps: [api.md](api.md#get-apiv1quote),
-[payload.md](payload.md#packed-program-ops--version-1).
+[payload.md](payload.md#packed-program-ops--versions-1-and-2).
 
 ## Re-simulate, then read the revert
 

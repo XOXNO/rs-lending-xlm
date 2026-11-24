@@ -657,10 +657,12 @@ measured spending above `amount_in`.
 Distinct-token swaps require positive measured controller output. The current
 swap's unspent controller-held input returns to the caller. Router-held
 residue becomes admin revenue within the router's per-token limit; larger
-residue reverts. The router checks the route minimum against its output vault
-after fees and before payout, which does not guarantee measured recipient
-receipt; the controller checks positive output and final account risk, not
-the payload minimum.
+residue reverts. In a version 1 route, the router checks the route minimum
+against its output vault after fees and before payout, which does not
+guarantee measured recipient receipt. A version 2 route pays exactly the route
+minimum, measures the recipient's receipt, and keeps all other output as admin
+revenue. The controller checks positive output and final account risk, not the
+payload minimum.
 
 All six account strategies refresh listed supply LTV and apply final
 collateral coverage, health and collateral-floor gates before persistence;
