@@ -78,7 +78,7 @@ Unless a row adds a response, correct the named input or wait for governance to 
 | 126 `MinBorrowCollateralNotMet` | With debt, LTV-weighted collateral below the USD floor, or a sub-3-decimal leg under 2 whole units. |
 | 127 `UtilizationAboveMax` | Post-operation utilization exceeds `max_utilization`. At a 100% ceiling, a borrow or strategy opening also fails when debt value would exceed supply value. |
 | 128 `BaseRateNegative` | Base rate negative. |
-| 129 `SlopeNonMonotonic` | base <= slope1 fails, a slope is negative or above max, base + slope1 + slope2 + slope3 exceeds max, or steepness falls at a kink: slope1 / mid <= slope2 / (optimal - mid) <= slope3 / (RAY - optimal) fails. Slopes are additive increments, so a segment's steepness is its slope divided by its width. |
+| 129 `SlopeNonMonotonic` | A slope is negative or above max, base + slope1 + slope2 + slope3 exceeds max, or steepness falls at a kink: slope1 / mid <= slope2 / (optimal - mid) <= slope3 / (RAY - optimal) fails. Slopes are additive increments, so a segment's steepness is its slope divided by its width. |
 | 130 `MaxRateBelowBase` | Max rate not strictly above base. |
 | 131 `MaxBorrowRateTooHigh` | Max rate above `MAX_BORROW_RATE_RAY`. |
 | 132 `AssetDecimalsTooHigh` | Market decimals above 18, or cap-rescale decimals above 27. |

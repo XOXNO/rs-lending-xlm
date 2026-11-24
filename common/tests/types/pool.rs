@@ -240,14 +240,14 @@ fn test_rate_model_cap_inside_second_segment_panics() {
     m.verify(&env);
 }
 
+/// Audit S-07: a base rate above `slope1` says nothing about the curve's
+/// shape, so a convex curve with base 20% and `slope1` 10% is accepted.
 #[test]
-#[should_panic(expected = "#129")]
-fn test_rate_model_monotonic_only_slope1_below_base_panics() {
+fn test_rate_model_accepts_slope1_below_base() {
     let env = Env::default();
     let mut m = valid_rate_model();
 
-    // Steepness 0.2, 1.0, 2.0 and a full-utilization rate of 100%: only
-    // `slope1 >= base` fails.
+    // Steepness 0.2, 1.0, 2.0 and a full-utilization rate of 100%.
     m.base_borrow_rate = RAY * 2 / 10;
     m.slope1 = RAY / 10;
     m.slope2 = RAY * 3 / 10;
@@ -593,10 +593,10 @@ fn test_rate_model_verify_rejects_negative_slope3() {
 
 #[test]
 #[should_panic(expected = "#129")]
-fn test_rate_model_verify_rejects_slope1_below_base() {
+fn test_rate_model_verify_rejects_negative_slope1() {
     let env = Env::default();
     let mut m = valid_rate_model();
-    m.slope1 = m.base_borrow_rate - 1;
+    m.slope1 = -1;
     m.verify(&env);
 }
 
@@ -746,12 +746,16 @@ fn test_rate_model_verify_admits_only_curves_whose_top_segment_has_room() {
         if optimal >= RAY {
             continue;
         }
-        // A flat curve needs `base = 0`: `slope1 >= base` still holds.
+        // `slope1` is drawn apart from `base`, so it can be below it (S-07).
         let (base, s1, s2, s3) = if draw(5) == 0 {
-            (0, 0, 0, 0)
+            (draw(20 * PCT), 0, 0, 0)
         } else {
-            let base = draw(20 * PCT);
-            (base, base + draw(60 * PCT), draw(60 * PCT), draw(150 * PCT))
+            (
+                draw(20 * PCT),
+                draw(60 * PCT),
+                draw(60 * PCT),
+                draw(150 * PCT),
+            )
         };
         let sum = base + s1 + s2 + s3;
         let max = if draw(3) == 0 {

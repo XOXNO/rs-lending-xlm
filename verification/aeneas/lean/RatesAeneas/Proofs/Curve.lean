@@ -25,7 +25,7 @@ local notation "rv " r:max => IScalar.val (ty := IScalarTy.I128) r
 
 /-- Checks `InterestRateModel::verify` performs, on the fields the rate
 code reads (`MarketParams` carries them unchanged from the verified model):
-non-negative base, `base ≤ slope1`, non-negative `slope2` and `slope3`,
+non-negative base, non-negative `slope1`, `slope2` and `slope3`,
 `slope3 ≤ max`, `max > base`, `max ≤ MAX_BORROW_RATE_RAY = 2·RAY`,
 `base + slope1 + slope2 + slope3 ≤ max`, `0 < mid < optimal < RAY`,
 `optimal ≤ max_utilization ≤ RAY`, and `0 ≤ reserve_factor < BPS`
@@ -36,7 +36,7 @@ those, so they are left out and every theorem covers more models than `verify`
 admits. -/
 structure ValidRateModel (p : types.MarketParams) : Prop where
   base_nonneg : 0 ≤ rv p.base_borrow_rate
-  base_le_s1 : rv p.base_borrow_rate ≤ rv p.slope1
+  s1_nonneg : 0 ≤ rv p.slope1
   s2_nonneg : 0 ≤ rv p.slope2
   s3_nonneg : 0 ≤ rv p.slope3
   s3_le_max : rv p.slope3 ≤ rv p.max_borrow_rate

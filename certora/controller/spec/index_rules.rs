@@ -72,8 +72,7 @@ fn nondet_market_params(asset: &Address) -> MarketParamsRaw {
     cvlr_assume!((0..=MAX_BORROW_RATE_RAY).contains(&base_borrow_rate));
     // `InterestRateModel::verify` bounds each slope by the max rate and orders
     // steepness per unit of utilization, not the slopes themselves.
-    cvlr_assume!(base_borrow_rate <= slope1);
-    cvlr_assume!(slope2 >= 0 && slope3 >= 0);
+    cvlr_assume!(slope1 >= 0 && slope2 >= 0 && slope3 >= 0);
     cvlr_assume!(slope1 <= MAX_BORROW_RATE_RAY);
     cvlr_assume!(slope2 <= MAX_BORROW_RATE_RAY);
     cvlr_assume!(slope3 <= MAX_BORROW_RATE_RAY);
