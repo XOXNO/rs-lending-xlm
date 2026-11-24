@@ -790,6 +790,52 @@ fn decode_rejects_a_sized_mode_on_a_liquidity_leg() {
     }
 }
 
+/// Audit finding I-09: the `Prev` check runs before the liquidity-leg mode
+/// check. A Burn or Mint with mode `Prev` fails with `BrokenTokenChain` unless
+/// its predecessor produces its share token (`idx_b`), and only then with
+/// `InvalidRouteXdr`, as `payload.md` states.
+#[test]
+fn decode_rejects_prev_on_a_liquidity_leg_with_the_chain_error_first() {
+    let env = Env::default();
+    let leg = |opcode, share| RawOp {
+        opcode,
+        mode: encode::PREV,
+        idx_a: 0,
+        idx_b: share,
+        idx_c: 0,
+    };
+    let burn = || RawOp {
+        opcode: OP_BURN,
+        mode: encode::ALL,
+        idx_a: 0,
+        idx_b: 2,
+        idx_c: 0,
+    };
+    for opcode in [OP_BURN, OP_MINT] {
+        let cases = [
+            (alloc::vec![leg(opcode, 2)], Error::BrokenTokenChain),
+            (alloc::vec![burn(), leg(opcode, 2)], Error::BrokenTokenChain),
+            (
+                alloc::vec![swap(encode::ALL, 0, 1, 3), leg(opcode, 2)],
+                Error::BrokenTokenChain,
+            ),
+            (
+                alloc::vec![swap(encode::ALL, 0, 1, 2), leg(opcode, 2)],
+                Error::InvalidRouteXdr,
+            ),
+        ];
+        for (ops, expected) in cases {
+            let bytes = encode::program(&env, 1, 2, 0, 0, &ops, &[]);
+            assert_eq!(
+                decode_error(&env, &bytes, 4, 1),
+                expected.into(),
+                "opcode {opcode}, {} instruction(s)",
+                ops.len()
+            );
+        }
+    }
+}
+
 /// A liquidity leg's `idx_c` indexes the amount registry and must be inside it.
 #[test]
 fn decode_rejects_a_liquidity_leg_addressing_a_missing_amount_slot() {
