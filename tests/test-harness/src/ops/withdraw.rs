@@ -12,7 +12,8 @@ impl LendingTest {
     }
 
     /// One withdrawal of `amount` raw units, optionally paid to `recipient`
-    /// instead of `user`. `amount == 0` means "the whole position".
+    /// instead of `user`. An amount at or above the position, such as
+    /// `i128::MAX`, withdraws all of it; so does the deprecated zero.
     fn withdraw_inner(
         &mut self,
         user: &str,
@@ -54,7 +55,7 @@ impl LendingTest {
     }
 
     pub fn withdraw_all(&mut self, user: &str, asset_name: &str) {
-        self.withdraw_raw(user, asset_name, 0);
+        self.withdraw_raw(user, asset_name, i128::MAX);
     }
 
     pub fn try_withdraw_raw(

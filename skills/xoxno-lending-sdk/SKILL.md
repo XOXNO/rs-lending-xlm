@@ -84,8 +84,8 @@ const amount = parseStellarTokenAmount('1.25', 7) // '12500000'
 Pass the selected token's `decimals`. The helper rejects missing metadata,
 invalid decimal text, excess precision, non-positive amounts, and positive
 i128 overflow. It uses Stellar's string parser, so you need no floating-point
-conversion or own parser. Raw `'0'` is only the withdraw-all sentinel, never
-input to this helper.
+conversion or own parser. A full withdrawal passes raw `i128::MAX`
+(`'170141183460469231731687303715884105727'`), not this helper's output.
 
 ## Shared invariants
 
@@ -104,7 +104,9 @@ input to this helper.
   and position-NFT owner.
 - A position-NFT transfer transfers control of the lending account. Recheck
   ownership before preparing any mutation.
-- Full supply withdrawal uses `amount: '0'`. Full debt repayment sends a
+- Full supply withdrawal uses `amount: '170141183460469231731687303715884105727'` (`i128::MAX`).
+  `'0'` also withdraws all today, but is deprecated: a later controller
+  release rejects it. Full debt repayment sends a
   ceiled, buffered amount, and the pool refunds the excess. There is no
   repay-all sentinel.
 

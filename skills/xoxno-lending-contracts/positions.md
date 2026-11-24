@@ -100,6 +100,10 @@ The wrapper's `withdraw` and `withdraw_all` return
 `owner_of` fails with `NonExistentToken` (account deleted, NFT burned). Any
 other lookup failure gives `false`; the key stays.
 
+For a full exit, call `withdraw` with `i128::MAX`. In xoxno-contract-sdk 0.3
+and earlier, `withdraw_all` and `WITHDRAW_ALL` send zero, which is
+deprecated: a later controller release rejects it.
+
 ```rust
 use soroban_sdk::{token, Address, Env};
 use xoxno_contract_sdk::lending::controller::HubAssetKey;
@@ -119,7 +123,7 @@ pub fn withdraw_all_to_admin(env: Env, market: HubAssetKey) -> i128 {
         return 0;
     }
 
-    let withdrawal = lending.withdraw_all(account_id, &market);
+    let withdrawal = lending.withdraw(account_id, &market, i128::MAX);
     if withdrawal.account_closed {
         env.storage().persistent().remove(&DataKey::AccountId);
     }

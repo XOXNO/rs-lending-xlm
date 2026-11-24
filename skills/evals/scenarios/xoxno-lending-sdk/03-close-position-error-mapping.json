@@ -4,7 +4,7 @@
   ],
   "query": "My withdraw transaction fails in simulation with Error(Contract, #12). Help me close my whole USDC position and show the user what went wrong.",
   "expected_behavior": [
-    "Build a full withdrawal with amount \"0\" and the selected v1 accountId as accountNonce.",
+    "Build a full withdrawal with amount \"170141183460469231731687303715884105727\" (i128::MAX) and the selected v1 accountId as accountNonce; does not use the deprecated \"0\".",
     "Prepares with prepareStellarBuiltTx(server, built, { network, invokedContractId: controllerAddress }) so the thrown error is tagged with the invoked contract id",
     "Treat the top-level invoked-contract tag as context only. Pair code and emitting contract in the same diagnostic and trace propagated errors before mapping.",
     "Does not treat a null mapSorobanError result as 'no error' and surfaces the raw diagnostic",

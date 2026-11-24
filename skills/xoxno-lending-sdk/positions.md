@@ -61,8 +61,9 @@ check.
 Raw v1 balances are snapshots; interest can accrue before execution. Never
 size a final repay or withdrawal from formatted display numbers.
 
-- Full withdrawal uses `amount: '0'`. Full debt close sends the ceiled current
-  debt plus an accrual buffer; excess is refunded.
+- Full withdrawal uses `amount: '170141183460469231731687303715884105727'`
+  (`i128::MAX`); `'0'` is deprecated. Full debt close sends the ceiled
+  current debt plus an accrual buffer; excess is refunded.
 - Supply shares mint down; debt shares mint up. Partial withdrawal burns up;
   partial repayment burns down.
 
