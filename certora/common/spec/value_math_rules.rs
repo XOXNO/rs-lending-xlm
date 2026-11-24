@@ -4,28 +4,34 @@
 //! Every rule here is a statement about `crate::math`: which way a health-factor
 //! division rounds, that a seizure split across two collaterals over-seizes by at
 //! most one unit, and that the protocol fee stays within the whole units the
-//! liquidator is paid above the repayment share.
+//! liquidator is paid above the principal.
 //! No rule reads controller state or calls controller code.
 
 use cvlr::macros::rule;
 use cvlr::{cvlr_assert, cvlr_assume, cvlr_satisfy};
 use soroban_sdk::Env;
 
-use crate::constants::{BPS, WAD};
+use crate::constants::{BPS, RAY, WAD};
 use crate::math::fp::{Bps, Ray, Wad};
-use crate::math::reference::{mul_div_floor, mul_div_half_up};
+use crate::math::reference::mul_div_half_up;
 
-/// Decimals of the collateral asset in the fee model: one token unit is `1e9` RAY.
+/// Decimals of the collateral asset in the fee model: one token unit is `1e9`
+/// RAY, which is one raw WAD unit.
 const ASSET_DECIMALS: u32 = 18;
 
-/// Ceiling on a seizure leg in RAY, `1e10` token units at [`ASSET_DECIMALS`].
-/// Keeps `seizure * WAD` inside the native `i128` path.
-const MAX_SEIZURE_RAY: i128 = 10_000_000_000_000_000_000;
+/// Ceiling on the WAD seizure of a leg, `1e10` token units at [`ASSET_DECIMALS`].
+/// Keeps `seizure * WAD` inside the native `i128` path. The RAY upscale of the
+/// seizure and of the principal does not saturate in this domain.
+const MAX_SEIZURE_WAD: i128 = 10_000_000_000;
+
+/// Ceiling on the held balance of a leg in RAY, the same `1e10` token units.
+const MAX_HELD_RAY: i128 = MAX_SEIZURE_WAD * (RAY / WAD);
 
 /// Ceiling of `max_bonus_for_threshold`, reached at a one-bps seizure proportion.
 const MAX_BONUS_BPS: i128 = BPS * (BPS - 1);
 
 struct FeeSplit {
+    seizure_ray: Ray,
     capped_ray: Ray,
     base_ray: Ray,
     bonus_ray: Ray,
@@ -35,21 +41,41 @@ struct FeeSplit {
     protocol_fee: i128,
 }
 
+/// The WAD-to-RAY upscale that `calculate_seized_collateral` applies to the
+/// seizure and to the principal. It saturates at `i128::MAX`.
+fn upscale(amount_wad: i128) -> Ray {
+    Ray::from(amount_wad.saturating_mul(RAY / WAD))
+}
+
 /// One seizure leg of `calculate_seized_collateral` in
-/// `positions/liquidation/math.rs`. `paid` is the pool's gross payout in token
-/// units. `base_ray` is `seizure.div_floor(one_plus_bonus.to_ray())` with the
-/// common `1e9` factor taken out of both operands.
+/// `positions/liquidation/math.rs`, at [`ASSET_DECIMALS`]. `seizure_wad` is
+/// `seizure_amount_wad`, the leg's seizure in WAD. `paid` is the pool's gross
+/// payout in token units.
+///
+/// `base_ray` is the principal: the WAD seizure divided by `one_plus_bonus`,
+/// floored at WAD precision, then upscaled to RAY. The code takes the principal
+/// from the WAD seizure, not from the saturated RAY seizure, so a saturated
+/// upscale cannot shrink the principal and invent a bonus. The WAD floor can
+/// keep up to one WAD unit less than the exact principal, and that unit goes to
+/// the bonus. At [`ASSET_DECIMALS`] one WAD unit is one token unit.
+///
+/// The code also reassigns `seizure_amount_wad` after it rounds a partial leg to
+/// whole units below `MIN_BORROWABLE_ASSET_DECIMALS`. That rounding does not
+/// occur at [`ASSET_DECIMALS`], so `seizure_ray` is the exact upscale of
+/// `seizure_wad` here. The model leaves out `seize_all`, where the code takes
+/// the whole held balance.
 fn fee_split(
     e: &Env,
-    seizure_ray: i128,
+    seizure_wad: i128,
     actual_ray: i128,
     paid: i128,
     bonus_bps: i128,
     liquidation_fees: i128,
 ) -> FeeSplit {
     let one_plus_bonus = Wad::ONE.checked_add(e, Bps::from(bonus_bps).to_wad(e));
-    let capped_ray = Ray::from(seizure_ray.min(actual_ray));
-    let base_ray = Ray::from(mul_div_floor(e, seizure_ray, WAD, one_plus_bonus.raw()));
+    let seizure_ray = upscale(seizure_wad);
+    let capped_ray = seizure_ray.min(Ray::from(actual_ray));
+    let base_ray = upscale(Wad::from(seizure_wad).div_floor(e, one_plus_bonus).raw());
     let bonus_ray = if capped_ray > base_ray {
         capped_ray.checked_sub(e, base_ray)
     } else {
@@ -71,6 +97,7 @@ fn fee_split(
         0
     };
     FeeSplit {
+        seizure_ray,
         capped_ray,
         base_ray,
         bonus_ray,
@@ -83,13 +110,15 @@ fn fee_split(
 
 /// The clamped seizure floored to token units: the partial-close payout, and an
 /// upper bound on the full-close payout.
-fn floored_payout(e: &Env, seizure_ray: i128, actual_ray: i128) -> i128 {
-    Ray::from(seizure_ray.min(actual_ray)).to_asset_floor(e, ASSET_DECIMALS)
+fn floored_payout(e: &Env, seizure_wad: i128, actual_ray: i128) -> i128 {
+    upscale(seizure_wad)
+        .min(Ray::from(actual_ray))
+        .to_asset_floor(e, ASSET_DECIMALS)
 }
 
-fn assume_fee_domain(seizure_ray: i128, actual_ray: i128, bonus_bps: i128, fees: i128) {
-    cvlr_assume!(seizure_ray > 0 && seizure_ray <= MAX_SEIZURE_RAY);
-    cvlr_assume!(actual_ray > 0 && actual_ray <= MAX_SEIZURE_RAY);
+fn assume_fee_domain(seizure_wad: i128, actual_ray: i128, bonus_bps: i128, fees: i128) {
+    cvlr_assume!(seizure_wad > 0 && seizure_wad <= MAX_SEIZURE_WAD);
+    cvlr_assume!(actual_ray > 0 && actual_ray <= MAX_HELD_RAY);
     cvlr_assume!((0..=MAX_BONUS_BPS).contains(&bonus_bps));
     // validate_liquidation_fees rejects BPS itself.
     cvlr_assume!((0..BPS).contains(&fees));
@@ -149,17 +178,17 @@ fn seizure_split_math(
 #[rule]
 fn protocol_fee_bonus_math(
     e: Env,
-    seizure_ray: i128,
+    seizure_wad: i128,
     actual_ray: i128,
     paid: i128,
     bonus_bps: i128,
     liquidation_fees: i128,
 ) {
-    assume_fee_domain(seizure_ray, actual_ray, bonus_bps, liquidation_fees);
-    cvlr_assume!((0..=floored_payout(&e, seizure_ray, actual_ray)).contains(&paid));
+    assume_fee_domain(seizure_wad, actual_ray, bonus_bps, liquidation_fees);
+    cvlr_assume!((0..=floored_payout(&e, seizure_wad, actual_ray)).contains(&paid));
     let split = fee_split(
         &e,
-        seizure_ray,
+        seizure_wad,
         actual_ray,
         paid,
         bonus_bps,
@@ -173,8 +202,10 @@ fn protocol_fee_bonus_math(
     // The one-unit minimum never exceeds the RAY fee rounded up to a whole unit.
     cvlr_assert!(split.protocol_fee <= split.fee_ray.to_asset_ceil(&e, ASSET_DECIMALS));
 
-    // The liquidator keeps the repayment share rounded up to whole units, or
-    // the whole payout when the payout does not cover it.
+    // The liquidator keeps the principal rounded up to whole units, or the
+    // whole payout when the payout does not cover it. The principal is floored
+    // at WAD precision, so at ASSET_DECIMALS it is already whole units, up to
+    // one unit below the exact principal.
     let base_units = split.base_ray.to_asset_ceil(&e, ASSET_DECIMALS);
     cvlr_assert!(paid - split.protocol_fee >= paid.min(base_units));
 
@@ -182,15 +213,15 @@ fn protocol_fee_bonus_math(
         cvlr_assert!(split.protocol_fee == 0);
     }
 
-    // A seizure clamped at or below the repayment share is a bad-debt close:
+    // A seizure clamped at or below the principal is a bad-debt close:
     // no excess was realised, so no fee may be charged.
     if split.capped_ray <= split.base_ray {
         cvlr_assert!(split.protocol_fee == 0);
     }
 
-    // Nothing clamped: the bonus is the whole seizure above the repayment share.
-    if seizure_ray <= actual_ray {
-        cvlr_assert!(split.bonus_ray.raw() == seizure_ray - split.base_ray.raw());
+    // Nothing clamped: the bonus is the whole seizure above the principal.
+    if split.seizure_ray.raw() <= actual_ray {
+        cvlr_assert!(split.bonus_ray.raw() == split.seizure_ray.raw() - split.base_ray.raw());
     }
 }
 /// A fee above the one-unit minimum, the minimum itself, the realised-excess cap
@@ -199,17 +230,17 @@ fn protocol_fee_bonus_math(
 #[rule]
 fn fee_lemmas_reachability(
     e: Env,
-    seizure_ray: i128,
+    seizure_wad: i128,
     actual_ray: i128,
     paid: i128,
     bonus_bps: i128,
     liquidation_fees: i128,
 ) {
-    assume_fee_domain(seizure_ray, actual_ray, bonus_bps, liquidation_fees);
-    cvlr_assume!((0..=floored_payout(&e, seizure_ray, actual_ray)).contains(&paid));
+    assume_fee_domain(seizure_wad, actual_ray, bonus_bps, liquidation_fees);
+    cvlr_assume!((0..=floored_payout(&e, seizure_wad, actual_ray)).contains(&paid));
     let split = fee_split(
         &e,
-        seizure_ray,
+        seizure_wad,
         actual_ray,
         paid,
         bonus_bps,
@@ -219,26 +250,26 @@ fn fee_lemmas_reachability(
     cvlr_satisfy!(split.protocol_fee > 1);
     cvlr_satisfy!(split.fee_ray.to_asset_floor(&e, ASSET_DECIMALS) == 0 && split.protocol_fee == 1);
     cvlr_satisfy!(paid > 0 && split.bumped_fee > split.realised_excess);
-    cvlr_satisfy!(split.capped_ray.raw() < seizure_ray && split.protocol_fee > 0);
+    cvlr_satisfy!(split.capped_ray < split.seizure_ray && split.protocol_fee > 0);
 }
 /// Tightening the clamp may only reduce the fee, so no input can be driven to
 /// pay more by seizing less. Both legs take the partial-close payout.
 #[rule]
 fn fee_is_monotone_non_increasing_in_the_clamp(
     e: Env,
-    seizure_ray: i128,
+    seizure_wad: i128,
     actual_lo: i128,
     actual_hi: i128,
     bonus_bps: i128,
     liquidation_fees: i128,
 ) {
-    assume_fee_domain(seizure_ray, actual_lo, bonus_bps, liquidation_fees);
+    assume_fee_domain(seizure_wad, actual_lo, bonus_bps, liquidation_fees);
     cvlr_assume!(actual_hi >= actual_lo);
-    cvlr_assume!(actual_hi <= MAX_SEIZURE_RAY);
+    cvlr_assume!(actual_hi <= MAX_HELD_RAY);
 
     let fee_at = |actual: i128| {
-        let paid = floored_payout(&e, seizure_ray, actual);
-        fee_split(&e, seizure_ray, actual, paid, bonus_bps, liquidation_fees).protocol_fee
+        let paid = floored_payout(&e, seizure_wad, actual);
+        fee_split(&e, seizure_wad, actual, paid, bonus_bps, liquidation_fees).protocol_fee
     };
 
     cvlr_assert!(fee_at(actual_lo) <= fee_at(actual_hi));
