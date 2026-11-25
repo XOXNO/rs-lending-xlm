@@ -7,7 +7,7 @@ use soroban_sdk::Env;
 
 #[test]
 fn token_ratio_rounding_preserves_raw_units_and_handles_wide_products() {
-    use RatioRounding::{Ceil, Floor};
+    use crate::math::RatioRounding::{Ceil, Floor};
     let env = Env::default();
     let max = i128::MAX;
     let floor = 2 * (max / 3);

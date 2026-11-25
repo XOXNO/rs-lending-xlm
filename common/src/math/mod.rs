@@ -10,6 +10,42 @@ pub(crate) mod test_support;
 pub mod fp;
 mod fp_core;
 
+/// Rounding for an exact ratio applied to a quantity in its original units.
+#[derive(Clone, Copy)]
+pub enum RatioRounding {
+    Floor,
+    Ceil,
+}
+
+impl RatioRounding {
+    /// Scale in one step. A zero divisor or an unrepresentable quotient returns `None`.
+    pub fn checked_scale(
+        self,
+        env: &soroban_sdk::Env,
+        amount: i128,
+        numerator: i128,
+        denominator: i128,
+    ) -> Option<i128> {
+        if denominator == 0 {
+            return None;
+        }
+        if let Some(product) = amount.checked_mul(numerator) {
+            return match self {
+                Self::Floor => fp_core::div_floor_i128(product, denominator),
+                Self::Ceil => fp_core::div_ceil_i128(product, denominator),
+            };
+        }
+        let (x, y, d) = fp_core::to_i256_operands(env, amount, numerator, denominator);
+        let product = x.mul(&y);
+        let nonneg = fp_core::quotient_is_nonnegative(amount, numerator, denominator);
+        match self {
+            Self::Floor => fp_core::div_floor_i256(env, &product, &d, nonneg),
+            Self::Ceil => fp_core::div_ceil_i256(env, &product, &d, nonneg),
+        }
+        .to_i128()
+    }
+}
+
 /// Raw subjects and expectations for unit tests, fuzzing and Certora rules only.
 #[cfg(any(test, feature = "math-test", feature = "certora"))]
 #[doc(hidden)]

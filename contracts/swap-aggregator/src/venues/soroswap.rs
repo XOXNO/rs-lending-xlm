@@ -89,7 +89,7 @@ fn reserves(ctx: &HopContext<'_>) -> (i128, i128) {
 
 pub(crate) fn required_input(ctx: &HopContext<'_>, target: i128) -> i128 {
     use crate::math::scale_amount;
-    use common::math::fp::RatioRounding::Ceil;
+    use common::math::RatioRounding::Ceil;
     let (input, output) = reserves(ctx);
     if input <= 0 || output <= target {
         panic_with_error!(ctx.env, crate::errors::Error::SlippageExceeded);

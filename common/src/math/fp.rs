@@ -14,30 +14,6 @@ use crate::constants::{BPS, RAY, RAY_DECIMALS, WAD, WAD_DECIMALS};
 use crate::errors::GenericError;
 use crate::math::fp_core;
 
-/// Rounding for an exact ratio applied to a quantity in its original units.
-#[derive(Clone, Copy)]
-pub enum RatioRounding {
-    Floor,
-    Ceil,
-}
-
-impl RatioRounding {
-    /// Scale by `numerator / denominator` in one operation, without quantizing the ratio.
-    /// Returns `None` for a zero denominator or if the rounded result exceeds `i128`.
-    pub fn checked_scale(
-        self,
-        env: &Env,
-        amount: i128,
-        numerator: i128,
-        denominator: i128,
-    ) -> Option<i128> {
-        match self {
-            Self::Floor => fp_core::try_mul_div_floor(env, amount, numerator, denominator),
-            Self::Ceil => fp_core::try_mul_div_ceil(env, amount, numerator, denominator),
-        }
-    }
-}
-
 /// Adds two raw values, panicking with `GenericError::MathOverflow` on overflow.
 fn checked_add_raw(env: &Env, a: i128, b: i128) -> i128 {
     a.checked_add(b)

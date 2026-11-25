@@ -12,7 +12,7 @@ use soroban_sdk::{panic_with_error, Env, I256};
 use crate::errors::GenericError;
 
 /// Widens `x`, `y`, and `d` to `I256` for overflow-safe intermediate arithmetic.
-fn to_i256_operands(env: &Env, x: i128, y: i128, d: i128) -> (I256, I256, I256) {
+pub(super) fn to_i256_operands(env: &Env, x: i128, y: i128, d: i128) -> (I256, I256, I256) {
     (
         I256::from_i128(env, x),
         I256::from_i128(env, y),
@@ -39,7 +39,7 @@ fn quotient_is_negative(x: i128, y: i128, d: i128) -> bool {
 
 /// Computes `floor(p / d)` in `i128`. Returns `None` only when `d` is zero or
 /// the quotient overflows (`i128::MIN / -1`).
-fn div_floor_i128(p: i128, d: i128) -> Option<i128> {
+pub(super) fn div_floor_i128(p: i128, d: i128) -> Option<i128> {
     let quotient = p.checked_div(d)?;
     if p % d != 0 && ((p < 0) != (d < 0)) {
         quotient.checked_sub(1)
@@ -50,7 +50,7 @@ fn div_floor_i128(p: i128, d: i128) -> Option<i128> {
 
 /// Computes `ceil(p / d)` in `i128`. Returns `None` only when `d` is zero or
 /// the quotient overflows (`i128::MIN / -1`).
-fn div_ceil_i128(p: i128, d: i128) -> Option<i128> {
+pub(super) fn div_ceil_i128(p: i128, d: i128) -> Option<i128> {
     let quotient = p.checked_div(d)?;
     if p % d != 0 && ((p < 0) == (d < 0)) {
         quotient.checked_add(1)
@@ -66,7 +66,7 @@ fn div_ceil_i128(p: i128, d: i128) -> Option<i128> {
 /// `nonneg` means the caller proved the quotient is not negative, so truncation
 /// is the floor and the host `rem_euclid` call is skipped. `Ray` products
 /// (1e27 x 1e27) always take this widened path.
-fn div_floor_i256(env: &Env, p: &I256, d: &I256, nonneg: bool) -> I256 {
+pub(super) fn div_floor_i256(env: &Env, p: &I256, d: &I256, nonneg: bool) -> I256 {
     if nonneg {
         return p.div(d);
     }
@@ -80,7 +80,7 @@ fn div_floor_i256(env: &Env, p: &I256, d: &I256, nonneg: bool) -> I256 {
 }
 
 /// Computes `ceil(p / d)` in `I256`. See [`div_floor_i256`] for `nonneg`.
-fn div_ceil_i256(env: &Env, p: &I256, d: &I256, nonneg: bool) -> I256 {
+pub(super) fn div_ceil_i256(env: &Env, p: &I256, d: &I256, nonneg: bool) -> I256 {
     let zero = I256::from_i128(env, 0);
     let quotient = p.div(d);
     let remainder_is_nonzero = p.rem_euclid(d) != zero;
@@ -97,7 +97,7 @@ fn div_ceil_i256(env: &Env, p: &I256, d: &I256, nonneg: bool) -> I256 {
 }
 
 /// Returns true when the exact rational `x * y / d` cannot be negative.
-fn quotient_is_nonnegative(x: i128, y: i128, d: i128) -> bool {
+pub(super) fn quotient_is_nonnegative(x: i128, y: i128, d: i128) -> bool {
     !quotient_is_negative(x, y, d)
 }
 
@@ -147,24 +147,15 @@ pub fn try_mul_div_half_up(env: &Env, x: i128, y: i128, d: i128) -> Option<i128>
 /// `GenericError::MathOverflow` if the result does not fit in `i128`.
 pub fn mul_div_floor(env: &Env, x: i128, y: i128, d: i128) -> i128 {
     require_nonzero_divisor(env, d);
-    try_mul_div_floor(env, x, y, d)
-        .unwrap_or_else(|| panic_with_error!(env, GenericError::MathOverflow))
-}
-
-/// Returns `None` for a zero divisor or an unrepresentable quotient.
-pub(super) fn try_mul_div_floor(env: &Env, x: i128, y: i128, d: i128) -> Option<i128> {
-    if d == 0 {
-        return None;
-    }
     if let Some(quotient) = x
         .checked_mul(y)
         .and_then(|product| div_floor_i128(product, d))
     {
-        return Some(quotient);
+        return quotient;
     }
     let (x256, y256, d256) = to_i256_operands(env, x, y, d);
     let nonneg = quotient_is_nonnegative(x, y, d);
-    div_floor_i256(env, &x256.mul(&y256), &d256, nonneg).to_i128()
+    to_i128(env, &div_floor_i256(env, &x256.mul(&y256), &d256, nonneg))
 }
 
 /// Computes `ceil(x * y / d)`, rounding toward positive infinity for a positive quotient and
@@ -172,24 +163,15 @@ pub(super) fn try_mul_div_floor(env: &Env, x: i128, y: i128, d: i128) -> Option<
 /// `d == 0`, or with `GenericError::MathOverflow` if the result does not fit in `i128`.
 pub fn mul_div_ceil(env: &Env, x: i128, y: i128, d: i128) -> i128 {
     require_nonzero_divisor(env, d);
-    try_mul_div_ceil(env, x, y, d)
-        .unwrap_or_else(|| panic_with_error!(env, GenericError::MathOverflow))
-}
-
-/// Returns `None` for a zero divisor or an unrepresentable quotient.
-pub(super) fn try_mul_div_ceil(env: &Env, x: i128, y: i128, d: i128) -> Option<i128> {
-    if d == 0 {
-        return None;
-    }
     if let Some(quotient) = x
         .checked_mul(y)
         .and_then(|product| div_ceil_i128(product, d))
     {
-        return Some(quotient);
+        return quotient;
     }
     let (x256, y256, d256) = to_i256_operands(env, x, y, d);
     let nonneg = quotient_is_nonnegative(x, y, d);
-    div_ceil_i256(env, &x256.mul(&y256), &d256, nonneg).to_i128()
+    to_i128(env, &div_ceil_i256(env, &x256.mul(&y256), &d256, nonneg))
 }
 
 /// Computes `floor(x * y / d)`, saturating to `i128::MAX` (or `i128::MIN` for a negative
@@ -311,6 +293,13 @@ pub fn div_by_int_half_up(env: &Env, a: i128, b: i128) -> i128 {
     } else {
         quotient
     }
+}
+
+/// Converts an `I256` to `i128`, panicking with `GenericError::MathOverflow` if it does not
+/// fit.
+fn to_i128(env: &Env, val: &I256) -> i128 {
+    val.to_i128()
+        .unwrap_or_else(|| panic_with_error!(env, GenericError::MathOverflow))
 }
 
 #[cfg(test)]

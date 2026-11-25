@@ -1,5 +1,5 @@
 use super::*;
-use common::math::fp::RatioRounding;
+use common::math::RatioRounding;
 fn aquarius_indices(ctx: &HopContext, cache: &mut Map<Address, Vec<Address>>) -> (u32, u32) {
     let tokens = pool_tokens(ctx.env, cache, &ctx.hop.pool, aquarius::pool::get_tokens);
     (

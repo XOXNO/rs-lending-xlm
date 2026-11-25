@@ -4,7 +4,7 @@
 use super::*;
 use crate::math::{checked_add, scale_amount};
 use crate::types::SwapVenue;
-use common::math::fp::RatioRounding;
+use common::math::RatioRounding;
 
 pub(super) fn execute(
     ctx: &Ctx,

@@ -1,6 +1,6 @@
 //! Overflow-checked arithmetic; panics with [`Error::IntegerOverflow`].
 
-use common::math::fp::RatioRounding;
+use common::math::RatioRounding;
 use soroban_sdk::{panic_with_error, Env};
 
 use crate::errors::Error;
