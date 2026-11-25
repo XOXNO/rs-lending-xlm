@@ -837,6 +837,18 @@ MUTANTS_JOBSERVER_ARGS = $(if $(MUTANTS_JOBSERVER_TASKS),--jobserver-tasks $(MUT
 MUTANTS_TEST_TOOL ?=
 MUTANTS_TEST_TOOL_ARGS = $(if $(MUTANTS_TEST_TOOL),--test-tool=$(MUTANTS_TEST_TOOL),)
 
+# A retry pass runs each survivor against the slow harness suites. Under
+# nextest it tests one mutant at a time and gives the lane's workers to test
+# threads, so a survivor finishes inside its cap. The build of that one mutant
+# already takes every jobserver token.
+MUTANTS_RETRY_THREADS ?= $(or $(MUTANTS_JOBSERVER_TASKS),$(MUTANTS_JOBS))
+MUTANTS_RETRY_ARGS = $(if $(filter nextest,$(MUTANTS_TEST_TOOL)),\
+	$(if $(filter --in-place,$(MUTANTS_RUN_MODE)),,-j 1) \
+	--cargo-test-arg=--test-threads=$(MUTANTS_RETRY_THREADS))
+# The cap for one survivor's run of every controller, governance and harness
+# test. The suite has about 1800 tests; 600 s stops it about halfway.
+MUTANTS_FULL_SUITE_TIMEOUT ?= 1800
+
 
 
 
@@ -897,6 +909,12 @@ endef
 define run_mutants_two_pass
 	$(MUTANTS_ENV) python3 scripts/run_mutants.py --label "$@" \
 		--pass='$(2)' --pass='$(3)' -- $(MUTANTS_RUN_MODE) $(1) \
+		--minimum-test-timeout $(MUTANTS_TIMEOUT) $(MUTANTS_RUN_ARGS)
+endef
+
+define run_mutants_three_pass
+	$(MUTANTS_ENV) python3 scripts/run_mutants.py --label "$@" \
+		--pass='$(2)' --pass='$(3)' --pass='$(4)' -- $(MUTANTS_RUN_MODE) $(1) \
 		--minimum-test-timeout $(MUTANTS_TIMEOUT) $(MUTANTS_RUN_ARGS)
 endef
 
@@ -1016,7 +1034,22 @@ mutants-governance: _mutants-harness-prepare
 
 CONTROLLER_FAST_TESTS = --test-package controller
 CONTROLLER_FULL_TESTS = --test-package controller --test-package governance \
-	--test-package test-harness
+	--test-package test-harness $(MUTANTS_RETRY_ARGS) \
+	--minimum-test-timeout $(MUTANTS_FULL_SUITE_TIMEOUT)
+# Test binaries run in name order, so `strategy` is near the end of the full
+# suite. These harness binaries catch most strategy mutants, so a nextest
+# pass runs them first. The filter also reaches the clean-tree baseline, which
+# tests only `controller`: there it selects no test, and `--no-tests=pass`
+# keeps that baseline green. nextest rejects a name that is not a workspace
+# test binary, so a wrong name fails the baseline instead of a mutant.
+MUTANTS_EMPTY :=
+MUTANTS_SPACE := $(MUTANTS_EMPTY) $(MUTANTS_EMPTY)
+CONTROLLER_STRATEGY_BINARIES = strategy strategy_origination_fee_parity \
+	strategy_solvency_gate_rollback poc_multiply_reentrancy composition fuzz
+CONTROLLER_STRATEGY_FILTER = $(subst $(MUTANTS_SPACE),|,$(strip \
+	$(foreach binary,$(CONTROLLER_STRATEGY_BINARIES),binary_id(=test-harness::$(binary)))))
+CONTROLLER_STRATEGY_TESTS = --test-package test-harness $(MUTANTS_RETRY_ARGS) \
+	--cargo-test-arg=--no-tests=pass --cargo-test-arg=--filterset=$(CONTROLLER_STRATEGY_FILTER)
 
 
 mutants-controller-core: _mutants-harness-prepare
@@ -1036,8 +1069,11 @@ mutants-controller-positions: _mutants-harness-prepare
 		$(CONTROLLER_FAST_TESTS),$(CONTROLLER_FULL_TESTS))
 
 mutants-controller-strategies: _mutants-harness-prepare
-	$(call run_mutants_two_pass,--package controller --file 'contracts/controller/src/strategies/**',\
-		$(CONTROLLER_FAST_TESTS),$(CONTROLLER_FULL_TESTS))
+	$(if $(filter nextest,$(MUTANTS_TEST_TOOL)),\
+		$(call run_mutants_three_pass,--package controller --file 'contracts/controller/src/strategies/**',\
+			$(CONTROLLER_FAST_TESTS),$(CONTROLLER_STRATEGY_TESTS),$(CONTROLLER_FULL_TESTS)),\
+		$(call run_mutants_two_pass,--package controller --file 'contracts/controller/src/strategies/**',\
+			$(CONTROLLER_FAST_TESTS),$(CONTROLLER_FULL_TESTS)))
 
 mutants-controller-views: _mutants-harness-prepare
 	$(call run_mutants_two_pass,--package controller --file 'contracts/controller/src/views.rs',\

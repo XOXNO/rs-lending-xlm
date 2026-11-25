@@ -16,6 +16,9 @@ NATIVE_NOOP = r'^contracts/controller/src/spec_hooks\.rs:[0-9]+:[0-9]+: replace 
 # Forwarded Cargo values can themselves look like mutation options.
 CARGO_VALUE_OPTIONS = ('--cargo-arg', '-C', '--cargo-test-arg')
 INCLUDE_OPTIONS = ('--re', '-F', '--regex', '--examine-regex', '--examine-re')
+# cargo-mutants rejects a repeated option, so a pass that sets one of these
+# replaces the run-wide value for its own command.
+PASS_OVERRIDES = (('-j', '--jobs'), ('--jobserver-tasks',), ('--minimum-test-timeout',), ('-t', '--timeout'))
 
 
 def option_values(args, *flags):
@@ -51,6 +54,11 @@ def without(args, valued=(), switches=()):
             result.append(arg)
         i += 1
     return result
+
+def pass_head(head, tests):
+    replaced = tuple(flag for group in PASS_OVERRIDES if option_values(tests, *group) for flag in group)
+    return without(head, replaced)
+
 
 def write_config(path, config):
     path.write_text(''.join(f'{key} = {str(value).lower() if isinstance(value, float) else json.dumps(value, ensure_ascii=False)}\n' for key, value in config.items()))
@@ -98,7 +106,7 @@ def run(label, passes, args, allow_empty=False):
     base_config = evidence / 'base.toml'
     write_config(base_config, config)
     stages = [shlex.split(stage) for stage in passes] or [[]]
-    listing = ['cargo', 'mutants'] + without(head, switches=('--list', '--list-files', '--json', '--diff'))
+    listing = ['cargo', 'mutants'] + without(pass_head(head, stages[0]), switches=('--list', '--list-files', '--json', '--diff'))
     listing += stages[0] + ['--config', str(base_config), '--list', '--json'] + tail
     result = subprocess.run(listing, text=True, capture_output=True)
     sys.stderr.write(result.stderr)
@@ -124,7 +132,7 @@ def run(label, passes, args, allow_empty=False):
             config['examine_re'] = ['^' + re.escape(name) + '$' for name in sorted(pending)]
             retry_config = pass_dir / 'retry.toml'
             write_config(retry_config, config)
-        command = ['cargo', 'mutants'] + head + tests + ['--config', str(retry_config)] + tail
+        command = ['cargo', 'mutants'] + pass_head(head, tests) + tests + ['--config', str(retry_config)] + tail
         env = os.environ.copy()
         if number < len(stages):
             env['GITHUB_ACTIONS'] = 'false'

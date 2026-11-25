@@ -768,12 +768,17 @@ jobs:
 
 
 
+      # A container runner's hostname is its container id, so it falls to the
+      # default arm. The container runners share one host, and every lane of
+      # this matrix can land on it: size each lane to the matrix's lane bound.
       - name: Size the worker budget to this host
+        env:
+          MATRIX_LANES: ${{ strategy.max-parallel }}
         run: |
           case "$(hostname)" in
             Ubuntu-2004-focal-64-minimal) services=4 ;;
             v2202503260965324980)         services=3 ;;
-            *)                            services=4 ;;
+            *)                            services=$MATRIX_LANES ;;
           esac
           cores=$(nproc)
           workers=$(( cores / services ))
