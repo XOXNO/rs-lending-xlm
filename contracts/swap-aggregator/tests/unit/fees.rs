@@ -1,4 +1,5 @@
 use crate::errors::Error;
+use crate::fees::fee_amounts;
 use crate::types::SwapVenue;
 use crate::{Router, RouterClient};
 use soroban_sdk::testutils::Address as _;
@@ -354,4 +355,20 @@ fn combined_fee_exactly_at_the_cap_is_charged_not_rejected() {
     assert_eq!(router.execute_strategy(&sender, &1_000, &xdr), 940);
     assert_eq!(router.admin_fee_balance(&token_a), 60);
     assert_eq!(router.referral_fee_balance(&id, &token_a), 150);
+}
+
+/// A zero amount owes no fee, so it returns before the referral rates are read.
+/// The referral here exceeds the cap once the static fee rises after it was added.
+#[test]
+fn fee_amounts_on_a_zero_amount_owe_nothing() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let router_addr = env.register(Router, (Address::generate(&env),));
+    let router = RouterClient::new(&env, &router_addr);
+    let id = router.add_referral(&Address::generate(&env), &600, &None);
+    router.set_static_fee(&600);
+
+    env.as_contract(&router_addr, || {
+        assert_eq!(fee_amounts(&env, 0, id), (0, 0));
+    });
 }
