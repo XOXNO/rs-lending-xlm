@@ -497,6 +497,70 @@ print(f'Done 100 runs in 1 second(s) for {target}')
         self.assertEqual(calls, [])
         self.assertIn('Nothing left to test in this scope.', result.stdout)
 
+    def test_fuzz_rustc_wrapper_drops_coverage_only_outside_the_workspace(self):
+        rustc = self.base / 'fake-rustc'
+        rustc.write_text(f'#!{sys.executable}\nimport json, os, sys\n'
+                         'print(json.dumps([os.environ.get("WRAPPED", ""), *sys.argv[1:]]))\n')
+        rustc.chmod(0o755)
+        coverage = ['-Cpasses=sancov-module', '-Cllvm-args=-sanitizer-coverage-level=4',
+                    '-C', 'llvm-args=-sanitizer-coverage-inline-8bit-counters', '-C', 'passes=sancov-module']
+        kept = ['-Zsanitizer=address', '-Cdebug-assertions', '-C', 'overflow-checks', '--cfg', 'fuzzing']
+
+        def wrap(source, env=None):
+            result = subprocess.run(['bash', str(ROOT / 'scripts/fuzz_rustc_wrapper.sh'), str(rustc),
+                                     '--crate-name', 'x', source, *coverage, *kept],
+                                    env=dict(os.environ, **(env or {})), capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            return json.loads(result.stdout)
+
+        registry = '/home/u/.cargo/registry/src/index.crates.io-1/soroban-env-host-1/src/lib.rs'
+        self.assertEqual(wrap(registry)[1:], ['--crate-name', 'x', registry, *kept])
+        workspace = str(ROOT / 'contracts/pool/src/lib.rs')
+        self.assertEqual(wrap(workspace)[1:], ['--crate-name', 'x', workspace, *coverage, *kept])
+        chained = self.base / 'next-wrapper'
+        chained.write_text('#!/usr/bin/env bash\nWRAPPED=next exec "$@"\n')
+        chained.chmod(0o755)
+        self.assertEqual(wrap(registry, {'FUZZ_NEXT_RUSTC_WRAPPER': str(chained)})[0], 'next')
+
+    def test_mutation_lib_only_passes_test_packages_without_other_test_targets(self):
+        # `--lib` builds and runs only the library's unit tests. On a package with
+        # integration-test targets it would skip those tests without a sign.
+        import shlex
+        import tomllib
+        lib_only = set()
+        for manifest in ROOT.glob('*/**/Cargo.toml'):
+            if 'target' in manifest.parts or 'vendor' in manifest.parts:
+                continue
+            data = tomllib.loads(manifest.read_text())
+            package = data.get('package', {})
+            if package.get('autotests') is False and not any(data.get(k) for k in ('test', 'bench', 'example')):
+                lib_only.add(package['name'])
+        self.assertTrue({'common', 'controller', 'pool', 'governance'} <= lib_only)
+        targets = re.findall(r'^(mutants-[a-z0-9-]+):', (ROOT / 'Makefile').read_text(), re.M)
+        checked = 0
+        for target in sorted(set(targets) - {'mutants-diff'}):
+            result = subprocess.run(['make', '-n', '-o', '_mutants-check', '-o', '_mutants-harness-prepare', target,
+                                     'MUTANTS_TEST_TOOL=nextest'], cwd=ROOT, capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            for line in result.stdout.splitlines():
+                if 'run_mutants.py' not in line:
+                    continue
+                words = shlex.split(line.replace('\\', ' '))
+                split = words.index('--')
+                head, runner = words[split + 1:], words[:split]
+                stages = [shlex.split(w.split('=', 1)[1]) for w in runner if w.startswith('--pass=')] or [[]]
+                for stage in stages:
+                    args = stage + head
+                    if '--cargo-arg=--lib' not in args:
+                        continue
+                    source = stage if '--test-package' in stage else head
+                    packages = {source[i + 1] for i, w in enumerate(source) if w == '--test-package'}
+                    with self.subTest(target=target, stage=stage):
+                        self.assertTrue(packages)
+                        self.assertLessEqual(packages, lib_only)
+                    checked += 1
+        self.assertGreater(checked, 5)
+
     def test_fuzz_wasm_builds_every_module_the_fuzz_and_proptest_code_loads(self):
         loaded = set()
         for root in ('tests/fuzz/fuzz_targets', 'tests/fuzz/src', 'tests/test-harness/src',

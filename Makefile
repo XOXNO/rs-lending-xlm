@@ -1010,8 +1010,8 @@ mutants: mutants-common mutants-pool mutants-governance \
 mutants-math: MUTANTS_TIMEOUT = 120
 mutants-math: _mutants-check
 	$(call run_mutants_two_pass,--package common --file 'common/src/math/**',\
-		--test-package common,\
-		--test-package common --cargo-test-arg test_mul_div_floor_saturating_saturates_toward_the_sign_of_the_quotient)
+		--test-package common $(MUTANTS_LIB_ARGS),\
+		--test-package common $(MUTANTS_LIB_ARGS) --cargo-test-arg test_mul_div_floor_saturating_saturates_toward_the_sign_of_the_quotient)
 
 mutants-rates: _mutants-check
 	$(call run_mutants,--package common --file 'common/src/rates/**')
@@ -1027,26 +1027,33 @@ mutants-pool-interest: _mutants-check
 # simulations. Retry survivors against the direct bound assertions.
 mutants-common: _mutants-harness-prepare
 	$(call run_mutants_five_pass,--package common,\
-		--test-package common,\
+		--test-package common $(MUTANTS_LIB_ARGS),\
 		--test-package common --test-package controller --test-package pool \
-		--test-package governance,\
+		--test-package governance $(MUTANTS_LIB_ARGS),\
 		--test-package common --test-package controller --test-package pool \
 		--test-package governance --test-package test-harness,\
-		--test-package common --cargo-test-arg max_borrow_rate_is_two_ray,\
-		--test-package common --cargo-test-arg test_rate_model_verify_accepts_valid)
+		--test-package common $(MUTANTS_LIB_ARGS) --cargo-test-arg max_borrow_rate_is_two_ray,\
+		--test-package common $(MUTANTS_LIB_ARGS) --cargo-test-arg test_rate_model_verify_accepts_valid)
 
 
 
 mutants-pool: _mutants-check
-	$(call run_mutants,--package pool --test-package pool)
+	$(call run_mutants,--package pool --test-package pool $(MUTANTS_LIB_ARGS))
 
 mutants-governance: _mutants-harness-prepare
 
 
 	$(call run_mutants_unit,--package governance \
-		--test-package governance)
+		--test-package governance $(MUTANTS_LIB_ARGS))
 
 
+
+# common, controller, pool and governance mount every test inside the
+# library (autotests = false, no test targets). For a pass that tests only
+# those packages, `--lib` builds just the unit-test binary: a plain build
+# also compiles the library again and links its cdylib, which no test runs.
+# The script tests check that every pass with `--lib` tests only such packages.
+MUTANTS_LIB_ARGS = --cargo-arg=--lib
 
 # Under nextest, run a light unit-test pass as one `cargo test` process per
 # binary. nextest starts one process per test, and for the 413 controller unit
@@ -1054,7 +1061,7 @@ mutants-governance: _mutants-harness-prepare
 # doctest step. Keep nextest for a heavy suite: it stops at the first failing
 # test, and `cargo test` runs every test of the binary.
 MUTANTS_UNIT_TOOL_ARGS = $(if $(filter nextest,$(MUTANTS_TEST_TOOL)),--test-tool=cargo --cargo-test-arg=--tests)
-CONTROLLER_FAST_TESTS = --test-package controller $(MUTANTS_UNIT_TOOL_ARGS)
+CONTROLLER_FAST_TESTS = --test-package controller $(MUTANTS_LIB_ARGS) $(MUTANTS_UNIT_TOOL_ARGS)
 CONTROLLER_FULL_TESTS = --test-package controller --test-package governance \
 	--test-package test-harness $(MUTANTS_RETRY_ARGS) \
 	--minimum-test-timeout $(MUTANTS_FULL_SUITE_TIMEOUT)
@@ -1185,7 +1192,8 @@ else
 
 
   FUZZ_HOST = $(shell rustc -vV | sed -n 's/^host: //p')
-  FUZZ_FLAGS = --target $(FUZZ_HOST) --sanitizer=$(FUZZ_SANITIZER)
+  FUZZ_FLAGS = --target $(FUZZ_HOST) --sanitizer=$(FUZZ_SANITIZER) \
+	$(if $(filter yes,$(FUZZ_TRACE_COMPARES)),,--no-trace-compares)
 endif
 
 # libFuzzer sanitizer on Linux. `none` runs the contract targets about 5x
@@ -1193,12 +1201,21 @@ endif
 # debug assertions and overflow checks fire without ASan. The weekly long run
 # uses `address` for the unsafe code in the dependencies.
 FUZZ_SANITIZER ?= none
+# Comparison tracing (`yes`) and coverage of every crate (`all`) guide a long
+# campaign better, but cost runs: in 90 s on the same seeds, dropping tracing
+# gave 1.7-3.3x more runs at equal coverage, and coverage of the workspace
+# crates only (scripts/fuzz_rustc_wrapper.sh) another 1.1-4.5x. The weekly CI
+# campaign uses `yes` and `all`.
+FUZZ_TRACE_COMPARES ?= no
+FUZZ_COVERAGE_SCOPE ?= workspace
+FUZZ_CARGO_ENV = $(if $(filter workspace,$(FUZZ_COVERAGE_SCOPE)),\
+	FUZZ_NEXT_RUSTC_WRAPPER='$(RUSTC_WRAPPER)' RUSTC_WRAPPER='$(CURDIR)/scripts/fuzz_rustc_wrapper.sh')
 FUZZ_LIBFUZZER_ARGS = -max_total_time=$(FUZZ_TIME) -max_len=$(FUZZ_MAX_LEN) -len_control=$(FUZZ_LEN_CONTROL)
 
 
 # Targets run FUZZ_JOBS at a time; each libFuzzer process uses one core.
 FUZZ_JOBS ?= 1
-FUZZ_RUN = FUZZ_DIR='$(FUZZ_DIR)' FUZZ_FLAGS='$(FUZZ_FLAGS)' FUZZ_TIME='$(FUZZ_TIME)' \
+FUZZ_RUN = $(FUZZ_CARGO_ENV) FUZZ_DIR='$(FUZZ_DIR)' FUZZ_FLAGS='$(FUZZ_FLAGS)' FUZZ_TIME='$(FUZZ_TIME)' \
 	FUZZ_MAX_LEN='$(FUZZ_MAX_LEN)' FUZZ_LEN_CONTROL='$(FUZZ_LEN_CONTROL)' FUZZ_JOBS='$(FUZZ_JOBS)' \
 	bash scripts/run_fuzz_targets.sh
 
@@ -1215,14 +1232,14 @@ fuzz-contract:
 fuzz-one:
 	@mkdir -p $(FUZZ_DIR)/corpus/$(TARGET) $(FUZZ_DIR)/artifacts/$(TARGET)
 ifeq ($(strip $(FUZZ_BIN_DIR)),)
-	@cargo +nightly fuzz run --fuzz-dir $(FUZZ_DIR) $(FUZZ_FLAGS) $(TARGET) $(FUZZ_DIR)/corpus/$(TARGET) $(FUZZ_DIR)/seeds/$(TARGET) -- $(FUZZ_LIBFUZZER_ARGS)
+	@$(FUZZ_CARGO_ENV) cargo +nightly fuzz run --fuzz-dir $(FUZZ_DIR) $(FUZZ_FLAGS) $(TARGET) $(FUZZ_DIR)/corpus/$(TARGET) $(FUZZ_DIR)/seeds/$(TARGET) -- $(FUZZ_LIBFUZZER_ARGS)
 else
 	@$(FUZZ_BIN_DIR)/$(TARGET) $(FUZZ_LIBFUZZER_ARGS) -artifact_prefix=$(FUZZ_DIR)/artifacts/$(TARGET)/ $(FUZZ_DIR)/corpus/$(TARGET) $(FUZZ_DIR)/seeds/$(TARGET)
 endif
 
 
 fuzz-build:
-	@cargo +nightly fuzz build --fuzz-dir $(FUZZ_DIR) $(FUZZ_FLAGS)
+	@$(FUZZ_CARGO_ENV) cargo +nightly fuzz build --fuzz-dir $(FUZZ_DIR) $(FUZZ_FLAGS)
 
 # The WASM modules that the fuzz targets and the proptest suite load. A full
 # `stellar contract build` also builds every other contract and mock.

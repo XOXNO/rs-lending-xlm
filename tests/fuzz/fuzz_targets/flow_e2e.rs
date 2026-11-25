@@ -278,15 +278,22 @@ fuzz_target!(|data: &[u8]| {
     }
     assert_pool_accounting(&t, &ASSETS);
 
+    // A failed op must leave both users as they were, and the check below
+    // asserts it. Its after-snapshots are then equal to the state the next op
+    // starts from, so they serve as the next before-snapshots. A price stress
+    // changes that state and drops them.
+    let mut carried = None;
     for op in ops {
         if let Op::Liquidate { debtor, mode, .. } = op {
             if mode & 1 == 1 {
                 stress_debtor_prices(&mut t, pick_user(debtor));
+                carried = None;
             }
         }
 
-        let before_alice = snapshot(&t, ALICE, &ASSETS);
-        let before_bob = snapshot(&t, BOB, &ASSETS);
+        let (before_alice, before_bob) = carried
+            .take()
+            .unwrap_or_else(|| (snapshot(&t, ALICE, &ASSETS), snapshot(&t, BOB, &ASSETS)));
 
         let (ok, hf_users) = dispatch(&mut t, &op);
 
@@ -309,6 +316,7 @@ fuzz_target!(|data: &[u8]| {
             let after_bob = snapshot(&t, BOB, &ASSETS);
             assert_state_preserved_on_failure(&before_alice, &after_alice);
             assert_state_preserved_on_failure(&before_bob, &after_bob);
+            carried = Some((after_alice, after_bob));
         }
         assert_pool_accounting(&t, &ASSETS);
         assert_flash_guard_cleared(&t);

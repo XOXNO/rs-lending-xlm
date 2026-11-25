@@ -25,7 +25,7 @@ make proptest PROPTEST_CASES=10000
 make fuzz-coverage-all
 ```
 
-On Linux, the Makefile builds without a sanitizer (`FUZZ_SANITIZER=none`). The fuzzed crates have no `unsafe` code, and panics, debug assertions and overflow checks fire without one. ASan made `flow_e2e` about 5× slower. Set `FUZZ_SANITIZER=address` to check the `unsafe` code in the dependencies; the weekly CI campaign does. `make fuzz` and `make fuzz-contract` run `FUZZ_JOBS` targets at a time (default 1), each for its full `FUZZ_TIME`. `make fuzz-wasm` builds the three WASM modules that the targets and the proptest suite load.
+On Linux, the Makefile builds without a sanitizer (`FUZZ_SANITIZER=none`). The fuzzed crates have no `unsafe` code, and panics, debug assertions and overflow checks fire without one. ASan made `flow_e2e` about 5× slower. Set `FUZZ_SANITIZER=address` to check the `unsafe` code in the dependencies; the weekly CI campaign does. The build also leaves out comparison tracing (`FUZZ_TRACE_COMPARES=no`) and instruments only the workspace crates for coverage (`FUZZ_COVERAGE_SCOPE=workspace`, through `scripts/fuzz_rustc_wrapper.sh`). In 90 s on the same seeds, these settings gave 1.7-3.3x and then another 1.1-4.5x more runs at equal coverage. Set `FUZZ_TRACE_COMPARES=yes FUZZ_COVERAGE_SCOPE=all` for a long, deep campaign. `make fuzz` and `make fuzz-contract` run `FUZZ_JOBS` targets at a time (default 1), each for its full `FUZZ_TIME`. `make fuzz-wasm` builds the three WASM modules that the targets and the proptest suite load.
 
 On macOS, the Makefile passes `--sanitizer=thread -Zbuild-std` to `cargo-fuzz`. A direct run needs the same flags, plus `--fuzz-dir .` from `tests/fuzz`:
 
@@ -109,7 +109,8 @@ Reports: `target/coverage/fuzz/<target>/index.html`, showing `common/` and contr
 
 The `fuzz-build` job builds every target once, and each `fuzz-long` cell runs
 that binary through `make fuzz-one FUZZ_BIN_DIR=<dir>`. The Sunday campaign
-builds with ASan; the other runs build without a sanitizer. Each cell restores
+builds with ASan, comparison tracing and coverage of every crate; the other runs
+use the fast defaults. Each cell restores
 the corpus of the last run of its target and saves it again, so a campaign
 continues the coverage of the last one.
 

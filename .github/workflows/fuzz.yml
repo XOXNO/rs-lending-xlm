@@ -18,6 +18,7 @@ on:
       - ".cargo/**"
       - ".gitignore"
       - ".github/workflows/fuzz.yml"
+      - "scripts/fuzz_rustc_wrapper.sh"
       - "scripts/run_fuzz_targets.sh"
       - "scripts/run_mutants.py"
       - "scripts/test_script_tools.py"
@@ -106,9 +107,9 @@ jobs:
             tests/fuzz/target
           # One key per sanitizer, shared with the fuzz-build job. One build per
           # key keeps the repository cache under its size limit.
-          key: ${{ runner.os }}-fuzz-v3-none-${{ hashFiles('Cargo.lock', 'tests/fuzz/Cargo.lock') }}
+          key: ${{ runner.os }}-fuzz-v4-none-no-workspace-${{ hashFiles('Cargo.lock', 'tests/fuzz/Cargo.lock') }}
           restore-keys: |
-            ${{ runner.os }}-fuzz-v3-none-
+            ${{ runner.os }}-fuzz-v4-none-no-workspace-
 
       - name: Install stellar-cli
         run: bash .github/scripts/install-stellar-cli.sh
@@ -430,9 +431,10 @@ jobs:
           overwrite: true
 
   # Builds every libFuzzer target once for all fuzz-long cells. The weekly
-  # (Sunday) campaign uses ASan for the unsafe code in the dependencies. The
-  # other runs use no sanitizer, which runs the contract targets about 5x
-  # faster.
+  # (Sunday) campaign uses ASan for the unsafe code in the dependencies,
+  # comparison tracing and coverage of every crate. The other runs use the
+  # fast settings of the Makefile: no sanitizer, no tracing, and coverage of
+  # the workspace crates only.
   fuzz-build:
     if: >-
       (github.event_name == 'schedule' &&
@@ -443,6 +445,8 @@ jobs:
     runs-on: [self-hosted, xoxno]
     env:
       FUZZ_SANITIZER: ${{ github.event.schedule == '0 14 * * 0' && 'address' || 'none' }}
+      FUZZ_TRACE_COMPARES: ${{ github.event.schedule == '0 14 * * 0' && 'yes' || 'no' }}
+      FUZZ_COVERAGE_SCOPE: ${{ github.event.schedule == '0 14 * * 0' && 'all' || 'workspace' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -474,9 +478,9 @@ jobs:
           path: |
             target
             tests/fuzz/target
-          key: ${{ runner.os }}-fuzz-v3-${{ env.FUZZ_SANITIZER }}-${{ hashFiles('Cargo.lock', 'tests/fuzz/Cargo.lock') }}
+          key: ${{ runner.os }}-fuzz-v4-${{ env.FUZZ_SANITIZER }}-${{ env.FUZZ_TRACE_COMPARES }}-${{ env.FUZZ_COVERAGE_SCOPE }}-${{ hashFiles('Cargo.lock', 'tests/fuzz/Cargo.lock') }}
           restore-keys: |
-            ${{ runner.os }}-fuzz-v3-${{ env.FUZZ_SANITIZER }}-
+            ${{ runner.os }}-fuzz-v4-${{ env.FUZZ_SANITIZER }}-${{ env.FUZZ_TRACE_COMPARES }}-${{ env.FUZZ_COVERAGE_SCOPE }}-
 
       - name: Build every fuzz target
         run: make fuzz-build
@@ -514,7 +518,8 @@ jobs:
     timeout-minutes: 1440
     strategy:
       fail-fast: false
-      max-parallel: 6
+      # One cell per target, one core each: all ten run in one wave.
+      max-parallel: 10
       matrix:
         include:
           - target: fp_math
@@ -612,7 +617,8 @@ jobs:
     timeout-minutes: 1440
     strategy:
       fail-fast: false
-      max-parallel: 5
+      # One cell per property, one core each: all eight run in one wave.
+      max-parallel: 8
       matrix:
         test:
           - prop_accounting_conservation
@@ -889,9 +895,10 @@ jobs:
 
       - name: Run mutation target
 
-        # CARGO_INCREMENTAL stays unset. Cargo then builds the workspace
-        # crates incrementally, which halves the rebuild of each mutant, and
-        # sccache still caches the registry crates. sccache refuses a build
+        # The run script unsets CARGO_INCREMENTAL: dtolnay/rust-toolchain
+        # exports CARGO_INCREMENTAL=0 to the job. Unset, Cargo builds the
+        # workspace crates incrementally, which cuts the rebuild of each mutant,
+        # and sccache still caches the registry crates. sccache refuses a build
         # that sets CARGO_INCREMENTAL=1.
         env:
           CARGO_BUILD_JOBS: "1"
@@ -920,6 +927,7 @@ jobs:
         #
         # Elapsed time goes to the job summary to re-balance the shard counts.
         run: |
+          unset CARGO_INCREMENTAL
           start=$SECONDS
           status=0
           make "${{ matrix.target }}" \
