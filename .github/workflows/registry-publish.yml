@@ -54,7 +54,7 @@ jobs:
     permissions:
       contents: write
       attestations: read
-    uses: stellar-registry/actions/.github/workflows/registry-publish-assets.yml@3c895388e1648aefcc9991308595f57d1c365d12 # v2.1.0
+    uses: stellar-registry/actions/.github/workflows/registry-publish-assets.yml@47720a92031afd0b30c1472af3626e2ec8a89855 # v2.1.1
     with:
       release_tag: ${{ needs.resolve.outputs.tag }}
       version: ${{ needs.resolve.outputs.tag }}
@@ -76,7 +76,7 @@ jobs:
     permissions:
       contents: write
       attestations: read
-    uses: stellar-registry/actions/.github/workflows/registry-publish-assets.yml@3c895388e1648aefcc9991308595f57d1c365d12 # v2.1.0
+    uses: stellar-registry/actions/.github/workflows/registry-publish-assets.yml@47720a92031afd0b30c1472af3626e2ec8a89855 # v2.1.1
     with:
       release_tag: ${{ needs.resolve.outputs.tag }}
       version: ${{ needs.resolve.outputs.tag }}
