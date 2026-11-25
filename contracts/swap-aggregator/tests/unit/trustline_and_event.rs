@@ -272,7 +272,7 @@ fn swap_publishes_event_with_amounts_and_fees() {
     let sender = Address::generate(&env);
     s.a.admin.mint(&sender, &500);
     s.router.set_static_fee(&100);
-    let referral = s.router.add_referral(&Address::generate(&env), &50);
+    let referral = s.router.add_referral(&Address::generate(&env), &50, &None);
 
     // Fee on input: static 1% = 5, referral 0.5% = 2.
     let out = s

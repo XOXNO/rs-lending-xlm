@@ -2474,7 +2474,7 @@ help-aggregator:
 	$(call H2,Admin (direct owner invoke))
 	$(call NOTE,setAggregatorFee BPS)
 	$(call NOTE,addAggregatorWhitelist|removeAggregatorWhitelist TOKEN)
-	$(call NOTE,addAggregatorReferral OWNER BPS)
+	$(call NOTE,addAggregatorReferral OWNER BPS [PROTOCOL_BPS|null])
 	$(call NOTE,setAggregatorReferralProtocolFee ID BPS|null)
 	$(call NOTE,setAggregatorReferralFee ID BPS [PROTOCOL_BPS|null] | setAggregatorReferralActive ID BOOL)
 	$(call NOTE,setAggregatorReferralOwner ID NEW_OWNER)

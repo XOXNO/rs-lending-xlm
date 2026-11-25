@@ -118,11 +118,11 @@ impl SwapAggregatorInterface for Router {
 
     /// Creates an active referral and returns its id. Owner only.
     ///
-    /// Panics with `Error::FeeTooHigh` if `fee_bps > FEE_CAP`.
+    /// None inherits the global protocol fee. Each supplied rate must be at most `FEE_CAP`.
     #[only_owner]
-    fn add_referral(env: Env, owner: Address, fee_bps: u32) -> u64 {
+    fn add_referral(env: Env, owner: Address, fee_bps: u32, protocol_fee_bps: Option<u32>) -> u64 {
         renew_instance(&env);
-        if fee_bps > FEE_CAP {
+        if fee_bps.max(protocol_fee_bps.unwrap_or(0)) > FEE_CAP {
             panic_with_error!(&env, Error::FeeTooHigh);
         }
         let counter = storage::referral_counter(&env);
@@ -137,7 +137,7 @@ impl SwapAggregatorInterface for Router {
                 owner,
                 fee_bps,
                 active: true,
-                protocol_fee_bps: None,
+                protocol_fee_bps,
             },
         );
         id

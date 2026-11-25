@@ -4563,12 +4563,16 @@ remove_aggregator_whitelist() {
 
 add_aggregator_referral() {
     local owner=$1 fee_bps=$2
-    [ -n "$owner" ] && [ -n "$fee_bps" ] || die "Usage: $0 addAggregatorReferral <owner_address> <fee_bps>"
+    local -a protocol_fee=()
+    if [ "$#" -eq 3 ]; then
+        protocol_fee=(--protocol_fee_bps "$3")
+    fi
+    [ -n "$owner" ] && [ -n "$fee_bps" ] && [ "$#" -le 3 ] || die "Usage: $0 addAggregatorReferral <owner_address> <fee_bps> [protocol_fee_bps|null]"
     local router
     router=$(get_aggregator_address) || die "No aggregator deployed for ${NETWORK}."
     echo "=== add_referral ${owner} ${fee_bps}bps on aggregator ${router} (${NETWORK}) ===" >&2
     stellar contract invoke --instruction-leeway "${INSTRUCTION_LEEWAY:-20000000}" --id "$router" $SOURCE_FLAG --network "$NETWORK" \
-        -- add_referral --owner "$owner" --fee_bps "$fee_bps"
+        -- add_referral --owner "$owner" --fee_bps "$fee_bps" "${protocol_fee[@]}"
 }
 
 set_aggregator_referral_fee() {
@@ -5252,7 +5256,7 @@ case "$1" in
         remove_aggregator_whitelist "$2"
         ;;
     "addAggregatorReferral")
-        add_aggregator_referral "$2" "$3"
+        add_aggregator_referral "${@:2}"
         ;;
     "setAggregatorReferralFee")
         set_aggregator_referral_fee set_referral_fee "${@:2}"
@@ -5899,7 +5903,7 @@ case "$1" in
         echo "Aggregator + oracle adapter admin (standalone, direct invoke, no timelock):"
         echo "  setAggregatorFee <bps>"
         echo "  addAggregatorWhitelist <token> / removeAggregatorWhitelist <token>"
-        echo "  addAggregatorReferral <owner> <fee_bps>"
+        echo "  addAggregatorReferral <owner> <fee_bps> [protocol_fee_bps|null]"
         echo "  setAggregatorReferralProtocolFee <id> <fee_bps|null>"
         echo "  setAggregatorReferralFee <id> <fee_bps> [protocol_fee_bps|null] / setAggregatorReferralActive <id> <true|false>"
         echo "  setAggregatorReferralOwner <id> <new_owner>"

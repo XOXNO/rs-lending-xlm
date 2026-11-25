@@ -66,7 +66,7 @@ flow_swap_aggregator_admin() {
     assert_view_eq_at "$agg" sa_ref_counter_initial 0 referral_counter
     local ref_id
     ref_id=$(inv sa_ref_add "$ADMIN" "$agg" -- add_referral \
-        --owner "$BOB_ADDR" --fee_bps 25 | tr -d '"')
+        --owner "$BOB_ADDR" --fee_bps 25 --protocol_fee_bps 25 | tr -d '"')
     if [ -z "$ref_id" ] || [ "$ref_id" = "0" ]; then
         _assert_fail sa_ref_id "add_referral returned '$ref_id'; want a non-zero id"
         return 0
@@ -76,10 +76,10 @@ flow_swap_aggregator_admin() {
 
     local ref
     ref=$(view sa_ref_view "$agg" -- referral --id "$ref_id")
-    if [ "$(jq -r '.fee_bps // empty' <<<"$ref")" = "25" ]; then
-        record sa_ref_fee_stored ok referral "" "" "" "" "" "fee_bps=25"
+    if jq -e '.fee_bps == 25 and .protocol_fee_bps == 25' <<<"$ref" >/dev/null; then
+        record sa_ref_fee_stored ok referral "" "" "" "" "" "fee_bps=25 protocol_fee_bps=25"
     else
-        _assert_fail sa_ref_fee_stored "referral fee_bps not 25: $ref"
+        _assert_fail sa_ref_fee_stored "expected both referral rates to be 25: $ref"
     fi
 
     xfail sa_ref_fee_above_cap 'Error\(Contract, #21\)' "$ADMIN" "$agg" -- set_referral_fee \

@@ -77,8 +77,7 @@ fn fixed_output_pays_the_target_on_split_routes_and_reserves_surplus() {
     output.mint(&variable, &4_000);
     router.add_to_whitelist(&token_in);
     router.set_static_fee(&5);
-    let referral = router.add_referral(&admin, &100);
-    router.set_referral_protocol_fee(&referral, &Some(100));
+    let referral = router.add_referral(&admin, &100, &Some(100));
     let legacy_xdr = strategy_xdr_with_referral(
         &env,
         token_in.clone(),

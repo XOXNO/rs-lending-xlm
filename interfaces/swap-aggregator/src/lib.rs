@@ -29,7 +29,7 @@ pub trait SwapAggregatorInterface {
 
     fn upgrade(env: Env, new_wasm_hash: BytesN<32>);
 
-    fn add_referral(env: Env, owner: Address, fee_bps: u32) -> u64;
+    fn add_referral(env: Env, owner: Address, fee_bps: u32, protocol_fee_bps: Option<u32>) -> u64;
 
     fn set_referral_fee(env: Env, id: u64, fee_bps: u32);
 
