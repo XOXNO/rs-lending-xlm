@@ -141,7 +141,7 @@ fn reverse_sushi_then_emulated_phoenix_refunds_source_and_accounts_for_dust() {
     input.mint(&sender, &11000);
     let id = router.add_referral(&owner, &25, &Some(25));
     let payload = StrategyPayload {
-        amounts: vec![&env, 10000, 1],
+        amounts: vec![&env, 10001, 1],
         assets: vec![&env, a.clone(), b, c.clone(), sushi, phoenix],
         ops: Bytes::from_slice(
             &env,
@@ -152,10 +152,10 @@ fn reverse_sushi_then_emulated_phoenix_refunds_source_and_accounts_for_dust() {
     };
     assert_eq!(
         router.execute_strategy(&sender, &11000, &payload.to_xdr(&env)),
-        10000
+        10001
     );
-    assert_eq!(token::Client::new(&env, &a).balance(&sender), 949);
-    assert_eq!(token::Client::new(&env, &c).balance(&sender), 10000);
+    assert_eq!(token::Client::new(&env, &a).balance(&sender), 948);
+    assert_eq!(token::Client::new(&env, &c).balance(&sender), 10001);
     assert_eq!(router.admin_fee_balance(&c), 26);
     assert_eq!(router.referral_fee_balance(&id, &c), 25);
 }

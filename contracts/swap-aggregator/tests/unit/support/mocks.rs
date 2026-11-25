@@ -597,7 +597,7 @@ pub mod phoenix_mock {
             _ask_asset: Address,
             ask_amount: i128,
         ) -> soroban_sdk::Map<Symbol, i128> {
-            soroban_sdk::map![&env, (Symbol::new(&env, "offer_amount"), ask_amount + 1)]
+            soroban_sdk::map![&env, (Symbol::new(&env, "offer_amount"), ask_amount + 20)]
         }
 
         pub fn simulate_swap(
@@ -605,7 +605,10 @@ pub mod phoenix_mock {
             _offer_asset: Address,
             offer_amount: i128,
         ) -> soroban_sdk::Map<Symbol, i128> {
-            soroban_sdk::map![&env, (Symbol::new(&env, "ask_amount"), offer_amount)]
+            soroban_sdk::map![
+                &env,
+                (Symbol::new(&env, "ask_amount"), offer_amount / 2 * 2)
+            ]
         }
 
         #[allow(clippy::too_many_arguments)]
@@ -628,8 +631,9 @@ pub mod phoenix_mock {
             };
             let pool = env.current_contract_address();
             token::Client::new(&env, &offer_asset).transfer(&sender, &pool, &offer_amount);
-            token::Client::new(&env, &token_out).transfer(&pool, &sender, &offer_amount);
-            offer_amount
+            let received = offer_amount / 2 * 2;
+            token::Client::new(&env, &token_out).transfer(&pool, &sender, &received);
+            received
         }
     }
 }

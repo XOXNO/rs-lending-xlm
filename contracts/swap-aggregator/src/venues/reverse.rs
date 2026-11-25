@@ -120,7 +120,32 @@ fn sufficient_input(env: &Env, target: i128, estimate: i128, quote: impl Fn(i128
     for _ in 0..8 {
         let out = quote(input);
         if out >= target {
-            return input;
+            // With integer token units the closest attainable output can
+            // exceed the target. Only accept that excess when one less input
+            // unit would underfill against this pool's forward quote.
+            let mut high = input;
+            let mut low = last_in;
+            let mut step = 1i128;
+            // Search outwards from the estimate first: a rounding plateau
+            // is usually much narrower than the interval back to zero.
+            for _ in 0..20 {
+                let candidate = (high - step).max(low);
+                if candidate == low || quote(candidate) < target {
+                    low = candidate;
+                    while high - low > 1 {
+                        let mid = low + (high - low) / 2;
+                        if quote(mid) >= target {
+                            high = mid;
+                        } else {
+                            low = mid;
+                        }
+                    }
+                    return high;
+                }
+                high = candidate;
+                step *= 2;
+            }
+            panic_with_error!(env, Error::SlippageExceeded);
         }
         // Use the local slope on imbalanced pools; the average price from
         // zero can be far from the price for the final units.
