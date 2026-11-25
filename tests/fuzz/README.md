@@ -25,6 +25,8 @@ make proptest PROPTEST_CASES=10000
 make fuzz-coverage-all
 ```
 
+On Linux, the Makefile builds without a sanitizer (`FUZZ_SANITIZER=none`). The fuzzed crates have no `unsafe` code, and panics, debug assertions and overflow checks fire without one. ASan made `flow_e2e` about 5× slower. Set `FUZZ_SANITIZER=address` to check the `unsafe` code in the dependencies; the weekly CI campaign does. `make fuzz` and `make fuzz-contract` run `FUZZ_JOBS` targets at a time (default 1), each for its full `FUZZ_TIME`. `make fuzz-wasm` builds the three WASM modules that the targets and the proptest suite load.
+
 On macOS, the Makefile passes `--sanitizer=thread -Zbuild-std` to `cargo-fuzz`. A direct run needs the same flags, plus `--fuzz-dir .` from `tests/fuzz`:
 
 ```bash
@@ -99,10 +101,22 @@ Reports: `target/coverage/fuzz/<target>/index.html`, showing `common/` and contr
 
 `.github/workflows/fuzz.yml` runs:
 
-- PR smoke: `make fuzz FUZZ_TIME=30`, `make fuzz-contract FUZZ_TIME=60`,
-  `make proptest`, `make miri-all`, and a `make mutants-diff` shard matrix.
+- PR smoke: `make fuzz FUZZ_TIME=30 FUZZ_JOBS=4`,
+  `make fuzz-contract FUZZ_TIME=60 FUZZ_JOBS=6`, `make proptest PROPTEST_THREADS=4`,
+  `make miri-all`, and a `make mutants-diff` shard matrix.
 - Daily and manual dispatch: `fuzz-long` (every libFuzzer target),
   `proptest-long` (per-property matrix), `mutants` (per-area mutation testing).
+
+The `fuzz-build` job builds every target once, and each `fuzz-long` cell runs
+that binary through `make fuzz-one FUZZ_BIN_DIR=<dir>`. The Sunday campaign
+builds with ASan; the other runs build without a sanitizer. Each cell restores
+the corpus of the last run of its target and saves it again, so a campaign
+continues the coverage of the last one.
+
+On Monday to Saturday nights, each `mutants` cell resumes from the state of its
+last run (`MUTANTS_RESUME`). It tests only the mutants that run did not catch
+or find unviable. A changed line gets new mutant names and runs again. The
+Sunday run and every dispatch test the whole scope.
 
 On failure, `fuzz-long` uploads `tests/fuzz/artifacts/<target>/` and
 `proptest-long` uploads the proptest regression files.

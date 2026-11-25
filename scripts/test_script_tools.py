@@ -471,6 +471,44 @@ print(f'Done 100 runs in 1 second(s) for {target}')
         self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
         self.assertEqual(rows, [])
 
+    def test_mutation_state_resumes_only_the_mutants_not_caught_before(self):
+        state = self.base / 'mutation-state'
+        names = [f'common/src/math/example.rs:{i}:5: replace candidate_{i} -> bool with false' for i in range(8)]
+        # Pass 1 misses one mutant, pass 2 times it out, pass 3 catches it.
+        _, result, calls = self.mutation_case((2, 3, 0), names=names, make_args=[f'MUTANTS_SAVE_STATE={state}'])
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual([len(c['names']) for c in calls], [4, 1, 1])
+        first_scope = calls[0]['names']
+        self.assertEqual((state / 'caught.txt').read_text().splitlines(), sorted(first_scope))
+
+        # One new mutant joins the shard. Only it runs, by exact name, without --shard.
+        new = 'common/src/math/example.rs:99:5: replace fresh_candidate -> bool with false'
+        resume = [f'MUTANTS_RESUME={state}', f'MUTANTS_SAVE_STATE={state}']
+        _, result, calls = self.mutation_case((0,), names=[new] + names, make_args=resume)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual([c['names'] for c in calls], [[new]])
+        self.assertNotIn('--shard', calls[0]['args'])
+        self.assertEqual(calls[0]['config']['examine_re'], ['^' + re.escape(new) + '$'])
+        self.assertEqual(set((state / 'caught.txt').read_text().splitlines()), set(first_scope) | {new})
+
+        # Everything in scope is resolved: no mutant runs, and the run passes.
+        _, result, calls = self.mutation_case((), names=[new] + names, make_args=resume)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(calls, [])
+        self.assertIn('Nothing left to test in this scope.', result.stdout)
+
+    def test_fuzz_wasm_builds_every_module_the_fuzz_and_proptest_code_loads(self):
+        loaded = set()
+        for root in ('tests/fuzz/fuzz_targets', 'tests/fuzz/src', 'tests/test-harness/src',
+                     'tests/test-harness/tests/fuzz'):
+            for path in (ROOT / root).rglob('*.rs'):
+                loaded |= set(re.findall(r'\b([a-z0-9_]+)\.wasm\b', path.read_text()))
+        packages = re.search(r'^FUZZ_WASM_PACKAGES := (.+)$', (ROOT / 'Makefile').read_text(), re.M).group(1).split()
+        self.assertTrue(loaded)
+        self.assertEqual({name.replace('_', '-') for name in loaded}, set(packages))
+        for package in packages:
+            self.assertTrue(list(ROOT.glob(f'*/{package}/Cargo.toml')), package)
+
     def test_proptest_one_rejects_missing_matches_and_propagates_failures(self):
         binaries = self.base / 'bin'
         binaries.mkdir()

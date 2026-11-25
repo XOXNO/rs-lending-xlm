@@ -55,7 +55,7 @@ SHELL := /bin/bash
         mutants-controller-strategies mutants-controller-views \
         mutants-aggregator mutants-oracle-adapter mutants-swap-aggregator \
         mutants-defindex-strategy mutants-position-nft \
-        fuzz fuzz-contract fuzz-one fuzz-build fuzz-seed-corpus \
+        fuzz fuzz-contract fuzz-one fuzz-build fuzz-seed-corpus fuzz-wasm \
         fuzz-coverage fuzz-coverage-all fuzz-coverage-one fuzz-coverage-clean \
         proptest proptest-one proptest-build \
         keygen deploy-testnet deploy-mainnet upgrade-controller upgrade-governance upgrade-pool upgrade-price-aggregator upgrade-all _deploy \
@@ -901,33 +901,41 @@ MUTANTS_ENV = PROPTEST_CASES=1 PROPTEST_RNG_SEED=0 \
 	PRODUCTION_FIXTURE_WASM_PATH="$(MUTANTS_PRODUCTION_FIXTURE_WASM)" \
 	STRESS_BUDGET_WASM_DIR="$(MUTANTS_STRESS_WASM_DIR)"
 
+# Nightly mutation state. MUTANTS_SAVE_STATE writes the caught and unviable
+# mutants to a directory; MUTANTS_RESUME skips the ones that a directory
+# lists. CI resumes on weeknights and tests the whole scope on Sunday.
+MUTANTS_RESUME ?=
+MUTANTS_SAVE_STATE ?=
+MUTANTS_STATE_ARGS = $(if $(MUTANTS_RESUME),--resume $(MUTANTS_RESUME)) \
+	$(if $(MUTANTS_SAVE_STATE),--save-state $(MUTANTS_SAVE_STATE))
+
 define run_mutants
-	$(MUTANTS_ENV) python3 scripts/run_mutants.py --label "$@" -- \
+	$(MUTANTS_ENV) python3 scripts/run_mutants.py --label "$@" $(MUTANTS_STATE_ARGS) -- \
 		$(MUTANTS_RUN_MODE) $(1) --minimum-test-timeout $(MUTANTS_TIMEOUT) $(MUTANTS_RUN_ARGS)
 endef
 
 # One pass of light unit tests. Under nextest it runs on `cargo test`; see
 # MUTANTS_UNIT_TOOL_ARGS. An empty pass keeps the run-wide test tool.
 define run_mutants_unit
-	$(MUTANTS_ENV) python3 scripts/run_mutants.py --label "$@" --pass='$(MUTANTS_UNIT_TOOL_ARGS)' -- \
+	$(MUTANTS_ENV) python3 scripts/run_mutants.py --label "$@" $(MUTANTS_STATE_ARGS) --pass='$(MUTANTS_UNIT_TOOL_ARGS)' -- \
 		$(MUTANTS_RUN_MODE) $(1) --minimum-test-timeout $(MUTANTS_TIMEOUT) $(MUTANTS_RUN_ARGS)
 endef
 
 # Test-package choices stay explicit here; the runner owns retry selection and status handling.
 define run_mutants_two_pass
-	$(MUTANTS_ENV) python3 scripts/run_mutants.py --label "$@" \
+	$(MUTANTS_ENV) python3 scripts/run_mutants.py --label "$@" $(MUTANTS_STATE_ARGS) \
 		--pass='$(2)' --pass='$(3)' -- $(MUTANTS_RUN_MODE) $(1) \
 		--minimum-test-timeout $(MUTANTS_TIMEOUT) $(MUTANTS_RUN_ARGS)
 endef
 
 define run_mutants_three_pass
-	$(MUTANTS_ENV) python3 scripts/run_mutants.py --label "$@" \
+	$(MUTANTS_ENV) python3 scripts/run_mutants.py --label "$@" $(MUTANTS_STATE_ARGS) \
 		--pass='$(2)' --pass='$(3)' --pass='$(4)' -- $(MUTANTS_RUN_MODE) $(1) \
 		--minimum-test-timeout $(MUTANTS_TIMEOUT) $(MUTANTS_RUN_ARGS)
 endef
 
 define run_mutants_five_pass
-	$(MUTANTS_ENV) python3 scripts/run_mutants.py --label "$@" \
+	$(MUTANTS_ENV) python3 scripts/run_mutants.py --label "$@" $(MUTANTS_STATE_ARGS) \
 		--pass='$(2)' --pass='$(3)' --pass='$(4)' --pass='$(5)' --pass='$(6)' \
 		-- $(MUTANTS_RUN_MODE) $(1) --minimum-test-timeout $(MUTANTS_TIMEOUT) $(MUTANTS_RUN_ARGS)
 endef
@@ -1177,8 +1185,15 @@ else
 
 
   FUZZ_HOST = $(shell rustc -vV | sed -n 's/^host: //p')
-  FUZZ_FLAGS = --target $(FUZZ_HOST)
+  FUZZ_FLAGS = --target $(FUZZ_HOST) --sanitizer=$(FUZZ_SANITIZER)
 endif
+
+# libFuzzer sanitizer on Linux. `none` runs the contract targets about 5x
+# faster than `address`: the fuzzed crates have no unsafe code, and panics,
+# debug assertions and overflow checks fire without ASan. The weekly long run
+# uses `address` for the unsafe code in the dependencies.
+FUZZ_SANITIZER ?= none
+FUZZ_LIBFUZZER_ARGS = -max_total_time=$(FUZZ_TIME) -max_len=$(FUZZ_MAX_LEN) -len_control=$(FUZZ_LEN_CONTROL)
 
 
 # Targets run FUZZ_JOBS at a time; each libFuzzer process uses one core.
@@ -1195,13 +1210,28 @@ fuzz-contract:
 	@$(FUZZ_RUN) $(FUZZ_CONTRACT_TARGETS)
 
 
+# With FUZZ_BIN_DIR set, fuzz-one runs the prebuilt binary $(FUZZ_BIN_DIR)/$(TARGET).
+# cargo fuzz would rebuild it from a target directory the job does not have.
 fuzz-one:
-	@mkdir -p $(FUZZ_DIR)/corpus/$(TARGET)
-	@cargo +nightly fuzz run --fuzz-dir $(FUZZ_DIR) $(FUZZ_FLAGS) $(TARGET) $(FUZZ_DIR)/corpus/$(TARGET) $(FUZZ_DIR)/seeds/$(TARGET) -- -max_total_time=$(FUZZ_TIME) -max_len=$(FUZZ_MAX_LEN) -len_control=$(FUZZ_LEN_CONTROL)
+	@mkdir -p $(FUZZ_DIR)/corpus/$(TARGET) $(FUZZ_DIR)/artifacts/$(TARGET)
+ifeq ($(strip $(FUZZ_BIN_DIR)),)
+	@cargo +nightly fuzz run --fuzz-dir $(FUZZ_DIR) $(FUZZ_FLAGS) $(TARGET) $(FUZZ_DIR)/corpus/$(TARGET) $(FUZZ_DIR)/seeds/$(TARGET) -- $(FUZZ_LIBFUZZER_ARGS)
+else
+	@$(FUZZ_BIN_DIR)/$(TARGET) $(FUZZ_LIBFUZZER_ARGS) -artifact_prefix=$(FUZZ_DIR)/artifacts/$(TARGET)/ $(FUZZ_DIR)/corpus/$(TARGET) $(FUZZ_DIR)/seeds/$(TARGET)
+endif
 
 
 fuzz-build:
 	@cargo +nightly fuzz build --fuzz-dir $(FUZZ_DIR) $(FUZZ_FLAGS)
+
+# The WASM modules that the fuzz targets and the proptest suite load. A full
+# `stellar contract build` also builds every other contract and mock.
+FUZZ_WASM_PACKAGES := pool position-nft flash-loan-receiver
+
+fuzz-wasm:
+	@for package in $(FUZZ_WASM_PACKAGES); do \
+		stellar contract build --package $$package || exit 1; \
+	done
 
 
 
@@ -2316,9 +2346,10 @@ help-build:
 help-verify:
 	$(call H1,Deep verification)
 	$(call ROW,make miri-all,Miri UB on pure-i128 math)
-	$(call ROW,make fuzz,libFuzzer math (FUZZ_TIME=60))
+	$(call ROW,make fuzz,libFuzzer math (FUZZ_TIME=60 FUZZ_JOBS=1))
 	$(call ROW,make fuzz-contract,libFuzzer contract flows)
-	$(call ROW,make proptest,properties (PROPTEST_CASES=N))
+	$(call ROW,make fuzz-wasm,the WASM the fuzz and proptest suites load)
+	$(call ROW,make proptest,properties (PROPTEST_CASES=N PROPTEST_THREADS=1))
 	$(call ROW,make mutants,full mutation suite)
 	$(call ROW,make mutants-math,focused math (+ -rates | -pool-interest))
 	$(call ROW,make scout,Scout audit (scout-strict gates incomplete))
