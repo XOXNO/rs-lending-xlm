@@ -2023,7 +2023,7 @@ POSITIONAL_ID_ACTIONS := addSpoke getSpoke createHub removeSpoke \
 	setSpokeLiquidationCurve \
 	configureReferenceOracle \
 	setAggregatorFee addAggregatorWhitelist removeAggregatorWhitelist \
-	addAggregatorReferral setAggregatorReferralFee setAggregatorReferralProtocolFee setAggregatorReferralActive \
+	addAggregatorReferral setAggregatorReferralFee setAggregatorReferralActive \
 	setAggregatorReferralOwner upgradeAggregatorHash upgradeOracleAdapterHash \
 	transferAggregatorOwnership transferOracleAdapterOwnership
 POSITIONAL_ID_ASSET_ACTIONS := addAssetToSpoke editAssetInSpoke removeAssetFromSpoke getSpokeAsset
@@ -2475,7 +2475,6 @@ help-aggregator:
 	$(call NOTE,setAggregatorFee BPS)
 	$(call NOTE,addAggregatorWhitelist|removeAggregatorWhitelist TOKEN)
 	$(call NOTE,addAggregatorReferral OWNER BPS [PROTOCOL_BPS|null])
-	$(call NOTE,setAggregatorReferralProtocolFee ID BPS|null)
 	$(call NOTE,setAggregatorReferralFee ID BPS [PROTOCOL_BPS|null] | setAggregatorReferralActive ID BOOL)
 	$(call NOTE,setAggregatorReferralOwner ID NEW_OWNER)
 	$(call NOTE,claimAggregatorAdminFees RECIPIENT TOKEN...)

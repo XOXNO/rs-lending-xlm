@@ -347,10 +347,10 @@ fn combined_fee_exactly_at_the_cap_is_charged_not_rejected() {
     assert_eq!(router.referral_fee_balance(&id, &token_a), 50);
 
     router.set_static_fee(&100);
-    router.set_referral_protocol_fee(&id, &Some(0));
+    router.set_referral_fee(&id, &500, &Some(0));
     assert_eq!(router.execute_strategy(&sender, &1_000, &xdr), 950);
     assert_eq!(router.admin_fee_balance(&token_a), 50);
-    router.set_referral_protocol_fee(&id, &None);
+    router.set_referral_fee(&id, &500, &None);
     assert_eq!(router.execute_strategy(&sender, &1_000, &xdr), 940);
     assert_eq!(router.admin_fee_balance(&token_a), 60);
     assert_eq!(router.referral_fee_balance(&id, &token_a), 150);

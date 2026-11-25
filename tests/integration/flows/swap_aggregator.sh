@@ -83,13 +83,11 @@ flow_swap_aggregator_admin() {
     fi
 
     xfail sa_ref_fee_above_cap 'Error\(Contract, #21\)' "$ADMIN" "$agg" -- set_referral_fee \
-        --id "$ref_id" --fee_bps $((SA_FEE_CAP + 1))
+        --id "$ref_id" --fee_bps $((SA_FEE_CAP + 1)) --protocol_fee_bps null
     xfail sa_ref_missing 'Error\(Contract, #22\)' "$ADMIN" "$agg" -- set_referral_fee \
-        --id 999999 --fee_bps 10
+        --id 999999 --fee_bps 10 --protocol_fee_bps null
 
-    inv sa_ref_set_fee "$ADMIN" "$agg" -- set_referral_fee --id "$ref_id" --fee_bps 35 >/dev/null
-    inv sa_ref_set_protocol_fee "$ADMIN" "$agg" -- set_referral_protocol_fee --id "$ref_id" --fee_bps 15 >/dev/null
-    inv sa_ref_set_fees "$ADMIN" "$agg" -- set_referral_fees --id "$ref_id" --fee_bps 40 --protocol_fee_bps 25 >/dev/null
+    inv sa_ref_set_fee "$ADMIN" "$agg" -- set_referral_fee --id "$ref_id" --fee_bps 40 --protocol_fee_bps 25 >/dev/null
     inv sa_ref_deactivate "$ADMIN" "$agg" -- set_referral_active --id "$ref_id" --active false >/dev/null
     ref=$(view sa_ref_after_updates "$agg" -- referral --id "$ref_id")
     # `.active` is read without `// empty`: jq's `//` treats `false` as absent,

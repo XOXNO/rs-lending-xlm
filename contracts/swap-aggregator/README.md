@@ -65,15 +65,10 @@ For a 0.50% router fee: `make mainnet setAggregatorFee 5` and
 (`SIGNER=ledger` for the mainnet owner); pass the returned ID as `referral_id`
 in quote requests. To create a referral with 25 bps each for the partner
 and protocol in one call, use `make testnet addAggregatorReferral OWNER 25 25`.
-Direct callers of the upgraded `add_referral` must supply its third argument
-(`None` to inherit the global rate).
-To customize the protocol rate for one referral, use
-`make mainnet setAggregatorReferralProtocolFee ID 25 SIGNER=ledger`. Use
-`0` to waive its protocol fee or `null` to restore the global rate.
-To set the partner and protocol rates together in one transaction, use
-`make testnet setAggregatorReferralFee ID 25 25` (25 bps each). Omitting
-the last argument updates only the partner rate. Passing `null` as the last
-argument restores the global protocol rate.
+Edit both rates with `make testnet setAggregatorReferralFee ID 25 25`.
+Omitting the protocol rate or passing `null` selects the global rate.
+Passing `0` waives the protocol fee. Direct contract callers pass the third
+argument to both `add_referral` and `set_referral_fee` after upgrade.
 DEX pool and network fees are extra.
 `make mainnet addAggregatorWhitelist TOKEN` picks the preferred fee token; it
 does not restrict tradable tokens.

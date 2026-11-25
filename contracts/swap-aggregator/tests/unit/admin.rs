@@ -40,7 +40,7 @@ fn admin_setters_and_views_surface() {
     let owner = Address::generate(&env);
     let id = router.add_referral(&owner, &100, &None);
     assert_eq!(router.referral_counter(), 1);
-    router.set_referral_fee(&id, &200);
+    router.set_referral_fee(&id, &200, &None);
     router.set_referral_active(&id, &false);
     let new_owner = Address::generate(&env);
     router.set_referral_owner(&id, &new_owner);
@@ -72,7 +72,7 @@ fn legacy_referral_reads_and_updates_in_place() {
     });
     assert_eq!(router.referral(&id).unwrap().protocol_fee_bps, None);
     for expected in [Some(25), Some(0), Some(crate::FEE_CAP), None] {
-        router.set_referral_protocol_fee(&id, &expected);
+        router.set_referral_fee(&id, &25, &expected);
         let cfg = router.referral(&id).unwrap();
         assert_eq!(cfg.protocol_fee_bps, expected);
         assert_eq!(cfg.owner, owner);
@@ -81,7 +81,7 @@ fn legacy_referral_reads_and_updates_in_place() {
     }
     assert_eq!(
         router
-            .try_set_referral_protocol_fee(&id, &Some(crate::FEE_CAP + 1))
+            .try_set_referral_fee(&id, &25, &Some(crate::FEE_CAP + 1))
             .unwrap_err()
             .unwrap(),
         Error::FeeTooHigh.into()
@@ -117,22 +117,22 @@ fn referral_rates_update_atomically() {
     let router = RouterClient::new(&env, &addr);
     let id = router.add_referral(&owner, &45, &None);
 
-    router.set_referral_fees(&id, &Some(25), &Some(25));
+    router.set_referral_fee(&id, &25, &Some(25));
     let rates = || {
         let cfg = router.referral(&id).unwrap();
         (cfg.fee_bps, cfg.protocol_fee_bps)
     };
     assert_eq!(rates(), (25, Some(25)));
     for (partner, protocol) in [(1_001, 0), (0, 1_001)] {
-        let err = router.try_set_referral_fees(&id, &Some(partner), &Some(protocol));
+        let err = router.try_set_referral_fee(&id, &partner, &Some(protocol));
         assert_eq!(err.unwrap_err().unwrap(), Error::FeeTooHigh.into());
         assert_eq!(rates(), (25, Some(25)));
     }
-    router.set_referral_fee(&id, &10);
-    assert_eq!(rates(), (10, Some(25)));
-    router.set_referral_fees(&id, &None, &Some(0));
+    router.set_referral_fee(&id, &10, &None);
+    assert_eq!(rates(), (10, None));
+    router.set_referral_fee(&id, &10, &Some(0));
     assert_eq!(rates(), (10, Some(0)));
-    router.set_referral_fees(&id, &Some(1_000), &None);
+    router.set_referral_fee(&id, &1_000, &None);
     assert_eq!(rates(), (1_000, None));
 }
 
@@ -157,7 +157,7 @@ fn admin_rejects_fee_over_cap() {
     let id = router.add_referral(&admin, &10, &None);
     assert_eq!(
         router
-            .try_set_referral_fee(&id, &1_001)
+            .try_set_referral_fee(&id, &1_001, &None)
             .unwrap_err()
             .unwrap(),
         Error::FeeTooHigh.into()
@@ -179,8 +179,8 @@ fn fee_setters_accept_exact_cap() {
     let id = router.add_referral(&owner, &crate::FEE_CAP, &None);
     assert_eq!(router.referral(&id).unwrap().fee_bps, crate::FEE_CAP);
 
-    router.set_referral_fee(&id, &0);
-    router.set_referral_fee(&id, &crate::FEE_CAP);
+    router.set_referral_fee(&id, &0, &None);
+    router.set_referral_fee(&id, &crate::FEE_CAP, &None);
     assert_eq!(router.referral(&id).unwrap().fee_bps, crate::FEE_CAP);
 }
 

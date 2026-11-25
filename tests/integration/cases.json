@@ -2297,9 +2297,7 @@
       "remove_from_whitelist",
       "set_referral_active",
       "set_referral_fee",
-      "set_referral_fees",
       "set_referral_owner",
-      "set_referral_protocol_fee",
       "set_static_fee",
       "sweep_balance",
       "whitelisted_tokens"
@@ -2454,26 +2452,6 @@
       {
         "label": "sa_ref_set_fee",
         "method": "set_referral_fee",
-        "status": "ok",
-        "count": 1,
-        "execution": [
-          "transaction"
-        ],
-        "contract": "aggregator"
-      },
-      {
-        "label": "sa_ref_set_protocol_fee",
-        "method": "set_referral_protocol_fee",
-        "status": "ok",
-        "count": 1,
-        "execution": [
-          "transaction"
-        ],
-        "contract": "aggregator"
-      },
-      {
-        "label": "sa_ref_set_fees",
-        "method": "set_referral_fees",
         "status": "ok",
         "count": 1,
         "execution": [
