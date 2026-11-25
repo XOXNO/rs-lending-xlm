@@ -87,8 +87,9 @@ flow_swap_aggregator_admin() {
     xfail sa_ref_missing 'Error\(Contract, #22\)' "$ADMIN" "$agg" -- set_referral_fee \
         --id 999999 --fee_bps 10
 
-    inv sa_ref_set_fee "$ADMIN" "$agg" -- set_referral_fee --id "$ref_id" --fee_bps 40 >/dev/null
-    inv sa_ref_set_protocol_fee "$ADMIN" "$agg" -- set_referral_protocol_fee --id "$ref_id" --fee_bps 25 >/dev/null
+    inv sa_ref_set_fee "$ADMIN" "$agg" -- set_referral_fee --id "$ref_id" --fee_bps 35 >/dev/null
+    inv sa_ref_set_protocol_fee "$ADMIN" "$agg" -- set_referral_protocol_fee --id "$ref_id" --fee_bps 15 >/dev/null
+    inv sa_ref_set_fees "$ADMIN" "$agg" -- set_referral_fees --id "$ref_id" --fee_bps 40 --protocol_fee_bps 25 >/dev/null
     inv sa_ref_deactivate "$ADMIN" "$agg" -- set_referral_active --id "$ref_id" --active false >/dev/null
     ref=$(view sa_ref_after_updates "$agg" -- referral --id "$ref_id")
     # `.active` is read without `// empty`: jq's `//` treats `false` as absent,
@@ -96,7 +97,7 @@ flow_swap_aggregator_admin() {
     if [ "$(jq -r '.protocol_fee_bps' <<<"$ref")" = "25" ] \
         && [ "$(jq -r '.fee_bps // empty' <<<"$ref")" = "40" ] \
         && [ "$(jq -r '.active' <<<"$ref")" = "false" ]; then
-        record sa_ref_updates_applied ok referral "" "" "" "" "" "fee=40 active=false"
+        record sa_ref_updates_applied ok referral "" "" "" "" "" "fee=40 protocol_fee=25 active=false"
     else
         _assert_fail sa_ref_updates_applied "referral not updated: $ref"
     fi

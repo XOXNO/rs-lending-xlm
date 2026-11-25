@@ -4572,13 +4572,19 @@ add_aggregator_referral() {
 }
 
 set_aggregator_referral_fee() {
+    [ "$#" -le 4 ] || die "Expected referral ID, referral fee, and optional protocol fee"
     local method=$1 id=$2 fee_bps=$3
     [ -n "$id" ] && [ -n "$fee_bps" ] || die "Expected referral ID and fee in basis points for $method"
     local router
     router=$(get_aggregator_address) || die "No aggregator deployed for ${NETWORK}."
-    echo "=== ${method} ${id} ${fee_bps} on aggregator ${router} (${NETWORK}) ===" >&2
+    local -a fee_args=(--fee_bps "$fee_bps")
+    if [ "$#" -eq 4 ]; then
+        method=set_referral_fees
+        fee_args+=(--protocol_fee_bps "$4")
+    fi
+    echo "=== ${method} ${id} ${fee_args[*]} on aggregator ${router} (${NETWORK}) ===" >&2
     stellar contract invoke --instruction-leeway "${INSTRUCTION_LEEWAY:-20000000}" --id "$router" $SOURCE_FLAG --network "$NETWORK" \
-        -- "$method" --id "$id" --fee_bps "$fee_bps"
+        -- "$method" --id "$id" "${fee_args[@]}"
 }
 
 set_aggregator_referral_active() {
@@ -5249,7 +5255,7 @@ case "$1" in
         add_aggregator_referral "$2" "$3"
         ;;
     "setAggregatorReferralFee")
-        set_aggregator_referral_fee set_referral_fee "$2" "$3"
+        set_aggregator_referral_fee set_referral_fee "${@:2}"
         ;;
     "setAggregatorReferralProtocolFee")
         set_aggregator_referral_fee set_referral_protocol_fee "$2" "$3"
@@ -5895,7 +5901,7 @@ case "$1" in
         echo "  addAggregatorWhitelist <token> / removeAggregatorWhitelist <token>"
         echo "  addAggregatorReferral <owner> <fee_bps>"
         echo "  setAggregatorReferralProtocolFee <id> <fee_bps|null>"
-        echo "  setAggregatorReferralFee <id> <fee_bps> / setAggregatorReferralActive <id> <true|false>"
+        echo "  setAggregatorReferralFee <id> <fee_bps> [protocol_fee_bps|null] / setAggregatorReferralActive <id> <true|false>"
         echo "  setAggregatorReferralOwner <id> <new_owner>"
         echo "  claimAggregatorAdminFees <recipient> <token> [token...]"
         echo "  claimAggregatorReferralFees <id> <token> [token...]  (any signer; pays stored owner)"

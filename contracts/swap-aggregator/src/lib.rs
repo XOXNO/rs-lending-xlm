@@ -155,16 +155,25 @@ impl SwapAggregatorInterface for Router {
         storage::set_referral(&env, id, &cfg);
     }
 
-    /// Overrides the protocol fee for this referral. None restores the global fee.
+    /// Sets both rates in one write. None keeps the referral rate or restores the global
+    /// protocol rate, respectively.
     #[only_owner]
-    fn set_referral_protocol_fee(env: Env, id: u64, fee_bps: Option<u32>) {
+    fn set_referral_fees(env: Env, id: u64, fee_bps: Option<u32>, protocol_fee_bps: Option<u32>) {
         renew_instance(&env);
-        if fee_bps.is_some_and(|bps| bps > FEE_CAP) {
+        if fee_bps.unwrap_or(0).max(protocol_fee_bps.unwrap_or(0)) > FEE_CAP {
             panic_with_error!(&env, Error::FeeTooHigh);
         }
         let mut cfg = storage::load_referral(&env, id);
-        cfg.protocol_fee_bps = fee_bps;
+        if let Some(bps) = fee_bps {
+            cfg.fee_bps = bps;
+        }
+        cfg.protocol_fee_bps = protocol_fee_bps;
         storage::set_referral(&env, id, &cfg);
+    }
+
+    /// Overrides only the protocol fee. Uses the owner check in `set_referral_fees`.
+    fn set_referral_protocol_fee(env: Env, id: u64, fee_bps: Option<u32>) {
+        Self::set_referral_fees(env, id, None, fee_bps);
     }
 
     /// Activates or deactivates referral `id`. Owner only.

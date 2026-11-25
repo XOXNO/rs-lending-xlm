@@ -2476,7 +2476,7 @@ help-aggregator:
 	$(call NOTE,addAggregatorWhitelist|removeAggregatorWhitelist TOKEN)
 	$(call NOTE,addAggregatorReferral OWNER BPS)
 	$(call NOTE,setAggregatorReferralProtocolFee ID BPS|null)
-	$(call NOTE,setAggregatorReferralFee ID BPS | setAggregatorReferralActive ID BOOL)
+	$(call NOTE,setAggregatorReferralFee ID BPS [PROTOCOL_BPS|null] | setAggregatorReferralActive ID BOOL)
 	$(call NOTE,setAggregatorReferralOwner ID NEW_OWNER)
 	$(call NOTE,claimAggregatorAdminFees RECIPIENT TOKEN...)
 	$(call NOTE,claimAggregatorReferralFees ID TOKEN...  (any signer; pays referral owner))
