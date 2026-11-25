@@ -1,7 +1,10 @@
 //! Sushi V3-style hop: `swap` with sqrt-price limit and oracle hints.
 
-use soroban_sdk::{vec, Address, Bytes, Env, IntoVal, Symbol, Val, Vec, U256};
+use soroban_sdk::{
+    panic_with_error, vec, Address, Bytes, Env, IntoVal, Map, Symbol, Val, Vec, U256,
+};
 
+use crate::errors::Error;
 use crate::venues::HopContext;
 
 const MIN_SQRT_RATIO_PLUS_ONE: u128 = 4_295_128_740;
@@ -33,7 +36,7 @@ fn direction(ctx: &HopContext) -> bool {
 
 pub(super) fn required_input(ctx: &HopContext, target: i128) -> i128 {
     let zero_for_one = direction(ctx);
-    let result: soroban_sdk::Map<Symbol, i128> = ctx.env.invoke_contract(
+    let result: Map<Symbol, i128> = ctx.env.invoke_contract(
         &ctx.hop.pool,
         &Symbol::new(ctx.env, "quote_exact_output"),
         (
@@ -51,7 +54,7 @@ pub(super) fn required_input(ctx: &HopContext, target: i128) -> i128 {
         (amount1, amount0)
     };
     if out != -target {
-        soroban_sdk::panic_with_error!(ctx.env, crate::errors::Error::SlippageExceeded);
+        panic_with_error!(ctx.env, Error::SlippageExceeded);
     }
     input
 }

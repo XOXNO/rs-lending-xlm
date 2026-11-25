@@ -6,6 +6,7 @@ use soroban_sdk::{panic_with_error, token, Address, Env, Vec};
 
 use crate::constants::FEE_CAP;
 use crate::errors::Error;
+use crate::execute::ensure_trustline;
 use crate::math::{checked_add, checked_mul};
 use crate::storage;
 use crate::types::DataKey;
@@ -97,22 +98,15 @@ pub(crate) fn accrue_fixed_output_fees(
     (protocol_revenue, referral_fee)
 }
 
+/// Returns the `(static_fee, referral_fee)` on `amount` for an active referral, `(0, 0)`
+/// otherwise. Panics with `FeeTooHigh` if the combined rate exceeds [`FEE_CAP`].
 pub(crate) fn fee_amounts(env: &Env, amount: i128, referral_id: u64) -> (i128, i128) {
-    if referral_id == 0 {
+    if referral_id == 0 || amount <= 0 {
         return (0, 0);
     }
-
-    let cfg = match storage::try_load_referral(env, referral_id) {
-        Some(c) => c,
-        None => return (0, 0),
+    let Some(cfg) = storage::try_load_referral(env, referral_id).filter(|cfg| cfg.active) else {
+        return (0, 0);
     };
-    if !cfg.active {
-        return (0, 0);
-    }
-
-    if amount <= 0 {
-        return (0, 0);
-    }
     let static_fee_bps = checked_protocol_fee_bps(env, cfg.fee_bps, cfg.protocol_fee_bps);
 
     (
@@ -136,7 +130,7 @@ pub(crate) fn claim_fee_bucket(
         let key = bucket.key(token.clone());
         let amount = storage::take_fee_bucket(env, &key);
         if amount > 0 {
-            crate::execute::ensure_trustline(env, &token, recipient);
+            ensure_trustline(env, &token, recipient);
             token::Client::new(env, &token).transfer(router, recipient, &amount);
         }
     }

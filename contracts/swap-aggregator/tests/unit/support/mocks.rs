@@ -535,6 +535,27 @@ pub mod comet_mock {
 
     #[contractimpl]
     impl CometPool {
+        pub fn swap_exact_amount_out(
+            env: Env,
+            token_in: Address,
+            max_amount_in: i128,
+            token_out: Address,
+            amount_out: i128,
+            _max_price: i128,
+            user: Address,
+        ) -> (i128, i128) {
+            user.require_auth();
+            let spent = 2 * amount_out;
+            assert!(spent <= max_amount_in);
+            let pool = env.current_contract_address();
+            let input = token::Client::new(&env, &token_in);
+            let expiration = (env.ledger().sequence() / 100_000 + 1) * 100_000;
+            input.approve(&user, &pool, &max_amount_in, &expiration);
+            input.transfer_from(&pool, &user, &pool, &spent);
+            token::Client::new(&env, &token_out).transfer(&pool, &user, &amount_out);
+            (spent, 0)
+        }
+
         pub fn swap_exact_amount_in(
             env: Env,
             token_in: Address,

@@ -10,6 +10,8 @@ pub(crate) mod test_support;
 pub mod fp;
 mod fp_core;
 
+use soroban_sdk::Env;
+
 /// Rounding for an exact ratio applied to a quantity in its original units.
 #[derive(Clone, Copy)]
 pub enum RatioRounding {
@@ -18,10 +20,11 @@ pub enum RatioRounding {
 }
 
 impl RatioRounding {
-    /// Scale in one step. A zero divisor or an unrepresentable quotient returns `None`.
+    /// Returns `amount * numerator / denominator` with a single rounding, or `None` on a zero
+    /// divisor or an `i128` overflow.
     pub fn checked_scale(
         self,
-        env: &soroban_sdk::Env,
+        env: &Env,
         amount: i128,
         numerator: i128,
         denominator: i128,

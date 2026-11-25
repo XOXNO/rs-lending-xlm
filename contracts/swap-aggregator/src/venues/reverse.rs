@@ -1,26 +1,51 @@
-use super::*;
+//! Exact-output hops for version 2 programs: input quotes and measured fills.
+
 use common::math::RatioRounding;
-fn aquarius_indices(ctx: &HopContext, cache: &mut Map<Address, Vec<Address>>) -> (u32, u32) {
-    let tokens = pool_tokens(ctx.env, cache, &ctx.hop.pool, aquarius::pool::get_tokens);
+use soroban_sdk::{panic_with_error, Address, Env, IntoVal, Map, Symbol, Vec};
+
+use crate::errors::Error;
+use crate::math::{checked_add, scale_amount};
+use crate::types::{SwapHop, SwapVenue};
+use crate::venues::aquarius::pool::get_tokens;
+use crate::venues::curve::coins;
+use crate::venues::{
+    comet, curve, find_index, measure, phoenix, pool_tokens, soroswap, sushi, HopContext,
+};
+
+fn indices(
+    ctx: &HopContext,
+    cache: &mut Map<Address, Vec<Address>>,
+    fetch: fn(&Env, &Address) -> Vec<Address>,
+) -> (u32, u32) {
+    let tokens = pool_tokens(ctx.env, cache, &ctx.hop.pool, fetch);
     (
         find_index(ctx.env, &tokens, &ctx.hop.token_in),
         find_index(ctx.env, &tokens, &ctx.hop.token_out),
     )
 }
 
+/// A venue that sizes its own input inside the exact-output call and has no inverse quote.
+fn sizes_own_spend(venue: SwapVenue) -> bool {
+    venue == SwapVenue::CometDex
+}
+
+/// Returns the input the hop's pool needs for exactly `target` of its output, or `None` when
+/// the pool sizes its own spend.
 pub(crate) fn reverse_input(
     env: &Env,
     router: &Address,
     hop: &SwapHop,
     target: i128,
     cache: &mut Map<Address, Vec<Address>>,
-) -> i128 {
-    use soroban_sdk::{IntoVal, Symbol};
+) -> Option<i128> {
+    if sizes_own_spend(hop.venue) {
+        return None;
+    }
     let ctx = HopContext::new(env, router, hop, target);
-    match hop.venue {
+    Some(match hop.venue {
         SwapVenue::Soroswap => soroswap::required_input(&ctx, target),
         SwapVenue::Aquarius => {
-            let (i, j) = aquarius_indices(&ctx, cache);
+            let (i, j) = indices(&ctx, cache, get_tokens);
             let input: u128 = env.invoke_contract(
                 &hop.pool,
                 &Symbol::new(env, "estimate_swap_strict_receive"),
@@ -30,9 +55,7 @@ pub(crate) fn reverse_input(
         }
         SwapVenue::Sushi => sushi::required_input(&ctx, target),
         SwapVenue::Curve => {
-            let tokens = pool_tokens(env, cache, &hop.pool, curve::coins);
-            let i = find_index(env, &tokens, &hop.token_in);
-            let j = find_index(env, &tokens, &hop.token_out);
+            let (i, j) = indices(&ctx, cache, coins);
             let estimate = env.invoke_contract(
                 &hop.pool,
                 &Symbol::new(env, "get_dx"),
@@ -53,20 +76,22 @@ pub(crate) fn reverse_input(
                 (&hop.token_out, target).into_val(env),
             );
             let estimate = response.get_unchecked(Symbol::new(env, "offer_amount"));
+            let (simulate, ask) = (
+                Symbol::new(env, "simulate_swap"),
+                Symbol::new(env, "ask_amount"),
+            );
             sufficient_input(env, target, estimate, |x| {
-                let forward: Map<Symbol, i128> = env.invoke_contract(
-                    &hop.pool,
-                    &Symbol::new(env, "simulate_swap"),
-                    (&hop.token_in, x).into_val(env),
-                );
-                forward.get_unchecked(Symbol::new(env, "ask_amount"))
+                let forward: Map<Symbol, i128> =
+                    env.invoke_contract(&hop.pool, &simulate, (&hop.token_in, x).into_val(env));
+                forward.get_unchecked(ask.clone())
             })
         }
-        // Comet sizes its source debit inside swap_exact_amount_out.
         SwapVenue::CometDex => panic_with_error!(env, Error::InvalidRouteXdr),
-    }
+    })
 }
 
+/// Swaps for `target`, spending at most `input`, and returns the measured `(spent, received)`.
+/// Spend must equal `input`, and output `target`, except where the venue rule allows less or more.
 pub(crate) fn receive_output(
     env: &Env,
     router: &Address,
@@ -75,14 +100,11 @@ pub(crate) fn receive_output(
     target: i128,
     cache: &mut Map<Address, Vec<Address>>,
 ) -> (i128, i128) {
-    use soroban_sdk::{IntoVal, Symbol};
     let ctx = HopContext::new(env, router, hop, input);
-    let before_in = ctx.input_balance();
-    let before_out = ctx.output_balance();
-    match hop.venue {
+    let (spent, received) = measure(&ctx, || match hop.venue {
         SwapVenue::Soroswap => soroswap::swap_for(&ctx, target),
         SwapVenue::Aquarius => {
-            let (i, j) = aquarius_indices(&ctx, cache);
+            let (i, j) = indices(&ctx, cache, get_tokens);
             ctx.authorize_pool_pull();
             let _: u128 = env.invoke_contract(
                 &hop.pool,
@@ -94,17 +116,13 @@ pub(crate) fn receive_output(
         SwapVenue::CometDex => comet::exact_output(&ctx, target),
         SwapVenue::Phoenix => phoenix::swap(&ctx),
         SwapVenue::Curve => curve::swap(&ctx, cache),
-    }
-    let spent = before_in
-        .checked_sub(ctx.input_balance())
-        .unwrap_or_else(|| panic_with_error!(env, Error::InvalidAmount));
-    let received = ctx
-        .output_balance()
-        .checked_sub(before_out)
-        .unwrap_or_else(|| panic_with_error!(env, Error::InvalidAmount));
+    });
+    let (Some(spent), Some(received)) = (spent, received) else {
+        panic_with_error!(env, Error::InvalidAmount)
+    };
     if spent <= 0
         || spent > input
-        || (hop.venue != SwapVenue::CometDex && spent != input)
+        || (!sizes_own_spend(hop.venue) && spent != input)
         || received < target
         || (!matches!(hop.venue, SwapVenue::Curve | SwapVenue::Phoenix) && received != target)
     {
@@ -113,22 +131,17 @@ pub(crate) fn receive_output(
     (spent, received)
 }
 
-/// Verify pool inverse estimates against the forward quote. Bound RPC-like
-/// contract calls per hop; a large discrepancy makes the route unexecutable.
+/// Returns the smallest input whose forward `quote` reaches `target`, seeded by the pool's
+/// inverse `estimate`. Quote calls are bounded; a far-off estimate panics `SlippageExceeded`.
 fn sufficient_input(env: &Env, target: i128, estimate: i128, quote: impl Fn(i128) -> i128) -> i128 {
     let mut input = estimate.max(1);
     let (mut last_in, mut last_out) = (0, 0);
     for _ in 0..8 {
         let out = quote(input);
         if out >= target {
-            // With integer token units the closest attainable output can
-            // exceed the target. Only accept that excess when one less input
-            // unit would underfill against this pool's forward quote.
-            let mut high = input;
-            let mut low = last_in;
-            let mut step = 1i128;
-            // Search outwards from the estimate first: a rounding plateau
-            // is usually much narrower than the interval back to zero.
+            // Integer units can overshoot `target`; gallop down from `input` (a rounding plateau
+            // is narrow), then bisect, so one unit less underfills.
+            let (mut low, mut high, mut step) = (last_in, input, 1i128);
             for _ in 0..20 {
                 let candidate = (high - step).max(low);
                 if candidate == low || quote(candidate) < target {
@@ -148,10 +161,9 @@ fn sufficient_input(env: &Env, target: i128, estimate: i128, quote: impl Fn(i128
             }
             panic_with_error!(env, Error::SlippageExceeded);
         }
-        // Use the local slope on imbalanced pools; the average price from
-        // zero can be far from the price for the final units.
+        // Secant step: on an imbalanced pool the average price from zero misleads.
         let step = if out > last_out {
-            crate::math::scale_amount(
+            scale_amount(
                 env,
                 input - last_in,
                 target - out,
@@ -163,7 +175,7 @@ fn sufficient_input(env: &Env, target: i128, estimate: i128, quote: impl Fn(i128
             (input - last_in).max(1)
         };
         (last_in, last_out) = (input, out);
-        input = crate::math::checked_add(env, input, step);
+        input = checked_add(env, input, step);
     }
     panic_with_error!(env, Error::SlippageExceeded)
 }

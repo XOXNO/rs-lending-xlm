@@ -117,7 +117,8 @@ impl SwapAggregatorInterface for Router {
 
     /// Creates an active referral and returns its id. Owner only.
     ///
-    /// None inherits the global protocol fee. The combined rate must be at most `FEE_CAP`.
+    /// `None` inherits the global protocol fee. Panics with `FeeTooHigh` if `fee_bps` plus the
+    /// resolved protocol rate exceeds `FEE_CAP`.
     #[only_owner]
     fn add_referral(env: Env, owner: Address, fee_bps: u32, protocol_fee_bps: Option<u32>) -> u64 {
         renew_instance(&env);
@@ -140,7 +141,7 @@ impl SwapAggregatorInterface for Router {
         id
     }
 
-    /// Replaces both fee rates. None selects the global protocol fee.
+    /// Replaces both fee rates. Owner only. Panics with `FeeTooHigh` as `add_referral` does.
     #[only_owner]
     fn set_referral_fee(env: Env, id: u64, fee_bps: u32, protocol_fee_bps: Option<u32>) {
         renew_instance(&env);

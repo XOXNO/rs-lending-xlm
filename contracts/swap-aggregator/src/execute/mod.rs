@@ -17,10 +17,10 @@ use crate::constants::PPM_DENOMINATOR;
 use crate::errors::Error;
 use crate::events::SwapEvent;
 use crate::fees;
-use crate::math::checked_mul;
+use crate::math::{checked_add, checked_mul};
 use crate::program::{Mode, Op, Opcode, Program};
 use crate::storage;
-use crate::types::{StrategyPayload, SwapHop};
+use crate::types::{StrategyPayload, SwapHop, SwapVenue};
 use crate::vault::Vault;
 use crate::venues;
 
@@ -123,11 +123,7 @@ pub(crate) fn run(env: Env, sender: Address, total_in: i128, payload: StrategyPa
             panic_with_error!(&env, Error::InvalidAmount);
         }
         let (protocol, referral) = fees::fee_amounts(&env, total_min_out, referral_id);
-        let gross = crate::math::checked_add(
-            &env,
-            crate::math::checked_add(&env, total_min_out, protocol),
-            referral,
-        );
+        let gross = checked_add(&env, checked_add(&env, total_min_out, protocol), referral);
         reverse::execute(&ctx, &mut vault, gross, &mut tokens_cache);
         let refund = vault.balance_of(&input_token);
         if refund > 0 {
@@ -235,6 +231,16 @@ fn settle_output(
     received
 }
 
+/// Builds the swap hop of `op` from its registry indices.
+fn swap_hop(ctx: &Ctx<'_>, op: &Op, venue: SwapVenue) -> SwapHop {
+    SwapHop {
+        pool: ctx.assets.get_unchecked(op.idx_a),
+        token_in: ctx.assets.get_unchecked(op.idx_b),
+        token_out: ctx.assets.get_unchecked(op.idx_c),
+        venue,
+    }
+}
+
 /// Opens `receiver`'s missing trustline via the SAC `trust` call (CAP-73).
 ///
 /// Skips non-SAC tokens, so custom token code never runs here. The SAC is a no-auth no-op for
@@ -262,12 +268,7 @@ fn execute_op(
 ) -> PrevOutput {
     match op.opcode {
         Opcode::Swap(venue) => {
-            let hop = SwapHop {
-                pool: ctx.assets.get_unchecked(op.idx_a),
-                token_in: ctx.assets.get_unchecked(op.idx_b),
-                token_out: ctx.assets.get_unchecked(op.idx_c),
-                venue,
-            };
+            let hop = swap_hop(ctx, &op, venue);
             let amount_in = resolve_amount(ctx, vault, op.mode, &hop.token_in, prev);
             if amount_in <= 0 {
                 panic_with_error!(ctx.env, Error::InvalidAmount);

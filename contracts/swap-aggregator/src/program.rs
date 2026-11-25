@@ -12,7 +12,7 @@
 //!   [2]      token_out  -> assets[..]
 //!   [3]      min_out    -> amounts[..]
 //!   [4..8]   referral id, u32 big-endian (0 = none)
-//!   [8]      op_count (v2 sets bit 7)
+//!   [8]      op_count
 //!   [9]      weight_count
 //! instructions (5 * op_count bytes)
 //!   [0]      opcode      -> Opcode
