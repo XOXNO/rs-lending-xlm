@@ -310,17 +310,18 @@ fn combined_fee_exactly_at_the_cap_is_charged_not_rejected() {
     let router = RouterClient::new(&env, &router_addr);
 
     // 500 + 500 == FEE_CAP (1000 bps).
-    router.set_static_fee(&500);
+    router.set_static_fee(&5);
     let referral_owner = Address::generate(&env);
     let id = router.add_referral(&referral_owner, &500);
+    router.set_referral_protocol_fee(&id, &Some(500));
 
     let sender = Address::generate(&env);
     let (token_a, sac_a) = new_asset(&env, &admin);
     let (token_b, sac_b) = new_asset(&env, &admin);
     let pool = env.register(aquarius_mock::AqPool, ());
     aquarius_mock::AqPoolClient::new(&env, &pool).init(&token_a, &token_b);
-    sac_a.mint(&sender, &1_000);
-    sac_b.mint(&pool, &1_000);
+    sac_a.mint(&sender, &3_000);
+    sac_b.mint(&pool, &3_000);
 
     let xdr = strategy_xdr_with_referral(
         &env,
@@ -345,4 +346,13 @@ fn combined_fee_exactly_at_the_cap_is_charged_not_rejected() {
     assert_eq!(out, 900);
     assert_eq!(router.admin_fee_balance(&token_a), 50);
     assert_eq!(router.referral_fee_balance(&id, &token_a), 50);
+
+    router.set_static_fee(&100);
+    router.set_referral_protocol_fee(&id, &Some(0));
+    assert_eq!(router.execute_strategy(&sender, &1_000, &xdr), 950);
+    assert_eq!(router.admin_fee_balance(&token_a), 50);
+    router.set_referral_protocol_fee(&id, &None);
+    assert_eq!(router.execute_strategy(&sender, &1_000, &xdr), 940);
+    assert_eq!(router.admin_fee_balance(&token_a), 60);
+    assert_eq!(router.referral_fee_balance(&id, &token_a), 150);
 }

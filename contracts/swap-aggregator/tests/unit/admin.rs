@@ -52,6 +52,43 @@ fn admin_setters_and_views_surface() {
 }
 
 #[test]
+fn legacy_referral_reads_and_updates_in_place() {
+    use soroban_sdk::{IntoVal, Map};
+
+    let env = Env::default();
+    env.mock_all_auths();
+    let owner = Address::generate(&env);
+    let addr = env.register(Router, (owner.clone(),));
+    let router = RouterClient::new(&env, &addr);
+    let id = 7;
+    env.as_contract(&addr, || {
+        let mut old = Map::<Symbol, Val>::new(&env);
+        old.set(Symbol::new(&env, "owner"), owner.clone().into_val(&env));
+        old.set(Symbol::new(&env, "active"), true.into_val(&env));
+        old.set(Symbol::new(&env, "fee_bps"), 25u32.into_val(&env));
+        env.storage()
+            .persistent()
+            .set(&crate::types::DataKey::Referral(id), &old);
+    });
+    assert_eq!(router.referral(&id).unwrap().protocol_fee_bps, None);
+    for expected in [Some(25), Some(0), Some(crate::FEE_CAP), None] {
+        router.set_referral_protocol_fee(&id, &expected);
+        let cfg = router.referral(&id).unwrap();
+        assert_eq!(cfg.protocol_fee_bps, expected);
+        assert_eq!(cfg.owner, owner);
+        assert_eq!(cfg.fee_bps, 25);
+        assert!(cfg.active);
+    }
+    assert_eq!(
+        router
+            .try_set_referral_protocol_fee(&id, &Some(crate::FEE_CAP + 1))
+            .unwrap_err()
+            .unwrap(),
+        Error::FeeTooHigh.into()
+    );
+}
+
+#[test]
 fn admin_rejects_fee_over_cap() {
     let env = Env::default();
     env.mock_all_auths();

@@ -137,6 +137,7 @@ impl SwapAggregatorInterface for Router {
                 owner,
                 fee_bps,
                 active: true,
+                protocol_fee_bps: None,
             },
         );
         id
@@ -151,6 +152,18 @@ impl SwapAggregatorInterface for Router {
         }
         let mut cfg = storage::load_referral(&env, id);
         cfg.fee_bps = fee_bps;
+        storage::set_referral(&env, id, &cfg);
+    }
+
+    /// Overrides the protocol fee for this referral. None restores the global fee.
+    #[only_owner]
+    fn set_referral_protocol_fee(env: Env, id: u64, fee_bps: Option<u32>) {
+        renew_instance(&env);
+        if fee_bps.is_some_and(|bps| bps > FEE_CAP) {
+            panic_with_error!(&env, Error::FeeTooHigh);
+        }
+        let mut cfg = storage::load_referral(&env, id);
+        cfg.protocol_fee_bps = fee_bps;
         storage::set_referral(&env, id, &cfg);
     }
 

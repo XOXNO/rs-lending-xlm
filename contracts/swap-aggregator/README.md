@@ -63,7 +63,10 @@ admin bucket on every swap.
 For a 0.50% router fee: `make mainnet setAggregatorFee 5` and
 `make mainnet addAggregatorReferral OWNER 45` with the admin signer
 (`SIGNER=ledger` for the mainnet owner); pass the returned ID as `referral_id`
-in quote requests. DEX pool and network fees are extra.
+in quote requests. To customize the protocol rate for one referral, use
+`make mainnet setAggregatorReferralProtocolFee ID 25 SIGNER=ledger`. Use
+`0` to waive its protocol fee or `null` to restore the global rate.
+DEX pool and network fees are extra.
 `make mainnet addAggregatorWhitelist TOKEN` picks the preferred fee token; it
 does not restrict tradable tokens.
 

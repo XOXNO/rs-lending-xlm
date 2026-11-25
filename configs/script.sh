@@ -4572,13 +4572,13 @@ add_aggregator_referral() {
 }
 
 set_aggregator_referral_fee() {
-    local id=$1 fee_bps=$2
-    [ -n "$id" ] && [ -n "$fee_bps" ] || die "Usage: $0 setAggregatorReferralFee <id> <fee_bps>"
+    local method=$1 id=$2 fee_bps=$3
+    [ -n "$id" ] && [ -n "$fee_bps" ] || die "Expected referral ID and fee in basis points for $method"
     local router
     router=$(get_aggregator_address) || die "No aggregator deployed for ${NETWORK}."
-    echo "=== set_referral_fee ${id} ${fee_bps}bps on aggregator ${router} (${NETWORK}) ===" >&2
+    echo "=== ${method} ${id} ${fee_bps} on aggregator ${router} (${NETWORK}) ===" >&2
     stellar contract invoke --instruction-leeway "${INSTRUCTION_LEEWAY:-20000000}" --id "$router" $SOURCE_FLAG --network "$NETWORK" \
-        -- set_referral_fee --id "$id" --fee_bps "$fee_bps"
+        -- "$method" --id "$id" --fee_bps "$fee_bps"
 }
 
 set_aggregator_referral_active() {
@@ -5249,7 +5249,10 @@ case "$1" in
         add_aggregator_referral "$2" "$3"
         ;;
     "setAggregatorReferralFee")
-        set_aggregator_referral_fee "$2" "$3"
+        set_aggregator_referral_fee set_referral_fee "$2" "$3"
+        ;;
+    "setAggregatorReferralProtocolFee")
+        set_aggregator_referral_fee set_referral_protocol_fee "$2" "$3"
         ;;
     "setAggregatorReferralActive")
         set_aggregator_referral_active "$2" "$3"
@@ -5891,6 +5894,7 @@ case "$1" in
         echo "  setAggregatorFee <bps>"
         echo "  addAggregatorWhitelist <token> / removeAggregatorWhitelist <token>"
         echo "  addAggregatorReferral <owner> <fee_bps>"
+        echo "  setAggregatorReferralProtocolFee <id> <fee_bps|null>"
         echo "  setAggregatorReferralFee <id> <fee_bps> / setAggregatorReferralActive <id> <true|false>"
         echo "  setAggregatorReferralOwner <id> <new_owner>"
         echo "  claimAggregatorAdminFees <recipient> <token> [token...]"

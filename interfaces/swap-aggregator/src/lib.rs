@@ -9,6 +9,8 @@ pub struct ReferralConfig {
     pub owner: Address,
     pub fee_bps: u32,
     pub active: bool,
+    /// None inherits the current global protocol fee. Some(0) waives it.
+    pub protocol_fee_bps: Option<u32>,
 }
 
 /// Swap router entrypoints.
@@ -30,6 +32,8 @@ pub trait SwapAggregatorInterface {
     fn add_referral(env: Env, owner: Address, fee_bps: u32) -> u64;
 
     fn set_referral_fee(env: Env, id: u64, fee_bps: u32);
+
+    fn set_referral_protocol_fee(env: Env, id: u64, fee_bps: Option<u32>);
 
     fn set_referral_active(env: Env, id: u64, active: bool);
 

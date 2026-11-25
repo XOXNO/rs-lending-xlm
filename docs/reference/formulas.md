@@ -635,7 +635,8 @@ referral_fee  = floor(payout * fee_bps / 10_000)
 admin_revenue = gross_output - payout - referral_fee
 ```
 
-`fee_bps` is the referral rate. Rates summing above `FEE_CAP` (1000 BPS) fail
+`fee_bps` is the referral rate. `static_fee_bps` is its protocol fee override
+or, when absent, the current global rate. Rates summing above `FEE_CAP` (1000 BPS) fail
 with `FeeTooHigh` (21). Splits take parts per million of the balance available
 when the instruction runs:
 

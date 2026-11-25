@@ -100,7 +100,9 @@ fn fee_amounts(env: &Env, amount: i128, referral_id: u64) -> (i128, i128) {
     if amount <= 0 {
         return (0, 0);
     }
-    let static_fee_bps = storage::static_fee_bps(env);
+    let static_fee_bps = cfg
+        .protocol_fee_bps
+        .unwrap_or_else(|| storage::static_fee_bps(env));
 
     let combined_bps = static_fee_bps
         .checked_add(cfg.fee_bps)

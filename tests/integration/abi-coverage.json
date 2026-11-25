@@ -1903,6 +1903,16 @@
   },
   {
     "contract": "aggregator",
+    "method": "set_referral_protocol_fee",
+    "case": "flow_swap_aggregator_admin",
+    "label": "sa_ref_set_protocol_fee",
+    "root_contract": "aggregator",
+    "root_method": "set_referral_protocol_fee",
+    "execution": "direct-call",
+    "source": "tests/integration/flows/swap_aggregator.sh:91"
+  },
+  {
+    "contract": "aggregator",
     "method": "admin_fee_balance",
     "case": "flow_swap_aggregator_admin",
     "label": "sa_admin_fee_zero",
