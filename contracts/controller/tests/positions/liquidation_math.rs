@@ -1095,6 +1095,30 @@ fn process_excess_payment_keeps_the_ceiling_of_the_backed_value() {
     assert_eq!(refunds.get_unchecked(0).amount, 2);
 }
 
+/// Once the last leg absorbs the whole excess, the walk stops. An earlier
+/// floor-credited leg on the insolvent path would otherwise be re-floored to
+/// 2 of its 3 tokens and refund the third.
+#[test]
+fn process_excess_payment_stops_once_the_excess_is_absorbed() {
+    let env = Env::default();
+    let mut floor_credited = repay_entry(&env, 3, 24 * WAD / 10);
+    floor_credited.feed.asset_decimals = 0;
+    let mut repaid = Vec::new(&env);
+    repaid.push_back(floor_credited);
+    repaid.push_back(repay_entry(&env, stroops(40), 40 * WAD));
+    let mut refunds = Vec::new(&env);
+
+    process_excess_payment(&env, &mut repaid, &mut refunds, Wad::from(10 * WAD), true);
+
+    assert_eq!(refunds.len(), 1);
+    assert_eq!(refunds.get_unchecked(0).amount, stroops(10));
+    assert_eq!(repaid.len(), 2);
+    let earlier = repaid.get_unchecked(0);
+    assert_eq!((earlier.amount, earlier.usd_wad), (3, 24 * WAD / 10));
+    let last = repaid.get_unchecked(1);
+    assert_eq!((last.amount, last.usd_wad), (stroops(30), 30 * WAD));
+}
+
 #[test]
 fn an_insolvent_over_offer_at_zero_base_bonus_repays_at_most_the_collateral() {
     let env = Env::default();
