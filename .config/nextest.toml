@@ -1,0 +1,26 @@
+# Test order for nextest runs.
+#
+# nextest stops a run at its first failing test, and cargo-mutants counts
+# that failure as a caught mutant. The tests below take most of the time of
+# their suites: two `pool` tests take 22 s of 31 s, and 16 `common` tests take
+# 79% of `common`. They run last, so a mutant that a fast test catches stops
+# before them. A replay of 115 caught `common` mutants from a nightly run
+# spent 69% less time to the first failure in this order.
+#
+# Order only. Every test still runs when nothing fails first.
+[[profile.default.overrides]]
+filter = """
+    (package(common) & (
+        test(/::exact_/)
+        | test(/::test_supply_index_reward_is_conserved_/)
+        | test(/::accrue_step_value_ceiling::/)
+    ))
+    | (package(pool) & test(/^interest::tests::test_(accrual_cadence|frequent_accrual|year_horizon_accrual_cadence)_/))
+    | (package(test-harness) & (
+        test(/^(repeated_loops_never_extract_value|round_trip_exactness_and_loop_drift|liquidation_extreme)::/)
+        | test(/::(the_share_gap_|the_two_modes_never_differ_|under_delivery_doubles_the_gap)/)
+        | test(/::lqv_oracle_bound_nav_at_band_/)
+        | test(/::withdrawal_ceiling_tracks_one_minus_utilization/)
+    ))
+"""
+priority = -10

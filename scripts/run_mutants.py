@@ -16,6 +16,10 @@ NATIVE_NOOP = r'^contracts/controller/src/spec_hooks\.rs:[0-9]+:[0-9]+: replace 
 # Forwarded Cargo values can themselves look like mutation options.
 CARGO_VALUE_OPTIONS = ('--cargo-arg', '-C', '--cargo-test-arg')
 INCLUDE_OPTIONS = ('--re', '-F', '--regex', '--examine-regex', '--examine-re')
+# cargo-mutants rejects a repeated option, so a pass that sets one of these
+# replaces the run-wide value for its own command.
+PASS_OVERRIDES = (('-j', '--jobs'), ('--jobserver-tasks',), ('--minimum-test-timeout',), ('-t', '--timeout'),
+                  ('--test-tool',))
 
 
 def option_values(args, *flags):
@@ -52,11 +56,37 @@ def without(args, valued=(), switches=()):
         i += 1
     return result
 
+def pass_head(head, tests):
+    replaced = tuple(flag for group in PASS_OVERRIDES if option_values(tests, *group) for flag in group)
+    return without(head, replaced)
+
+
+# State between runs: mutants a run caught or found unviable. A resumed run
+# skips them by name; a name carries file, line, column and the replacement.
+STATE_FILES = {'caught': 'caught.txt', 'unviable': 'unviable.txt'}
+
+
+def read_state(directory):
+    state = {kind: set() for kind in STATE_FILES}
+    for kind, name in STATE_FILES.items():
+        path = Path(directory) / name
+        if path.exists():
+            state[kind] = {line for line in path.read_text().splitlines() if line}
+    return state
+
+
+def write_state(directory, state):
+    directory = Path(directory)
+    directory.mkdir(parents=True, exist_ok=True)
+    for kind, name in STATE_FILES.items():
+        (directory / name).write_text(''.join(line + '\n' for line in sorted(state[kind])))
+
+
 def write_config(path, config):
     path.write_text(''.join(f'{key} = {str(value).lower() if isinstance(value, float) else json.dumps(value, ensure_ascii=False)}\n' for key, value in config.items()))
 
 
-def run(label, passes, args, allow_empty=False):
+def run(label, passes, args, allow_empty=False, resume=None, save_state=None):
     args = list(args)
     split = 0
     while split < len(args) and args[split] != '--':
@@ -98,7 +128,7 @@ def run(label, passes, args, allow_empty=False):
     base_config = evidence / 'base.toml'
     write_config(base_config, config)
     stages = [shlex.split(stage) for stage in passes] or [[]]
-    listing = ['cargo', 'mutants'] + without(head, switches=('--list', '--list-files', '--json', '--diff'))
+    listing = ['cargo', 'mutants'] + without(pass_head(head, stages[0]), switches=('--list', '--list-files', '--json', '--diff'))
     listing += stages[0] + ['--config', str(base_config), '--list', '--json'] + tail
     result = subprocess.run(listing, text=True, capture_output=True)
     sys.stderr.write(result.stderr)
@@ -111,20 +141,35 @@ def run(label, passes, args, allow_empty=False):
     if not owned:
         print('No mutants matched scope/shard.', flush=True)
         return 0 if allow_empty else 1
+    previous_state = read_state(resume) if resume else {kind: set() for kind in STATE_FILES}
+    state = {kind: names & owned for kind, names in previous_state.items()}
+    skipped = set().union(*state.values())
+
+    def finish(code):
+        if save_state:
+            write_state(save_state, state)
+        return code
+
+    if skipped:
+        print(f'Resumed state: {len(skipped)} of {len(owned)} mutants were caught or unviable before', flush=True)
+        if skipped == owned:
+            print('Nothing left to test in this scope.', flush=True)
+            return finish(0)
     live = output / 'mutants.out'
     for number, tests in enumerate(stages, 1):
-        expected = owned if number == 1 else pending
+        expected = owned - skipped if number == 1 else pending
         pass_dir = evidence / f'pass-{number}'
         pass_dir.mkdir()
         retry_config = base_config
-        if number > 1:
+        if number > 1 or skipped:
+            # Name the mutants exactly. A shard or a regex would select again.
             head = without(head, ('--shard', '--sharding') + INCLUDE_OPTIONS)
-            if '--iterate' not in without(head, CARGO_VALUE_OPTIONS):
+            if number > 1 and '--iterate' not in without(head, CARGO_VALUE_OPTIONS):
                 head.append('--iterate')
-            config['examine_re'] = ['^' + re.escape(name) + '$' for name in sorted(pending)]
+            config['examine_re'] = ['^' + re.escape(name) + '$' for name in sorted(expected)]
             retry_config = pass_dir / 'retry.toml'
             write_config(retry_config, config)
-        command = ['cargo', 'mutants'] + head + tests + ['--config', str(retry_config)] + tail
+        command = ['cargo', 'mutants'] + pass_head(head, tests) + tests + ['--config', str(retry_config)] + tail
         env = os.environ.copy()
         if number < len(stages):
             env['GITHUB_ACTIONS'] = 'false'
@@ -160,17 +205,23 @@ def run(label, passes, args, allow_empty=False):
         reported_status = 3 if any(row['summary'] == 'Timeout' for row in results) else 2 if pending else 0
         if status != reported_status:
             raise ValueError('cargo-mutants exit status disagrees with outcomes')
+        for row in results:
+            kind = {'CaughtMutant': 'caught', 'Unviable': 'unviable'}.get(row['summary'])
+            if kind:
+                state[kind].add(row['scenario']['Mutant']['name'])
         if not pending:
-            return 0
+            return finish(0)
         if number == len(stages):
-            return status or 1
-    return 0
+            return finish(status or 1)
+    return finish(0)
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--label', required=True)
     parser.add_argument('--pass', dest='passes', action='append', default=[])
+    parser.add_argument('--resume', help='skip the mutants that this state directory lists')
+    parser.add_argument('--save-state', help='write the caught and unviable mutants to this directory')
     parser.add_argument('--allow-empty', action='store_true')
     parser.add_argument('args', nargs=argparse.REMAINDER)
     options = parser.parse_args()
@@ -178,7 +229,8 @@ def main():
         parser.error('label must be a Make target name')
     args = options.args[1:] if options.args[:1] == ['--'] else options.args
     try:
-        status = run(options.label, options.passes, args, options.allow_empty)
+        status = run(options.label, options.passes, args, options.allow_empty,
+                     resume=options.resume, save_state=options.save_state)
         return status if status >= 0 else 128 - status
     except (ValueError, KeyError, TypeError, OSError, subprocess.CalledProcessError) as error:
         print(f'mutation runner: {error}', file=sys.stderr)

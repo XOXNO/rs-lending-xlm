@@ -87,8 +87,10 @@ Use `try_*` helpers plus `assert_contract_error` for expected failures.
 
 ## Running
 
-Each test builds its own `Env` and writes its own `test_snapshots` file, so the
-suite runs in parallel at libtest's default of one thread per core.
+Each test builds its own `Env`, so the suite runs in parallel at libtest's
+default of one thread per core. Build a bare `Env` with `new_env()`, not
+`Env::default()`. A harness `Env` writes no `test_snapshots/` JSON file; set
+`HARNESS_TEST_SNAPSHOTS=1` to write them again.
 
 ```bash
 cargo test -p test-harness                       # every binary

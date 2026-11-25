@@ -8,6 +8,7 @@ use soroban_sdk::xdr::{
 };
 use soroban_sdk::{Address, Env, IntoVal, Map, TryFromVal, Val};
 use test_harness::helpers::{hub_asset, HARNESS_HUB};
+use test_harness::new_env;
 
 fn scval_of<T: IntoVal<Env, Val>>(env: &Env, v: T) -> ScVal {
     let val: Val = v.into_val(env);
@@ -69,7 +70,7 @@ fn debt() -> DebtPositionRaw {
 
 #[test]
 fn print_storage_sizes() {
-    let env = Env::default();
+    let env = new_env();
     let id: u64 = 1;
 
     println!("\n================ ACCOUNT STORAGE ENTRY SIZES (XDR bytes) ================");

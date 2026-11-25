@@ -218,8 +218,13 @@ fuzz_target!(|data: &[u8]| {
     assert_user_health(&t, ALICE, 0.0);
     assert_pool_accounting(&t, &ASSETS);
 
+    // After a failed op the state equals its before-snapshot, which the check
+    // below asserts, so the after-snapshot serves as the next before-snapshot.
+    let mut carried = None;
     for op in ops {
-        let before = snapshot(&t, ALICE, &ASSETS);
+        let before = carried
+            .take()
+            .unwrap_or_else(|| snapshot(&t, ALICE, &ASSETS));
         let accounts_before = t.get_active_accounts(ALICE).len();
 
         let (ok, checks) = dispatch(&mut t, &op);
@@ -244,6 +249,7 @@ fuzz_target!(|data: &[u8]| {
                 "failed strategy op leaked or removed an account"
             );
             assert_controller_residual_zero(&t);
+            carried = Some(after);
         }
         assert_pool_accounting(&t, &ASSETS);
         assert_flash_guard_cleared(&t);

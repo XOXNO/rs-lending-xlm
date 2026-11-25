@@ -14,4 +14,5 @@ pub use crate::strategy::{
     apply_flash_fee, build_aggregator_swap, mock_swap_payload_xdr, MockSwapPayload,
     DEFAULT_FLASHLOAN_FEE_BPS,
 };
+pub use crate::test_env::{env_from_ledger_snapshot, new_env, TEST_SNAPSHOTS_VAR};
 pub use crate::view::PositionType;

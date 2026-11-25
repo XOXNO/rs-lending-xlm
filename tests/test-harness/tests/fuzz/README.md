@@ -13,7 +13,7 @@ PROPTEST_CASES=10000 cargo test --release -p test-harness --test fuzz -- --test-
 cargo test -p test-harness --test fuzz prop_liquidation_matches_bigrational_reference -- --test-threads=1
 ```
 
-`PROPTEST_CASES` overrides the per-property defaults in `config.rs`; zero is rejected. Deterministic `#[test]` functions (e.g. the auth matrices) ignore it. `make proptest-one` rejects an empty or unmatched filter. Use release builds for long runs. Run serially (`make proptest` pins `--test-threads=1`).
+`PROPTEST_CASES` overrides the per-property defaults in `config.rs`; zero is rejected. Deterministic `#[test]` functions (e.g. the auth matrices) ignore it. `make proptest-one` rejects an empty or unmatched filter. Use release builds for long runs. `make proptest` runs one property at a time. Set `PROPTEST_THREADS=<n>` to run `n` properties at a time; the cases of one property always run in sequence.
 
 ## Modules
 

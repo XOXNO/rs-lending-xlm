@@ -370,7 +370,8 @@ mod fee_headroom {
     use common::validation::max_cap_for_decimals;
     use pool::{LiquidityPool, LiquidityPoolClient};
     use soroban_sdk::testutils::{Address as _, Ledger};
-    use soroban_sdk::{token, vec, Address, Env};
+    use soroban_sdk::{token, vec, Address};
+    use test_harness::new_env;
     use test_harness::presets::LEDGER_PROTOCOL_VERSION;
 
     /// The largest supply the pool admits is the entry ceiling, an eighth of
@@ -383,7 +384,7 @@ mod fee_headroom {
     /// keeps that ordering covered on an injected state).
     #[test]
     fn liquidation_fee_books_in_full_at_the_entry_ceiling() {
-        let env = Env::default();
+        let env = new_env();
         env.mock_all_auths();
         env.ledger().with_mut(|info| {
             info.protocol_version = LEDGER_PROTOCOL_VERSION;

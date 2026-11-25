@@ -15,7 +15,7 @@ use soroban_sdk::{
     contract, contractimpl, contracttype, symbol_short, token, vec, Address, Bytes, Env, IntoVal,
     Symbol, TryFromVal, Val, Vec,
 };
-use test_harness::{hub_asset, LendingTest, ALICE};
+use test_harness::{hub_asset, new_env, LendingTest, ALICE};
 
 const SWAP_IN_USDC: i128 = 50_000_000_000; // 5 000 USDC, 7 decimals
 const FAIR_OUT_ETH: i128 = 25_000_000; // 2.5 ETH at $2 000
@@ -321,7 +321,7 @@ fn contract_fn(
 
 #[test]
 fn source_account_credentials_bind_the_rogue_transfer_to_the_tree_without_an_entry_signature() {
-    let env = Env::default();
+    let env = new_env();
     let account = AccountId(PublicKey::PublicKeyTypeEd25519(Uint256([7; 32])));
     env.host()
         .set_source_account(account.clone())

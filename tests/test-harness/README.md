@@ -46,6 +46,8 @@ t.borrow(ALICE, "ETH", 1.0);
 
 `LendingTest::new()` returns a `LendingTestBuilder`. Chain `with_market(preset)`, fixture helpers (`standard_two_asset`, `three_asset_usdc_eth_wbtc`, …), then `.build()`.
 
+`.build()` creates its `Env` with `new_env()`. Use `new_env()` and `env_from_ledger_snapshot()` for any other test `Env`. They write no `test_snapshots/` JSON file when the `Env` is dropped. The SDK default writes the whole ledger and auth tree of every test, and that made the suite about 3× slower. Set `HARNESS_TEST_SNAPSHOTS=1` to write the files again.
+
 ### Features
 
 | Feature | Default | Purpose |

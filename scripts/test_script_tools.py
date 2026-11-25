@@ -128,7 +128,7 @@ sys.exit(42 if mode=='harness' and 'test-harness' in args else 0)
             self.assertEqual(result.returncode == 0, failure == '', result.stdout + result.stderr)
             self.assertNotIn('(ignored)', result.stderr)
 
-    def mutation_case(self, statuses=(2, 3, 0), names=None, target='mutants-common', extra='', mode='', config_extra='', empty_diff=False):
+    def mutation_case(self, statuses=(2, 3, 0), names=None, target='mutants-common', extra='', mode='', config_extra='', empty_diff=False, make_args=()):
         case = Path(tempfile.mkdtemp(dir=self.base))
         (case / 'scripts').symlink_to(ROOT / 'scripts', target_is_directory=True)
         (case / '.cargo').mkdir()
@@ -217,7 +217,7 @@ sys.exit(status)
         command = ['make', '-f', str(ROOT / 'Makefile'), '-o', '_mutants-check', '-o', '_mutants-harness-prepare',
             target, 'MUTANTS_RUN_MODE=--in-place', 'MUTANTS_SHARD=0/2', 'MUTANTS_FILTER=--re . --exclude-re never',
             'MUTANTS_EXTRA_ARGS=--output reports --baseline skip --profile dev --cargo-test-arg=--exact '
-            '--cargo-arg --config=net.offline=true ' + extra]
+            '--cargo-arg --config=net.offline=true ' + extra, *make_args]
         result = subprocess.run(command, cwd=case, env=env, capture_output=True, text=True)
         log = case / 'calls.jsonl'
         calls = [json.loads(line) for line in (log.read_text() if log.exists() else '').splitlines()]
@@ -348,6 +348,239 @@ sys.exit(status)
             _, result, calls = self.mutation_case((0,), names=[name], target='mutants-controller-core')
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             self.assertEqual(len(calls), 1)
+
+    def test_mutation_pass_replaces_run_wide_workers_and_timeout(self):
+        import run_mutants
+        head = ['--package', 'controller', '-j', '3', '--jobserver-tasks', '3', '--minimum-test-timeout', '600',
+                '--cargo-arg', '-j', '--timeout=9', '-j4']
+        self.assertEqual(run_mutants.pass_head(head, ['--test-package', 'controller', '--cargo-test-arg', '-j']), head)
+        self.assertEqual(run_mutants.pass_head(head, ['--jobs=1', '--minimum-test-timeout', '1800', '-t', '5']),
+                         ['--package', 'controller', '--jobserver-tasks', '3', '--cargo-arg', '-j'])
+        self.assertEqual(run_mutants.pass_head(head, ['--jobserver-tasks=2']),
+                         ['--package', 'controller', '-j', '3', '--minimum-test-timeout', '600',
+                          '--cargo-arg', '-j', '--timeout=9', '-j4'])
+        self.assertEqual(run_mutants.pass_head(['--package', 'x', '--test-tool=nextest'], ['--test-tool=cargo']),
+                         ['--package', 'x'])
+
+    def test_mutation_controller_retry_passes_use_threads_and_full_suite_cap(self):
+        names = [f'contracts/controller/src/strategies/swap.rs:{i}:5: replace candidate_{i} -> bool with false'
+                 for i in range(8)]
+        lane = ['MUTANTS_RUN_MODE=', 'MUTANTS_TEST_TOOL=nextest', 'MUTANTS_JOBS=3', 'MUTANTS_JOBSERVER_TASKS=3']
+
+        def values(args, flag):
+            return [args[i + 1] for i, arg in enumerate(args) if arg == flag]
+        _, result, calls = self.mutation_case((2, 0), names=names, target='mutants-controller-core',
+                                              make_args=lane)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual([len(c['names']) for c in calls], [4, 1])
+        core_first, core_full = (call['args'] for call in calls)
+        self.assertEqual(values(core_first, '-j'), ['3'])
+        self.assertEqual(values(core_full, '--minimum-test-timeout'), ['900'])
+        # Strategies start with the focused harness pass, then the full suite.
+        _, result, calls = self.mutation_case((2, 0), names=names, target='mutants-controller-strategies',
+                                              make_args=lane)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual([len(c['names']) for c in calls], [4, 1])
+
+        focused, full = (call['args'] for call in calls)
+        tools = lambda args: [arg for arg in args if arg.startswith('--test-tool')]
+        self.assertEqual(tools(core_first), ['--test-tool=cargo'])
+        self.assertIn('--cargo-test-arg=--tests', core_first)
+        self.assertNotIn('--cargo-test-arg=--test-threads=3', core_first)
+        self.assertEqual(tools(focused), ['--test-tool=nextest'])
+        self.assertEqual(tools(full), ['--test-tool=nextest'])
+        for args in (focused, full):
+            self.assertEqual(values(args, '-j'), ['1'])
+            self.assertEqual(values(args, '--jobserver-tasks'), ['3'])
+            self.assertIn('--cargo-test-arg=--test-threads=3', args)
+            self.assertFalse(any('--build-jobs' in arg for arg in args))
+        self.assertEqual(values(focused, '--minimum-test-timeout'), ['600'])
+        self.assertEqual(values(focused, '--shard'), ['0/2'])
+        self.assertEqual(values(focused, '--sharding'), ['round-robin'])
+        self.assertEqual(values(focused, '--test-package'), ['test-harness'])
+        self.assertIn('--cargo-test-arg=--no-tests=pass', focused)
+        self.assertTrue(any(arg.startswith('--cargo-test-arg=--filterset=binary_id(=test-harness::strategy)')
+                            for arg in focused))
+        self.assertEqual(values(full, '--minimum-test-timeout'), ['900'])
+        self.assertEqual(values(full, '--test-package'), ['controller', 'governance', 'test-harness'])
+        self.assertFalse(any('--filterset' in arg or '--no-tests' in arg for arg in full))
+        # Filtersets are nextest syntax: under cargo test the target keeps two passes.
+        _, result, calls = self.mutation_case((2, 0), names=names, target='mutants-controller-strategies')
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual([len(c['names']) for c in calls], [4, 1])
+        self.assertEqual(values(calls[1]['args'], '--minimum-test-timeout'), ['900'])
+        self.assertFalse(any('--filterset' in arg or '--test-threads' in arg for c in calls for arg in c['args']))
+
+    def test_mutation_focused_harness_binaries_exist(self):
+        # nextest rejects a filterset name that is not a workspace test binary,
+        # which fails the shard at its baseline. Find the wrong name offline.
+        result = subprocess.run(['make', '-n', '-o', '_mutants-check', '-o', '_mutants-harness-prepare',
+                                 'mutants-controller-strategies', 'MUTANTS_TEST_TOOL=nextest'],
+                                cwd=ROOT, capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        expression = re.search(r'--cargo-test-arg=--filterset=(\S+)', result.stdout).group(1).rstrip("'")
+        terms = expression.split('|')
+        binaries = [re.fullmatch(r'binary_id\(=test-harness::([a-z0-9_]+)\)', term) for term in terms]
+        self.assertTrue(terms and all(binaries), expression)
+        manifest = (ROOT / 'tests/test-harness/Cargo.toml').read_text()
+        self.assertNotRegex(manifest, r'autotests\s*=\s*false|\[\[test\]\]')
+        tests = ROOT / 'tests/test-harness/tests'
+        for name in (match.group(1) for match in binaries):
+            with self.subTest(binary=name):
+                self.assertTrue((tests / f'{name}.rs').is_file() or (tests / name / 'main.rs').is_file())
+
+    def test_fuzz_targets_run_in_parallel_and_report_every_crash(self):
+        binaries = self.base / 'fuzz-bin'
+        binaries.mkdir()
+        calls = self.base / 'fuzz-calls.jsonl'
+        cargo = binaries / 'cargo'
+        cargo.write_text(f'#!{sys.executable}\n' + '''
+import json, os, sys, time
+args = sys.argv[1:]
+target = next(args[i - 1] for i, arg in enumerate(args) if '/corpus/' in arg)
+start = time.monotonic()
+time.sleep(1.0)
+with open(os.environ['FUZZ_CALLS'], 'a') as log:
+    log.write(json.dumps({'target': target, 'start': start, 'end': time.monotonic(), 'args': args}) + '\\n')
+if target.startswith('crash'):
+    print(f'==1== ERROR: libFuzzer: deadly signal in {target}')
+    sys.exit(77)
+print(f'Done 100 runs in 1 second(s) for {target}')
+''')
+        cargo.chmod(0o755)
+        env = dict(os.environ, PATH=str(binaries) + os.pathsep + os.environ['PATH'], FUZZ_CALLS=str(calls))
+
+        def run(jobs):
+            calls.write_text('')
+            result = subprocess.run(['make', '-s', '-f', str(ROOT / 'Makefile'), 'fuzz', f'FUZZ_JOBS={jobs}',
+                                     'FUZZ_TARGETS=ok_a crash_b ok_c crash_d', f'FUZZ_DIR={self.base / "fuzz"}',
+                                     'FUZZ_TIME=7'], cwd=ROOT, env=env, capture_output=True, text=True)
+            rows = [json.loads(line) for line in calls.read_text().splitlines()]
+            return result, sorted(rows, key=lambda row: row['start'])
+
+        result, rows = run(4)
+        self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(sorted(row['target'] for row in rows), ['crash_b', 'crash_d', 'ok_a', 'ok_c'])
+        self.assertLess(max(row['start'] for row in rows), min(row['end'] for row in rows), 'targets must overlap')
+        for target in ('crash_b', 'crash_d'):
+            self.assertIn(f'::error::fuzz {target} crashed (exit 77):', result.stdout)
+            self.assertIn(f'deadly signal in {target}', result.stdout)
+        for target in ('ok_a', 'ok_c'):
+            self.assertIn(f'Done 100 runs in 1 second(s) for {target}', result.stdout)
+        self.assertIn('-max_total_time=7', rows[0]['args'])
+        self.assertTrue((self.base / 'fuzz/corpus/ok_a').is_dir())
+
+        result, rows = run(1)
+        self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual([row['target'] for row in rows], ['ok_a', 'crash_b', 'ok_c', 'crash_d'])
+        for earlier, later in zip(rows, rows[1:]):
+            self.assertGreaterEqual(later['start'], earlier['end'], 'FUZZ_JOBS=1 runs one target at a time')
+
+        result, rows = run(0)
+        self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
+        self.assertEqual(rows, [])
+
+    def test_mutation_state_resumes_only_the_mutants_not_caught_before(self):
+        state = self.base / 'mutation-state'
+        names = [f'common/src/math/example.rs:{i}:5: replace candidate_{i} -> bool with false' for i in range(8)]
+        # Pass 1 misses one mutant, pass 2 times it out, pass 3 catches it.
+        _, result, calls = self.mutation_case((2, 3, 0), names=names, make_args=[f'MUTANTS_SAVE_STATE={state}'])
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual([len(c['names']) for c in calls], [4, 1, 1])
+        first_scope = calls[0]['names']
+        self.assertEqual((state / 'caught.txt').read_text().splitlines(), sorted(first_scope))
+
+        # One new mutant joins the shard. Only it runs, by exact name, without --shard.
+        new = 'common/src/math/example.rs:99:5: replace fresh_candidate -> bool with false'
+        resume = [f'MUTANTS_RESUME={state}', f'MUTANTS_SAVE_STATE={state}']
+        _, result, calls = self.mutation_case((0,), names=[new] + names, make_args=resume)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual([c['names'] for c in calls], [[new]])
+        self.assertNotIn('--shard', calls[0]['args'])
+        self.assertEqual(calls[0]['config']['examine_re'], ['^' + re.escape(new) + '$'])
+        self.assertEqual(set((state / 'caught.txt').read_text().splitlines()), set(first_scope) | {new})
+
+        # Everything in scope is resolved: no mutant runs, and the run passes.
+        _, result, calls = self.mutation_case((), names=[new] + names, make_args=resume)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(calls, [])
+        self.assertIn('Nothing left to test in this scope.', result.stdout)
+
+    def test_fuzz_rustc_wrapper_drops_coverage_only_outside_the_workspace(self):
+        rustc = self.base / 'fake-rustc'
+        rustc.write_text(f'#!{sys.executable}\nimport json, os, sys\n'
+                         'print(json.dumps([os.environ.get("WRAPPED", ""), *sys.argv[1:]]))\n')
+        rustc.chmod(0o755)
+        coverage = ['-Cpasses=sancov-module', '-Cllvm-args=-sanitizer-coverage-level=4',
+                    '-C', 'llvm-args=-sanitizer-coverage-inline-8bit-counters', '-C', 'passes=sancov-module']
+        kept = ['-Zsanitizer=address', '-Cdebug-assertions', '-C', 'overflow-checks', '--cfg', 'fuzzing']
+
+        def wrap(source, env=None):
+            result = subprocess.run(['bash', str(ROOT / 'scripts/fuzz_rustc_wrapper.sh'), str(rustc),
+                                     '--crate-name', 'x', source, *coverage, *kept],
+                                    env=dict(os.environ, **(env or {})), capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            return json.loads(result.stdout)
+
+        registry = '/home/u/.cargo/registry/src/index.crates.io-1/soroban-env-host-1/src/lib.rs'
+        self.assertEqual(wrap(registry)[1:], ['--crate-name', 'x', registry, *kept])
+        workspace = str(ROOT / 'contracts/pool/src/lib.rs')
+        self.assertEqual(wrap(workspace)[1:], ['--crate-name', 'x', workspace, *coverage, *kept])
+        chained = self.base / 'next-wrapper'
+        chained.write_text('#!/usr/bin/env bash\nWRAPPED=next exec "$@"\n')
+        chained.chmod(0o755)
+        self.assertEqual(wrap(registry, {'FUZZ_NEXT_RUSTC_WRAPPER': str(chained)})[0], 'next')
+
+    def test_mutation_lib_only_passes_test_packages_without_other_test_targets(self):
+        # `--lib` builds and runs only the library's unit tests. On a package with
+        # integration-test targets it would skip those tests without a sign.
+        import shlex
+        import tomllib
+        lib_only = set()
+        for manifest in ROOT.glob('*/**/Cargo.toml'):
+            if 'target' in manifest.parts or 'vendor' in manifest.parts:
+                continue
+            data = tomllib.loads(manifest.read_text())
+            package = data.get('package', {})
+            if package.get('autotests') is False and not any(data.get(k) for k in ('test', 'bench', 'example')):
+                lib_only.add(package['name'])
+        self.assertTrue({'common', 'controller', 'pool', 'governance'} <= lib_only)
+        targets = re.findall(r'^(mutants-[a-z0-9-]+):', (ROOT / 'Makefile').read_text(), re.M)
+        checked = 0
+        for target in sorted(set(targets) - {'mutants-diff'}):
+            result = subprocess.run(['make', '-n', '-o', '_mutants-check', '-o', '_mutants-harness-prepare', target,
+                                     'MUTANTS_TEST_TOOL=nextest'], cwd=ROOT, capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            for line in result.stdout.splitlines():
+                if 'run_mutants.py' not in line:
+                    continue
+                words = shlex.split(line.replace('\\', ' '))
+                split = words.index('--')
+                head, runner = words[split + 1:], words[:split]
+                stages = [shlex.split(w.split('=', 1)[1]) for w in runner if w.startswith('--pass=')] or [[]]
+                for stage in stages:
+                    args = stage + head
+                    if '--cargo-arg=--lib' not in args:
+                        continue
+                    source = stage if '--test-package' in stage else head
+                    packages = {source[i + 1] for i, w in enumerate(source) if w == '--test-package'}
+                    with self.subTest(target=target, stage=stage):
+                        self.assertTrue(packages)
+                        self.assertLessEqual(packages, lib_only)
+                    checked += 1
+        self.assertGreater(checked, 5)
+
+    def test_fuzz_wasm_builds_every_module_the_fuzz_and_proptest_code_loads(self):
+        loaded = set()
+        for root in ('tests/fuzz/fuzz_targets', 'tests/fuzz/src', 'tests/test-harness/src',
+                     'tests/test-harness/tests/fuzz'):
+            for path in (ROOT / root).rglob('*.rs'):
+                loaded |= set(re.findall(r'\b([a-z0-9_]+)\.wasm\b', path.read_text()))
+        packages = re.search(r'^FUZZ_WASM_PACKAGES := (.+)$', (ROOT / 'Makefile').read_text(), re.M).group(1).split()
+        self.assertTrue(loaded)
+        self.assertEqual({name.replace('_', '-') for name in loaded}, set(packages))
+        for package in packages:
+            self.assertTrue(list(ROOT.glob(f'*/{package}/Cargo.toml')), package)
 
     def test_proptest_one_rejects_missing_matches_and_propagates_failures(self):
         binaries = self.base / 'bin'

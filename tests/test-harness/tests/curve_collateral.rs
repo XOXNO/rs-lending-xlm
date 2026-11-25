@@ -34,7 +34,7 @@ use soroban_sdk::{
     TryIntoVal, Vec,
 };
 use test_harness::{
-    hub_asset,
+    env_from_ledger_snapshot, hub_asset,
     mock_redstone::{MockRedStonePriceFeed, MockRedStonePriceFeedClient},
     usdc_preset, LendingTest, DEFAULT_MARKET_PARAMS, HARNESS_HUB, HARNESS_SPOKE,
 };
@@ -574,7 +574,7 @@ fn curve_lp_liquidation_worst_case_all_wasm() {
     ] {
         // A fresh env has no native dispatch, so a native contract on the
         // path would fail the call instead of running unmetered.
-        let env = Env::from_ledger_snapshot(snapshot.clone());
+        let env = env_from_ledger_snapshot(snapshot.clone());
         env.host().set_module_cache(module_cache.clone()).unwrap();
         env.cost_estimate().disable_resource_limits();
         let rebind = |address: &Address| -> Address {

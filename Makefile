@@ -55,7 +55,7 @@ SHELL := /bin/bash
         mutants-controller-strategies mutants-controller-views \
         mutants-aggregator mutants-oracle-adapter mutants-swap-aggregator \
         mutants-defindex-strategy mutants-position-nft \
-        fuzz fuzz-contract fuzz-one fuzz-build fuzz-seed-corpus \
+        fuzz fuzz-contract fuzz-one fuzz-build fuzz-seed-corpus fuzz-wasm \
         fuzz-coverage fuzz-coverage-all fuzz-coverage-one fuzz-coverage-clean \
         proptest proptest-one proptest-build \
         keygen deploy-testnet deploy-mainnet upgrade-controller upgrade-governance upgrade-pool upgrade-price-aggregator upgrade-all _deploy \
@@ -827,7 +827,10 @@ MUTANTS_DIFF_FILE ?= pr.diff
 
 
 MUTANTS_JOB_ARGS = $(if $(filter --in-place,$(MUTANTS_RUN_MODE)),,-j $(MUTANTS_JOBS))
-MUTANTS_SHARD_ARGS = $(if $(MUTANTS_SHARD),--shard $(MUTANTS_SHARD))
+# Round-robin deals mutant i to shard i % k, so every shard gets a mix of
+# files. The default slices keep a file together: one common shard got
+# most of math/fp.rs and ran 36 min against 24-25 min for the others.
+MUTANTS_SHARD_ARGS = $(if $(MUTANTS_SHARD),--shard $(MUTANTS_SHARD) --sharding round-robin)
 
 
 
@@ -836,6 +839,19 @@ MUTANTS_JOBSERVER_ARGS = $(if $(MUTANTS_JOBSERVER_TASKS),--jobserver-tasks $(MUT
 
 MUTANTS_TEST_TOOL ?=
 MUTANTS_TEST_TOOL_ARGS = $(if $(MUTANTS_TEST_TOOL),--test-tool=$(MUTANTS_TEST_TOOL),)
+
+# A retry pass runs each survivor against the slow harness suites. Under
+# nextest it tests one mutant at a time and gives the lane's workers to test
+# threads, so a survivor finishes inside its cap. The build of that one mutant
+# already takes every jobserver token.
+MUTANTS_RETRY_THREADS ?= $(or $(MUTANTS_JOBSERVER_TASKS),$(MUTANTS_JOBS))
+MUTANTS_RETRY_ARGS = $(if $(filter nextest,$(MUTANTS_TEST_TOOL)),\
+	$(if $(filter --in-place,$(MUTANTS_RUN_MODE)),,-j 1) \
+	--cargo-test-arg=--test-threads=$(MUTANTS_RETRY_THREADS))
+# The cap for one survivor's run of every controller, governance and harness
+# test: about 1800 tests and 170 s of CPU on a quiet host. A hung mutant
+# costs the whole cap, so keep it a few times the suite time, not more.
+MUTANTS_FULL_SUITE_TIMEOUT ?= 900
 
 
 
@@ -888,20 +904,35 @@ MUTANTS_ENV = PROPTEST_CASES=1 PROPTEST_RNG_SEED=0 \
 	PRODUCTION_FIXTURE_WASM_PATH="$(MUTANTS_PRODUCTION_FIXTURE_WASM)" \
 	STRESS_BUDGET_WASM_DIR="$(MUTANTS_STRESS_WASM_DIR)"
 
+# Nightly mutation state. MUTANTS_SAVE_STATE writes the caught and unviable
+# mutants to a directory; MUTANTS_RESUME skips the ones that a directory
+# lists. CI resumes on weeknights and tests the whole scope on Sunday.
+MUTANTS_RESUME ?=
+MUTANTS_SAVE_STATE ?=
+MUTANTS_STATE_ARGS = $(if $(MUTANTS_RESUME),--resume $(MUTANTS_RESUME)) \
+	$(if $(MUTANTS_SAVE_STATE),--save-state $(MUTANTS_SAVE_STATE))
+
 define run_mutants
-	$(MUTANTS_ENV) python3 scripts/run_mutants.py --label "$@" -- \
+	$(MUTANTS_ENV) python3 scripts/run_mutants.py --label "$@" $(MUTANTS_STATE_ARGS) -- \
+		$(MUTANTS_RUN_MODE) $(1) --minimum-test-timeout $(MUTANTS_TIMEOUT) $(MUTANTS_RUN_ARGS)
+endef
+
+# One pass of light unit tests. Under nextest it runs on `cargo test`; see
+# MUTANTS_UNIT_TOOL_ARGS. An empty pass keeps the run-wide test tool.
+define run_mutants_unit
+	$(MUTANTS_ENV) python3 scripts/run_mutants.py --label "$@" $(MUTANTS_STATE_ARGS) --pass='$(MUTANTS_UNIT_TOOL_ARGS)' -- \
 		$(MUTANTS_RUN_MODE) $(1) --minimum-test-timeout $(MUTANTS_TIMEOUT) $(MUTANTS_RUN_ARGS)
 endef
 
 # Test-package choices stay explicit here; the runner owns retry selection and status handling.
 define run_mutants_two_pass
-	$(MUTANTS_ENV) python3 scripts/run_mutants.py --label "$@" \
+	$(MUTANTS_ENV) python3 scripts/run_mutants.py --label "$@" $(MUTANTS_STATE_ARGS) \
 		--pass='$(2)' --pass='$(3)' -- $(MUTANTS_RUN_MODE) $(1) \
 		--minimum-test-timeout $(MUTANTS_TIMEOUT) $(MUTANTS_RUN_ARGS)
 endef
 
 define run_mutants_five_pass
-	$(MUTANTS_ENV) python3 scripts/run_mutants.py --label "$@" \
+	$(MUTANTS_ENV) python3 scripts/run_mutants.py --label "$@" $(MUTANTS_STATE_ARGS) \
 		--pass='$(2)' --pass='$(3)' --pass='$(4)' --pass='$(5)' --pass='$(6)' \
 		-- $(MUTANTS_RUN_MODE) $(1) --minimum-test-timeout $(MUTANTS_TIMEOUT) $(MUTANTS_RUN_ARGS)
 endef
@@ -976,8 +1007,8 @@ mutants: mutants-common mutants-pool mutants-governance \
 mutants-math: MUTANTS_TIMEOUT = 120
 mutants-math: _mutants-check
 	$(call run_mutants_two_pass,--package common --file 'common/src/math/**',\
-		--test-package common,\
-		--test-package common --cargo-test-arg test_mul_div_floor_saturating_saturates_toward_the_sign_of_the_quotient)
+		--test-package common $(MUTANTS_LIB_ARGS),\
+		--test-package common $(MUTANTS_LIB_ARGS) --cargo-test-arg test_mul_div_floor_saturating_saturates_toward_the_sign_of_the_quotient)
 
 mutants-rates: _mutants-check
 	$(call run_mutants,--package common --file 'common/src/rates/**')
@@ -993,30 +1024,58 @@ mutants-pool-interest: _mutants-check
 # simulations. Retry survivors against the direct bound assertions.
 mutants-common: _mutants-harness-prepare
 	$(call run_mutants_five_pass,--package common,\
-		--test-package common,\
+		--test-package common $(MUTANTS_LIB_ARGS),\
 		--test-package common --test-package controller --test-package pool \
-		--test-package governance,\
+		--test-package governance $(MUTANTS_LIB_ARGS),\
 		--test-package common --test-package controller --test-package pool \
 		--test-package governance --test-package test-harness,\
-		--test-package common --cargo-test-arg max_borrow_rate_is_two_ray,\
-		--test-package common --cargo-test-arg test_rate_model_verify_accepts_valid)
+		--test-package common $(MUTANTS_LIB_ARGS) --cargo-test-arg max_borrow_rate_is_two_ray,\
+		--test-package common $(MUTANTS_LIB_ARGS) --cargo-test-arg test_rate_model_verify_accepts_valid)
 
 
 
 mutants-pool: _mutants-check
-	$(call run_mutants,--package pool --test-package pool)
+	$(call run_mutants,--package pool --test-package pool $(MUTANTS_LIB_ARGS))
 
 mutants-governance: _mutants-harness-prepare
 
 
-	$(call run_mutants,--package governance \
-		--test-package governance)
+	$(call run_mutants_unit,--package governance \
+		--test-package governance $(MUTANTS_LIB_ARGS))
 
 
 
-CONTROLLER_FAST_TESTS = --test-package controller
+# common, controller, pool and governance mount every test inside the
+# library (autotests = false, no test targets). For a pass that tests only
+# those packages, `--lib` builds just the unit-test binary: a plain build
+# also compiles the library again and links its cdylib, which no test runs.
+# The script tests check that every pass with `--lib` tests only such packages.
+MUTANTS_LIB_ARGS = --cargo-arg=--lib
+
+# Under nextest, run a light unit-test pass as one `cargo test` process per
+# binary. nextest starts one process per test, and for the 413 controller unit
+# tests that start-up takes more than half of the run. `--tests` skips the
+# doctest step. Keep nextest for a heavy suite: it stops at the first failing
+# test, and `cargo test` runs every test of the binary.
+MUTANTS_UNIT_TOOL_ARGS = $(if $(filter nextest,$(MUTANTS_TEST_TOOL)),--test-tool=cargo --cargo-test-arg=--tests)
+CONTROLLER_FAST_TESTS = --test-package controller $(MUTANTS_LIB_ARGS) $(MUTANTS_UNIT_TOOL_ARGS)
 CONTROLLER_FULL_TESTS = --test-package controller --test-package governance \
-	--test-package test-harness
+	--test-package test-harness $(MUTANTS_RETRY_ARGS) \
+	--minimum-test-timeout $(MUTANTS_FULL_SUITE_TIMEOUT)
+# Test binaries run in name order, so `strategy` is near the end of the full
+# suite. These harness binaries catch most strategy mutants, so a nextest
+# pass runs them first. The filter also reaches the clean-tree baseline, which
+# tests only `controller`: there it selects no test, and `--no-tests=pass`
+# keeps that baseline green. nextest rejects a name that is not a workspace
+# test binary, so a wrong name fails the baseline instead of a mutant.
+MUTANTS_EMPTY :=
+MUTANTS_SPACE := $(MUTANTS_EMPTY) $(MUTANTS_EMPTY)
+CONTROLLER_STRATEGY_BINARIES = strategy strategy_origination_fee_parity \
+	strategy_solvency_gate_rollback poc_multiply_reentrancy composition fuzz
+CONTROLLER_STRATEGY_FILTER = $(subst $(MUTANTS_SPACE),|,$(strip \
+	$(foreach binary,$(CONTROLLER_STRATEGY_BINARIES),binary_id(=test-harness::$(binary)))))
+CONTROLLER_STRATEGY_TESTS = --test-package test-harness $(MUTANTS_RETRY_ARGS) \
+	--cargo-test-arg=--no-tests=pass --cargo-test-arg=--filterset=$(CONTROLLER_STRATEGY_FILTER)
 
 
 mutants-controller-core: _mutants-harness-prepare
@@ -1035,9 +1094,16 @@ mutants-controller-positions: _mutants-harness-prepare
 	$(call run_mutants_two_pass,--package controller --file 'contracts/controller/src/positions/**',\
 		$(CONTROLLER_FAST_TESTS),$(CONTROLLER_FULL_TESTS))
 
+# Under nextest the focused harness pass comes first. The controller unit
+# tests caught 7 and 12 of the 44 mutants of each shard and cost a 19-minute
+# pass; the focused pass caught every survivor. The full pass still runs the
+# controller unit tests.
 mutants-controller-strategies: _mutants-harness-prepare
-	$(call run_mutants_two_pass,--package controller --file 'contracts/controller/src/strategies/**',\
-		$(CONTROLLER_FAST_TESTS),$(CONTROLLER_FULL_TESTS))
+	$(if $(filter nextest,$(MUTANTS_TEST_TOOL)),\
+		$(call run_mutants_two_pass,--package controller --file 'contracts/controller/src/strategies/**',\
+			$(CONTROLLER_STRATEGY_TESTS),$(CONTROLLER_FULL_TESTS)),\
+		$(call run_mutants_two_pass,--package controller --file 'contracts/controller/src/strategies/**',\
+			$(CONTROLLER_FAST_TESTS),$(CONTROLLER_FULL_TESTS)))
 
 mutants-controller-views: _mutants-harness-prepare
 	$(call run_mutants_two_pass,--package controller --file 'contracts/controller/src/views.rs',\
@@ -1062,7 +1128,7 @@ mutants-diff: _mutants-harness-prepare
 
 
 mutants-aggregator: _mutants-check
-	$(call run_mutants,--package price-aggregator --test-package price-aggregator --features testing)
+	$(call run_mutants_unit,--package price-aggregator --test-package price-aggregator --features testing)
 
 mutants-oracle-adapter: _mutants-check
 	$(call run_mutants,--package xoxno-oracle --test-package xoxno-oracle)
@@ -1075,13 +1141,13 @@ mutants-swap-aggregator: _mutants-check
 
 
 mutants-defindex-strategy: _mutants-harness-prepare
-	$(call run_mutants,--package defindex-strategy --test-package defindex-strategy)
+	$(call run_mutants_unit,--package defindex-strategy --test-package defindex-strategy)
 
 mutants-position-nft: _mutants-check
-	$(call run_mutants,--package position-nft --test-package position-nft)
+	$(call run_mutants_unit,--package position-nft --test-package position-nft)
 
 mutants-curator: _mutants-check
-	$(call run_mutants,--package curator --test-package curator)
+	$(call run_mutants_unit,--package curator --test-package curator)
 
 
 
@@ -1127,33 +1193,63 @@ else
 
 
   FUZZ_HOST = $(shell rustc -vV | sed -n 's/^host: //p')
-  FUZZ_FLAGS = --target $(FUZZ_HOST)
+  FUZZ_FLAGS = --target $(FUZZ_HOST) --sanitizer=$(FUZZ_SANITIZER) \
+	$(if $(filter yes,$(FUZZ_TRACE_COMPARES)),,--no-trace-compares)
 endif
 
+# libFuzzer sanitizer on Linux. `none` runs the contract targets about 5x
+# faster than `address`: the fuzzed crates have no unsafe code, and panics,
+# debug assertions and overflow checks fire without ASan. The weekly long run
+# uses `address` for the unsafe code in the dependencies.
+FUZZ_SANITIZER ?= none
+# Comparison tracing (`yes`) and coverage of every crate (`all`) guide a long
+# campaign better, but cost runs: in 90 s on the same seeds, dropping tracing
+# gave 1.7-3.3x more runs at equal coverage, and coverage of the workspace
+# crates only (scripts/fuzz_rustc_wrapper.sh) another 1.1-4.5x. The weekly CI
+# campaign uses `yes` and `all`.
+FUZZ_TRACE_COMPARES ?= no
+FUZZ_COVERAGE_SCOPE ?= workspace
+FUZZ_CARGO_ENV = $(if $(filter workspace,$(FUZZ_COVERAGE_SCOPE)),\
+	FUZZ_NEXT_RUSTC_WRAPPER='$(RUSTC_WRAPPER)' RUSTC_WRAPPER='$(CURDIR)/scripts/fuzz_rustc_wrapper.sh')
+FUZZ_LIBFUZZER_ARGS = -max_total_time=$(FUZZ_TIME) -max_len=$(FUZZ_MAX_LEN) -len_control=$(FUZZ_LEN_CONTROL)
+
+
+# Targets run FUZZ_JOBS at a time; each libFuzzer process uses one core.
+FUZZ_JOBS ?= 1
+FUZZ_RUN = $(FUZZ_CARGO_ENV) FUZZ_DIR='$(FUZZ_DIR)' FUZZ_FLAGS='$(FUZZ_FLAGS)' FUZZ_TIME='$(FUZZ_TIME)' \
+	FUZZ_MAX_LEN='$(FUZZ_MAX_LEN)' FUZZ_LEN_CONTROL='$(FUZZ_LEN_CONTROL)' FUZZ_JOBS='$(FUZZ_JOBS)' \
+	bash scripts/run_fuzz_targets.sh
 
 fuzz:
-	@set -o pipefail; for t in $(FUZZ_TARGETS); do \
-		echo "=== $$t ==="; \
-		mkdir -p $(FUZZ_DIR)/corpus/$$t; \
-		cargo +nightly fuzz run --fuzz-dir $(FUZZ_DIR) $(FUZZ_FLAGS) $$t $(FUZZ_DIR)/corpus/$$t $(FUZZ_DIR)/seeds/$$t -- -max_total_time=$(FUZZ_TIME) -max_len=$(FUZZ_MAX_LEN) -len_control=$(FUZZ_LEN_CONTROL) 2>&1 | tee /tmp/fuzz-$$t.log | tail -3 || { echo "::error::fuzz $$t crashed:"; tail -80 /tmp/fuzz-$$t.log; exit 1; }; \
-	done
+	@$(FUZZ_RUN) $(FUZZ_TARGETS)
 
 
 fuzz-contract:
-	@set -o pipefail; for t in $(FUZZ_CONTRACT_TARGETS); do \
-		echo "=== $$t ==="; \
-		mkdir -p $(FUZZ_DIR)/corpus/$$t; \
-		cargo +nightly fuzz run --fuzz-dir $(FUZZ_DIR) $(FUZZ_FLAGS) $$t $(FUZZ_DIR)/corpus/$$t $(FUZZ_DIR)/seeds/$$t -- -max_total_time=$(FUZZ_TIME) -max_len=$(FUZZ_MAX_LEN) -len_control=$(FUZZ_LEN_CONTROL) 2>&1 | tee /tmp/fuzz-$$t.log | tail -3 || { echo "::error::fuzz $$t crashed:"; tail -80 /tmp/fuzz-$$t.log; exit 1; }; \
-	done
+	@$(FUZZ_RUN) $(FUZZ_CONTRACT_TARGETS)
 
 
+# With FUZZ_BIN_DIR set, fuzz-one runs the prebuilt binary $(FUZZ_BIN_DIR)/$(TARGET).
+# cargo fuzz would rebuild it from a target directory the job does not have.
 fuzz-one:
-	@mkdir -p $(FUZZ_DIR)/corpus/$(TARGET)
-	@cargo +nightly fuzz run --fuzz-dir $(FUZZ_DIR) $(FUZZ_FLAGS) $(TARGET) $(FUZZ_DIR)/corpus/$(TARGET) $(FUZZ_DIR)/seeds/$(TARGET) -- -max_total_time=$(FUZZ_TIME) -max_len=$(FUZZ_MAX_LEN) -len_control=$(FUZZ_LEN_CONTROL)
+	@mkdir -p $(FUZZ_DIR)/corpus/$(TARGET) $(FUZZ_DIR)/artifacts/$(TARGET)
+ifeq ($(strip $(FUZZ_BIN_DIR)),)
+	@$(FUZZ_CARGO_ENV) cargo +nightly fuzz run --fuzz-dir $(FUZZ_DIR) $(FUZZ_FLAGS) $(TARGET) $(FUZZ_DIR)/corpus/$(TARGET) $(FUZZ_DIR)/seeds/$(TARGET) -- $(FUZZ_LIBFUZZER_ARGS)
+else
+	@$(FUZZ_BIN_DIR)/$(TARGET) $(FUZZ_LIBFUZZER_ARGS) -artifact_prefix=$(FUZZ_DIR)/artifacts/$(TARGET)/ $(FUZZ_DIR)/corpus/$(TARGET) $(FUZZ_DIR)/seeds/$(TARGET)
+endif
 
 
 fuzz-build:
-	@cargo +nightly fuzz build --fuzz-dir $(FUZZ_DIR) $(FUZZ_FLAGS)
+	@$(FUZZ_CARGO_ENV) cargo +nightly fuzz build --fuzz-dir $(FUZZ_DIR) $(FUZZ_FLAGS)
+
+# The WASM modules that the fuzz targets and the proptest suite load. A full
+# `stellar contract build` also builds every other contract and mock.
+FUZZ_WASM_PACKAGES := pool position-nft flash-loan-receiver
+
+fuzz-wasm:
+	@for package in $(FUZZ_WASM_PACKAGES); do \
+		stellar contract build --package $$package || exit 1; \
+	done
 
 
 
@@ -1210,9 +1306,13 @@ PROPTEST_ENV = $(if $(strip $(PROPTEST_CASES)),PROPTEST_CASES=$(PROPTEST_CASES),
 
 
 
+# Properties run one at a time unless PROPTEST_THREADS is set. The cases of
+# one property always run in sequence.
+PROPTEST_THREADS ?= 1
+
 proptest:
 	@echo "=== fuzz (proptest) ==="
-	@$(PROPTEST_ENV) cargo test --release -p test-harness --test fuzz -- --test-threads=1
+	@$(PROPTEST_ENV) cargo test --release -p test-harness --test fuzz -- --test-threads=$(PROPTEST_THREADS)
 
 
 proptest-one:
@@ -2264,9 +2364,10 @@ help-build:
 help-verify:
 	$(call H1,Deep verification)
 	$(call ROW,make miri-all,Miri UB on pure-i128 math)
-	$(call ROW,make fuzz,libFuzzer math (FUZZ_TIME=60))
+	$(call ROW,make fuzz,libFuzzer math (FUZZ_TIME=60 FUZZ_JOBS=1))
 	$(call ROW,make fuzz-contract,libFuzzer contract flows)
-	$(call ROW,make proptest,properties (PROPTEST_CASES=N))
+	$(call ROW,make fuzz-wasm,the WASM the fuzz and proptest suites load)
+	$(call ROW,make proptest,properties (PROPTEST_CASES=N PROPTEST_THREADS=1))
 	$(call ROW,make mutants,full mutation suite)
 	$(call ROW,make mutants-math,focused math (+ -rates | -pool-interest))
 	$(call ROW,make scout,Scout audit (scout-strict gates incomplete))

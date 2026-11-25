@@ -23,6 +23,7 @@ mod revenue;
 mod script_runner;
 mod setup;
 mod strategy;
+mod test_env;
 mod time;
 mod view;
 pub mod wasm;
