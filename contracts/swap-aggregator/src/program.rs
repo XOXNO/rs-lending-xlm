@@ -204,12 +204,7 @@ impl Program {
             panic_with_error!(env, Error::InvalidRouteXdr);
         }
 
-        // The high bit distinguishes reverse v2 from the retired testnet fixed-payout format.
-        let count = buf[head::OP_COUNT];
-        if (count & 0x80 != 0) != (buf[head::VERSION] == FIXED_OUT_VERSION) {
-            panic_with_error!(env, Error::InvalidRouteXdr);
-        }
-        let op_count = u32::from(count & 0x7f);
+        let op_count = u32::from(buf[head::OP_COUNT]);
         let weight_count = buf[head::WEIGHT_COUNT] as u32;
         if op_count == 0 || op_count > MAX_OPS || weight_count > MAX_WEIGHTS {
             panic_with_error!(env, Error::EmptyBatch);

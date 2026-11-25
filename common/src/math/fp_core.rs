@@ -147,15 +147,24 @@ pub fn try_mul_div_half_up(env: &Env, x: i128, y: i128, d: i128) -> Option<i128>
 /// `GenericError::MathOverflow` if the result does not fit in `i128`.
 pub fn mul_div_floor(env: &Env, x: i128, y: i128, d: i128) -> i128 {
     require_nonzero_divisor(env, d);
+    try_mul_div_floor(env, x, y, d)
+        .unwrap_or_else(|| panic_with_error!(env, GenericError::MathOverflow))
+}
+
+/// Returns `None` for a zero divisor or an unrepresentable quotient.
+pub(super) fn try_mul_div_floor(env: &Env, x: i128, y: i128, d: i128) -> Option<i128> {
+    if d == 0 {
+        return None;
+    }
     if let Some(quotient) = x
         .checked_mul(y)
         .and_then(|product| div_floor_i128(product, d))
     {
-        return quotient;
+        return Some(quotient);
     }
     let (x256, y256, d256) = to_i256_operands(env, x, y, d);
     let nonneg = quotient_is_nonnegative(x, y, d);
-    to_i128(env, &div_floor_i256(env, &x256.mul(&y256), &d256, nonneg))
+    div_floor_i256(env, &x256.mul(&y256), &d256, nonneg).to_i128()
 }
 
 /// Computes `ceil(x * y / d)`, rounding toward positive infinity for a positive quotient and
@@ -163,15 +172,24 @@ pub fn mul_div_floor(env: &Env, x: i128, y: i128, d: i128) -> i128 {
 /// `d == 0`, or with `GenericError::MathOverflow` if the result does not fit in `i128`.
 pub fn mul_div_ceil(env: &Env, x: i128, y: i128, d: i128) -> i128 {
     require_nonzero_divisor(env, d);
+    try_mul_div_ceil(env, x, y, d)
+        .unwrap_or_else(|| panic_with_error!(env, GenericError::MathOverflow))
+}
+
+/// Returns `None` for a zero divisor or an unrepresentable quotient.
+pub(super) fn try_mul_div_ceil(env: &Env, x: i128, y: i128, d: i128) -> Option<i128> {
+    if d == 0 {
+        return None;
+    }
     if let Some(quotient) = x
         .checked_mul(y)
         .and_then(|product| div_ceil_i128(product, d))
     {
-        return quotient;
+        return Some(quotient);
     }
     let (x256, y256, d256) = to_i256_operands(env, x, y, d);
     let nonneg = quotient_is_nonnegative(x, y, d);
-    to_i128(env, &div_ceil_i256(env, &x256.mul(&y256), &d256, nonneg))
+    div_ceil_i256(env, &x256.mul(&y256), &d256, nonneg).to_i128()
 }
 
 /// Computes `floor(x * y / d)`, saturating to `i128::MAX` (or `i128::MIN` for a negative
@@ -293,13 +311,6 @@ pub fn div_by_int_half_up(env: &Env, a: i128, b: i128) -> i128 {
     } else {
         quotient
     }
-}
-
-/// Converts an `I256` to `i128`, panicking with `GenericError::MathOverflow` if it does not
-/// fit.
-fn to_i128(env: &Env, val: &I256) -> i128 {
-    val.to_i128()
-        .unwrap_or_else(|| panic_with_error!(env, GenericError::MathOverflow))
 }
 
 #[cfg(test)]

@@ -77,7 +77,7 @@ fn reverse_split_prices_hops_backwards_and_refunds_the_input_cap() {
         ops: Bytes::from_slice(
             &env,
             &[
-                2, 0, 2, 0, 0, 0, 0, id as u8, 0x83, 0, 1, 3, 3, 0, 1, 1, 3, 4, 1, 2, 1, 3, 5, 0, 2,
+                2, 0, 2, 0, 0, 0, 0, id as u8, 3, 0, 1, 3, 3, 0, 1, 1, 3, 4, 1, 2, 1, 3, 5, 0, 2,
             ],
         ),
     }
@@ -146,7 +146,7 @@ fn reverse_sushi_then_emulated_phoenix_refunds_source_and_accounts_for_dust() {
         ops: Bytes::from_slice(
             &env,
             &[
-                2, 0, 2, 0, 0, 0, 0, id as u8, 0x82, 0, 3, 3, 3, 0, 1, 2, 3, 4, 1, 2,
+                2, 0, 2, 0, 0, 0, 0, id as u8, 2, 0, 3, 3, 3, 0, 1, 2, 3, 4, 1, 2,
             ],
         ),
     };

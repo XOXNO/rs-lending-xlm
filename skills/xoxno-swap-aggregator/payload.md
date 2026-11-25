@@ -61,7 +61,7 @@ Layout from `program.rs`, pinned by contract and quote-server encoder tests.
 | `[2]` | 1 | `token_out` | Index into `assets`; must differ from `token_in` (`SameToken = 25`) |
 | `[3]` | 1 | `min_out` | **Index into `amounts`** of total minimum output; encoders write `0` (`amounts[0] = total_min_out`). An index, never the amount |
 | `[4..8]` | 4 | `referral_id` | `u32` big-endian; `0` = no referral, no fee |
-| `[8]` | 1 | `op_count` | Low seven bits encode `1..=48` instructions. Bit 7 must be clear for v1 and set for reverse v2. A version/flag mismatch raises `InvalidRouteXdr = 13`. |
+| `[8]` | 1 | `op_count` | Number of instructions, `1..=48` for both versions. |
 | `[9]` | 1 | `weight_count` | `0..=32` (`MAX_WEIGHTS`); above → `EmptyBatch = 1` |
 | `[10 + 5·i]` | 5 each | instruction `i` | Below |
 | `[10 + 5·op_count + 3·j]` | 3 each | weight `j` | `u24` big-endian ppm in `1..=1_000_000` (`ZeroSplitPpm = 11`, `SplitPpmMismatch = 12`) |

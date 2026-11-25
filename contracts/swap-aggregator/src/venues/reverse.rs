@@ -1,4 +1,5 @@
 use super::*;
+use common::math::fp::RatioRounding;
 fn aquarius_indices(ctx: &HopContext, cache: &mut Map<Address, Vec<Address>>) -> (u32, u32) {
     let tokens = pool_tokens(ctx.env, cache, &ctx.hop.pool, aquarius::pool::get_tokens);
     (
@@ -150,7 +151,14 @@ fn sufficient_input(env: &Env, target: i128, estimate: i128, quote: impl Fn(i128
         // Use the local slope on imbalanced pools; the average price from
         // zero can be far from the price for the final units.
         let step = if out > last_out {
-            crate::math::mul_div_ceil(env, input - last_in, target - out, out - last_out).max(1)
+            crate::math::scale_amount(
+                env,
+                input - last_in,
+                target - out,
+                out - last_out,
+                RatioRounding::Ceil,
+            )
+            .max(1)
         } else {
             (input - last_in).max(1)
         };

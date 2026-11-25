@@ -2,8 +2,9 @@
 //! its relative share among edges producing the same token. Live venue quotes
 //! determine intermediate requirements before any pool is traded.
 use super::*;
-use crate::math::{checked_add, mul_div_floor};
+use crate::math::{checked_add, scale_amount};
 use crate::types::SwapVenue;
+use common::math::fp::RatioRounding;
 
 pub(super) fn execute(
     ctx: &Ctx,
@@ -92,7 +93,7 @@ fn price_backwards(
         let target = if remaining == weight {
             need
         } else {
-            mul_div_floor(env, need, weight, remaining)
+            scale_amount(env, need, weight, remaining, RatioRounding::Floor)
         };
         if target <= 0 {
             panic_with_error!(env, Error::InvalidAmount);

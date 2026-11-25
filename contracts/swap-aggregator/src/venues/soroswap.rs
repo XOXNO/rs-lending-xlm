@@ -88,13 +88,14 @@ fn reserves(ctx: &HopContext<'_>) -> (i128, i128) {
 }
 
 pub(crate) fn required_input(ctx: &HopContext<'_>, target: i128) -> i128 {
-    use crate::math::mul_div_ceil;
+    use crate::math::scale_amount;
+    use common::math::fp::RatioRounding::Ceil;
     let (input, output) = reserves(ctx);
     if input <= 0 || output <= target {
         panic_with_error!(ctx.env, crate::errors::Error::SlippageExceeded);
     }
-    let net = mul_div_ceil(ctx.env, input, target, output - target);
-    mul_div_ceil(ctx.env, net, FEE_DEN, FEE_DEN - FEE_NUM)
+    let net = scale_amount(ctx.env, input, target, output - target, Ceil);
+    scale_amount(ctx.env, net, FEE_DEN, FEE_DEN - FEE_NUM, Ceil)
 }
 
 pub(crate) fn swap_for(ctx: &HopContext<'_>, requested_out: i128) {
