@@ -144,6 +144,14 @@ pub(crate) fn run(env: Env, sender: Address, total_in: i128, payload: StrategyPa
                 panic_with_error!(&env, Error::InvalidAmount);
             }
         }
+        fees_charged = fees::accrue_fixed_output_fees(
+            &env,
+            &mut vault,
+            fee_token,
+            referral_id,
+            total_min_out,
+            (protocol, referral),
+        );
         refund
     } else {
         let mut prev: PrevOutput = None;
@@ -156,15 +164,11 @@ pub(crate) fn run(env: Env, sender: Address, total_in: i128, payload: StrategyPa
                 &mut tokens_cache,
             );
         }
+        if !fee_on_input {
+            fees_charged = fees::apply_fees_on_token(&env, &mut vault, fee_token, referral_id);
+        }
         0
     };
-
-    if fixed_out {
-        fees_charged =
-            fees::accrue_fixed_output_fees(&env, &mut vault, fee_token, referral_id, total_min_out);
-    } else if !fee_on_input {
-        fees_charged = fees::apply_fees_on_token(&env, &mut vault, fee_token, referral_id);
-    }
 
     let payout = settle_output(
         &env,

@@ -83,8 +83,8 @@ pub(crate) fn accrue_fixed_output_fees(
     token: &Address,
     referral_id: u64,
     payout: i128,
+    (static_fee, referral_fee): (i128, i128),
 ) -> (i128, i128) {
-    let (static_fee, referral_fee) = fee_amounts(env, payout, referral_id);
     let configured_fees = checked_add(env, static_fee, referral_fee);
     let revenue = vault.balance_of(token) - payout;
     if revenue < configured_fees {
