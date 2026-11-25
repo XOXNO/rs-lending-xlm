@@ -895,11 +895,11 @@ jobs:
 
       - name: Run mutation target
 
-        # The run script unsets CARGO_INCREMENTAL: dtolnay/rust-toolchain
-        # exports CARGO_INCREMENTAL=0 to the job. Unset, Cargo builds the
-        # workspace crates incrementally, which cuts the rebuild of each mutant,
-        # and sccache still caches the registry crates. sccache refuses a build
-        # that sets CARGO_INCREMENTAL=1.
+        # The run script unsets CARGO_INCREMENTAL and CI. dtolnay/rust-toolchain
+        # exports CARGO_INCREMENTAL=0 to the job, and with CI set cargo-mutants
+        # builds without incremental compilation: a controller mutant then took
+        # 7.0 s to rebuild, against 2.9 s with CI unset. sccache still caches the
+        # registry crates; it refuses a build that sets CARGO_INCREMENTAL=1.
         env:
           CARGO_BUILD_JOBS: "1"
           CARGO_PROFILE_DEV_DEBUG: "0"
@@ -927,7 +927,7 @@ jobs:
         #
         # Elapsed time goes to the job summary to re-balance the shard counts.
         run: |
-          unset CARGO_INCREMENTAL
+          unset CARGO_INCREMENTAL CI
           start=$SECONDS
           status=0
           make "${{ matrix.target }}" \
