@@ -4624,7 +4624,7 @@ claim_aggregator_referral_fees() {
     router=$(get_aggregator_address) || die "No aggregator deployed for ${NETWORK}."
     tokens_json=$(_json_addr_vec "$@")
     echo "=== claim_referral_fees ${id} on aggregator ${router} (${NETWORK}; pays stored owner) ===" >&2
-    stellar contract invoke --instruction-leeway "${INSTRUCTION_LEEWAY:-20000000}" --id "$router" $SOURCE_FLAG --network "$NETWORK" \
+    stellar contract invoke --auth-mode non-root --instruction-leeway "${INSTRUCTION_LEEWAY:-20000000}" --id "$router" $SOURCE_FLAG --network "$NETWORK" \
         -- claim_referral_fees --id "$id" --tokens "$tokens_json"
 }
 
@@ -5897,7 +5897,7 @@ case "$1" in
         echo "  setAggregatorReferralFee <id> <fee_bps> [protocol_fee_bps|null] / setAggregatorReferralActive <id> <true|false>"
         echo "  setAggregatorReferralOwner <id> <new_owner>"
         echo "  claimAggregatorAdminFees <recipient> <token> [token...]"
-        echo "  claimAggregatorReferralFees <id> <token> [token...]  (any signer; pays stored owner)"
+        echo "  claimAggregatorReferralFees <id> <token> [token...]  (owner signs for missing trustlines; then any signer)"
         echo "  sweepAggregatorBalance <recipient> <token> [token...]"
         echo "  upgradeAggregatorHash <wasm_hash>       (make <net> upgradeAggregator builds+uploads+invokes)"
         echo "  upgradeOracleAdapterHash <wasm_hash>    (make <net> upgradeOracleAdapter builds+uploads+invokes)"

@@ -2478,7 +2478,7 @@ help-aggregator:
 	$(call NOTE,setAggregatorReferralFee ID BPS [PROTOCOL_BPS|null] | setAggregatorReferralActive ID BOOL)
 	$(call NOTE,setAggregatorReferralOwner ID NEW_OWNER)
 	$(call NOTE,claimAggregatorAdminFees RECIPIENT TOKEN...)
-	$(call NOTE,claimAggregatorReferralFees ID TOKEN...  (any signer; pays referral owner))
+	$(call NOTE,claimAggregatorReferralFees ID TOKEN...  (owner signs for missing trustlines; then any signer))
 	$(call NOTE,sweepAggregatorBalance RECIPIENT TOKEN...)
 	$(call BLANK)
 	$(call H2,Ownership (OZ Ownable two-step))

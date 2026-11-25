@@ -67,7 +67,7 @@ claim() {
 }
 if ! claim 7 CTOKEN1 CTOKEN2; then
     echo "FAIL: referral claim dispatch failed" >&2; fail=1
-elif ! diff -u <(printf '%s\n' contract invoke --instruction-leeway 20000000 \
+elif ! diff -u <(printf '%s\n' contract invoke --auth-mode non-root --instruction-leeway 20000000 \
     --id "$(jq -r '.mainnet.aggregator' "$ROOT/configs/networks.json")" \
     --source deployer --network mainnet -- claim_referral_fees --id 7 \
     --tokens '["CTOKEN1","CTOKEN2"]') "$CLAIM_ARGS_FILE"; then

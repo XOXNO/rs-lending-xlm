@@ -75,12 +75,13 @@ DEX pool and network fees are extra.
 `make mainnet addAggregatorWhitelist TOKEN` picks the preferred fee token; it
 does not restrict tradable tokens.
 
-Claim with `make mainnet claimAggregatorReferralFees ID TOKEN... SIGNER=KEY`
-from any funded signer; payment goes to the stored referral owner. A `G...`
-recipient must exist on-chain. For both admin and referral claims, the recipient
-can authorize opening a missing trustline in the claim itself and must have the
-XLM reserve for it. Once the trustlines are open, recurring referral claims need
-only the caller's signature. Issuer restrictions and trustline limits still apply.
+Use `make <network> claimAggregatorReferralFees ID TOKEN... SIGNER=KEY` for
+both first and monthly claims. Payment goes to the stored referral owner. If a
+trustline is missing, use the owner's key so they can authorize opening it in
+the same transaction. Once the trustlines are open, any funded signer can run
+the same command. For both admin and referral claims, a `G...` recipient must
+exist on-chain and have enough XLM reserve for each new trustline.
+Issuer restrictions and trustline limits still apply.
 If any payout fails, the entire claim reverts. Query a balance:
 
 ```sh
