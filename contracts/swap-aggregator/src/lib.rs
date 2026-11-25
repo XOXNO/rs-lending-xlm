@@ -53,7 +53,6 @@ use stellar_access::ownable::{self, Ownable};
 use stellar_macros::only_owner;
 use swap_aggregator_interface::SwapAggregatorInterface;
 
-use crate::constants::FEE_CAP;
 use crate::errors::Error;
 use crate::fees::FeeBucket;
 use crate::types::{ReferralConfig, StrategyPayload};
@@ -118,13 +117,11 @@ impl SwapAggregatorInterface for Router {
 
     /// Creates an active referral and returns its id. Owner only.
     ///
-    /// None inherits the global protocol fee. Each supplied rate must be at most `FEE_CAP`.
+    /// None inherits the global protocol fee. The combined rate must be at most `FEE_CAP`.
     #[only_owner]
     fn add_referral(env: Env, owner: Address, fee_bps: u32, protocol_fee_bps: Option<u32>) -> u64 {
         renew_instance(&env);
-        if fee_bps.max(protocol_fee_bps.unwrap_or(0)) > FEE_CAP {
-            panic_with_error!(&env, Error::FeeTooHigh);
-        }
+        fees::checked_protocol_fee_bps(&env, fee_bps, protocol_fee_bps);
         let counter = storage::referral_counter(&env);
         let id = counter
             .checked_add(1)
@@ -147,9 +144,7 @@ impl SwapAggregatorInterface for Router {
     #[only_owner]
     fn set_referral_fee(env: Env, id: u64, fee_bps: u32, protocol_fee_bps: Option<u32>) {
         renew_instance(&env);
-        if fee_bps.max(protocol_fee_bps.unwrap_or(0)) > FEE_CAP {
-            panic_with_error!(&env, Error::FeeTooHigh);
-        }
+        fees::checked_protocol_fee_bps(&env, fee_bps, protocol_fee_bps);
         let mut cfg = storage::load_referral(&env, id);
         cfg.fee_bps = fee_bps;
         cfg.protocol_fee_bps = protocol_fee_bps;

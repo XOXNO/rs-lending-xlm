@@ -261,8 +261,8 @@ fn combined_static_and_referral_fee_cannot_exceed_the_cap() {
     let router_addr = env.register(Router, (admin.clone(),));
     let router = RouterClient::new(&env, &router_addr);
 
-    router.set_static_fee(&600);
     let id = router.add_referral(&Address::generate(&env), &600, &None);
+    router.set_static_fee(&600);
 
     let sender = Address::generate(&env);
     let (token_a, sac_a) = new_asset(&env, &admin);
@@ -300,7 +300,7 @@ fn combined_static_and_referral_fee_cannot_exceed_the_cap() {
 /// A combined fee of exactly `FEE_CAP` (1_000 bps) is charged, not rejected with
 /// `FeeTooHigh`.
 ///
-/// Pins the strict `combined_bps > FEE_CAP` check in `fees::apply_fees_on_token`.
+/// Exercises the cap at execution on the input token.
 #[test]
 fn combined_fee_exactly_at_the_cap_is_charged_not_rejected() {
     let env = Env::default();

@@ -67,7 +67,9 @@ in quote requests. To create a referral with 25 bps each for the partner
 and protocol in one call, use `make testnet addAggregatorReferral OWNER 25 25`.
 Edit both rates with `make testnet setAggregatorReferralFee ID 25 25`.
 Omitting the protocol rate or passing `null` selects the global rate.
-Passing `0` waives the protocol fee. Direct contract callers pass the third
+Passing `0` waives the protocol fee. Creation, edits, and swaps require the
+referral rate plus the effective protocol rate to be at most 1,000 bps.
+Direct contract callers pass the third
 argument to both `add_referral` and `set_referral_fee` after upgrade.
 DEX pool and network fees are extra.
 `make mainnet addAggregatorWhitelist TOKEN` picks the preferred fee token; it

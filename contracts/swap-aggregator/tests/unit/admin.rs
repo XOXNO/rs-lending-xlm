@@ -1,3 +1,4 @@
+use crate::constants::FEE_CAP;
 use crate::errors::Error;
 use crate::{Router, RouterClient};
 use soroban_sdk::testutils::Address as _;
@@ -71,7 +72,7 @@ fn legacy_referral_reads_and_updates_in_place() {
             .set(&crate::types::DataKey::Referral(id), &old);
     });
     assert_eq!(router.referral(&id).unwrap().protocol_fee_bps, None);
-    for expected in [Some(25), Some(0), Some(crate::FEE_CAP), None] {
+    for expected in [Some(25), Some(0), Some(FEE_CAP - 25), None] {
         router.set_referral_fee(&id, &25, &expected);
         let cfg = router.referral(&id).unwrap();
         assert_eq!(cfg.protocol_fee_bps, expected);
@@ -81,7 +82,7 @@ fn legacy_referral_reads_and_updates_in_place() {
     }
     assert_eq!(
         router
-            .try_set_referral_fee(&id, &25, &Some(crate::FEE_CAP + 1))
+            .try_set_referral_fee(&id, &25, &Some(FEE_CAP - 24))
             .unwrap_err()
             .unwrap(),
         Error::FeeTooHigh.into()
@@ -97,10 +98,12 @@ fn create_referral_with_protocol_rate() {
     let router = RouterClient::new(&env, &addr);
     router.set_static_fee(&5);
 
-    let err = router.try_add_referral(&owner, &25, &Some(crate::FEE_CAP + 1));
-    assert_eq!(err.unwrap_err().unwrap(), Error::FeeTooHigh.into());
+    for (partner, protocol) in [(25, Some(FEE_CAP - 24)), (996, None), (u32::MAX, Some(1))] {
+        let err = router.try_add_referral(&owner, &partner, &protocol);
+        assert_eq!(err.unwrap_err().unwrap(), Error::FeeTooHigh.into());
+    }
     assert_eq!(router.referral_counter(), 0);
-    for rate in [None, Some(0), Some(25), Some(crate::FEE_CAP)] {
+    for rate in [None, Some(0), Some(25), Some(FEE_CAP - 25)] {
         let id = router.add_referral(&owner, &25, &rate);
         let cfg = router.referral(&id).unwrap();
         assert_eq!(cfg.fee_bps, 25);
@@ -115,6 +118,7 @@ fn referral_rates_update_atomically() {
     let owner = Address::generate(&env);
     let addr = env.register(Router, (owner.clone(),));
     let router = RouterClient::new(&env, &addr);
+    router.set_static_fee(&5);
     let id = router.add_referral(&owner, &45, &None);
 
     router.set_referral_fee(&id, &25, &Some(25));
@@ -123,8 +127,8 @@ fn referral_rates_update_atomically() {
         (cfg.fee_bps, cfg.protocol_fee_bps)
     };
     assert_eq!(rates(), (25, Some(25)));
-    for (partner, protocol) in [(1_001, 0), (0, 1_001)] {
-        let err = router.try_set_referral_fee(&id, &partner, &Some(protocol));
+    for (partner, protocol) in [(501, Some(500)), (996, None), (u32::MAX, Some(1))] {
+        let err = router.try_set_referral_fee(&id, &partner, &protocol);
         assert_eq!(err.unwrap_err().unwrap(), Error::FeeTooHigh.into());
         assert_eq!(rates(), (25, Some(25)));
     }
@@ -132,8 +136,8 @@ fn referral_rates_update_atomically() {
     assert_eq!(rates(), (10, None));
     router.set_referral_fee(&id, &10, &Some(0));
     assert_eq!(rates(), (10, Some(0)));
-    router.set_referral_fee(&id, &1_000, &None);
-    assert_eq!(rates(), (1_000, None));
+    router.set_referral_fee(&id, &995, &None);
+    assert_eq!(rates(), (995, None));
 }
 
 #[test]
@@ -172,16 +176,16 @@ fn fee_setters_accept_exact_cap() {
     let router_addr = env.register(Router, (admin.clone(),));
     let router = RouterClient::new(&env, &router_addr);
 
-    router.set_static_fee(&crate::FEE_CAP);
-    assert_eq!(router.static_fee_bps(), crate::FEE_CAP);
+    router.set_static_fee(&FEE_CAP);
+    assert_eq!(router.static_fee_bps(), FEE_CAP);
 
     let owner = Address::generate(&env);
-    let id = router.add_referral(&owner, &crate::FEE_CAP, &None);
-    assert_eq!(router.referral(&id).unwrap().fee_bps, crate::FEE_CAP);
+    let id = router.add_referral(&owner, &FEE_CAP, &Some(0));
+    assert_eq!(router.referral(&id).unwrap().fee_bps, FEE_CAP);
 
     router.set_referral_fee(&id, &0, &None);
-    router.set_referral_fee(&id, &crate::FEE_CAP, &None);
-    assert_eq!(router.referral(&id).unwrap().fee_bps, crate::FEE_CAP);
+    router.set_referral_fee(&id, &FEE_CAP, &Some(0));
+    assert_eq!(router.referral(&id).unwrap().fee_bps, FEE_CAP);
 }
 
 #[test]

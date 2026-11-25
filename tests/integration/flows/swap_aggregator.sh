@@ -83,7 +83,7 @@ flow_swap_aggregator_admin() {
     fi
 
     xfail sa_ref_fee_above_cap 'Error\(Contract, #21\)' "$ADMIN" "$agg" -- set_referral_fee \
-        --id "$ref_id" --fee_bps $((SA_FEE_CAP + 1)) --protocol_fee_bps null
+        --id "$ref_id" --fee_bps "$SA_FEE_CAP" --protocol_fee_bps 1
     xfail sa_ref_missing 'Error\(Contract, #22\)' "$ADMIN" "$agg" -- set_referral_fee \
         --id 999999 --fee_bps 10 --protocol_fee_bps null
 

@@ -39,6 +39,19 @@ pub(crate) fn set_static_fee(env: &Env, fee_bps: u32) {
     storage::set_static_fee_bps(env, fee_bps);
 }
 
+/// Resolves the protocol rate and enforces the combined fee cap.
+pub(crate) fn checked_protocol_fee_bps(
+    env: &Env,
+    referral_bps: u32,
+    protocol_bps: Option<u32>,
+) -> u32 {
+    let protocol_bps = protocol_bps.unwrap_or_else(|| storage::static_fee_bps(env));
+    if referral_bps.saturating_add(protocol_bps) > FEE_CAP {
+        panic_with_error!(env, Error::FeeTooHigh);
+    }
+    protocol_bps
+}
+
 /// Debits the vault and accrues static + referral fees for an active referral.
 ///
 /// Returns the charged `(static_fee, referral_fee)`. No-op when `referral_id == 0`, the referral is missing/inactive, the token balance is
@@ -100,20 +113,7 @@ fn fee_amounts(env: &Env, amount: i128, referral_id: u64) -> (i128, i128) {
     if amount <= 0 {
         return (0, 0);
     }
-    let static_fee_bps = cfg
-        .protocol_fee_bps
-        .unwrap_or_else(|| storage::static_fee_bps(env));
-
-    let combined_bps = static_fee_bps
-        .checked_add(cfg.fee_bps)
-        .unwrap_or_else(|| panic_with_error!(env, Error::IntegerOverflow));
-    if combined_bps == 0 {
-        return (0, 0);
-    }
-
-    if combined_bps > FEE_CAP {
-        panic_with_error!(env, Error::FeeTooHigh);
-    }
+    let static_fee_bps = checked_protocol_fee_bps(env, cfg.fee_bps, cfg.protocol_fee_bps);
 
     (
         fee_amount(env, amount, static_fee_bps),
