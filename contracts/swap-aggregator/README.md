@@ -28,7 +28,7 @@ execute_strategy(sender, total_in, swap_xdr) -> amount_out
   5-byte record per instruction, then u24 split weights. Instructions index the
   registries by `u8`; layout in `src/program.rs`.
 
-Steps:
+Settlement overview:
 
 1. Authorize `sender` and pull `total_in`.
 2. Take the fee: input token before the hops, or output token after.
@@ -41,8 +41,8 @@ Steps:
    signature and 0.5 XLM reserve. For a `C...` sender or an existing trustline
    it does nothing. A failed call is ignored; step 6 then reverts.
 6. Send `token_out` to `sender`.
-7. Refund unused v2 source input and move remaining dust to the admin bucket; `ExcessiveResidual` if one exceeds its
-   allowance.
+7. Move remaining dust to the admin bucket. A residual above its allowance
+   raises `ExcessiveResidual`.
 8. Publish `SwapEvent`.
 
 Version 1 sends all net output. Version 2 is reverse-only. The sender authorizes

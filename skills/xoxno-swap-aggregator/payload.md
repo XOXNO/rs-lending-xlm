@@ -61,7 +61,7 @@ Layout from `program.rs`, pinned by contract and quote-server encoder tests.
 | `[2]` | 1 | `token_out` | Index into `assets`; must differ from `token_in` (`SameToken = 25`) |
 | `[3]` | 1 | `min_out` | **Index into `amounts`** of total minimum output; encoders write `0` (`amounts[0] = total_min_out`). An index, never the amount |
 | `[4..8]` | 4 | `referral_id` | `u32` big-endian; `0` = no referral, no fee |
-| `[8]` | 1 | `op_count` | `1..=48` (`MAX_OPS`); `0` or above `48` → `EmptyBatch = 1` |
+| `[8]` | 1 | `op_count` | Low seven bits encode `1..=48` instructions. Bit 7 must be clear for v1 and set for reverse v2. A version/flag mismatch raises `InvalidRouteXdr = 13`. |
 | `[9]` | 1 | `weight_count` | `0..=32` (`MAX_WEIGHTS`); above → `EmptyBatch = 1` |
 | `[10 + 5·i]` | 5 each | instruction `i` | Below |
 | `[10 + 5·op_count + 3·j]` | 3 each | weight `j` | `u24` big-endian ppm in `1..=1_000_000` (`ZeroSplitPpm = 11`, `SplitPpmMismatch = 12`) |
@@ -100,7 +100,9 @@ metadata reads precede transfer authorization. The coin list must hold 2 to
 call passes `0` as its own minimum, so the payload `min_out` is the only
 floor; measured balance checks still apply.
 
-Mode byte → input sizing (`Mode::from_u8` in `program.rs`, `resolve_amount` in `execute/mod.rs`):
+Reverse v2 accepts only swaps in `Fixed` mode. The indexed `amounts` value gives the hop’s positive relative weight among producers of the same output token. Pools must be unique and producers must precede consumers. The router sizes hops backwards from the gross output target before executing them forwards.
+
+Version 1 mode byte → input sizing (`Mode::from_u8` in `program.rs`, `resolve_amount` in `execute/mod.rs`):
 
 | Byte value | Mode | Input amount |
 |---|---|---|
@@ -129,11 +131,9 @@ In order:
    (token transfer fees reduce it; fee reserves do not cover the difference).
 6. Version 1 only: apply input-side fees when
    `referral_id != 0 && (!out_whitelisted || in_whitelisted)`.
-7. Execute the instructions described below.
+7. Version 1 executes the encoded input allocations. Version 2 requires full receipt of the input cap, calculates the fees once on the payout, prices the graph for payout plus fees, executes the hops, and refunds unused input to the sender.
 8. Version 1: apply output-side fees if fees were not taken from input.
-   Version 2: compute both fees on the fixed payout (`min_out`). Reject gross
-   output below payout plus fees with `SlippageExceeded` (5). Book all other
-   gross output, minus the referral fee, as admin revenue.
+   Version 2 reserves the previously calculated fees. Gross output must cover the payout and both fees. The admin accrues the protocol fee plus any final output surplus.
 9. Reject output below the encoded floor with `SlippageExceeded` (5).
 10. Open the sender's missing output trustline (Stellar Asset Contract only),
     then transfer the output to the sender. Version 1 sends all net output.
@@ -150,8 +150,7 @@ In order:
 
 Each residual token may keep `max(credited / 1_000_000, 1_000)`, where
 `credited` is its total deposits during the call; a larger remainder raises
-`ExcessiveResidual` (29). The router does not refund unused input, so set
-`total_in` to the route's required input.
+`ExcessiveResidual` (29). For v1, set `total_in` to the input to spend. For v2, the source refund is paid before this residual limit applies.
 
 The vault lives only for the invocation, tracking spendable balances and total
 credits between instructions; afterwards the router holds no balance for the
