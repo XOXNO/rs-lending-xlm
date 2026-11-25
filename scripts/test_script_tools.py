@@ -359,6 +359,8 @@ sys.exit(status)
         self.assertEqual(run_mutants.pass_head(head, ['--jobserver-tasks=2']),
                          ['--package', 'controller', '-j', '3', '--minimum-test-timeout', '600',
                           '--cargo-arg', '-j', '--timeout=9', '-j4'])
+        self.assertEqual(run_mutants.pass_head(['--package', 'x', '--test-tool=nextest'], ['--test-tool=cargo']),
+                         ['--package', 'x'])
 
     def test_mutation_controller_retry_passes_use_threads_and_full_suite_cap(self):
         names = [f'contracts/controller/src/strategies/swap.rs:{i}:5: replace candidate_{i} -> bool with false'
@@ -375,6 +377,11 @@ sys.exit(status)
         self.assertEqual(values(first, '-j'), ['3'])
         self.assertEqual(values(first, '--minimum-test-timeout'), ['600'])
         self.assertNotIn('--cargo-test-arg=--test-threads=3', first)
+        tools = lambda args: [arg for arg in args if arg.startswith('--test-tool')]
+        self.assertEqual(tools(first), ['--test-tool=cargo'])
+        self.assertIn('--cargo-test-arg=--tests', first)
+        self.assertEqual(tools(focused), ['--test-tool=nextest'])
+        self.assertEqual(tools(full), ['--test-tool=nextest'])
         for args in (focused, full):
             self.assertEqual(values(args, '-j'), ['1'])
             self.assertEqual(values(args, '--jobserver-tasks'), ['3'])
@@ -385,14 +392,14 @@ sys.exit(status)
         self.assertIn('--cargo-test-arg=--no-tests=pass', focused)
         self.assertTrue(any(arg.startswith('--cargo-test-arg=--filterset=binary_id(=test-harness::strategy)')
                             for arg in focused))
-        self.assertEqual(values(full, '--minimum-test-timeout'), ['1800'])
+        self.assertEqual(values(full, '--minimum-test-timeout'), ['900'])
         self.assertEqual(values(full, '--test-package'), ['controller', 'governance', 'test-harness'])
         self.assertFalse(any('--filterset' in arg or '--no-tests' in arg for arg in full))
         # Filtersets are nextest syntax: under cargo test the target keeps two passes.
         _, result, calls = self.mutation_case((2, 0), names=names, target='mutants-controller-strategies')
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertEqual([len(c['names']) for c in calls], [4, 1])
-        self.assertEqual(values(calls[1]['args'], '--minimum-test-timeout'), ['1800'])
+        self.assertEqual(values(calls[1]['args'], '--minimum-test-timeout'), ['900'])
         self.assertFalse(any('--filterset' in arg or '--test-threads' in arg for c in calls for arg in c['args']))
 
     def test_mutation_focused_harness_binaries_exist(self):
@@ -412,6 +419,57 @@ sys.exit(status)
         for name in (match.group(1) for match in binaries):
             with self.subTest(binary=name):
                 self.assertTrue((tests / f'{name}.rs').is_file() or (tests / name / 'main.rs').is_file())
+
+    def test_fuzz_targets_run_in_parallel_and_report_every_crash(self):
+        binaries = self.base / 'fuzz-bin'
+        binaries.mkdir()
+        calls = self.base / 'fuzz-calls.jsonl'
+        cargo = binaries / 'cargo'
+        cargo.write_text(f'#!{sys.executable}\n' + '''
+import json, os, sys, time
+args = sys.argv[1:]
+target = next(args[i - 1] for i, arg in enumerate(args) if '/corpus/' in arg)
+start = time.monotonic()
+time.sleep(1.0)
+with open(os.environ['FUZZ_CALLS'], 'a') as log:
+    log.write(json.dumps({'target': target, 'start': start, 'end': time.monotonic(), 'args': args}) + '\\n')
+if target.startswith('crash'):
+    print(f'==1== ERROR: libFuzzer: deadly signal in {target}')
+    sys.exit(77)
+print(f'Done 100 runs in 1 second(s) for {target}')
+''')
+        cargo.chmod(0o755)
+        env = dict(os.environ, PATH=str(binaries) + os.pathsep + os.environ['PATH'], FUZZ_CALLS=str(calls))
+
+        def run(jobs):
+            calls.write_text('')
+            result = subprocess.run(['make', '-s', '-f', str(ROOT / 'Makefile'), 'fuzz', f'FUZZ_JOBS={jobs}',
+                                     'FUZZ_TARGETS=ok_a crash_b ok_c crash_d', f'FUZZ_DIR={self.base / "fuzz"}',
+                                     'FUZZ_TIME=7'], cwd=ROOT, env=env, capture_output=True, text=True)
+            rows = [json.loads(line) for line in calls.read_text().splitlines()]
+            return result, sorted(rows, key=lambda row: row['start'])
+
+        result, rows = run(4)
+        self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(sorted(row['target'] for row in rows), ['crash_b', 'crash_d', 'ok_a', 'ok_c'])
+        self.assertLess(max(row['start'] for row in rows), min(row['end'] for row in rows), 'targets must overlap')
+        for target in ('crash_b', 'crash_d'):
+            self.assertIn(f'::error::fuzz {target} crashed (exit 77):', result.stdout)
+            self.assertIn(f'deadly signal in {target}', result.stdout)
+        for target in ('ok_a', 'ok_c'):
+            self.assertIn(f'Done 100 runs in 1 second(s) for {target}', result.stdout)
+        self.assertIn('-max_total_time=7', rows[0]['args'])
+        self.assertTrue((self.base / 'fuzz/corpus/ok_a').is_dir())
+
+        result, rows = run(1)
+        self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual([row['target'] for row in rows], ['ok_a', 'crash_b', 'ok_c', 'crash_d'])
+        for earlier, later in zip(rows, rows[1:]):
+            self.assertGreaterEqual(later['start'], earlier['end'], 'FUZZ_JOBS=1 runs one target at a time')
+
+        result, rows = run(0)
+        self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
+        self.assertEqual(rows, [])
 
     def test_proptest_one_rejects_missing_matches_and_propagates_failures(self):
         binaries = self.base / 'bin'

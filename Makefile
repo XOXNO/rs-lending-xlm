@@ -846,8 +846,9 @@ MUTANTS_RETRY_ARGS = $(if $(filter nextest,$(MUTANTS_TEST_TOOL)),\
 	$(if $(filter --in-place,$(MUTANTS_RUN_MODE)),,-j 1) \
 	--cargo-test-arg=--test-threads=$(MUTANTS_RETRY_THREADS))
 # The cap for one survivor's run of every controller, governance and harness
-# test. The suite has about 1800 tests; 600 s stops it about halfway.
-MUTANTS_FULL_SUITE_TIMEOUT ?= 1800
+# test: about 1800 tests and 170 s of CPU on a quiet host. A hung mutant
+# costs the whole cap, so keep it a few times the suite time, not more.
+MUTANTS_FULL_SUITE_TIMEOUT ?= 900
 
 
 
@@ -902,6 +903,13 @@ MUTANTS_ENV = PROPTEST_CASES=1 PROPTEST_RNG_SEED=0 \
 
 define run_mutants
 	$(MUTANTS_ENV) python3 scripts/run_mutants.py --label "$@" -- \
+		$(MUTANTS_RUN_MODE) $(1) --minimum-test-timeout $(MUTANTS_TIMEOUT) $(MUTANTS_RUN_ARGS)
+endef
+
+# One pass of light unit tests. Under nextest it runs on `cargo test`; see
+# MUTANTS_UNIT_TOOL_ARGS. An empty pass keeps the run-wide test tool.
+define run_mutants_unit
+	$(MUTANTS_ENV) python3 scripts/run_mutants.py --label "$@" --pass='$(MUTANTS_UNIT_TOOL_ARGS)' -- \
 		$(MUTANTS_RUN_MODE) $(1) --minimum-test-timeout $(MUTANTS_TIMEOUT) $(MUTANTS_RUN_ARGS)
 endef
 
@@ -1027,12 +1035,18 @@ mutants-pool: _mutants-check
 mutants-governance: _mutants-harness-prepare
 
 
-	$(call run_mutants,--package governance \
+	$(call run_mutants_unit,--package governance \
 		--test-package governance)
 
 
 
-CONTROLLER_FAST_TESTS = --test-package controller
+# Under nextest, run a light unit-test pass as one `cargo test` process per
+# binary. nextest starts one process per test, and for the 413 controller unit
+# tests that start-up takes more than half of the run. `--tests` skips the
+# doctest step. Keep nextest for a heavy suite: it stops at the first failing
+# test, and `cargo test` runs every test of the binary.
+MUTANTS_UNIT_TOOL_ARGS = $(if $(filter nextest,$(MUTANTS_TEST_TOOL)),--test-tool=cargo --cargo-test-arg=--tests)
+CONTROLLER_FAST_TESTS = --test-package controller $(MUTANTS_UNIT_TOOL_ARGS)
 CONTROLLER_FULL_TESTS = --test-package controller --test-package governance \
 	--test-package test-harness $(MUTANTS_RETRY_ARGS) \
 	--minimum-test-timeout $(MUTANTS_FULL_SUITE_TIMEOUT)
@@ -1098,7 +1112,7 @@ mutants-diff: _mutants-harness-prepare
 
 
 mutants-aggregator: _mutants-check
-	$(call run_mutants,--package price-aggregator --test-package price-aggregator --features testing)
+	$(call run_mutants_unit,--package price-aggregator --test-package price-aggregator --features testing)
 
 mutants-oracle-adapter: _mutants-check
 	$(call run_mutants,--package xoxno-oracle --test-package xoxno-oracle)
@@ -1111,13 +1125,13 @@ mutants-swap-aggregator: _mutants-check
 
 
 mutants-defindex-strategy: _mutants-harness-prepare
-	$(call run_mutants,--package defindex-strategy --test-package defindex-strategy)
+	$(call run_mutants_unit,--package defindex-strategy --test-package defindex-strategy)
 
 mutants-position-nft: _mutants-check
-	$(call run_mutants,--package position-nft --test-package position-nft)
+	$(call run_mutants_unit,--package position-nft --test-package position-nft)
 
 mutants-curator: _mutants-check
-	$(call run_mutants,--package curator --test-package curator)
+	$(call run_mutants_unit,--package curator --test-package curator)
 
 
 
@@ -1167,20 +1181,18 @@ else
 endif
 
 
+# Targets run FUZZ_JOBS at a time; each libFuzzer process uses one core.
+FUZZ_JOBS ?= 1
+FUZZ_RUN = FUZZ_DIR='$(FUZZ_DIR)' FUZZ_FLAGS='$(FUZZ_FLAGS)' FUZZ_TIME='$(FUZZ_TIME)' \
+	FUZZ_MAX_LEN='$(FUZZ_MAX_LEN)' FUZZ_LEN_CONTROL='$(FUZZ_LEN_CONTROL)' FUZZ_JOBS='$(FUZZ_JOBS)' \
+	bash scripts/run_fuzz_targets.sh
+
 fuzz:
-	@set -o pipefail; for t in $(FUZZ_TARGETS); do \
-		echo "=== $$t ==="; \
-		mkdir -p $(FUZZ_DIR)/corpus/$$t; \
-		cargo +nightly fuzz run --fuzz-dir $(FUZZ_DIR) $(FUZZ_FLAGS) $$t $(FUZZ_DIR)/corpus/$$t $(FUZZ_DIR)/seeds/$$t -- -max_total_time=$(FUZZ_TIME) -max_len=$(FUZZ_MAX_LEN) -len_control=$(FUZZ_LEN_CONTROL) 2>&1 | tee /tmp/fuzz-$$t.log | tail -3 || { echo "::error::fuzz $$t crashed:"; tail -80 /tmp/fuzz-$$t.log; exit 1; }; \
-	done
+	@$(FUZZ_RUN) $(FUZZ_TARGETS)
 
 
 fuzz-contract:
-	@set -o pipefail; for t in $(FUZZ_CONTRACT_TARGETS); do \
-		echo "=== $$t ==="; \
-		mkdir -p $(FUZZ_DIR)/corpus/$$t; \
-		cargo +nightly fuzz run --fuzz-dir $(FUZZ_DIR) $(FUZZ_FLAGS) $$t $(FUZZ_DIR)/corpus/$$t $(FUZZ_DIR)/seeds/$$t -- -max_total_time=$(FUZZ_TIME) -max_len=$(FUZZ_MAX_LEN) -len_control=$(FUZZ_LEN_CONTROL) 2>&1 | tee /tmp/fuzz-$$t.log | tail -3 || { echo "::error::fuzz $$t crashed:"; tail -80 /tmp/fuzz-$$t.log; exit 1; }; \
-	done
+	@$(FUZZ_RUN) $(FUZZ_CONTRACT_TARGETS)
 
 
 fuzz-one:
@@ -1246,9 +1258,13 @@ PROPTEST_ENV = $(if $(strip $(PROPTEST_CASES)),PROPTEST_CASES=$(PROPTEST_CASES),
 
 
 
+# Properties run one at a time unless PROPTEST_THREADS is set. The cases of
+# one property always run in sequence.
+PROPTEST_THREADS ?= 1
+
 proptest:
 	@echo "=== fuzz (proptest) ==="
-	@$(PROPTEST_ENV) cargo test --release -p test-harness --test fuzz -- --test-threads=1
+	@$(PROPTEST_ENV) cargo test --release -p test-harness --test fuzz -- --test-threads=$(PROPTEST_THREADS)
 
 
 proptest-one:

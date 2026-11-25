@@ -18,7 +18,8 @@ CARGO_VALUE_OPTIONS = ('--cargo-arg', '-C', '--cargo-test-arg')
 INCLUDE_OPTIONS = ('--re', '-F', '--regex', '--examine-regex', '--examine-re')
 # cargo-mutants rejects a repeated option, so a pass that sets one of these
 # replaces the run-wide value for its own command.
-PASS_OVERRIDES = (('-j', '--jobs'), ('--jobserver-tasks',), ('--minimum-test-timeout',), ('-t', '--timeout'))
+PASS_OVERRIDES = (('-j', '--jobs'), ('--jobserver-tasks',), ('--minimum-test-timeout',), ('-t', '--timeout'),
+                  ('--test-tool',))
 
 
 def option_values(args, *flags):

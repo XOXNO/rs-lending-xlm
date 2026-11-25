@@ -18,6 +18,7 @@ on:
       - ".cargo/**"
       - ".gitignore"
       - ".github/workflows/fuzz.yml"
+      - "scripts/run_fuzz_targets.sh"
       - "scripts/run_mutants.py"
       - "scripts/test_script_tools.py"
   schedule:
@@ -116,11 +117,13 @@ jobs:
       - name: Prebuild libFuzzer targets
         run: make fuzz-build
 
-      - name: Function-level fuzz (30s each)
-        run: make fuzz FUZZ_TIME=30
+      # Each target keeps its full time budget. The targets of a step run in
+      # parallel, one core each, so the step takes one budget, not the sum.
+      - name: Function-level fuzz (30s each, in parallel)
+        run: make fuzz FUZZ_TIME=30 FUZZ_JOBS=4
 
-      - name: Contract-level fuzz smoke (60s each)
-        run: make fuzz-contract FUZZ_TIME=60
+      - name: Contract-level fuzz smoke (60s each, in parallel)
+        run: make fuzz-contract FUZZ_TIME=60 FUZZ_JOBS=6
 
   pr-proptest:
     if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
@@ -158,8 +161,10 @@ jobs:
       - name: Build pool WASM (required by test-harness)
         run: stellar contract build
 
+      # Four properties at a time. The properties share no state, and the
+      # cases of one property still run in sequence.
       - name: Contract-level property suite
-        run: make proptest
+        run: make proptest PROPTEST_THREADS=4
 
   miri:
     if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
@@ -790,9 +795,12 @@ jobs:
 
       - name: Run mutation target
 
+        # CARGO_INCREMENTAL stays unset. Cargo then builds the workspace
+        # crates incrementally, which halves the rebuild of each mutant, and
+        # sccache still caches the registry crates. sccache refuses a build
+        # that sets CARGO_INCREMENTAL=1.
         env:
           CARGO_BUILD_JOBS: "1"
-          CARGO_INCREMENTAL: "0"
           CARGO_PROFILE_DEV_DEBUG: "0"
           CARGO_PROFILE_TEST_DEBUG: "0"
           CARGO_TARGET_DIR: target-mutants
@@ -807,9 +815,12 @@ jobs:
           NEXTEST_TEST_THREADS: "1"
           RUSTC_WRAPPER: sccache
           SCCACHE_CACHE_SIZE: 50G
-        # nextest gives per-test timeouts, which --minimum-test-timeout needs
-        # to catch a mutant that hangs rather than fails. nextest cannot run
-        # doctests; the crates under mutation have no runnable doctests.
+        # cargo-mutants stops the whole test run of a mutant at
+        # --minimum-test-timeout with either test tool. nextest stops at the
+        # first failing test, and its filtersets and --test-threads drive the
+        # controller retry passes. A light unit-test pass runs under cargo test
+        # (MUTANTS_UNIT_TOOL_ARGS in the Makefile). Neither tool runs doctests
+        # here; the crates under mutation have no runnable doctests.
         #
         # Elapsed time goes to the job summary to re-balance the shard counts.
         run: |
