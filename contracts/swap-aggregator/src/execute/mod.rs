@@ -204,8 +204,8 @@ fn settle_output(
 ///
 /// Skips non-SAC tokens, so custom token code never runs here. The SAC is a no-auth no-op for
 /// a contract receiver or an existing trustline. Failures are ignored: the payout transfer
-/// reverts the swap if the trustline is still missing.
-fn ensure_trustline(env: &Env, token: &Address, receiver: &Address) {
+/// reverts if the trustline is still missing.
+pub(super) fn ensure_trustline(env: &Env, token: &Address, receiver: &Address) {
     if token.executable() != Some(Executable::StellarAsset) {
         return;
     }

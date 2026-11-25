@@ -77,8 +77,11 @@ does not restrict tradable tokens.
 
 Claim with `make mainnet claimAggregatorReferralFees ID TOKEN... SIGNER=KEY`
 from any funded signer; payment goes to the stored referral owner. A `G...`
-owner must exist on-chain with authorized, sufficient trustlines for each
-issued token. Query a balance:
+recipient must exist on-chain. For both admin and referral claims, the recipient
+can authorize opening a missing trustline in the claim itself and must have the
+XLM reserve for it. Once the trustlines are open, recurring referral claims need
+only the caller's signature. Issuer restrictions and trustline limits still apply.
+If any payout fails, the entire claim reverts. Query a balance:
 
 ```sh
 make view-id NETWORK=mainnet CONTRACT_ID=ROUTER \

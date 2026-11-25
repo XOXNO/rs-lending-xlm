@@ -136,6 +136,7 @@ pub(crate) fn claim_fee_bucket(
         let key = bucket.key(token.clone());
         let amount = storage::take_fee_bucket(env, &key);
         if amount > 0 {
+            crate::execute::ensure_trustline(env, &token, recipient);
             token::Client::new(env, &token).transfer(router, recipient, &amount);
         }
     }
