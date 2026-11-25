@@ -3,8 +3,8 @@ use controller::types::{ControllerKey, SpokeConfig};
 use soroban_sdk::testutils::Address as _;
 use soroban_sdk::{Address, BytesN};
 use test_harness::{
-    assert_contract_error, hub_asset, map_try_ok_value, usdc_preset, HubAssetKey, LendingTest,
-    ALICE, STABLECOIN_SPOKE,
+    assert_contract_error, hub_asset, map_try_ok_value, new_env, usdc_preset, HubAssetKey,
+    LendingTest, ALICE, STABLECOIN_SPOKE,
 };
 
 fn upload_pool_wasm(env: &soroban_sdk::Env) -> BytesN<32> {
@@ -25,7 +25,7 @@ fn test_upgrade_pool_admin_path() {
 
 #[test]
 fn test_create_liquidity_pool_panics_before_deploy_pool() {
-    let env = soroban_sdk::Env::default();
+    let env = new_env();
     env.mock_all_auths();
     env.cost_estimate().budget().reset_unlimited();
     env.cost_estimate().disable_resource_limits();

@@ -71,7 +71,7 @@ tests/fuzz/artifacts/
 tests/fuzz/coverage/
 ```
 
-For long campaigns, `make fuzz-seed-corpus` adds `tests/fuzz/corpus/` inputs for `fp_math`, `fp_ops`, `rates_and_index`, flow and `pool_native`. Non-flow inputs come from the `test_snapshots/` JSON the test suites write, count-capped for fast replay. `rates_and_index` falls back to a fixed parameter set when no snapshot has decodable market parameters. Flow seeds are fixed, valid 5-byte operation streams, not `Arbitrary<Vec<_>>` prefixes.
+For long campaigns, `make fuzz-seed-corpus` adds `tests/fuzz/corpus/` inputs for `fp_math`, `fp_ops`, `rates_and_index`, flow and `pool_native`. Non-flow inputs come from the `test_snapshots/` JSON the test suites write, count-capped for fast replay. The contract unit tests write that JSON by default. The `test-harness` suite writes it only with `HARNESS_TEST_SNAPSHOTS=1`, so set that variable on the test run before you seed from harness snapshots. `rates_and_index` falls back to a fixed parameter set when no snapshot has decodable market parameters. Flow seeds are fixed, valid 5-byte operation streams, not `Arbitrary<Vec<_>>` prefixes.
 
 Minimize a libFuzzer crash before you keep it as evidence (on macOS, add `--sanitizer=thread -Zbuild-std`):
 

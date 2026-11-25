@@ -4,7 +4,7 @@ use std::collections::HashMap;
 
 use governance::op::{AdminOperation, ConfigureAssetOracleArgs, CreatePoolArgs, SpokeAssetArgs};
 use soroban_sdk::testutils::{Address as _, Ledger, LedgerInfo};
-use soroban_sdk::{token, Address, Env, String, TryFromVal};
+use soroban_sdk::{token, Address, String, TryFromVal};
 
 use crate::core::{LendingTest, MarketState, PendingMarket, PendingSpoke};
 use crate::helpers::{f64_to_i128, hub_asset, seed_liquidity, HARNESS_HUB, HARNESS_SPOKE};
@@ -13,6 +13,7 @@ use crate::presets::{
     DEFAULT_TOLERANCE, LEDGER_PROTOCOL_VERSION,
 };
 use crate::rwa_gated_token::{RwaGatedToken, RwaGatedTokenClient};
+use crate::test_env::new_env;
 
 pub struct LendingTestBuilder {
     pending_markets: Vec<PendingMarket>,
@@ -176,7 +177,7 @@ impl LendingTestBuilder {
     }
 
     pub fn build(self) -> LendingTest {
-        let env = Env::default();
+        let env = new_env();
         env.mock_all_auths_allowing_non_root_auth();
         if !self.budget_enabled {
             env.cost_estimate().budget().reset_unlimited();

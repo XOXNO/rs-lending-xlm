@@ -130,8 +130,8 @@ fn test_scenario_covers_every_configured_leg() {
 fn credit_5coll_5debt_same_ledger_to_next_ledger_cpu() {
     use common::types::SeizeMode;
     use soroban_sdk::testutils::{Ledger, MockAuthInvoke};
-    use soroban_sdk::{xdr, Address, Bytes, Env, IntoVal, TryIntoVal, Vec};
-    use test_harness::{hub_asset, usd, MarketPreset};
+    use soroban_sdk::{xdr, Address, Bytes, IntoVal, TryIntoVal, Vec};
+    use test_harness::{env_from_ledger_snapshot, hub_asset, usd, MarketPreset};
 
     let names = ["C0", "C1", "C2", "C3", "C4", "D0", "D1", "D2", "D3", "D4"];
     let mut builder = LendingTest::new().with_position_limits(5, 5);
@@ -254,7 +254,7 @@ fn credit_5coll_5debt_same_ledger_to_next_ledger_cpu() {
         (5, Some(2_000_000)),
         (5, Some(20_000_000)),
     ] {
-        let env = Env::from_ledger_snapshot(snapshot.clone());
+        let env = env_from_ledger_snapshot(snapshot.clone());
         env.host().set_module_cache(module_cache.clone()).unwrap();
         env.cost_estimate().budget().reset_unlimited();
         env.cost_estimate().disable_resource_limits();

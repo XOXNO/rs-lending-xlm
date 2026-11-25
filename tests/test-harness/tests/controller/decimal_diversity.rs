@@ -1,7 +1,7 @@
 use test_harness::presets::{
     MarketPreset, ALICE, BOB, DEFAULT_ASSET_CONFIG, DEFAULT_MARKET_PARAMS, LIQUIDATOR,
 };
-use test_harness::{helpers::usd, LendingTest};
+use test_harness::{helpers::usd, new_env, LendingTest};
 
 fn usdc_6dec() -> MarketPreset {
     MarketPreset {
@@ -402,7 +402,7 @@ fn test_borrow_1_raw_unit_is_properly_recorded_on_7dec() {
 
 #[test]
 fn test_scaled_borrow_never_zero_for_raw_one_within_protocol_bounds() {
-    let env = soroban_sdk::Env::default();
+    let env = new_env();
     let one_raw = common::math::fp::Ray::from_asset(&env, 1, 18);
     let samples = [
         common::constants::RAY,

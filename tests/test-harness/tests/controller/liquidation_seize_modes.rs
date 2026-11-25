@@ -15,8 +15,8 @@ use soroban_sdk::testutils::{ContractEvents, Events};
 use soroban_sdk::xdr::{ContractEventBody, ScVal};
 use soroban_sdk::{vec, Env, U256};
 use test_harness::{
-    amount_raw, assert_contract_error, asset_payment_vec, errors, eth_preset, hub_asset, usd,
-    usd_cents, usdc_preset, LendingTest, MarketPreset, ALICE, BOB, CAROL, DAVE, HARNESS_HUB,
+    amount_raw, assert_contract_error, asset_payment_vec, errors, eth_preset, hub_asset, new_env,
+    usd, usd_cents, usdc_preset, LendingTest, MarketPreset, ALICE, BOB, CAROL, DAVE, HARNESS_HUB,
     HARNESS_SPOKE, LIQUIDATOR, STABLECOIN_SPOKE,
 };
 
@@ -59,7 +59,7 @@ fn share_gap_under_units(
 
 #[test]
 fn share_gap_under_units_is_exact_at_the_boundary() {
-    let env = Env::default();
+    let env = new_env();
     let ray = RAY;
     let unit = 10i128.pow(20);
     assert!(share_gap_under_units(&env, unit - 1, ray, 7, 1));
