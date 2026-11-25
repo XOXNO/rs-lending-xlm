@@ -330,6 +330,9 @@ balances, not router return values:
   before payout.
 - Unused input that the controller holds returns to the caller. Residuals
   left inside the router follow a capped admin-revenue policy.
+- A version 2 (fixed-output) route pays exactly its minimum. All gross output
+  above that payout and the referral fee is admin revenue, with no cap. The
+  caller chooses this mode by signing a version 2 payload.
 
 **Trade-off:** the final account risk checks do not guarantee route quality.
 

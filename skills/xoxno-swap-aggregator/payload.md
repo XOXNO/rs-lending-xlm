@@ -50,13 +50,13 @@ A server `transaction` passes the same bytes as `routeXdr` in `swap_xdr`. LP
 conversion uses separate ordered transactions; its optional `routeXdr` is an
 atomic alternative.
 
-## Packed program (`ops`) — VERSION 1
+## Packed program (`ops`) — versions 1 and 2
 
 Layout from `program.rs`, pinned by contract and quote-server encoder tests.
 
 | Offset | Size | Field | Meaning |
 |---|---|---|---|
-| `[0]` | 1 | `version` | Must equal `1` (`VERSION` / `PROGRAM_VERSION` / `STELLAR_PROGRAM_VERSION`; `/api/v1/config.protocolVersion`) |
+| `[0]` | 1 | `version` | `1` = exact input (`VERSION` / `PROGRAM_VERSION` / `STELLAR_PROGRAM_VERSION`; `/api/v1/config.protocolVersion`); `2` = fixed output (`FIXED_OUT_VERSION`); any other value → `InvalidRouteXdr = 13`. Both versions share this layout |
 | `[1]` | 1 | `token_in` | Index into `assets` |
 | `[2]` | 1 | `token_out` | Index into `assets`; must differ from `token_in` (`SameToken = 25`) |
 | `[3]` | 1 | `min_out` | **Index into `amounts`** of total minimum output; encoders write `0` (`amounts[0] = total_min_out`). An index, never the amount |
@@ -127,13 +127,18 @@ In order:
 4. Reject a nonpositive output floor with `SlippageExceeded` (5).
 5. Transfer input from the sender and credit the measured balance increase
    (token transfer fees reduce it; fee reserves do not cover the difference).
-6. Apply input-side fees when
+6. Version 1 only: apply input-side fees when
    `referral_id != 0 && (!out_whitelisted || in_whitelisted)`.
 7. Execute the instructions described below.
-8. Apply output-side fees if fees were not taken from input.
+8. Version 1: apply output-side fees if fees were not taken from input.
+   Version 2: compute both fees on the fixed payout (`min_out`). Reject gross
+   output below payout plus fees with `SlippageExceeded` (5). Book all other
+   gross output, minus the referral fee, as admin revenue.
 9. Reject output below the encoded floor with `SlippageExceeded` (5).
 10. Open the sender's missing output trustline (Stellar Asset Contract only),
-    then transfer the output to the sender.
+    then transfer the output to the sender. Version 1 sends all net output.
+    Version 2 sends exactly `min_out` and measures the receipt; any other
+    received amount fails with `SlippageExceeded` (5).
 11. Credit permitted residual balances to admin revenue.
 12. Return output in token base units.
 
@@ -181,11 +186,11 @@ and `NoSwapOutput` (502); see [composition.md](composition.md).
 
 | Rule | Value |
 |---|---|
-| Referral `0` | No static or referral fee, `fee_on_input = false`; nothing charged |
+| Referral `0` | No static or referral fee, `fee_on_input = false`. Version 1 charges nothing; version 2 still books all gross output above the payout as admin revenue |
 | Unknown or `active == false` referral | On-chain: no fee, like `0` (`apply_fees_on_token` returns early; `ReferralNotFound = 22` only from owner setters and `claim_referral_fees`, never `execute_strategy`). Quote server: `400 invalid_request` `unknown referral N` (`lp_fee_for`), so server `routeXdr` carries `0` or an active id |
-| Active referral `id` | `static_fee = balance · static_fee_bps / 10_000`, `referral_fee = balance · cfg.fee_bps / 10_000`, each floored, both from the same gross balance in one `vault.withdraw`; `combined_bps == 0` or `total <= 0` → nothing charged |
+| Active referral `id` | Version 1: `static_fee = balance · static_fee_bps / 10_000`, `referral_fee = balance · cfg.fee_bps / 10_000`, each floored, both from the same gross balance in one `vault.withdraw`; `combined_bps == 0` or `total <= 0` → nothing charged. Version 2: the same rates on the payout, `min_out` |
 | Cap | `static_fee_bps + referral.fee_bps <= FEE_CAP = 1_000` (10%), else `FeeTooHigh = 21`; `set_static_fee`, `add_referral`, `set_referral_fee` cap each value; quote server answers 400 above it |
-| Side | Input unless output is whitelisted and input is not (`add_to_whitelist` / `whitelisted_tokens`); echoed as `feeOnInput` and `/api/v1/referrals/{id}.feePolicy` |
+| Side | Version 1: input unless output is whitelisted and input is not (`add_to_whitelist` / `whitelisted_tokens`); echoed as `feeOnInput` and `/api/v1/referrals/{id}.feePolicy`. Version 2: always the output token; the whitelist is not read |
 | Referral id range | `u64` on-chain (`referral_counter` from 1), `u32` on the wire; server rejects `referral_id > 4_294_967_295` |
 | Claims | `claim_referral_fees(id, tokens)` pays the referral `owner`, callable by anyone; `claim_admin_fees`, `sweep_balance` owner-only |
 

@@ -87,7 +87,7 @@ Each registry write emits one event, from its setter, carrying the stored value.
 
 | Event / topics | Format and fields | Emitted by / meaning |
 | --- | --- | --- |
-| `SwapEvent`<br>`["router", "swap"]` | map: `sender: Address, token_in: Address, token_out: Address, amount_in: i128, amount_out: i128, referral_id: u64, fee_token: Address, static_fee: i128, referral_fee: i128` | execute_strategy, after payout. `amount_in` measured; `amount_out` after fees. Fees are 0 without an active referral. Strategy swaps show the controller as `sender`. |
+| `SwapEvent`<br>`["router", "swap"]` | map: `sender: Address, token_in: Address, token_out: Address, amount_in: i128, amount_out: i128, referral_id: u64, fee_token: Address, static_fee: i128, referral_fee: i128` | execute_strategy, after payout. `amount_in` measured; `amount_out` after fees. Version 1: fees are 0 without an active referral. Version 2: `amount_out` is the fixed payout, and `static_fee` holds the static fee plus all output above the payout and fees, so it can be nonzero with referral 0. Strategy swaps show the controller as `sender`. |
 
 ### DeFindex-strategy events
 

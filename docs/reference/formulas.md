@@ -617,11 +617,22 @@ deletion: [cleanup rules](invariants.md#inv-liq-04).
 
 ## Swap router fees and splits
 
-Fees apply only with an active referral, each on the fee token's vault balance:
+Fees apply only with an active referral. A version 1 route charges each fee
+on the fee token's vault balance:
 
 ```rust
 static_fee   = floor(balance * static_fee_bps / 10_000)
 referral_fee = floor(balance * fee_bps / 10_000)
+```
+
+A version 2 route pays the sender exactly `payout` (the route's `min_out`) and
+charges the fees on it. The rest of the gross output is admin revenue:
+
+```rust
+static_fee    = floor(payout * static_fee_bps / 10_000)
+referral_fee  = floor(payout * fee_bps / 10_000)
+// requires gross_output >= payout + static_fee + referral_fee
+admin_revenue = gross_output - payout - referral_fee
 ```
 
 `fee_bps` is the referral rate. Rates summing above `FEE_CAP` (1000 BPS) fail

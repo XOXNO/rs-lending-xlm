@@ -84,8 +84,9 @@ impl SwapAggregatorInterface for Router {
 
     /// Adds `token` to the fee whitelist. Owner only.
     ///
-    /// A referral swap takes fees on the output token only when the output token is
-    /// whitelisted and the input token is not.
+    /// A version 1 referral swap takes fees on the output token only when the output
+    /// token is whitelisted and the input token is not. A version 2 swap always takes
+    /// fees on the output token.
     #[only_owner]
     fn add_to_whitelist(env: Env, token: Address) {
         renew_instance(&env);

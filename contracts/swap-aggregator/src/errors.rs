@@ -17,7 +17,8 @@ pub enum Error {
     /// `Prev` has no predecessor output, or it names a different token.
     BrokenTokenChain = 4,
     /// Declared minimum output is not positive, or the delivered output is
-    /// below it.
+    /// below it. In a version 2 route, also when the output cannot cover the
+    /// fixed payout plus fees, or the sender receives another amount.
     SlippageExceeded = 5,
     /// Venue returned zero usable output.
     ZeroOutput = 7,

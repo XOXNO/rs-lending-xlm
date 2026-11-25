@@ -33,7 +33,7 @@ Sources: the XOXNO swap quote server, the [pinned SDK](../xoxno-lending/SKILL.md
 ## Routing boundary
 
 The on-chain venue/opcode mapping is in
-[payload.md](payload.md#packed-program-ops--version-1). The quote server's
+[payload.md](payload.md#packed-program-ops--versions-1-and-2). The quote server's
 venue discovery and production compatibility are outside the contract proof
 boundary.
 
