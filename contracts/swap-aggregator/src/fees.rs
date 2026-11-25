@@ -97,7 +97,7 @@ pub(crate) fn accrue_fixed_output_fees(
     (protocol_revenue, referral_fee)
 }
 
-fn fee_amounts(env: &Env, amount: i128, referral_id: u64) -> (i128, i128) {
+pub(crate) fn fee_amounts(env: &Env, amount: i128, referral_id: u64) -> (i128, i128) {
     if referral_id == 0 {
         return (0, 0);
     }

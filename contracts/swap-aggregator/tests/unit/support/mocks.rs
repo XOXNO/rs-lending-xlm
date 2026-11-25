@@ -124,6 +124,21 @@ pub mod aquarius_mock {
             vec![&env, token_a, token_b]
         }
 
+        pub fn estimate_swap_strict_receive(_env: Env, _i: u32, _j: u32, out: u128) -> u128 {
+            out
+        }
+
+        pub fn swap_strict_receive(
+            env: Env,
+            user: Address,
+            i: u32,
+            j: u32,
+            out: u128,
+            max: u128,
+        ) -> u128 {
+            assert!(out <= max);
+            Self::swap(env, user, i, j, out, out)
+        }
         pub fn swap(
             env: Env,
             user: Address,
@@ -459,6 +474,24 @@ pub mod sushi_mock {
             env.storage().instance().get(&SushiKey::Token1).unwrap()
         }
 
+        pub fn quote_exact_output(
+            env: Env,
+            zero_for_one: bool,
+            amount_out: i128,
+            _sqrt_price_limit_x96: U256,
+        ) -> soroban_sdk::Map<Symbol, i128> {
+            let delta = if zero_for_one {
+                amount_out
+            } else {
+                -amount_out
+            };
+            soroban_sdk::map![
+                &env,
+                (Symbol::new(&env, "amount0"), delta),
+                (Symbol::new(&env, "amount1"), -delta)
+            ]
+        }
+
         pub fn get_oracle_hints(env: Env) -> Vec<i128> {
             vec![&env]
         }
@@ -481,6 +514,7 @@ pub mod sushi_mock {
                 token1.clone()
             };
             let token_out = if zero_for_one { token1 } else { token0 };
+            let amount_specified = amount_specified.checked_abs().unwrap();
             let pool = env.current_contract_address();
             token::Client::new(&env, &token_in).transfer(&sender, &pool, &amount_specified);
             token::Client::new(&env, &token_out).transfer(&pool, &recipient, &amount_specified);
@@ -556,6 +590,22 @@ pub mod phoenix_mock {
         pub fn init(env: Env, token_a: Address, token_b: Address) {
             env.storage().instance().set(&PhKey::TokenA, &token_a);
             env.storage().instance().set(&PhKey::TokenB, &token_b);
+        }
+
+        pub fn simulate_reverse_swap(
+            env: Env,
+            _ask_asset: Address,
+            ask_amount: i128,
+        ) -> soroban_sdk::Map<Symbol, i128> {
+            soroban_sdk::map![&env, (Symbol::new(&env, "offer_amount"), ask_amount + 1)]
+        }
+
+        pub fn simulate_swap(
+            env: Env,
+            _offer_asset: Address,
+            offer_amount: i128,
+        ) -> soroban_sdk::Map<Symbol, i128> {
+            soroban_sdk::map![&env, (Symbol::new(&env, "ask_amount"), offer_amount)]
         }
 
         #[allow(clippy::too_many_arguments)]

@@ -5,6 +5,7 @@
 //! payout → residual accrual → swap event.
 
 mod residual;
+mod reverse;
 
 use soroban_sdk::token::StellarAssetClient;
 use soroban_sdk::{panic_with_error, token, Address, Env, Executable, Map, Vec};
@@ -117,16 +118,46 @@ pub(crate) fn run(env: Env, sender: Address, total_in: i128, payload: StrategyPa
         amounts: &amounts,
         program: &program,
     };
-    let mut prev: PrevOutput = None;
-    for i in 0..program.len() {
-        prev = execute_op(
-            &ctx,
-            &mut vault,
-            program.op(&env, i),
-            prev,
-            &mut tokens_cache,
+    let refund = if fixed_out {
+        if credited_in != total_in {
+            panic_with_error!(&env, Error::InvalidAmount);
+        }
+        let (protocol, referral) = fees::fee_amounts(&env, total_min_out, referral_id);
+        let gross = crate::math::checked_add(
+            &env,
+            crate::math::checked_add(&env, total_min_out, protocol),
+            referral,
         );
-    }
+        reverse::execute(&ctx, &mut vault, gross, &mut tokens_cache);
+        let refund = vault.balance_of(&input_token);
+        if refund > 0 {
+            vault.withdraw(&input_token, refund);
+            if transfer_amount_measured(
+                &env,
+                &input_token,
+                &router,
+                &sender,
+                refund,
+                GenericError::AmountMustBePositive,
+            ) != refund
+            {
+                panic_with_error!(&env, Error::InvalidAmount);
+            }
+        }
+        refund
+    } else {
+        let mut prev: PrevOutput = None;
+        for i in 0..program.len() {
+            prev = execute_op(
+                &ctx,
+                &mut vault,
+                program.op(&env, i),
+                prev,
+                &mut tokens_cache,
+            );
+        }
+        0
+    };
 
     if fixed_out {
         fees_charged =
@@ -152,7 +183,7 @@ pub(crate) fn run(env: Env, sender: Address, total_in: i128, payload: StrategyPa
         sender,
         token_in: input_token.clone(),
         token_out: output_token.clone(),
-        amount_in: credited_in,
+        amount_in: credited_in - refund,
         amount_out: payout,
         referral_id,
         static_fee: fees_charged.0,

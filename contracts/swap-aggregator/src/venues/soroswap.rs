@@ -60,6 +60,16 @@ fn soroswap_amount_out(env: &Env, amount_in: i128, reserve_in: i128, reserve_out
 /// unlike the other venues this is a precondition on a swap *argument*, not a report of the
 /// fill; the fill is measured by [`crate::venues::dispatch_hop`].
 pub(crate) fn swap(ctx: &HopContext<'_>) {
+    let (reserve_in, reserve_out) = reserves(ctx);
+    let requested_out = soroswap_amount_out(ctx.env, ctx.amount_in, reserve_in, reserve_out);
+    if requested_out <= 0 {
+        panic_with_error!(ctx.env, Error::ZeroOutput);
+    }
+
+    swap_for(ctx, requested_out);
+}
+
+fn reserves(ctx: &HopContext<'_>) -> (i128, i128) {
     let token_in_is_0 = ctx.hop.token_in < ctx.hop.token_out;
 
     let no_args: Vec<Val> = vec![ctx.env];
@@ -74,11 +84,21 @@ pub(crate) fn swap(ctx: &HopContext<'_>) {
         (reserve_1, reserve_0)
     };
 
-    let requested_out = soroswap_amount_out(ctx.env, ctx.amount_in, reserve_in, reserve_out);
-    if requested_out <= 0 {
-        panic_with_error!(ctx.env, Error::ZeroOutput);
-    }
+    (reserve_in, reserve_out)
+}
 
+pub(crate) fn required_input(ctx: &HopContext<'_>, target: i128) -> i128 {
+    use crate::math::mul_div_ceil;
+    let (input, output) = reserves(ctx);
+    if input <= 0 || output <= target {
+        panic_with_error!(ctx.env, crate::errors::Error::SlippageExceeded);
+    }
+    let net = mul_div_ceil(ctx.env, input, target, output - target);
+    mul_div_ceil(ctx.env, net, FEE_DEN, FEE_DEN - FEE_NUM)
+}
+
+pub(crate) fn swap_for(ctx: &HopContext<'_>, requested_out: i128) {
+    let token_in_is_0 = ctx.hop.token_in < ctx.hop.token_out;
     let token_client = token::Client::new(ctx.env, &ctx.hop.token_in);
     token_client.transfer(ctx.router, &ctx.hop.pool, &ctx.amount_in);
 

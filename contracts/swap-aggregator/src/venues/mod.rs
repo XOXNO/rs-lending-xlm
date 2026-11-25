@@ -155,3 +155,6 @@ impl<'a> HopContext<'a> {
         }
     }
 }
+
+mod reverse;
+pub(crate) use reverse::{receive_output, reverse_input};

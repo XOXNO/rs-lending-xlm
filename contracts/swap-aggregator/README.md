@@ -41,14 +41,18 @@ Steps:
    signature and 0.5 XLM reserve. For a `C...` sender or an existing trustline
    it does nothing. A failed call is ignored; step 6 then reverts.
 6. Send `token_out` to `sender`.
-7. Move leftovers to the admin bucket; `ExcessiveResidual` if one exceeds its
+7. Refund unused v2 source input and move remaining dust to the admin bucket; `ExcessiveResidual` if one exceeds its
    allowance.
 8. Publish `SwapEvent`.
 
-Version 1 sends all net output. Version 2 sends exactly `total_min_out`.
-For version 2, the router measures the sender's credit and reverts if it
-differs from the target. The admin fee bucket receives any net output above
-the target.
+Version 1 sends all net output. Version 2 is reverse-only. The sender authorizes
+`total_in` as a maximum. The router sizes each hop backwards from the requested
+payout plus its output fees, executes the hops forwards, and refunds unspent
+source tokens to the sender before settling fees. The event reports actual
+input spent. Phoenix and Curve may yield extra atomic units; final output dust
+joins the protocol fee and intermediate dust is subject to the residual limit.
+Comet can supply a source hop. A missing venue quote or insufficient input
+cap reverts the entire swap.
 
 ## Fees
 

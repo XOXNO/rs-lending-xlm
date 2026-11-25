@@ -7,12 +7,12 @@
 //!
 //! ```text
 //! header (10 bytes)
-//!   [0]      version: 1 pays all output, 2 pays exactly the declared minimum
+//!   [0]      version: 1 forward execution, 2 live reverse execution
 //!   [1]      token_in   -> assets[..]
 //!   [2]      token_out  -> assets[..]
 //!   [3]      min_out    -> amounts[..]
 //!   [4..8]   referral id, u32 big-endian (0 = none)
-//!   [8]      op_count
+//!   [8]      op_count (v2 sets bit 7)
 //!   [9]      weight_count
 //! instructions (5 * op_count bytes)
 //!   [0]      opcode      -> Opcode
@@ -23,6 +23,9 @@
 //! weights (3 * weight_count bytes)
 //!   u24 big-endian parts-per-million, each in 1..=PPM_DENOMINATOR
 //! ```
+//!
+//! V2 uses only swap records, with `Fixed` indexing a positive relative output weight.
+//! All producers of a token precede all consumers.
 //!
 //! The whole blob is copied into a stack buffer with a single host call and
 //! parsed in Wasm; no host object is allocated per instruction.
@@ -201,7 +204,12 @@ impl Program {
             panic_with_error!(env, Error::InvalidRouteXdr);
         }
 
-        let op_count = buf[head::OP_COUNT] as u32;
+        // The high bit distinguishes reverse v2 from the retired testnet fixed-payout format.
+        let count = buf[head::OP_COUNT];
+        if (count & 0x80 != 0) != (buf[head::VERSION] == FIXED_OUT_VERSION) {
+            panic_with_error!(env, Error::InvalidRouteXdr);
+        }
+        let op_count = u32::from(count & 0x7f);
         let weight_count = buf[head::WEIGHT_COUNT] as u32;
         if op_count == 0 || op_count > MAX_OPS || weight_count > MAX_WEIGHTS {
             panic_with_error!(env, Error::EmptyBatch);

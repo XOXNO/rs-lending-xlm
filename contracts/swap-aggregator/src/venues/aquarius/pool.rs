@@ -33,7 +33,7 @@ pub(super) fn invoke_pool_swap(
 
 /// Reads the pool's constituent tokens; [`crate::venues::pool_tokens`] validates and caches
 /// them.
-pub(super) fn get_tokens(env: &Env, pool: &Address) -> Vec<Address> {
+pub(crate) fn get_tokens(env: &Env, pool: &Address) -> Vec<Address> {
     env.invoke_contract(pool, &Symbol::new(env, "get_tokens"), Vec::<Val>::new(env))
 }
 

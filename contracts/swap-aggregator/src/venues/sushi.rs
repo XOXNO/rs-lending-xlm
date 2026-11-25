@@ -16,6 +16,9 @@ const MAX_SQRT_RATIO_MINUS_ONE: [u8; 32] = [
 /// then invokes the pool's `swap`. The fill is measured by
 /// [`crate::venues::dispatch_hop`], which also enforces that it is positive.
 pub(crate) fn swap(ctx: &HopContext<'_>) {
+    execute(ctx, ctx.amount_in);
+}
+fn direction(ctx: &HopContext) -> bool {
     let no_args: Vec<Val> = vec![ctx.env];
     let token0: Address = ctx.env.invoke_contract(
         &ctx.hop.pool,
@@ -25,8 +28,39 @@ pub(crate) fn swap(ctx: &HopContext<'_>) {
     let token1: Address =
         ctx.env
             .invoke_contract(&ctx.hop.pool, &Symbol::new(ctx.env, "token1"), no_args);
-    let zero_for_one = ctx.direction_for_pair(&token0, &token1);
+    ctx.direction_for_pair(&token0, &token1)
+}
 
+pub(super) fn required_input(ctx: &HopContext, target: i128) -> i128 {
+    let zero_for_one = direction(ctx);
+    let result: soroban_sdk::Map<Symbol, i128> = ctx.env.invoke_contract(
+        &ctx.hop.pool,
+        &Symbol::new(ctx.env, "quote_exact_output"),
+        (
+            zero_for_one,
+            target,
+            sqrt_price_limit(ctx.env, zero_for_one),
+        )
+            .into_val(ctx.env),
+    );
+    let amount0 = result.get_unchecked(Symbol::new(ctx.env, "amount0"));
+    let amount1 = result.get_unchecked(Symbol::new(ctx.env, "amount1"));
+    let (input, out) = if zero_for_one {
+        (amount0, amount1)
+    } else {
+        (amount1, amount0)
+    };
+    if out != -target {
+        soroban_sdk::panic_with_error!(ctx.env, crate::errors::Error::SlippageExceeded);
+    }
+    input
+}
+
+pub(super) fn exact_output(ctx: &HopContext, target: i128) {
+    execute(ctx, -target)
+}
+fn execute(ctx: &HopContext, amount_specified: i128) {
+    let zero_for_one = direction(ctx);
     let price_limit = sqrt_price_limit(ctx.env, zero_for_one);
     let hints: Val = ctx.env.invoke_contract(
         &ctx.hop.pool,
@@ -41,7 +75,7 @@ pub(crate) fn swap(ctx: &HopContext<'_>) {
         ctx.router.into_val(ctx.env),
         ctx.router.into_val(ctx.env),
         zero_for_one.into_val(ctx.env),
-        ctx.amount_in.into_val(ctx.env),
+        amount_specified.into_val(ctx.env),
         price_limit.into_val(ctx.env),
         hints,
     ];
