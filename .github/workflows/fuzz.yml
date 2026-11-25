@@ -697,12 +697,31 @@ jobs:
 
       # Cells are listed longest-first: GitHub dispatches matrix cells in order,
       # and the longest cells must claim lanes first, or they start late and
-      # become the tail.
+      # become the tail. The minutes are from run 45677676710 (all green,
+      # 1h07m) or are estimates from it after this re-balance. Each cell pays
+      # about 8 minutes of fixed cost (setup and a cold baseline build), so a
+      # split only pays when it shortens the tail. Sharded targets use
+      # round-robin sharding (MUTANTS_SHARD_ARGS in the Makefile).
       #
-      # Shard counts are a starting point, not a measurement. The run step
-      # writes each cell's elapsed time to the job summary; re-balance from that.
+      # The run step writes each cell's elapsed time to the job summary;
+      # re-balance from that.
       matrix:
         include:
+          # 2 shards took 43 and 39 min; 3 shards, about 33 min each.
+          - target: mutants-controller-core
+            shard: 0/3
+            suffix: "-1of3"
+          - target: mutants-controller-core
+            shard: 1/3
+            suffix: "-2of3"
+          - target: mutants-controller-core
+            shard: 2/3
+            suffix: "-3of3"
+
+          # 29 min, one pass.
+          - target: mutants-aggregator
+
+          # 36, 24, 25, 25 min with slices; about 28 min each round-robin.
           - target: mutants-common
             shard: 0/4
             suffix: "-1of4"
@@ -716,20 +735,7 @@ jobs:
             shard: 3/4
             suffix: "-4of4"
 
-          - target: mutants-controller-core
-            shard: 0/2
-            suffix: "-1of2"
-          - target: mutants-controller-core
-            shard: 1/2
-            suffix: "-2of2"
-
-          # Sharded so that neither target outlasts a mutants-common shard.
-          - target: mutants-controller-strategies
-            shard: 0/2
-            suffix: "-1of2"
-          - target: mutants-controller-strategies
-            shard: 1/2
-            suffix: "-2of2"
+          # 30 and 23 min with slices; about 27 min each round-robin.
           - target: mutants-controller-positions
             shard: 0/2
             suffix: "-1of2"
@@ -737,14 +743,22 @@ jobs:
             shard: 1/2
             suffix: "-2of2"
 
-          # Not sharded: a second cell pays a second baseline build to save only
-          # minutes.
-          - target: mutants-controller-views
-
+          # 25 min.
           - target: mutants-swap-aggregator
-          - target: mutants-aggregator
-          - target: mutants-pool
+
+          # 32 and 33 min with the unit pass first; about 20 min each without it.
+          - target: mutants-controller-strategies
+            shard: 0/2
+            suffix: "-1of2"
+          - target: mutants-controller-strategies
+            shard: 1/2
+            suffix: "-2of2"
+
+          # 18, 16, 16, 14, 13, 7, 6 and 6 min. Not sharded: a second cell pays
+          # a second baseline build to save only minutes.
           - target: mutants-oracle-adapter
+          - target: mutants-pool
+          - target: mutants-controller-views
           - target: mutants-governance
           - target: mutants-controller-context
           - target: mutants-defindex-strategy

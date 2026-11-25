@@ -366,20 +366,27 @@ sys.exit(status)
         names = [f'contracts/controller/src/strategies/swap.rs:{i}:5: replace candidate_{i} -> bool with false'
                  for i in range(8)]
         lane = ['MUTANTS_RUN_MODE=', 'MUTANTS_TEST_TOOL=nextest', 'MUTANTS_JOBS=3', 'MUTANTS_JOBSERVER_TASKS=3']
-        _, result, calls = self.mutation_case((2, 2, 0), names=names, target='mutants-controller-strategies',
-                                              make_args=lane)
-        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertEqual([len(c['names']) for c in calls], [4, 1, 1])
 
         def values(args, flag):
             return [args[i + 1] for i, arg in enumerate(args) if arg == flag]
-        first, focused, full = (call['args'] for call in calls)
-        self.assertEqual(values(first, '-j'), ['3'])
-        self.assertEqual(values(first, '--minimum-test-timeout'), ['600'])
-        self.assertNotIn('--cargo-test-arg=--test-threads=3', first)
+        _, result, calls = self.mutation_case((2, 0), names=names, target='mutants-controller-core',
+                                              make_args=lane)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual([len(c['names']) for c in calls], [4, 1])
+        core_first, core_full = (call['args'] for call in calls)
+        self.assertEqual(values(core_first, '-j'), ['3'])
+        self.assertEqual(values(core_full, '--minimum-test-timeout'), ['900'])
+        # Strategies start with the focused harness pass, then the full suite.
+        _, result, calls = self.mutation_case((2, 0), names=names, target='mutants-controller-strategies',
+                                              make_args=lane)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual([len(c['names']) for c in calls], [4, 1])
+
+        focused, full = (call['args'] for call in calls)
         tools = lambda args: [arg for arg in args if arg.startswith('--test-tool')]
-        self.assertEqual(tools(first), ['--test-tool=cargo'])
-        self.assertIn('--cargo-test-arg=--tests', first)
+        self.assertEqual(tools(core_first), ['--test-tool=cargo'])
+        self.assertIn('--cargo-test-arg=--tests', core_first)
+        self.assertNotIn('--cargo-test-arg=--test-threads=3', core_first)
         self.assertEqual(tools(focused), ['--test-tool=nextest'])
         self.assertEqual(tools(full), ['--test-tool=nextest'])
         for args in (focused, full):
@@ -388,6 +395,8 @@ sys.exit(status)
             self.assertIn('--cargo-test-arg=--test-threads=3', args)
             self.assertFalse(any('--build-jobs' in arg for arg in args))
         self.assertEqual(values(focused, '--minimum-test-timeout'), ['600'])
+        self.assertEqual(values(focused, '--shard'), ['0/2'])
+        self.assertEqual(values(focused, '--sharding'), ['round-robin'])
         self.assertEqual(values(focused, '--test-package'), ['test-harness'])
         self.assertIn('--cargo-test-arg=--no-tests=pass', focused)
         self.assertTrue(any(arg.startswith('--cargo-test-arg=--filterset=binary_id(=test-harness::strategy)')

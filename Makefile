@@ -827,7 +827,10 @@ MUTANTS_DIFF_FILE ?= pr.diff
 
 
 MUTANTS_JOB_ARGS = $(if $(filter --in-place,$(MUTANTS_RUN_MODE)),,-j $(MUTANTS_JOBS))
-MUTANTS_SHARD_ARGS = $(if $(MUTANTS_SHARD),--shard $(MUTANTS_SHARD))
+# Round-robin deals mutant i to shard i % k, so every shard gets a mix of
+# files. The default slices keep a file together: one common shard got
+# most of math/fp.rs and ran 36 min against 24-25 min for the others.
+MUTANTS_SHARD_ARGS = $(if $(MUTANTS_SHARD),--shard $(MUTANTS_SHARD) --sharding round-robin)
 
 
 
@@ -925,12 +928,6 @@ endef
 define run_mutants_two_pass
 	$(MUTANTS_ENV) python3 scripts/run_mutants.py --label "$@" $(MUTANTS_STATE_ARGS) \
 		--pass='$(2)' --pass='$(3)' -- $(MUTANTS_RUN_MODE) $(1) \
-		--minimum-test-timeout $(MUTANTS_TIMEOUT) $(MUTANTS_RUN_ARGS)
-endef
-
-define run_mutants_three_pass
-	$(MUTANTS_ENV) python3 scripts/run_mutants.py --label "$@" $(MUTANTS_STATE_ARGS) \
-		--pass='$(2)' --pass='$(3)' --pass='$(4)' -- $(MUTANTS_RUN_MODE) $(1) \
 		--minimum-test-timeout $(MUTANTS_TIMEOUT) $(MUTANTS_RUN_ARGS)
 endef
 
@@ -1097,10 +1094,14 @@ mutants-controller-positions: _mutants-harness-prepare
 	$(call run_mutants_two_pass,--package controller --file 'contracts/controller/src/positions/**',\
 		$(CONTROLLER_FAST_TESTS),$(CONTROLLER_FULL_TESTS))
 
+# Under nextest the focused harness pass comes first. The controller unit
+# tests caught 7 and 12 of the 44 mutants of each shard and cost a 19-minute
+# pass; the focused pass caught every survivor. The full pass still runs the
+# controller unit tests.
 mutants-controller-strategies: _mutants-harness-prepare
 	$(if $(filter nextest,$(MUTANTS_TEST_TOOL)),\
-		$(call run_mutants_three_pass,--package controller --file 'contracts/controller/src/strategies/**',\
-			$(CONTROLLER_FAST_TESTS),$(CONTROLLER_STRATEGY_TESTS),$(CONTROLLER_FULL_TESTS)),\
+		$(call run_mutants_two_pass,--package controller --file 'contracts/controller/src/strategies/**',\
+			$(CONTROLLER_STRATEGY_TESTS),$(CONTROLLER_FULL_TESTS)),\
 		$(call run_mutants_two_pass,--package controller --file 'contracts/controller/src/strategies/**',\
 			$(CONTROLLER_FAST_TESTS),$(CONTROLLER_FULL_TESTS)))
 
