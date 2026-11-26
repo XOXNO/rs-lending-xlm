@@ -7,32 +7,36 @@ argument-hint: "[swap or route task]"
 
 # XOXNO Swap Aggregator
 
-A quote server searches Soroban DEX liquidity and returns a route; the router
+A quote server searches Soroban DEX liquidity and returns a route. The router
 contract executes it atomically through `execute_strategy(sender, total_in, swap_xdr)`.
 Standalone swaps and lending strategies use the same route format.
 
-Sources: the XOXNO swap quote server, the [pinned SDK](../xoxno-lending/SKILL.md#verified-against) with
+The sources are the XOXNO swap quote server, the
+[pinned SDK](../xoxno-lending/SKILL.md#verified-against) with
 `@stellar/stellar-sdk` ^16, and the router contract in `rs-lending-xlm`.
 
 ## Related skills
-- Shared model, addresses, hub/spoke ids → [../xoxno-lending/SKILL.md](../xoxno-lending/SKILL.md)
-- Strategy transaction builders in TypeScript → [../xoxno-lending-sdk/SKILL.md](../xoxno-lending-sdk/SKILL.md)
-- Calling the controller or the router from a Soroban contract → [../xoxno-lending-contracts/SKILL.md](../xoxno-lending-contracts/SKILL.md)
-- Decoding a failed simulation → [../xoxno-lending-troubleshooting/SKILL.md](../xoxno-lending-troubleshooting/SKILL.md)
-- Signing, submission, and recovery → [SDK transactions](../xoxno-lending-sdk/transactions.md)
+
+See these related skills:
+
+- Shared model, addresses, hub and spoke ids: [../xoxno-lending/SKILL.md](../xoxno-lending/SKILL.md)
+- Strategy transaction builders in TypeScript: [../xoxno-lending-sdk/SKILL.md](../xoxno-lending-sdk/SKILL.md)
+- Calling the controller or the router from a Soroban contract: [../xoxno-lending-contracts/SKILL.md](../xoxno-lending-contracts/SKILL.md)
+- Decoding a failed simulation: [../xoxno-lending-troubleshooting/SKILL.md](../xoxno-lending-troubleshooting/SKILL.md)
+- Signing, submission, and recovery: [SDK transactions](../xoxno-lending-sdk/transactions.md)
 
 ## Read the file that matches the task
 
 | Task | File |
 |------|------|
-| Every route, query parameter alias, response field and error body | [api.md](api.md) |
-| `StrategyPayload` wire format, packed program, `execute_strategy` semantics, fees, referrals, custody and auth | [payload.md](payload.md) |
-| Standalone vs composed decision, `amountIn` sizing per lending verb, same-token rule, own-contract usage, re-simulation, verifying `min_out` | [composition.md](composition.md) |
-| Quote, render, execute a standalone swap | below |
+| Every route, query parameter alias, response field, and error body | [api.md](api.md) |
+| `StrategyPayload` wire format, packed program, `execute_strategy` semantics, fees, referrals, custody, and auth | [payload.md](payload.md) |
+| Standalone versus composed decision, `amountIn` sizing per lending verb, same-token rule, own-contract usage, re-simulation, verifying `min_out` | [composition.md](composition.md) |
+| Quote, render, and execute a standalone swap | below |
 
 ## Routing boundary
 
-The on-chain venue/opcode mapping is in
+The on-chain venue and opcode mapping is in
 [payload.md](payload.md#packed-program-ops--versions-1-and-2). The quote server's
 venue discovery and production compatibility are outside the contract proof
 boundary.
@@ -44,7 +48,7 @@ boundary.
 | mainnet | `https://stellar-swap.xoxno.com` | `STELLAR_NETWORKS.stellarMainnet.quoteUrl` |
 | testnet | `https://testnet-stellar-swap.xoxno.com` | `STELLAR_NETWORKS.stellarTestnet.quoteUrl` |
 
-The quote server has no submission endpoint; a request with `sender` can
+The quote server has no submission endpoint. A request with `sender` can
 return an unsigned envelope. Before quoting, fetch `/api/v1/config` and compare
 its network passphrase and router with trusted configuration
 (`configs/networks.json` or `STELLAR_NETWORKS`). Use the response only to
@@ -52,17 +56,17 @@ check the deployment, never as the router source.
 
 ## Token identifiers
 
-`from` and `to` are 56-character `C…` contract ids only; XLM is
-`Asset.native().contractId(passphrase)`. Catalog:
-[api.md#get-apiv1tokens](api.md#get-apiv1tokens).
+`from` and `to` are 56-character `C…` contract ids only. XLM is
+`Asset.native().contractId(passphrase)`. See the
+[token catalog](api.md#get-apiv1tokens).
 
 ## Quote parameters
 
-Send exactly one amount; `slippage` is required for `routeXdr`
+Send exactly one amount. `slippage` is required for `routeXdr`
 ([parameters](api.md#get-apiv1quote), [response](api.md#response-quoteresponse),
 [errors](api.md#error-bodies-errorresponse-code-error),
 [freshness and slippage](api.md#freshness-and-slippage-canonical)). Never
-render `routeXdr` or `transaction`; they are execution inputs.
+render `routeXdr` or `transaction`. They are execution inputs.
 
 ## Example 1: quote and render
 
@@ -166,19 +170,21 @@ export async function prepareStandaloneSwap(
 }
 ```
 
-`acceptedMinOut` is the user's accepted output floor; never replace it with a
-response value. Sign only the checked `preparedXdr`. Signing, persistence,
-submission, confirmation, and recovery:
-[SDK transactions](../xoxno-lending-sdk/transactions.md). On success, read the
+`acceptedMinOut` is the user's accepted output floor. Never replace it with a
+response value. Sign only the checked `preparedXdr`.
+[SDK transactions](../xoxno-lending-sdk/transactions.md) covers signing,
+persistence, submission, confirmation, and recovery. On success, read the
 delivered return value and reconcile token balances.
 
 ## LP conversion: `transactions[]`
 
 A `convertLiquidity` quote with `sender` returns ordered `transactions[]` instead of
-`transaction`; confirm each on-chain before preparing the next
-([api.md#response-quoteresponse](api.md#response-quoteresponse)).
+`transaction`. Confirm each on-chain before you prepare the next
+([response reference](api.md#response-quoteresponse)).
 
 ## Completion checks
+
+Complete these checks in order:
 
 1. Compare `/api/v1/config` with trusted network and router configuration.
 2. Fetch a current quote.
@@ -187,7 +193,7 @@ A `convertLiquidity` quote with `sender` returns ordered `transactions[]` instea
 5. Prepare the complete transaction through the selected network's RPC.
 6. Check authorization against the built invocation and expected caller.
 7. Sign the checked prepared XDR.
-8. Persist the original network, signed XDR, and hash before sending.
-9. Confirm the original hash and reconcile delivered tokens, following the
-   [submission lifecycle](../xoxno-lending-troubleshooting/SKILL.md#submission-lifecycle)
-   (no replacement until the original outcome is resolved).
+8. Persist the original network, signed XDR, and hash before you send the transaction.
+9. Confirm the original hash and reconcile delivered tokens. Follow the
+   [submission lifecycle](../xoxno-lending-troubleshooting/SKILL.md#submission-lifecycle).
+   Send no replacement until you resolve the original outcome.

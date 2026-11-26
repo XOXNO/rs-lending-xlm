@@ -35,18 +35,18 @@ token-catalog join or balance conversion is needed.
 The SDK read client collects pages, checks HTTP status and array bodies,
 rejects redirects and links to other endpoints, and detects pagination cycles.
 It does not schema-validate every field. Public types and JSON schemas come
-from the same read entry; keep them in the SDK. Direct HTTP callers follow the
+from the same read entry. Keep them in the SDK. Direct HTTP callers follow the
 [pagination rules](../xoxno-lending-data/api.md#integrator-v1-arrays). An HTTP
 error is not an empty portfolio.
 
 ## Units and missing data
 
 - v1 `amountRaw` is an integer token base-unit string. Do not apply RAY conversion.
-- `amount` is a decimal whole-token string; keep large ids and amounts as strings.
+- `amount` is a decimal whole-token string. Keep large ids and amounts as strings.
 - APYs are fractions: `0.05` means 5%.
 - `priceUsd`, `valueUsd`, and risk values are display estimates.
 - `null` means unavailable, except `healthFactor` is also null without debt.
-  Display “No debt” only for `hasDebt === false`.
+  Display "No debt" only for `hasDebt === false`.
 - Names and symbols are labels. Token identity is `sac`; a market also needs
   `hubId`, and account actions need the selected `spokeId`.
 
@@ -56,21 +56,21 @@ missing values with zero or treat an NFT image as a balance authority.
 ## Freshness and authority
 
 Cache TTLs ([HTTP reference](../xoxno-lending-data/api.md#integrator-v1-arrays))
-do not bound total data age: indexing, oracle state, market snapshots,
+do not bound total data age. Indexing, oracle state, market snapshots,
 metadata, and HTTP caches have separate freshness limits. Indexed ownership
 can lag a transfer. Use `owner_of(accountId)` for current ownership and
 simulate mutations before signing.
 
-Refresh when the wallet or network changes and after ledger `SUCCESS`; poll at
+Refresh when the wallet or network changes and after ledger `SUCCESS`. Poll at
 the interval the screen needs. Discard results from an old wallet or network
 selection. After success, keep a refreshing state until the indexer catches
-up; do not repeat the transaction because the API still shows the prior
+up. Do not repeat the transaction because the API still shows the prior
 snapshot.
 
 ## One contract-view simulation helper
 
 Use this helper for all controller and position-NFT views. Callers pass the
-contract id, method, and encoded ScVals; view-specific wrappers only encode
+contract id, method, and encoded ScVals. View-specific wrappers only encode
 arguments and decode `retval`.
 
 ```ts
@@ -120,5 +120,6 @@ Relevant controller views include `get_account_attributes`,
 `get_account_positions`, `get_health_factor`, `get_ltv_collateral_usd`,
 `get_collateral_amount`, `get_borrow_amount`, `is_liquidatable`,
 `get_spoke_asset`, `get_market_indexes_detailed`, and
-`get_min_borrow_collateral_usd`. Signature sources and view units:
-[../xoxno-lending-contracts/abi.md](../xoxno-lending-contracts/abi.md).
+`get_min_borrow_collateral_usd`. The
+[ABI reference](../xoxno-lending-contracts/abi.md) lists the signature sources
+and view units.

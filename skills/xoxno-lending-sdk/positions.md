@@ -25,7 +25,7 @@ regroup legs from several accounts into one risk calculation.
 Key a position by `(network, nftContract, accountId)` and each leg by
 `(hubId, sac)`. Neither an account id nor a token symbol encodes a spoke.
 
-Before an owner-wallet action:
+Before an owner-wallet action, complete these steps:
 
 1. Select an explicit `accountId` from user intent.
 2. Verify its `spokeId` and each selected `(hubId, sac)` market.
@@ -36,58 +36,59 @@ Before an owner-wallet action:
 
 Never choose `positions[0]` or infer an account from a token. An NFT transfer
 moves control of the whole lending account, including its debt, and indexed
-inventory can lag it.
+inventory can lag the transfer.
 
 ## Render balances and risk
 
 | Field | Display rule |
 | --- | --- |
-| `amountRaw` | Integer token base-unit string; supply rounds down, debt rounds up. No RAY conversion. |
-| `amount` | Decimal whole-token string; no floating-point conversion needed. |
-| `apy`, `netApy` | Fractions; multiply by 100 for percentage display. |
-| `hasDebt`, `healthFactor` | Display “No debt” only for `hasDebt === false`; otherwise show health or “Unavailable”. |
+| `amountRaw` | Integer token base-unit string. Supply rounds down and debt rounds up. No RAY conversion. |
+| `amount` | Decimal whole-token string. You need no floating-point conversion. |
+| `apy`, `netApy` | Fractions. Multiply by 100 for percentage display. |
+| `hasDebt`, `healthFactor` | Display "No debt" only for `hasDebt === false`; otherwise show health or "Unavailable". |
 | `borrowLimitUsd`, `availableBorrowUsd` | Account estimates before market and other action constraints. |
 | `priceUsd`, `valueUsd` | Nullable USD estimates. Missing price can leave raw balances available. |
-| `nftImage`, `logoUrl` | Display images; handle failed/missing images and SVG support. |
+| `nftImage`, `logoUrl` | Display images; handle failed or missing images and SVG support. |
 | `dataStatus` | Inspect individual fields even when the whole item is incomplete. |
 
 Net APY is annual supply income minus debt cost, divided by positive net
-equity; it is null when inputs or positive equity are unavailable. A missing
+equity. It is null when inputs or positive equity are unavailable. A missing
 health factor is not proof of safety, and a `ready` item is not an admission
 check.
 
 ## Transaction sizing and rounding
 
-Raw v1 balances are snapshots; interest can accrue before execution. Never
+Raw v1 balances are snapshots. Interest can accrue before execution. Never
 size a final repay or withdrawal from formatted display numbers.
 
 - Full withdrawal uses `amount: '170141183460469231731687303715884105727'`
-  (`i128::MAX`); `'0'` fails. Full debt close sends the ceiled
-  current debt plus an accrual buffer; excess is refunded.
-- Supply shares mint down; debt shares mint up. Partial withdrawal burns up;
-  partial repayment burns down.
+  (`i128::MAX`). `'0'` fails. Full debt close sends the ceiled current debt
+  plus an accrual buffer. The pool refunds the excess.
+- Supply shares mint down. Debt shares mint up. Partial withdrawal burns up.
+  Partial repayment burns down.
 
 `get_collateral_amount` and `get_borrow_amount` return current base units
-rounded half up; ceiled debt can be one unit above `get_borrow_amount`. See
+rounded half up. Ceiled debt can be one unit above the `get_borrow_amount`
+result. See
 the [rounding reference](../xoxno-lending/math.md#shares-and-token-amounts).
 
 ## Risk checks before an action
 
 Use current controller views for balances, prices, indexes, and stored risk
-parameters, and `get_ltv_collateral_usd` for current LTV-weighted collateral
-in USD WAD: listed collateral uses the refreshed listing LTV, unlisted keeps
-its stored LTV, and each weight is capped by the stored liquidation threshold
-([formulas](../xoxno-lending/math.md#health-factor-and-ltv-weighting)). Keep
-custom arithmetic in `bigint` WAD/RAY/BPS. For a route preview, apply share
-rounding, value collateral output at `amountOutMin`, and label the result an
-estimate.
+parameters. Use `get_ltv_collateral_usd` for current LTV-weighted collateral
+in USD WAD. Listed collateral uses the refreshed listing LTV. Unlisted
+collateral keeps its stored LTV. The stored liquidation threshold caps each
+weight ([formulas](../xoxno-lending/math.md#health-factor-and-ltv-weighting)).
+Keep custom arithmetic in `bigint` WAD, RAY, and BPS values. For a route
+preview, apply share rounding, value the collateral output at `amountOutMin`,
+and label the result an estimate.
 
 Admission also checks collateral floors, caps, cash, utilization, halt flags,
 oracle validity, account rules, authorization, and operation-specific guards.
 For collateral with fewer than three decimals, the post-action token minimum
 is two base units while debt remains, separate from the USD floor. API flags
-do not reproduce every gate, and ledger state can change after preparation,
-so preparation does not guarantee execution.
+do not reproduce every gate. Ledger state can change after preparation, so
+preparation does not guarantee execution.
 
 After `SUCCESS`, reconcile the returned account id, API positions, live state,
 and current NFT ownership. Follow the
