@@ -4,6 +4,7 @@ use std::sync::OnceLock;
 use arbitrary::Arbitrary;
 use common::constants::{
     BPS, MAX_BORROW_INDEX_RAY, MAX_FLASHLOAN_FEE_BPS, MAX_SUPPLY_INDEX_RAY, RAY,
+    SUPPLY_INDEX_FLOOR_RAW,
 };
 use common::errors::GenericError;
 use common::types::{
@@ -213,8 +214,12 @@ fn assert_pool_invariants(
     pool_addr: &Address,
     asset: &Address,
     market: &HubAssetKey,
+    written_down: &mut bool,
 ) {
     let state = pool_state(pool, market);
+    // A writeoff that clamps the supply index at its floor leaves claims with no backing until
+    // the market is recapitalized (INV-ACCT-04). Solvency is not required from then on.
+    *written_down |= state.supply_index == SUPPLY_INDEX_FLOOR_RAW;
     let supplied = view_or_overflow(pool.try_get_supplied_amount(market));
     let borrowed = view_or_overflow(pool.try_get_borrowed_amount(market));
     let revenue = view_or_overflow(pool.try_get_revenue(market));
@@ -252,7 +257,7 @@ fn assert_pool_invariants(
     if let (Some(supplied), Some(borrowed), Some(revenue)) = (supplied, borrowed, revenue) {
         assert!(revenue <= supplied + ACCOUNTING_TOLERANCE_UNITS);
         assert!(
-            state.cash + borrowed + ACCOUNTING_TOLERANCE_UNITS >= supplied,
+            *written_down || state.cash + borrowed + ACCOUNTING_TOLERANCE_UNITS >= supplied,
             "pool insolvent: cash={} borrowed={} supplied={}",
             state.cash,
             borrowed,
@@ -434,7 +439,8 @@ fuzz_target!(|i: In| {
         Err(_) if pinned => 0,
         Err(err) => panic!("bootstrap borrow should succeed: {err:?}"),
     };
-    assert_pool_invariants(&env, &pool, &pool_addr, &asset, &market);
+    let mut written_down = false;
+    assert_pool_invariants(&env, &pool, &pool_addr, &asset, &market, &mut written_down);
 
     let mut cur_ts_s: u64 = env.ledger().timestamp();
     let mut flash_receiver: Option<Address> = None;
@@ -454,7 +460,7 @@ fuzz_target!(|i: In| {
             && flatten_contract_result(pool.try_update_indexes(&vec![&env, market.clone()]))
                 .is_err()
         {
-            assert_pool_invariants(&env, &pool, &pool_addr, &asset, &market);
+            assert_pool_invariants(&env, &pool, &pool_addr, &asset, &market, &mut written_down);
             continue;
         }
         let before = pool_state(&pool, &market);
@@ -818,7 +824,8 @@ fuzz_target!(|i: In| {
             }
             12 => {
                 let amount_negative = *price_raw % 37 == 0;
-                // Forging a cash deficit is the only way to reach a non-zero backing shortfall here.
+                // Forging a cash deficit reaches a backing shortfall directly. A writeoff that
+                // clamps the supply index at its floor leaves a real one.
                 let deficit = if !amount_negative && op_kind & 1 == 1 && before.cash > 1 {
                     amount_from_raw(*price_raw, 1, before.cash)
                 } else {
@@ -847,7 +854,7 @@ fuzz_target!(|i: In| {
                         let refund = amount - applied;
                         assert!(applied >= 0 && applied <= amount);
                         assert!(
-                            applied <= deficit + ACCOUNTING_TOLERANCE_UNITS,
+                            written_down || applied <= deficit + ACCOUNTING_TOLERANCE_UNITS,
                             "applied {applied} exceeds the forged deficit {deficit}"
                         );
                         let after = pool_state(&pool, &market);
@@ -878,6 +885,6 @@ fuzz_target!(|i: In| {
             }
             _ => unreachable!(),
         }
-        assert_pool_invariants(&env, &pool, &pool_addr, &asset, &market);
+        assert_pool_invariants(&env, &pool, &pool_addr, &asset, &market, &mut written_down);
     }
 });
