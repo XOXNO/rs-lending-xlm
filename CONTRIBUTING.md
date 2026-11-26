@@ -24,16 +24,16 @@ pull request.
 
 Install the Rust toolchain and targets from `rust-toolchain.toml`, and the
 Stellar CLI with `make install-stellar-cli`. Run `make build` before the
-tests: they load contract WASM from `target/`. Mutation targets also need
-Python 3.11+ and the cargo-mutants version that `make _mutants-check` pins.
+tests. The tests load contract WASM from `target/`. Mutation targets also need
+Python 3.11 or newer and the cargo-mutants version that `make _mutants-check` pins.
 
     make build
     make test
     make help
 
 The keeper (`services/keeper`) and the lending exporter
-(`services/lending-exporter`) are separate Cargo workspaces; run their checks
-from their own manifests, per their READMEs.
+(`services/lending-exporter`) are separate Cargo workspaces. Run their checks
+from their own manifests, as their READMEs describe.
 
 ## Working agreement
 
@@ -50,7 +50,7 @@ from their own manifests, per their READMEs.
 
 ## Verification
 
-Choose the smallest evidence set that covers the changed surface.
+Choose the smallest evidence set that covers the changed code.
 
 | Surface | Minimum evidence |
 |---|---|
@@ -78,8 +78,8 @@ Then run the focused checks for the changed behavior:
 
 Not every command applies to every change. If you skip a check, say why in
 the pull request. For repository-wide assurance, `make help-verify` lists the
-heavier targets (Scout, mutation testing, coverage, broader Certora profiles);
-select them by risk and scope.
+heavier targets: Scout, mutation testing, coverage, and broader Certora profiles.
+Select them by risk and scope.
 
 ## Pull request description
 
@@ -115,7 +115,7 @@ messages and pull requests, not in documents.
 
 ## CI and maintainers
 
-CI security rules, runner policy and dependency exceptions are in
+CI security rules, runner policy, and dependency exceptions are in
 [.github/MAINTAINERS.md](.github/MAINTAINERS.md).
 
 ## Issues and reviews
@@ -124,6 +124,6 @@ Use public issues for reproducible bugs, documentation gaps, features, and
 non-sensitive design discussion. Include the environment and the expected and
 observed results.
 
-Review with evidence: explain the affected behavior, the adversarial case, and
+Review with evidence. Explain the affected behavior, the adversarial case, and
 the verification result. Be direct about uncertainty. Follow the
 [Code of conduct](CODE_OF_CONDUCT.md) in every project space.
