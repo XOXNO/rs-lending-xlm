@@ -342,7 +342,7 @@ fn combined_fee_exactly_at_the_cap_is_charged_not_rejected() {
     let out = router.execute_strategy(&sender, &1_000, &xdr);
 
     // No token is whitelisted, so the fee is taken on the input token: 5% static
-    // + 5% referral of 1_000 leaves 900 to swap at the mock's 1:1 rate.
+    // plus 5% referral of 1_000 leaves 900 to swap at the mock's 1:1 rate.
     assert_eq!(out, 900);
     assert_eq!(router.admin_fee_balance(&token_a), 50);
     assert_eq!(router.referral_fee_balance(&id, &token_a), 50);

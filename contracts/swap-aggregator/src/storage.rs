@@ -64,7 +64,7 @@ pub(crate) fn load_referral(env: &Env, id: u64) -> ReferralConfig {
     v
 }
 
-/// Loads the referral config for `id` from persistent storage if present, extending its TTL
+/// Loads the referral config for `id` from persistent storage if present and extends its TTL
 /// when found. Returns `None` if no referral exists for `id`.
 pub(crate) fn try_load_referral(env: &Env, id: u64) -> Option<ReferralConfig> {
     let key = DataKey::Referral(id);
@@ -80,7 +80,7 @@ pub(crate) fn set_referral(env: &Env, id: u64, cfg: &ReferralConfig) {
     env.storage().persistent().set(&DataKey::Referral(id), cfg);
 }
 
-/// Returns the fee bucket balance stored under `key`, extending its persistent TTL when the
+/// Returns the fee bucket balance stored under `key` and extends its persistent TTL when the
 /// entry is present. Returns 0 if the entry is absent.
 pub(crate) fn fee_balance(env: &Env, key: &DataKey) -> i128 {
     let v: Option<i128> = env.storage().persistent().get(key);
@@ -99,9 +99,9 @@ pub(crate) fn accumulate_fee(env: &Env, key: DataKey, amount: i128) {
     reserve(env, &token, amount);
 }
 
-/// Credits both fee buckets a single swap produces for `token` — the admin bucket by
-/// `static_amount` and referral `referral_id`'s bucket by `referral_amount` — and reserves the
-/// combined amount. A non-positive amount leaves its bucket untouched.
+/// Credits both fee buckets that a single swap produces for `token`. The admin bucket gains
+/// `static_amount`, and referral `referral_id`'s bucket gains `referral_amount`. The function
+/// reserves the combined amount. A non-positive amount leaves its bucket untouched.
 ///
 /// Writes [`DataKey::ReservedTotal`] once for both buckets. Panics with `Error::IntegerOverflow`
 /// if any addition overflows `i128`.
@@ -128,8 +128,9 @@ pub(crate) fn accumulate_swap_fees(
     reserve(env, token, reserved);
 }
 
-/// Adds `amount` to the fee bucket balance stored under `key` and persists the result, without
-/// touching the token's reserved total. Panics with `Error::IntegerOverflow` on overflow.
+/// Adds `amount` to the fee bucket balance stored under `key` and persists the result. The
+/// function does not touch the token's reserved total. Panics with `Error::IntegerOverflow` on
+/// overflow.
 ///
 /// Every call must be paired with a [`reserve`] of the same amount, or `sweep_balance` can
 /// transfer fee backing.
@@ -140,9 +141,9 @@ fn credit_bucket(env: &Env, key: DataKey, amount: i128) {
     extend_persistent(env, &key);
 }
 
-/// Returns the fee bucket balance stored under `key` and removes the entry from persistent
-/// storage when the balance is greater than zero, releasing the same amount from the token's
-/// reserved total. Returns 0 if the entry is absent.
+/// Returns the fee bucket balance stored under `key`. When the balance is greater than zero, the
+/// function removes the entry from persistent storage and releases the same amount from the
+/// token's reserved total. Returns 0 if the entry is absent.
 pub(crate) fn take_fee_bucket(env: &Env, key: &DataKey) -> i128 {
     let amount: i128 = env.storage().persistent().get(key).unwrap_or(0);
     if amount > 0 {
@@ -152,8 +153,8 @@ pub(crate) fn take_fee_bucket(env: &Env, key: &DataKey) -> i128 {
     amount
 }
 
-/// Returns the total fee balance reserved for `token`: the admin fee bucket plus every referral
-/// fee bucket, read from the [`DataKey::ReservedTotal`] counter in one lookup.
+/// Returns the total fee balance reserved for `token`. The total is the admin fee bucket plus
+/// every referral fee bucket, read from the [`DataKey::ReservedTotal`] counter in one lookup.
 pub(crate) fn reserved_fee_balance(env: &Env, token: &Address) -> i128 {
     let key = DataKey::ReservedTotal(token.clone());
     let total: i128 = env.storage().persistent().get(&key).unwrap_or(0);
@@ -165,7 +166,7 @@ pub(crate) fn reserved_fee_balance(env: &Env, token: &Address) -> i128 {
 
 /// Returns the token a fee bucket is denominated in.
 ///
-/// Inverse of `fees::FeeBucket::key`; a new bucket kind must extend both.
+/// Inverse of `fees::FeeBucket::key`. A new bucket kind must extend both.
 ///
 /// Panics with [`Error::InternalInvariant`] for a key that is not a fee bucket.
 fn bucket_token(env: &Env, key: &DataKey) -> Address {
@@ -197,8 +198,8 @@ fn reserve(env: &Env, token: &Address, amount: i128) {
 ///
 /// Panics with [`Error::InternalInvariant`] if the total would go negative.
 ///
-/// Callers pass `amount > 0` (a bucket balance that was just removed), so once `current >= amount`
-/// the subtraction lands in `0..=current` and cannot overflow.
+/// Callers pass `amount > 0`, a bucket balance that was just removed. Once
+/// `current >= amount`, the subtraction lands in `0..=current` and cannot overflow.
 fn release(env: &Env, token: &Address, amount: i128) {
     let key = DataKey::ReservedTotal(token.clone());
     let current: i128 = env.storage().persistent().get(&key).unwrap_or(0);
@@ -214,7 +215,7 @@ fn release(env: &Env, token: &Address, amount: i128) {
     }
 }
 
-/// Extends the persistent TTL of `key` using the shared threshold and bump constants.
+/// Extends the persistent TTL of `key` with the shared threshold and bump constants.
 fn extend_persistent(env: &Env, key: &DataKey) {
     env.storage()
         .persistent()

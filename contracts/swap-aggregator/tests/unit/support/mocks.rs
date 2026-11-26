@@ -787,7 +787,7 @@ pub mod sticky_allowance_token_mock {
 /// A token whose `transfer` delivers `amount` minus a basis-point haircut to
 /// the recipient while debiting the sender the full `amount`.
 ///
-/// Models the fee-on-transfer / burn-on-transfer contracts that satisfy the
+/// Models the fee-on-transfer and burn-on-transfer contracts that satisfy the
 /// SEP-41 interface but break the assumption that a declared transfer amount
 /// equals the amount received. Not a SAC.
 pub mod fee_on_transfer_token_mock {

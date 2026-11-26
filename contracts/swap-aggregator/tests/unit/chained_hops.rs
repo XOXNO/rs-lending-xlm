@@ -22,7 +22,7 @@ fn a_two_hop_route_sizes_the_second_hop_from_the_first_hops_output() {
     let (token_b, sac_b) = new_asset(&env, &admin);
     let (token_c, sac_c) = new_asset(&env, &admin);
 
-    // Two 1:1 pools: a -> b, then b -> c.
+    // Two 1:1 pools: a to b, then b to c.
     let pool_ab = env.register(aquarius_mock::AqPool, ());
     aquarius_mock::AqPoolClient::new(&env, &pool_ab).init(&token_a, &token_b);
     sac_b.mint(&pool_ab, &10_000);

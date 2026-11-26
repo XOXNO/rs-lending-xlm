@@ -184,9 +184,9 @@ fn decode_rejects_a_payload_shorter_than_the_header() {
     );
 }
 
-/// One byte past the stack buffer. The counts in this payload would otherwise
-/// raise `EmptyBatch`, which pins the rejection on the length gate rather than
-/// on anything downstream of it.
+/// One byte past the stack buffer. The header's `op_count` is 0. A later check
+/// would raise `EmptyBatch` for that. The test expects `InvalidRouteXdr`, so the
+/// length check runs first.
 #[test]
 fn decode_rejects_a_payload_one_byte_past_the_stack_buffer() {
     let env = Env::default();
@@ -204,7 +204,7 @@ fn decode_rejects_a_payload_one_byte_past_the_stack_buffer() {
     );
 }
 
-/// A program sitting on every cap at once: 48 instructions, 32 weights, and a
+/// A program at every cap at once: 48 instructions, 32 weights, and a
 /// payload exactly the size of the decode buffer.
 #[test]
 fn decode_accepts_a_program_on_every_structural_cap() {
@@ -350,7 +350,7 @@ fn decode_rejects_a_strategy_whose_input_and_output_token_coincide() {
     );
 }
 
-/// The referral id is a big-endian `u32` at a fixed header offset; it must
+/// The referral id is a big-endian `u32` at a fixed header offset. It must
 /// round-trip byte for byte, with no sign extension into the `u64`.
 #[test]
 fn decode_preserves_a_full_width_referral_id() {
@@ -728,7 +728,7 @@ fn decode_rejects_a_payload_from_another_wire_version() {
 }
 
 /// The payload must end exactly where `op_count` and `weight_count` put the end
-/// of the weight run; one trailing byte is rejected.
+/// of the weight run. One trailing byte is rejected.
 #[test]
 fn decode_rejects_a_payload_with_bytes_past_its_declared_weight_run() {
     let env = Env::default();

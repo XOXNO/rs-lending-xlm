@@ -8,8 +8,8 @@ use crate::venues::auth::authorize_token_transfer;
 /// Authorizes the input transfer and calls the pool's `swap` with a zero minimum
 /// output. Panics with `IntegerOverflow` if `amount_in` is negative.
 ///
-/// Decodes the pool's reported fill as `u128`, so a wrong return type fails, then
-/// discards it: `crate::venues::dispatch_hop` measures the fill.
+/// The function decodes the pool's reported fill as `u128`, so a wrong return type fails. It
+/// then discards the reported fill, because `crate::venues::dispatch_hop` measures the fill.
 pub(super) fn invoke_pool_swap(
     env: &Env,
     router: &Address,
@@ -31,7 +31,7 @@ pub(super) fn invoke_pool_swap(
     let _: u128 = env.invoke_contract(pool, &symbol_short!("swap"), args);
 }
 
-/// Reads the pool's constituent tokens; [`crate::venues::pool_tokens`] validates and caches
+/// Reads the pool's constituent tokens. [`crate::venues::pool_tokens`] validates and caches
 /// them.
 pub(crate) fn get_tokens(env: &Env, pool: &Address) -> Vec<Address> {
     env.invoke_contract(pool, &Symbol::new(env, "get_tokens"), Vec::<Val>::new(env))

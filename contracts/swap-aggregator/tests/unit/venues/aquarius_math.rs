@@ -11,7 +11,7 @@ fn allowance_is_the_floor_until_proportional_overtakes_it() {
     assert_eq!(residual_allowance(10_000_000_000), 10_000);
 }
 
-// The residual guard's accept/reject boundary is tested through the enforcement path in
+// The residual guard's boundary between accept and reject is tested through the enforcement path in
 // `execute_strategy::a_residual_of_exactly_the_allowance_passes_and_one_unit_more_reverts`.
 
 #[test]
