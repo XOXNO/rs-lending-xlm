@@ -1,9 +1,10 @@
 # Position NFT
 
-Ownership record for lending accounts: one token per controller account,
-token id = account id. The controller stores no owner; it calls
-`owner_of(account_id)` on every authority check. A position is a plain
-transferable NFT that wallets, indexers and marketplaces can read and move.
+The position NFT is the ownership record for lending accounts. Each controller
+account has one token, and the token id equals the account id. The controller
+stores no owner. It calls `owner_of(account_id)` on every authority check. A
+position is a plain transferable NFT that wallets, indexers, and marketplaces
+can read and move.
 
 | | |
 | --- | --- |
@@ -15,39 +16,41 @@ transferable NFT that wallets, indexers and marketplaces can read and move.
 
 ## Role in the protocol
 
-The controller deploys it once via `deploy_position_nft`, passing its own
-address as `controller`, the only address allowed to mint, burn and upgrade.
+The controller deploys the position NFT once through `deploy_position_nft`. It
+passes its own address as `controller`. That address is the only one allowed to
+mint, burn, and upgrade.
 
 | Controller action | NFT call | Effect |
 | --- | --- | --- |
 | `create_account` | `mint(owner)` | Returned `u32` token id becomes the `u64` account id |
-| account deletion (`remove_account_and_burn_nft`) | `burn(token_id)` | Every deletion, incl. liquidation cleanup and bad-debt socialization |
-| any owner check (`try_account_owner`) | `owner_of(token_id)` | Live lookup; owner never cached |
+| account deletion (`remove_account_and_burn_nft`) | `burn(token_id)` | Every deletion, including liquidation cleanup and bad-debt socialization |
+| any owner check (`try_account_owner`) | `owner_of(token_id)` | Live lookup. The owner is never cached |
 | `renew_account` | `renew(token_id)` | Lifts `Owner` and holder's `Balance` to the per-user window |
 | `upgrade_position_nft` | `upgrade(hash)` | Owner-gated Wasm upgrade |
 
 The controller widens `u32` to `u64` on mint and narrows with
-`u32::try_from` elsewhere; an id above `u32::MAX` was never minted and resolves
+`u32::try_from` elsewhere. An id above `u32::MAX` was never minted and resolves
 to `AccountNotFound`. Account id `0` means "create a new account", so the
 constructor consumes token id 0 and the first position is id 1.
 
-Transferring the token transfers the whole position, collateral and debt. The
-controller changes nothing on transfer; its next call resolves the new holder.
+A transfer of the token moves the whole position, including collateral and
+debt. The controller changes nothing on transfer. Its next call resolves the
+new holder.
 
 ## Entrypoints
 
-Own entrypoints: [`src/contract.rs`](src/contract.rs). Signatures and
-authority, including inherited OpenZeppelin `NonFungibleToken` and
-`NonFungibleEnumerable` methods:
-[endpoint reference](../../docs/reference/endpoints.md#position-nft). The
-generated client drops `Env`;
+The contract's own entrypoints are in [`src/contract.rs`](src/contract.rs). The
+[endpoint reference](../../docs/reference/endpoints.md#position-nft) lists
+signatures and authority, including the inherited OpenZeppelin
+`NonFungibleToken` and `NonFungibleEnumerable` methods. The generated client
+drops `Env`.
 [`interfaces/position-nft/src/lib.rs`](../../interfaces/position-nft/src/lib.rs)
 declares only what the controller calls: `mint`, `burn`, `owner_of`, `renew`,
-`upgrade`. Errors: stock `NonFungibleTokenError` 200–214.
+and `upgrade`. The errors are the stock `NonFungibleTokenError` 200–214.
 
 `owner_of` and `get_approved` panic `NonExistentToken` for an id never minted
-or burned. Walk a holder's positions with `get_owner_token_id` and `balance`;
-all positions with `get_token_id` and `total_supply`.
+or burned. To list a holder's positions, use `get_owner_token_id` and `balance`.
+To list all positions, use `get_token_id` and `total_supply`.
 
 ## Storage and TTL
 
@@ -63,27 +66,28 @@ all positions with `get_token_id` and `total_supply`.
 | `NFTStorageKey::Approval(token_id)` | temporary | Per-token approval until `live_until_ledger` |
 | `NFTStorageKey::ApprovalForAll(owner, operator)` | temporary | Operator approval until `live_until_ledger` |
 
-`mint`, `burn`, `upgrade` and `renew` call `renew_instance`
+`mint`, `burn`, `upgrade`, and `renew` call `renew_instance`
 (`TTL_THRESHOLD_INSTANCE`, `TTL_BUMP_INSTANCE`, 180 days), so account creation
 and deletion alone keep the instance alive. `owner_of` extends `Owner` to the
 OpenZeppelin default of 30 days. `mint` and `renew(token_id)` extend `Owner`
 and the holder's `Balance` with `TTL_THRESHOLD_USER` / `TTL_BUMP_USER` (120
-days, as the controller's per-user entries), not the enumeration entries.
-`renew` needs no auth: it moves no state and cannot shorten a lifetime.
+days, the same as the controller's per-user entries), not the enumeration
+entries. `renew` needs no auth. It moves no state and cannot shorten a
+lifetime.
 
-An archived `Owner` does not block a caller that simulates first: simulation
-returns the archived entries and the transaction restores them in line, for
-restore rent. Liquidation therefore succeeds against a lapsed `Owner`; only a
-hand-built footprint needs `RestoreFootprint`. Calling `renew(token_id)` before
-expiry prevents archival
+An archived `Owner` does not block a caller that simulates first. Simulation
+returns the archived entries, and the transaction restores them in line, for
+restore rent. Liquidation therefore succeeds against a lapsed `Owner`. Only a
+hand-built footprint needs `RestoreFootprint`. To prevent archival, call
+`renew(token_id)` before expiry
 ([INV-STOR-02](../../docs/reference/invariants.md#inv-stor-02)).
 
 ## Events
 
-No bespoke events; OpenZeppelin token events are in
+The contract has no bespoke events. OpenZeppelin token events are in
 [inherited events](../../docs/reference/events.md#inherited-events). A burn
-emits only `Burn`, no zero-address `Transfer`: `burn` clears the owner via
-`Base::update` (silent), then calls `emit_burn`.
+emits only `Burn`, with no zero-address `Transfer`. `burn` clears the owner
+through `Base::update` (silent), then calls `emit_burn`.
 
 ## Security properties
 
@@ -99,29 +103,29 @@ exists.
 **Token ids are never reused.** `increment_token_id` is a monotonic instance
 counter that `burn` does not decrement, so a deleted account id cannot return.
 
-**A burned token is inert.** With `Owner(token_id)` removed, `owner_of`,
-`transfer`, `approve`, `renew` and `token_uri` panic `NonExistentToken` (200).
+**Calls on a burned token panic.** With `Owner(token_id)` removed, `owner_of`,
+`transfer`, `approve`, `renew`, and `token_uri` panic `NonExistentToken` (200).
 `transfer_from` on a burned or never-minted id also fails with
-`NonExistentToken` (200) for every spender: the approval check reads the
-owner first.
+`NonExistentToken` (200) for every spender, because the approval check reads
+the owner first.
 
-**Transfer cannot escape debt.** The account carries collateral and debt, and
+**A transfer does not clear debt.** The account carries collateral and debt, and
 every solvency check keys on `account_id`, not the holder. An underwater
-position stays liquidatable after transfer; the new holder can withdraw only
+position stays liquidatable after transfer. The new holder can withdraw only
 what keeps debt covered by LTV-weighted collateral.
 
 **Approval hands over the whole account.** `approve` and `approve_for_all` let
 another address move the position with its collateral and debt
 ([Account authority](../../docs/explanation/threat-model.md#account-authority)).
 
-**A transfer suspends delegates; it does not revoke them.** The controller
-stores one `DelegateGrant` per account, stamped with `granted_by`, and honours
+**A transfer suspends delegates but does not revoke them.** The controller
+stores one `DelegateGrant` per account, stamped with `granted_by`, and honors
 it only while `granted_by` owns the NFT. If the token returns to `granted_by`
 before a later holder changes the list, those delegates act again. The owner
-ends a delegate's authority with `remove_delegate` before transferring. A later
+ends a delegate's authority with `remove_delegate` before the transfer. A later
 holder clears a dormant grant with `add_delegate` (replaces it) or
 `remove_delegate` (deletes it, no event). No view lists an account's
-delegates; rebuild them from `AccountDelegateEvent`.
+delegates. Rebuild them from `AccountDelegateEvent`.
 
 **Upgrade is governance-reachable only.** `upgrade` needs controller auth,
 reachable only through owner-gated `upgrade_position_nft`, a sensitive
@@ -137,9 +141,9 @@ contracts/position-nft/src/
   test.rs       # unit tests: id 0 reservation, auth gates, TTL windows, token_uri
 ```
 
-Controller side: [`external/position_nft.rs`](../controller/src/external/position_nft.rs)
+The controller side is in [`external/position_nft.rs`](../controller/src/external/position_nft.rs)
 (call wrappers, id widening), [`storage/account.rs`](../controller/src/storage/account.rs)
-(owner resolution, delegate grants), [`markets.rs`](../controller/src/markets.rs)
+(owner resolution, delegate grants), and [`markets.rs`](../controller/src/markets.rs)
 (deploy, upgrade).
 
-Integration tests: [`tests/test-harness/tests/controller/position_nft.rs`](../../tests/test-harness/tests/controller/position_nft.rs).
+The integration tests are in [`tests/test-harness/tests/controller/position_nft.rs`](../../tests/test-harness/tests/controller/position_nft.rs).

@@ -1,26 +1,26 @@
 # XOXNO Oracle
 
-Self-hosted multi-signer price feed. It keeps each registered signer's latest
-submission and computes an N-of-M lower median at write time; the price aggregator
-reads it as one provider.
+The XOXNO oracle is a self-hosted multi-signer price feed. It keeps each
+registered signer's latest submission and computes an N-of-M lower median at
+write time. The price aggregator reads it as one provider.
 
 | | |
 | --- | --- |
 | Owner | OZ `Ownable`, two-step |
 | Called by | Price aggregator, through a `FeedSource` holding `ProviderRef::Xoxno(MultiFeedRef)` (`common/src/types/composable_oracle.rs`) |
 | Feed reference | `MultiFeedRef { contract, feed_id, nature }` |
-| Smoothing | Never: `ProviderRef::is_smoothed` is false for `Xoxno` |
+| Smoothing | None. `ProviderRef::is_smoothed` is false for `Xoxno` |
 | Client | `common/src/oracle/providers/xoxno.rs`, with the other providers |
 
-Full semantics: crate rustdoc (`src/lib.rs`).
+The crate rustdoc (`src/lib.rs`) has the full semantics.
 
 ## Aggregation
 
-Quorum, spread and freshness rules, units and entrypoints:
-[endpoint reference](../../docs/reference/endpoints.md#xoxno-oracle).
-RedStone reads (`read_price_data*`) fail closed; SEP-40 reads return `None`
-when unmapped, missing or stale. A submission needs a known feed, a price in
-`1..=MAX_SUBMITTED_PRICE` and a timestamp no older than the signer's last for
+The [endpoint reference](../../docs/reference/endpoints.md#xoxno-oracle) lists
+the quorum, spread, and freshness rules, the units, and the entrypoints.
+RedStone reads (`read_price_data*`) fail closed. SEP-40 reads return `None`
+when the feed is unmapped, missing, or stale. A submission needs a known feed,
+a price in `1..=MAX_SUBMITTED_PRICE`, and a timestamp no older than the signer's last for
 that feed. `recompute_feeds` runs in footprint-sized batches.
 
 ## History
@@ -31,11 +31,11 @@ that feed. `recompute_feeds` runs in footprint-sized batches.
 resolution counts as one second.
 
 - A new aggregate in the bucket of the last entry replaces that entry.
-- A new aggregate in a later bucket appends an entry. The oldest entry goes
-  when the history is full.
+- A new aggregate in a later bucket appends an entry. The history drops its
+  oldest entry when it is full.
 - A quorum miss writes no entry.
 
-`prices` and `price` serve rounds, newest first. A round is the newest entry
+`prices` and `price` return rounds, newest first. A round is the newest entry
 of a bucket at the live resolution, stamped with the bucket start in seconds.
 The bucket holds the write time, not the signed package time. Round
 timestamps are distinct, at least one resolution apart, and never after the
@@ -48,9 +48,9 @@ from the writes, not from the signed prices.
 - `set_resolution` does not rewrite entries. The reads group them by the new
   resolution.
 
-`lastprice`, `read_price_data*` and `read_price_history` return stored
+`lastprice`, `read_price_data*`, and `read_price_history` return stored
 entries. Their timestamps are the oldest clustered package time and the write
-time, in milliseconds (`lastprice`: package time in seconds).
+time, in milliseconds (`lastprice` uses the package time in seconds).
 
 ## Storage and TTL
 
@@ -65,14 +65,14 @@ All keys are variants of `DataKey` in [`src/storage/mod.rs`](src/storage/mod.rs)
 | `FeedMapping(asset)`, `FeedOwner(feed_id)` | persistent | SEP-40 asset to feed id, and back |
 | `AssetCount`, `AssetAt`, `AssetIndex`, `FeedCount`, `FeedAt`, `FeedIndex` | persistent | Swap-remove indexed asset and feed lists |
 
-Submissions, owner calls and `upgrade` renew the instance TTL
-(`renew_instance`); reads do not. Persistent writes and aggregate reads extend
+Submissions, owner calls, and `upgrade` renew the instance TTL
+(`renew_instance`). Reads do not. Persistent writes and aggregate reads extend
 with `TTL_THRESHOLD_SHARED` / `TTL_BUMP_SHARED`.
 
 ## Events
 
-No custom events; ownership changes publish the stock OpenZeppelin `Ownable`
-events ([inherited events](../../docs/reference/events.md#inherited-events)).
+The contract has no custom events. Ownership changes publish the stock
+OpenZeppelin `Ownable` events ([inherited events](../../docs/reference/events.md#inherited-events)).
 
 ## Layout
 
@@ -86,5 +86,5 @@ src/
   storage/        config, prices, feed registry, TTL
 ```
 
-Consumer: [`contracts/price-aggregator`](../price-aggregator/README.md). Errors:
-[XOXNO oracle errors](../../docs/reference/errors.md#xoxno-oracle).
+The consumer is [`contracts/price-aggregator`](../price-aggregator/README.md).
+The errors are in [XOXNO oracle errors](../../docs/reference/errors.md#xoxno-oracle).

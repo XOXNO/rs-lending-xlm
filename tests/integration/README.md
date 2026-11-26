@@ -1,16 +1,16 @@
 # E2E integration
 
 E2E tests deploy candidate contracts to Stellar testnet and drive live
-transactions. They run only on demand: locally, or with the manual
+transactions. They run only on demand, either locally or with the manual
 `E2E Integration` workflow (`.github/workflows/e2e.yml`). Release Build and
-pull requests run the offline harness, RPC-fixture and operator regressions.
+pull requests run the offline harness, RPC-fixture, and operator regressions.
 
 ## Running the suite
 
 ### Prerequisites
 
-Stellar CLI 28.0.0, Node 24, Python 3, jq, curl, xxd, GNU timeout (`gtimeout`
-on macOS). Never enable PYTHONOPTIMIZE: validation uses assertions.
+You need Stellar CLI 28.0.0, Node 24, Python 3, jq, curl, xxd, and GNU timeout
+(`gtimeout` on macOS). Never enable PYTHONOPTIMIZE. Validation uses assertions.
 
 ### Commands
 
@@ -58,61 +58,64 @@ python3 tests/integration/release_gate.py collect tests/integration/runs <base>
 
 All lanes share one RPC budget. `env.sh` puts `bin/stellar` first on `PATH`.
 
-- `E2E_RPC_SLOTS` slot per network process: `configs/script.sh` calls,
-  JSON-RPC `curl`, SDK RPC processes (`sdk/invoke.mjs`, `sdk/balances.mjs`).
-- Simulation-only calls first take an `E2E_RPC_READ_SLOTS` slot: `--send=no`,
-  `--build-only`, `tx simulate`, `contract fetch`, `fees stats`, `ledger`,
-  read-only `curl`, `sdk/balances.mjs`.
-- No slot: local verbs (`keys`, `xdr`, `tx sign|hash|decode|encode|op`,
-  `contract id|alias`, `version`) and the orchestrator's one pre-lane
-  `sdk/limits.mjs` call.
+- Each network process takes one `E2E_RPC_SLOTS` slot. These processes are
+  `configs/script.sh` calls, JSON-RPC `curl`, and SDK RPC processes
+  (`sdk/invoke.mjs`, `sdk/balances.mjs`).
+- Simulation-only calls first take an `E2E_RPC_READ_SLOTS` slot. These calls are
+  `--send=no`, `--build-only`, `tx simulate`, `contract fetch`, `fees stats`,
+  `ledger`, read-only `curl`, and `sdk/balances.mjs`.
+- These calls take no slot: local verbs (`keys`, `xdr`,
+  `tx sign|hash|decode|encode|op`, `contract id|alias`, `version`) and the
+  orchestrator's one pre-lane `sdk/limits.mjs` call.
 
-Slots cap processes, not requests: a CLI view makes 2 to 3 requests in ~0.4 s,
-a send ~6 in ~4 s. 6 read slots plus 6 sends give ~40 requests/s at median
-latency; the gateway allows ~65/s per IP. Measure per-second requests in a live
+Slots cap processes, not requests. A CLI view makes 2 to 3 requests in ~0.4 s,
+and a send makes ~6 in ~4 s. 6 read slots plus 6 sends give ~40 requests/s at
+median latency. The gateway allows ~65/s per IP. Measure per-second requests in a live
 run before raising either default. Waits of 1 s or more go to
 `runs/<run>/rpc-wait.tsv`.
 
 ### Throttling and retries
 
-- A read hitting HTTP 429 backs off with jitter, up to `THROTTLE_RETRIES`
-  times: the gateway's `retry_after` (max 120 s), else 8, 16, 32, then 60 s.
-- Same backoff for HTTP 5xx or a dropped connection on read-only JSON-RPC, and
-  for a `stellar` command failing with 429, 5xx or lost connection before it
-  prints `Signing transaction:`.
-- `tx send`, `keys fund` and `--fund` never retry. A signed send hitting 429
+- A read that gets HTTP 429 backs off with jitter, up to `THROTTLE_RETRIES`
+  times. The wait is the gateway's `retry_after` (max 120 s). Without
+  `retry_after`, the waits are 8, 16, 32, then 60 s.
+- The same backoff applies to HTTP 5xx or a dropped connection on read-only
+  JSON-RPC. It also applies to a `stellar` command that fails with 429, 5xx, or
+  a lost connection before the command prints `Signing transaction:`.
+- `tx send`, `keys fund`, and `--fund` never retry. A signed send that gets 429
   stays `UNKNOWN` and fails.
 
-`parallel_e2e.sh` starts `prod-full`, `prod-caller` and `stress` first, the
-rest `E2E_LANE_STAGGER` s later, launches `E2E_LANE_GAP` s apart so lanes never
-fund in the same second.
+`parallel_e2e.sh` starts `prod-full`, `prod-caller`, and `stress` first, and the
+other lanes `E2E_LANE_STAGGER` seconds later. It launches lanes `E2E_LANE_GAP`
+seconds apart, so no two lanes fund in the same second.
 
 ### Run hygiene
 
 - Do not edit scripts during a live run (Bash may read the rest later). Use an
   immutable checkout or copied harness for concurrent work.
 - GitHub run IDs include `run_attempt`.
-- `E2E_RESUME=1` reuses a local run ID; interrupted cases, unknown submissions
-  and completed-case manifest drift cannot resume as fresh work. New run ID
+- `E2E_RESUME=1` reuses a local run ID. Interrupted cases, unknown submissions,
+  and completed-case manifest drift cannot resume as fresh work. Use a new run ID
   after a code fix.
 - Standalone scenarios use the full lane manifest and gate (omitted cases fail
-  coverage) and cover one lane: `full_e2e.sh` defaults to `agg-core`,
-  `flash_position.sh` to `flash-a`; `E2E_LANE` overrides.
-  `make integration-flash-position` runs `flash-a`, then `flash-b`.
+  coverage). Each scenario covers one lane. `full_e2e.sh` defaults to
+  `agg-core`, and `flash_position.sh` defaults to `flash-a`. `E2E_LANE`
+  overrides the default. `make integration-flash-position` runs `flash-a`, then
+  `flash-b`.
 
 ### Reports
 
 | Artifact | Meaning |
 |---|---|
 | `actions.tsv`, `report.md` | action columns, status, hash, resources, reason |
-| `cases.tsv`, `evidence.tsv` | terminal case ranges; transaction/simulation/assertion classification |
+| `cases.tsv`, `evidence.tsv` | terminal case ranges. Transaction, simulation, and assertion classification |
 | `attempts.jsonl`, `summary.json` | immutable attempt log paths, exit status, hash, receipt state, counts, interruption |
-| `metadata.json`, `candidate.json`, `deployed-artifacts.jsonl` | source/config/case hashes, selected cases, network/tools/SDK policy, bytecode identity |
-| `network-limits.json` | testnet/mainnet protocol, ledger, version, resource limits |
-| `controlled.json`, `controlled-tests.log` | selected controlled-clock proofs; exact hashed test log |
+| `metadata.json`, `candidate.json`, `deployed-artifacts.jsonl` | source, config, and case hashes, selected cases, network, tools, and SDK policy, bytecode identity |
+| `network-limits.json` | testnet and mainnet protocol, ledger, version, and resource limits |
+| `controlled.json`, `controlled-tests.log` | selected controlled-clock proofs. Exact hashed test log |
 | `logs/` | quotes, XDR, simulations, receipts, attempt stdout/stderr, financial snapshots |
-| `before-cleanup.jsonl`, `cleanup-funding.tsv` | pre-teardown state; separately recorded repairs/top-ups |
-| `private/` | lane-specific CLI identities; **never upload** |
+| `before-cleanup.jsonl`, `cleanup-funding.tsv` | pre-teardown state. Separately recorded repairs and top-ups |
+| `private/` | lane-specific CLI identities. **Never upload** |
 
 CI uploads detailed evidence on failure. `state.env` is local execution state.
 Reports omit private keys.
@@ -120,8 +123,8 @@ Reports omit private keys.
 ### Resource budgets
 
 Live reports carry no budget numbers. Scenario scripts append
-[`appendix.md`](appendix.md), naming the native tests that print them, to each
-`report.md`.
+[`appendix.md`](appendix.md) to each `report.md`. The appendix names the native
+tests that print the budget numbers.
 
 ## Release gate
 
@@ -132,35 +135,36 @@ Live reports carry no budget numbers. Scenario scripts append
 3. Publish those exact files.
 
 Release Build runs no live lanes. Before a deploy, run `E2E Integration` with
-`lanes=all` on the release tag. That run builds the same commit again; it does
+`lanes=all` on the release tag. That run builds the same commit again. It does
 not test the published files. A passing smoke or mapped ABI is not release
 acceptance.
 
-- Builds consume `stellar contract build --optimize --out-dir` output; Cargo's
-  target WASM stays raw. Production artifacts: optimized once, then stripped.
-  Fixtures: own output directory.
-- `distribution.json` records the hash of every other published file:
-  production/SDK WASM, checksums, SDK/candidate manifests.
+- Builds consume `stellar contract build --optimize --out-dir` output. Cargo's
+  target WASM stays raw. Production artifacts are optimized once, then
+  stripped. Fixtures use their own output directory.
+- `distribution.json` records the hash of every other published file. These
+  files are production and SDK WASM, checksums, and SDK and candidate manifests.
 - Publication runs `artifacts.py distribution-check` and rejects missing,
-  extra or changed files.
+  extra, or changed files.
 - `release_gate.py` binds a local full run to a packaged bundle. No workflow
   runs it.
 
 ### Governance fixture
 
 Candidate `governance.wasm` delays sensitive operations 120960 ledgers (~7
-days), longer than any run, so lanes deploy `fixtures/governance_e2e.wasm`
-(built by `make integration-wasm`, `short-timelock` feature, 12-ledger floor)
-and prove a same-hash upgrade of it. Only native tests cover the candidate. The
-fixture's `timelock` contract-meta stamp fails `artifacts.py check` on any
-candidate governance, blocking accidental deploy or publish.
+days). This delay is longer than any run, so lanes deploy
+`fixtures/governance_e2e.wasm` and prove a same-hash upgrade of it.
+`make integration-wasm` builds the fixture with the `short-timelock` feature and
+a 12-ledger floor. Only native tests cover the candidate. The fixture's
+`timelock` contract-meta stamp fails `artifacts.py check` on any candidate
+governance. The failure blocks an accidental deploy or publish.
 
 ### Lanes
 
-| Lane | Required surface |
+| Lane | Required coverage |
 |---|---|
 | `agg-core` | lifecycle, routed strategies, fees, admin upgrade |
-| `agg-admin` | same-market settlement, NFT, flash loans, admin, gap-hunt admin, pool surface |
+| `agg-admin` | same-market settlement, NFT, flash loans, admin, gap-hunt admin, pool entrypoints |
 | `agg-gov` | risk refresh, swap-aggregator admin, governance |
 | `liq-a` | Transfer/Credit liquidation, spoke liquidation, credit rejections, spoke flags and curve |
 | `liq-b` | multi-hub isolation, bulk liquidation, exact bad debt/recap |
@@ -173,67 +177,69 @@ candidate governance, blocking accidental deploy or publish.
 | `prod-caller` | same operator, filtered caller config: 8 markets + reference BTC, `configs/mainnet` policies; 7/8/9/18-decimal round trips; Chainlink + RedStone USDT0; XOXNO-backed borrowing; contract caller and authority chain |
 | `sdk` | supply/borrow/repay/withdraw, routed multiply, Blend, events/error mapping/delayed signing |
 
-Environments: `agg-*` live Reflector and quote routes, fresh candidate
-aggregator; `liq-*` isolated SACs and oracle fixtures; `stress` independent
-provider fixtures, deterministic shared-account interleaving; `flash-*` live
-Reflector, existing receiver fixtures; `blend` and `sdk` a fresh Blend v2 pool per run from the pinned
-[`blend_pool.wasm`](fixtures/blend/README.md) with a mock backstop;
-`prod-*` disposable policy/wallet roots and explicit provider/LP/token fixtures
-for every enabled mainnet market (`prod-caller`: `production_config.py --only
-caller`); `sdk` published SDK 1.0.221 and Stellar SDK 16.3.0, fresh contracts.
+The lanes run in these environments. `agg-*` uses live Reflector and quote
+routes and a fresh candidate aggregator. `liq-*` uses isolated SACs and oracle
+fixtures. `stress` uses independent provider fixtures and deterministic
+shared-account interleaving. `flash-*` uses live Reflector and existing receiver
+fixtures. `blend` and `sdk` use a fresh Blend v2 pool per run from the pinned
+[`blend_pool.wasm`](fixtures/blend/README.md) with a mock backstop. `prod-*`
+uses disposable policy and wallet roots and explicit provider, LP, and token
+fixtures for every enabled mainnet market (`prod-caller` uses
+`production_config.py --only caller`). `sdk` uses published SDK 1.0.221 and
+Stellar SDK 16.3.0, with fresh contracts.
 
 #### Lane details
 
 Production replay rules:
 
-- Provider registry roles map through the market-policy fixture address map;
-  the operator validator keeps its provider checks.
-- Fresh setup configures reference and token oracles before market creation;
-  dependent oracle execution follows market configuration order.
+- Provider registry roles map through the market-policy fixture address map.
+  The operator validator keeps its provider checks.
+- Fresh setup configures reference and token oracles before market creation.
+  Dependent oracle execution follows market configuration order.
 - A failed operator command keeps its known signing hashes and fetches their
-  receipts, preserving the original failure.
+  receipts. The original failure is preserved.
 
 ### Case and ABI coverage
 
-- `cases.json`: required terminal cases and action predicates by contract role
-  and execution type. Its `lanes` field picks each lane's cases; `run_case`
-  skips the rest; `test_release_gate.py` pins the map.
-- `abi-coverage.json`: every candidate export, including generated NFT methods
-  and constructors, mapped to required actions or justified controlled tests.
+- `cases.json` lists required terminal cases and action predicates by contract
+  role and execution type. Its `lanes` field picks each lane's cases.
+  `run_case` skips the rest. `test_release_gate.py` pins the map.
+- `abi-coverage.json` maps every candidate export, including generated NFT
+  methods and constructors, to required actions or justified controlled tests.
   Nested-call mappings are source-traced, not host traces. `abi_coverage.py`
   compares actual WASM exports.
 
-A required case cannot pass via `research`, `sim-exceeded`,
+A required case cannot pass through `research`, `sim-exceeded`,
 `environment-blocked`, empty report, missing actions, unknown status or
 duplicate case IDs. Diagnostics cannot erase a failed assertion, even under the
 same label. Expected negatives distinguish simulation rejection from a
-submitted failed receipt; simulated rollback does not prove committed
+submitted failed receipt. Simulated rollback does not prove committed
 rollback.
 
 ### Transaction rules
 
-- Mutations `--send=yes`; reads `--send=no`.
+- Mutations use `--send=yes`. Reads use `--send=no`.
 - CLI calls use native `--instruction-leeway 20000000` for instruction growth
-  from index projection and accrual between simulation and inclusion; no fixed
+  from index projection and accrual between simulation and inclusion. No fixed
   margin covers every future state.
 - The 10% resource headroom gate still applies. SDK-prepared envelopes are not
   patched.
 - Retry only classified transient failures without a signed hash, plus the
-  Reflector round race. Once a hash exists, reconcile it; never rebuild a
+  Reflector round race. Once a hash exists, reconcile it. Never rebuild a
   mutation with unknown outcome.
-- A lost successful CLI response is recovered only after verifying signed
-  envelope, host operation and receipt return/event hash. Original CLI status
-  and output stay in attempt evidence.
+- The harness recovers a lost successful CLI response only after it verifies
+  the signed envelope, the host operation, and the receipt return or event hash.
+  The original CLI status and output stay in attempt evidence.
 
 A submitted Trapped/ResourceLimitExceeded failure is fatal, except the
-Reflector round race: the committed FAILED receipt shows the testnet Reflector
-CEX contract reading its own round key outside the footprint. Then `inv` and
-`sdk_inv` rebuild the call once and record the failure as `retry` with
+Reflector round race. In that race, the committed FAILED receipt shows the testnet Reflector
+CEX contract reading its own round key outside the footprint. `inv` and
+`sdk_inv` then rebuild the call once and record the failure as `retry` with
 `rejected_transaction` evidence. `gate.py` requires the next same-label action
-to succeed with:
+to succeed with these properties:
 
-- the same source, contract, function and arguments;
-- an unchanged read-write footprint;
+- the same source, contract, function, and arguments,
+- an unchanged read-write footprint,
 - a read-only footprint differing only by Reflector round entries, including
   the missing one (`receipts.py footprint_drift`).
 
@@ -243,30 +249,31 @@ Every other storage-footprint failure stays fatal.
 
 - A checkout-wide file lock spans quote acquisition through receipt
   confirmation.
-- Quotes request `platform=aggregator` (Soroban composition); snapshots must
+- Quotes request `platform=aggregator` (Soroban composition). Snapshots must
   reach the RPC ledger seen after taking the lock.
 - A cancelled or unresolved funding operation leaves
-  `runs/.external-funding.<RUN_TS>.pending.json`; later funding with that
+  `runs/.external-funding.<RUN_TS>.pending.json`. Later funding with that
   RUN_TS (same lane, or its `E2E_RESUME`) fails before quoting. Other lanes and
   new runs continue under the lock. Reconcile the operation before removing the
   marker.
 
 Unrelated external traders and the deliberate contention tests are outside
-this control. SDK evidence includes native simulation responses/resources and
-failed wire receipts, observed without altering prepared envelopes.
+this control. SDK evidence includes native simulation responses and resources and
+failed wire receipts. The harness collects this evidence without altering
+prepared envelopes.
 
 ### Resource gate
 
-- Checks signed envelope declarations, actual transaction/event bytes,
-  footprint counts, and both captured network limit sets.
+- The gate checks signed envelope declarations, actual transaction and event
+  bytes, footprint counts, and both captured network limit sets.
 - Declared instructions, including CLI leeway, keep at least 10% headroom.
-- Success proves the testnet memory cap; a lower mainnet cap fails closed.
+- Success proves the testnet memory cap. A lower mainnet cap fails closed.
 - Mainnet access is read-only limit capture, never submission.
 
 ### Evidence arithmetic
 
 - Native XLM deltas include actual committed network fees.
-- Raw token/share arithmetic uses integers, including 18-decimal values.
+- Raw token and share arithmetic uses integers, including 18-decimal values.
 - Exact rounding predicates use committed indexes, not later projected ones.
 - Full liquidation closes distinguish ceiling-rounded cash payment from
   floor-valued debt-share credit. Principal floors in WAD before conversion to
@@ -275,47 +282,47 @@ failed wire receipts, observed without altering prepared envelopes.
 
 ### Controlled time
 
-`controlled-cases.json` labels cases needing a controlled ledger clock:
-long-idle interest, HF boundaries, governance expiry and recovery, dust-close
-footprint stability, account TTL, host auto-restore. Native tests prove them;
-testnet cannot observe them over weeks.
+`controlled-cases.json` labels cases that need a controlled ledger clock.
+These cases are long-idle interest, HF boundaries, governance expiry and
+recovery, dust-close footprint stability, account TTL, and host auto-restore.
+Native tests prove them. Testnet cannot observe them over weeks.
 
-- The long-idle test compares paths sharing the accrual routine, not
+- The long-idle test compares paths that share the accrual routine, not
   independent reference arithmetic.
 - `controlled.py` checks native test names and results and stamps the supplied
-  candidate metadata; it does not attest which WASM each test loaded (native
+  candidate metadata. It does not attest which WASM each test loaded (native
   or raw release image). The curator image is outside the stamp.
 - `integration-sdk-validate` tests native RPC restore preparation, refreshed
-  source sequence and malformed simulations offline; it claims nothing about
-  live archival, restoration or automatic restore by the published SDK.
+  source sequence, and malformed simulations offline. It claims nothing about
+  live archival, restoration, or automatic restore by the published SDK.
 
 ### Acceptance
 
-- A full `E2E Integration` run must show every required case on fresh worlds;
-  an ABI map, offline regression or partial smoke cannot certify them.
+- A full `E2E Integration` run must show every required case on fresh worlds.
+  An ABI map, offline regression, or partial smoke cannot certify them.
 - Production fixture checks preserve enabled policy, caps, fees, rates,
-  decimals, hub/spoke relationships and composition, but not real
+  decimals, hub and spoke relationships, and composition, but not real
   external-provider availability.
 - Upgrade evidence records identical baseline and candidate controller hashes,
   `executable_differs=false`, and survival of controller, pool, NFT,
-  price-aggregator, governance and oracle history. No claim about storage
-  migration from a different executable.
-- Release dispatch defaults to `dry_run=true`: build and offline checks, no
-  publication.
+  price-aggregator, governance, and oracle history. The evidence makes no claim
+  about storage migration from a different executable.
+- Release dispatch defaults to `dry_run=true`. A dry run builds and runs offline
+  checks, and it does not publish.
 - Local `release_gate.py` regressions inject failed lanes and wrong artifacts.
-- The harness pins published SDK 1.0.221; all four ESM/CJS root and lending
-  entrypoints are checked for the native 20M leeway request, returned resources
-  and fee, unsigned output, unchanged invocation.
-- Error mapping is checked offline and live; local SDK substitutions are
+- The harness pins published SDK 1.0.221. It checks all four ESM and CJS root
+  and lending entrypoints for the native 20M leeway request, returned resources
+  and fee, unsigned output, and unchanged invocation.
+- Error mapping is checked offline and live. Local SDK substitutions are
   forbidden.
 
 ## Extending
 
-- Use `run_case` and the existing `inv`, `view`, `xfail`, `run_deploy` and
+- Use `run_case` and the existing `inv`, `view`, `xfail`, `run_deploy`, and
   assertion helpers.
-- Propagate prerequisites explicitly; a log message is not a failed case.
-- Add required predicates with a new flow; update ABI bindings.
+- Propagate prerequisites explicitly. A log message is not a failed case.
+- Add required predicates with a new flow. Update ABI bindings.
 - Add a focused offline fault injection proving a wrong outcome cannot pass.
 - Never reduce required stress dimensions after failure.
-- Inspect conservation before cleanup; minting or top-ups stay separately
+- Inspect conservation before cleanup. Minting or top-ups stay separately
   attributable.
