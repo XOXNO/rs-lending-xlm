@@ -738,14 +738,25 @@ fuzz_target!(|i: In| {
                     token::StellarAssetClient::new(&env, &asset).mint(&recv, &amount);
                 }
                 let balance_before = pool_balance(&env, &asset, &pool_addr);
+                // `OverRepay` approves one unit more than the pool pulls. The target
+                // never advances the ledger sequence, so that unit stays approved. A
+                // later `NoRepay` loan that owes no more than this standing allowance
+                // repays from it and succeeds legitimately. The other failing modes
+                // replace the allowance, push extra tokens, or fail before repayment.
+                let standing_allowance =
+                    token::Client::new(&env, &asset).allowance(&recv, &pool_addr);
                 let data = FlashLoanRequest { mode }.to_xdr(&env);
                 match flatten_contract_result(
                     pool.try_flash_loan(&market, &payer, &recv, &amount, &data),
                 ) {
                     Ok(fee) => {
+                        let repaid_from_standing = matches!(mode, FlashLoanMode::NoRepay)
+                            && standing_allowance >= amount.saturating_add(fee);
                         assert!(
-                            matches!(mode, FlashLoanMode::Success | FlashLoanMode::OverRepay),
-                            "flash loan succeeded with failing receiver mode {mode:?}"
+                            matches!(mode, FlashLoanMode::Success | FlashLoanMode::OverRepay)
+                                || repaid_from_standing,
+                            "flash loan succeeded with failing receiver mode {mode:?} \
+                             (standing allowance {standing_allowance})"
                         );
                         assert!(amount > 0, "zero-amount flash loan succeeded");
                         assert!(
