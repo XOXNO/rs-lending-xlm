@@ -44,7 +44,7 @@ pub fn update_supply_index(env: &Env, supplied: Ray, old_index: Ray, rewards_inc
 
 /// Computes the portion of `rewards_increase` not reflected by the change in
 /// supplied value implied by moving from `old_index` to `new_index` over
-/// `supplied` (i.e. `supplied * new_index - supplied * old_index`).
+/// `supplied`, that is `supplied * new_index - supplied * old_index`.
 ///
 /// Panics if `new_index` implies less supplied value than `old_index`, or if
 /// the distributed value exceeds `rewards_increase`.

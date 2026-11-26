@@ -82,8 +82,8 @@ pub(crate) fn process_flash_position(
         *receiver != pool_addr,
         FlashLoanError::InvalidFlashloanReceiver
     );
-    // Caller-selected receivers require flash loans enabled; multiply uses
-    // the configured router and does not require this flag.
+    // Caller-selected receivers require flash loans to be enabled. Multiply uses the configured
+    // router and does not require this flag.
     assert_with_error!(
         env,
         cache.cached_pool_sync_data(debt).params.is_flashloanable,
@@ -116,12 +116,12 @@ pub(crate) fn process_flash_position(
     }
     prefetch_strategy_prices(&mut cache, &account, &extra_assets);
 
-    // Guard both forwarding and the callback: token hooks can reenter first.
+    // Guard both forwarding and the callback, because token hooks can reenter first.
     let (amount_received, collateral_before, refund_before) =
         storage::with_flash_guard(env, || {
             let amount_received =
                 mint_and_forward(env, &mut account, debt, amount, receiver, &mut cache);
-            // Baselines exclude funding and forwarding; count callback receipts only.
+            // Baselines exclude funding and forwarding. Count callback receipts only.
             let collateral_before = snapshot_balances(
                 env,
                 &controller,
@@ -147,8 +147,8 @@ pub(crate) fn process_flash_position(
 
     refund_listed_assets(env, caller, refund_assets, &refund_before);
 
-    // Check before and after finalization: its LTV refresh can prune zero-scaled
-    // supply, and persistence removes empty accounts.
+    // Check before and after finalization, because its LTV refresh can prune zero-scaled supply and
+    // persistence removes empty accounts.
     require_flash_position_still_open(env, &account, debt);
     strategy_finalize(env, account_id, &mut account, &mut cache);
     require_flash_position_still_open(env, &account, debt);
@@ -168,9 +168,9 @@ pub(crate) fn process_flash_position(
     account_id
 }
 
-/// Validates collateral limits, supply eligibility and non-negative minimums
-/// with at least one positive. Uniqueness is by token, since different hubs
-/// share the same controller token balance.
+/// Validates collateral limits, supply eligibility, and non-negative minimums, with at least one
+/// positive minimum. Uniqueness is by token, because different hubs share the same controller token
+/// balance.
 fn validate_collaterals(
     env: &Env,
     cache: &mut Context,
@@ -237,7 +237,7 @@ fn validate_refund_assets(
             GenericError::InvalidPayments
         );
         seen.set(asset.clone(), true);
-        // Refund transfers run after the guard; restrict tokens to listed assets.
+        // Refund transfers run after the guard. Restrict tokens to listed assets.
         cache.require_listed_active_config(
             spoke_id,
             &HubAssetKey {

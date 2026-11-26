@@ -30,7 +30,7 @@ for mutation in ('failure', 'partial', 'empty', 'different_sha', 'different_hash
     raise AssertionError(f'publication incorrectly allowed: {mutation}')
 print('Release guard dry run passed: failures and artifact substitution block publication')
 
-# The short-timelock governance build serves live end-to-end runs only. A
+# The short-timelock governance build is for live end-to-end runs only. A
 # candidate set that carries its stamp must fail before deployment or upload.
 with tempfile.TemporaryDirectory() as directory:
     root=Path(directory)
@@ -53,13 +53,13 @@ with tempfile.TemporaryDirectory() as directory:
 print('Candidate guard passed: the short-timelock governance build is refused')
 
 # The CLI must bind every uploaded byte, not only the production code. Fake
-# module bytes suffice here: this regression tests packaging, not execution.
+# module bytes suffice here. This regression tests packaging, not execution.
 with tempfile.TemporaryDirectory() as directory:
     root=Path(directory); dist=root/'dist'; dist.mkdir()
     for name in DISTRIBUTION_FILES:
         (dist/name).write_bytes(b'original '+name.encode())
-    # Valid module containing only a custom docs section. Both versions have
-    # identical executable code; exact SDK bytes still belong to the release.
+    # Valid module that contains only a custom docs section. Both versions have
+    # identical executable code. Exact SDK bytes still belong to the release.
     (dist/'sdk-controller.wasm').write_bytes(b'\0asm\1\0\0\0\0\6\4docsA')
     bundled={'source_sha':subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip(),
         'artifacts':{f'{c}.wasm':hashlib.sha256((dist/f'{c}.wasm').read_bytes()).hexdigest() for c in CONTRACTS}}
@@ -131,7 +131,7 @@ with tempfile.TemporaryDirectory() as directory:
         else: raise AssertionError('workspace failure hidden by selected controlled cases')
 
 # Keep the actual workflow publication behind build success and exact-byte
-# verification; dry-run dispatch must never enter the GitHub release mutation.
+# verification. Dry-run dispatch must never enter the GitHub release mutation.
 workflow = (Path(__file__).resolve().parents[2]/'.github/workflows/release.yml').read_text()
 # Queued jobs consume the build checkout's resolved SHA even if its branch or
 # explicit tag moves. Resolve the actual workflow expressions against that move.
@@ -235,8 +235,8 @@ for draft, allowed, created in [('',True,True),('true',True,False),('false',Fals
     assert ('release create' in calls) == created
     assert ('release upload' in calls) == allowed
 # Registry publication mutates public state too. It runs in its own workflow
-# after a successful Release Build, publishes only a tag whose GitHub release is
-# published (so a dry run publishes nothing), and mainnet waits for testnet.
+# after a successful Release Build. It publishes only a tag whose GitHub release is
+# published, so a dry run publishes nothing. Mainnet waits for testnet.
 assert 'stellar-registry/actions' not in workflow
 registry = (Path(__file__).resolve().parents[2]/'.github/workflows/registry-publish.yml').read_text()
 assert 'workflows: ["Release Build"]' in registry and 'types: [completed]' in registry
@@ -281,7 +281,7 @@ for name in ['e2e.yml','release.yml']:
     assert 'path: artifacts/wasm/fixtures' in live
     assert not any(tool in live for tool in ['rust-toolchain@','actions/cache@','integration-fixtures','cargo '])
     assert live.index('sha256sum --strict --check SHA256SUMS') < live.index('bash tests/integration/scenarios/parallel_e2e.sh')
-    # Exercise the actual workflow checksum commands: substitutions and missing
+    # Exercise the actual workflow checksum commands. Substitutions and missing
     # fixture files must fail before any lane sends transactions.
     checksum=re.search(r'        run: (sha256sum .* > SHA256SUMS)',build).group(1)
     check=re.search(r'cd artifacts/wasm/fixtures && (sha256sum .*?)\)',live).group(1)

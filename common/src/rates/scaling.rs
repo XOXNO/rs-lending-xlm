@@ -17,7 +17,7 @@ pub fn scaled_to_original(env: &Env, scaled: Ray, index: Ray) -> Ray {
 ///
 /// The division saturates at `i128::MAX` instead of panicking, so the cap check
 /// fails open rather than trapping an entry path. The asset-to-RAY
-/// rescale still panics on overflow; listings validate caps with
+/// rescale still panics on overflow. Listings validate caps with
 /// [`crate::validation::require_cap_within_asset_domain`]. Position accounting
 /// uses [`calculate_scaled_supply`] and [`calculate_scaled_borrow`], which panic
 /// on overflow.
@@ -115,9 +115,9 @@ pub fn resolve_withdrawal(
 
 /// Offsets same-asset supply against debt in conservative token units.
 ///
-/// Settle amount is the overlap
+/// The settle amount is the overlap
 /// `min(requested, floor(supply), ceil(debt))`. A side is fully closed only
-/// when that overlap exhausts that side's conservative value — never because
+/// when that overlap exhausts that side's conservative value, never because
 /// a half-up display rounded up by one native unit. Partial burns stay
 /// directed (`ceil` supply, `floor` debt) and are capped at the position.
 ///

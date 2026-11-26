@@ -33,7 +33,7 @@ impl LendingTest {
     }
 
     /// Returns the user's live account id, which is its position-NFT token id.
-    /// Panics when the user has no live account. Alias of `resolve_account_id`.
+    /// Panics when the user has no live account. It aliases `resolve_account_id`.
     pub fn account_id(&self, name: &str) -> u64 {
         self.resolve_account_id(name)
     }

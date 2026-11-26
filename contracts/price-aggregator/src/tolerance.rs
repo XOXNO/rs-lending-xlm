@@ -5,10 +5,10 @@ use common::math::fp::{Bps, Wad};
 use common::types::OracleTolerance;
 use soroban_sdk::Env;
 
-/// Returns whether the ratio `larger * BPS / smaller` of `anchor` and
-/// `primary`, rounded half up, is at most `tolerance.upper_ratio_bps`
-/// (`10_500` allows a 5% gap). Returns `false` when the smaller value is not
-/// positive or the ratio overflows `i128`.
+/// Returns whether the ratio `larger * BPS / smaller` of `anchor` and `primary` is at
+/// most `tolerance.upper_ratio_bps`. The ratio rounds half up. A value of `10_500` allows
+/// a 5% gap. Returns `false` when the smaller value is not positive or the ratio
+/// overflows `i128`.
 pub(crate) fn within_tolerance_band(
     env: &Env,
     anchor: i128,

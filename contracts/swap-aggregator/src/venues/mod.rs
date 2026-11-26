@@ -70,7 +70,7 @@ fn measure(ctx: &HopContext, swap: impl FnOnce()) -> (Option<i128>, Option<i128>
 /// not strictly increase, and with `Error::InvalidAmount` if the router's `token_in` balance does
 /// not decrease by exactly `amount_in`.
 ///
-/// Venue adapters return nothing: this measured delta is the only fill the router credits.
+/// Venue adapters return nothing. This measured delta is the only fill the router credits.
 pub(crate) fn dispatch_hop(
     env: &Env,
     router: &Address,

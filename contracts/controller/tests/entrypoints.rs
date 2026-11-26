@@ -113,8 +113,8 @@ fn one_ray_position() -> AccountPositionRaw {
 }
 
 /// Registers a native position-nft owned by `controller` and records it in the controller's
-/// instance storage. Returns the NFT contract address. Duplicated from
-/// `tests/helpers/account.rs`: pinned test modules cannot import each other.
+/// instance storage. Returns the NFT contract address. This function duplicates the one in
+/// `tests/helpers/account.rs`, because pinned test modules cannot import each other.
 fn setup_position_nft(env: &Env, controller: &Address) -> Address {
     let nft = env.register(
         position_nft::PositionNft,
@@ -131,8 +131,8 @@ fn setup_position_nft(env: &Env, controller: &Address) -> Address {
     nft
 }
 
-/// Mints the position NFT to a fresh owner (yielding account id 1, the first mint against a
-/// fresh NFT), then seeds live supply/debt positions for it.
+/// Mints the position NFT to a fresh owner. The first mint against a fresh NFT yields account
+/// id 1. The function then seeds live supply and debt positions for that account.
 fn seed_live_account(env: &Env, contract_id: &Address) -> HubAssetKey {
     let pool = env.register(ViewPool, ());
     let aggregator = env.register(ViewAggregator, ());

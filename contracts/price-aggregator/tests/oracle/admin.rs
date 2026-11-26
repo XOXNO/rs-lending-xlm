@@ -78,7 +78,7 @@ fn scaled_onto(env: &Env, adapter: &Address, quote: PriceKey) -> PriceSource {
 /// straight to the registry so no validation or probing runs. Returns the three
 /// keys in that order.
 fn chain(env: &Env, adapter: &Address) -> (PriceKey, PriceKey, PriceKey) {
-    // A Token key, not a Ref: validation::asset_decimals requires a Ref to
+    // A Token key, not a Ref. validation::asset_decimals requires a Ref to
     // declare 0 decimals, and set_oracle validates the key it is handed.
     let base = PriceKey::Token(Address::generate(env));
     let mid = PriceKey::Token(Address::generate(env));
@@ -116,7 +116,7 @@ fn depends_on_follows_the_chain_past_its_direct_quote() {
         assert!(depends_on(&env, &mid, &base, &mut Vec::new(&env)));
         // The transitive one: leaf quotes mid, and only mid quotes base.
         assert!(depends_on(&env, &leaf, &base, &mut Vec::new(&env)));
-        // Direction matters -- the base does not depend on what is built on it.
+        // Direction matters: the base does not depend on what is built on it.
         assert!(!depends_on(&env, &base, &leaf, &mut Vec::new(&env)));
     });
 }
@@ -171,8 +171,8 @@ fn set_oracle_revalidates_the_oracles_stacked_on_the_changed_key() {
     in_contract(&env, || {
         let (base, mid, leaf) = chain(&env, &adapter);
 
-        // Rewriting the base drives revalidate_dependents over mid and leaf:
-        // each is re-fetched and re-validated under the new state.
+        // Rewriting the base drives revalidate_dependents over mid and leaf. Each is
+        // re-fetched and re-validated under the new state.
         set_oracle(
             &env,
             base.clone(),
@@ -274,9 +274,9 @@ fn wide_band_pair(
     }
 }
 
-/// Two sources that trust the same contracts give one opinion, so the oracle
-/// keeps the single-source band cap. The first source trusts `[a, b]` and the
-/// second `[b, a]`: the comparison must not depend on the order.
+/// Two sources that trust the same contracts give one opinion, so the oracle keeps the
+/// single-source band cap. The first source trusts `[a, b]` and the second `[b, a]`. The
+/// comparison must not depend on the order.
 #[test]
 #[should_panic(expected = "Error(Contract, #226)")]
 fn two_sources_trusting_the_same_contracts_in_another_order_keep_the_single_source_band_cap() {
@@ -432,8 +432,8 @@ fn a_base_edit_that_pushes_a_dependent_past_the_depth_limit_is_rejected() {
             &oracle_of(&env, one(&env, scaled_onto(&env, &adapter, deeper))),
         );
 
-        // deeper <- deep <- base is depth 2 from base and passes on its own;
-        // deeper <- deep <- base <- mid <- leaf is depth 4 and must not.
+        // deeper <- deep <- base is depth 2 from base and passes on its own. deeper <-
+        // deep <- base <- mid <- leaf is depth 4 and must not.
         set_oracle(
             &env,
             base,

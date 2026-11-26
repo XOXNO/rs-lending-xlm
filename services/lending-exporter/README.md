@@ -1,10 +1,10 @@
 # lending-exporter
 
 Read-only Prometheus exporter for XOXNO Lending. On a timer it reads the
-controller, pool, price-aggregator and oracle provider contracts over Soroban
-RPC and serves `/metrics` for a public Grafana dashboard. No signer: only
-read-only simulations and ledger reads. Standalone Cargo workspace and
-container, one instance per network.
+controller, pool, price-aggregator, and oracle provider contracts over Soroban
+RPC and serves `/metrics` for a public Grafana dashboard. It has no signer and runs only
+read-only simulations and ledger reads. It is a standalone Cargo workspace and
+container, with one instance per network.
 
 ## Quick start
 
@@ -24,41 +24,41 @@ curl -s localhost:9110/metrics | grep lending_
 
 The controller's per-asset **soft oracle status** is the solvency-monitoring
 authority: it always answers instead of failing closed. Direct provider probes
-are early warning only.
+are an early warning only.
 
 ## What it publishes
 
-All metric names start with the lending_ prefix. No per-user data.
+All metric names start with the lending_ prefix. The exporter publishes no per-user data.
 
-- **Oracle**, per asset: blended, primary and anchor price; deviation (bps);
-  blend timestamp; stale, deviation and healthy flags; error code behind an
+- **Oracle**, per asset: blended, primary, and anchor price. Deviation (bps).
+  Blend timestamp. Stale, deviation, and healthy flags. Error code behind an
   invalid price.
 - **Oracle config**, per asset: max staleness, tolerance band, sanity bounds,
-  source count, seconds until a feed goes stale. Single-LP-source assets add
+  source count, and seconds until a feed goes stale. Single-LP-source assets add
   pool value floor and LP share supply.
-- **Market**, per hub and asset: supplied, borrowed, available liquidity and
-  revenue (tokens and USD); utilization; supply and borrow APY; interest-rate
-  parameters; time since last accrual.
+- **Market**, per hub and asset: supplied, borrowed, available liquidity, and
+  revenue (tokens and USD). Utilization. Supply and borrow APY. Interest-rate
+  parameters. Time since last accrual.
 - **Spoke**, per listing: paused, frozen, collateral, borrow and deprecated
-  flags; LTV, liquidation threshold, bonus and fees; supply and borrow caps,
-  usage and fill. Per spoke: liquidation target HF, HF at max bonus, bonus
+  flags. LTV, liquidation threshold, bonus, and fees. Supply and borrow caps,
+  usage, and fill. Per spoke: liquidation target HF, HF at max bonus, bonus
   factor. A listing removed on chain or undecodable loses every series.
 - **Protocol**: TVL, total borrowed, liquidity, revenue, market and spoke
-  counts, minimum borrow collateral.
+  counts, and minimum borrow collateral.
 - **Exporter health**: scrape duration, last success time, ledger sequence,
   time and skew, RPC errors, view failures, simulation count, build info.
 
 ### Caps and closed markets
 
-A cap is always an enforced ceiling in asset units; no value means unlimited.
+A cap is always an enforced ceiling in asset units. No value means unlimited.
 A cap of `0` closes that side to new supply or borrows. Caps are independent of
-the collateral and borrow flags: a `0` cap on a side still flagged enabled is a
+the collateral and borrow flags. A `0` cap on a side still flagged enabled is a
 deliberate wind-down.
 
 `lending_spoke_supply_closed` and `lending_spoke_borrow_closed` read `1` when
-the supply or borrow cap is `0`. Read these gauges, not the data gap: a closed
-side's cap utilization divides by zero and is not published, so on a graph it
-looks like a failed scrape. Two alerts fire on closed-but-enabled when the
+the supply or borrow cap is `0`. Read these gauges, not the data gap. A closed
+side's cap utilization divides by zero and is not published, so on a graph the
+gap looks like a failed scrape. Two alerts fire on closed-but-enabled when the
 spoke is not deprecated.
 
 ## Configuration
@@ -70,27 +70,27 @@ markets as `(hub_id, asset, symbol)`, and spoke ids to scan.
   truth. Change it first, then copy the address here.
 - **An unlisted market is never read.** When an asset is listed in
   `configs/<network>/markets.json`, add it here in the same commit. Do not list
-  a market with `enabled: false` there: it is not deployed, so every read
-  fails.
+  a market with `enabled: false` there. That market is not deployed, so every
+  read fails.
 - **Spoke ids are on-chain ids.** On mainnet they differ from the ids in
-  `configs/<network>/spokes.json`; `spoke_ids` in `configs/networks.json` maps
+  `configs/<network>/spokes.json`. `spoke_ids` in `configs/networks.json` maps
   them.
 - **Name every hub and spoke.** A missing name shows as a bare `Spoke 7`, and a
   test fails.
-- `symbol`, `hubs` and `spoke_names` are display labels only.
-- `scrape_interval_seconds` defaults to `30`; below `5` stops startup.
+- `symbol`, `hubs`, and `spoke_names` are display labels only.
+- `scrape_interval_seconds` defaults to `30`. A value below `5` stops startup.
 - `rpc.timeout_seconds` is parsed but not applied.
 - `contracts.xoxno_oracle_adapter` is validated at startup, but no scrape reads
   it.
 
 ### Environment variables
 
-`--config` is the only flag; `EXPORTER_CONFIG` is its fallback. One is
-required (no default in binary or image): without it the container exits and
-`LendingExporterDown` fires, rather than reporting another network's data. The
-other variables replace YAML values before validation. Empty
-`EXPORTER_RPC_URL` or `EXPORTER_CONTROLLER` is ignored; empty
-`EXPORTER_PRICE_AGGREGATOR` or `EXPORTER_XOXNO_ORACLE_ADAPTER` clears that
+`--config` is the only flag, and `EXPORTER_CONFIG` is its fallback. You must set
+one of them. Neither has a default in the binary or the image. Without a config
+path, the container exits and `LendingExporterDown` fires, so the exporter never
+reports another network's data. The other variables replace YAML values before
+validation. An empty `EXPORTER_RPC_URL` or `EXPORTER_CONTROLLER` is ignored. An
+empty `EXPORTER_PRICE_AGGREGATOR` or `EXPORTER_XOXNO_ORACLE_ADAPTER` clears that
 address.
 
 | Variable | Overrides |
@@ -103,38 +103,38 @@ address.
 | `RUST_LOG` | `log.level`, when it parses as a filter; no fixed fallback |
 
 `MAINNET_LENDING_CONTROLLER` is a Compose variable that feeds
-`EXPORTER_CONTROLLER`; the binary does not read it.
+`EXPORTER_CONTROLLER`. The binary does not read it.
 
 ## Deploy
 
-Config files carry their network's addresses; no override needed.
+Config files carry their network's addresses, so you need no override.
 
 ```bash
 docker compose -f docker-compose.example.yaml up -d lending-exporter-testnet
 docker compose -f docker-compose.example.yaml --profile mainnet up -d lending-exporter-mainnet
 ```
 
-Mainnet sits behind a profile so a plain `docker compose up` skips it. Add both
+Mainnet needs the `mainnet` profile, so a plain `docker compose up` skips it. Add both
 scrape jobs from `ops/prometheus.example.yml`. Every series except
 `lending_exporter_simulations_total` has a `network` label.
 
-Order for a Chainlink oracle source:
+Follow this order for a Chainlink oracle source:
 
 1. Deploy an exporter release that decodes Chainlink sources.
 2. Upgrade governance and the price aggregator with `make <network> upgradeAll`.
 3. Configure the Chainlink source.
 
-Remove stored Chainlink config before downgrading any of these to a release without Chainlink support.
+Remove stored Chainlink config before you downgrade any of these to a release without Chainlink support.
 
 ### Dashboard
 
-Import `ops/grafana-dashboard.json`. Sections: Health status, Protocol,
-Markets, Oracles, Spokes, Exporter health, Alerting.
+Import `ops/grafana-dashboard.json`. The dashboard has these sections: Health
+status, Protocol, Markets, Oracles, Spokes, Exporter health, and Alerting.
 
 Public dashboards reject template variables and panels without a fixed
-datasource, so every query panel names one Prometheus datasource UID, and every
-query outside Alerting filters on `network="mainnet"` (Alerting shows every
-network). To import it:
+datasource. So every query panel names one Prometheus datasource UID. Every
+query outside Alerting filters on `network="mainnet"`, and Alerting shows every
+network. To import the dashboard:
 
 1. Replace the committed datasource UID with `<your-prometheus-datasource-uid>`.
 2. For a testnet copy, replace `network="mainnet"` with `network="testnet"`.
@@ -144,8 +144,8 @@ No panel names an asset, so a new market appears once the exporter reads it.
 
 ### Alerts
 
-Rebuild `ops/alerts.yml` expressions as Grafana-managed alert rules, keeping
-them off the public panels. Prefer soft-status flags over hard error codes.
+Rebuild `ops/alerts.yml` expressions as Grafana-managed alert rules. Do not put
+them on the public panels. Prefer soft-status flags over hard error codes.
 
 ## Code layout
 

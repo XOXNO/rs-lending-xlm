@@ -267,8 +267,8 @@ fn test_bad_debt_cleanup_mixed_decimals() {
 
     t.liquidate(LIQUIDATOR, ALICE, "DAI18", 10.0);
 
-    // Sub-threshold collateral against real debt: bad-debt cleanup must fire,
-    // clearing every position and removing the account entry.
+    // Sub-threshold collateral against real debt. Bad-debt cleanup must fire. It
+    // clears every position and removes the account entry.
     t.assert_no_positions(ALICE);
     assert_eq!(
         t.get_active_accounts(ALICE).len(),
@@ -295,7 +295,7 @@ fn test_liquidation_protocol_fee_cross_decimal() {
     let collateral_before = t.total_collateral(ALICE);
 
     // The fee is charged on the bonus leg only and lands in the 6-decimal
-    // collateral market; the debt leg is 18-decimal.
+    // collateral market. The debt leg is 18-decimal.
     let account_id = t.resolve_account_id(ALICE);
     let payments = soroban_sdk::Vec::from_array(
         &t.env,

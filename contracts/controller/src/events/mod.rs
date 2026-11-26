@@ -4,7 +4,7 @@ use soroban_sdk::{contractevent, contracttype, Address, Vec};
 
 use common::types::{Account, AccountPosition, DebtPosition, PositionMode};
 
-/// Event encoding of [`PositionMode`]; only `Normal` is renamed to `None`.
+/// Event encoding of [`PositionMode`]. Only `Normal` is renamed to `None`.
 #[contracttype]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[repr(u32)]
@@ -58,7 +58,7 @@ pub enum PositionAction {
     CloseWd = 12,
     Migrate = 13,
     RpColNet = 14,
-    /// Collateral credited net of protocol fees; `LiqSeize` records gross seizure.
+    /// Collateral credited net of protocol fees. `LiqSeize` records gross seizure.
     LiqCredit = 15,
     /// Debt minted by `flash_position`.
     FlashPos = 16,
@@ -66,12 +66,12 @@ pub enum PositionAction {
 
 /// Supply-position delta: `(action, hub_id, asset, scaled_amount, index_ray,
 /// amount, liquidation_threshold, liquidation_bonus, loan_to_value,
-/// liquidation_fees)`. Scaled balance and index use RAY; amount uses asset
+/// liquidation_fees)`. Scaled balance and index use RAY. Amount uses asset
 /// units. The last four fields are BPS risk parameters cast to `u32`.
 ///
-/// `scaled_amount` is the resulting position balance; `amount` is this account's
-/// movement. In credit mode, `LiqSeize` is gross and `LiqCredit` is net of fees.
-/// Transfer mode withholds the fee from the payout, without a second credit leg.
+/// `scaled_amount` is the resulting position balance. `amount` is the movement of this account. In
+/// credit mode, `LiqSeize` is gross and `LiqCredit` is net of fees. Transfer mode withholds the fee
+/// from the payout and has no second credit leg.
 #[contracttype]
 #[derive(Clone, Debug)]
 pub struct EventDepositDelta(
@@ -112,7 +112,7 @@ impl EventDepositDelta {
 }
 
 /// Borrow-position delta: `(action, hub_id, asset, scaled_amount, index_ray, amount)`.
-/// Scaled balance and index use RAY; amount uses asset units. `scaled_amount`
+/// Scaled balance and index use RAY. Amount uses asset units. `scaled_amount`
 /// is the resulting position balance.
 #[contracttype]
 #[derive(Clone, Debug)]
@@ -169,9 +169,9 @@ pub struct CleanBadDebtEvent {
 
 /// A batch of supply and borrow position changes for one account.
 ///
-/// Credit-mode liquidation publishes the liquidated account's batch first,
-/// then the receiver's, before any bad-debt cleanup. Index batches by
-/// `account_id`; an operation can produce more than one.
+/// Credit-mode liquidation publishes the batch of the liquidated account first, then the batch of
+/// the receiver, before any bad-debt cleanup. Index batches by `account_id`. An operation can
+/// produce more than one batch.
 #[contractevent(topics = ["position", "batch_update"], data_format = "vec")]
 #[derive(Clone, Debug)]
 pub struct UpdatePositionBatchEvent {
@@ -185,9 +185,9 @@ pub struct UpdatePositionBatchEvent {
 
 /// Liquidation repayment and bonus, in USD (WAD) and BPS respectively.
 ///
-/// `repaid_usd_wad` measures debt retired after under-delivery and refunds,
-/// matching the `LiqRepay` legs. Seizure and fees appear in position batches:
-/// `LiqSeize` is gross; credit mode also emits net `LiqCredit` legs.
+/// `repaid_usd_wad` measures debt retired after under-delivery and refunds, matching the `LiqRepay`
+/// legs. Seizure and fees appear in position batches. `LiqSeize` is gross. Credit mode also emits
+/// net `LiqCredit` legs.
 #[contractevent(topics = ["position", "liquidation"])]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct LiquidationEvent {
@@ -197,7 +197,7 @@ pub struct LiquidationEvent {
     pub bonus_bps: i128,
 }
 
-/// Completed flash loan; `amount` and `fee` use asset units.
+/// Emitted when a flash loan completes. `amount` and `fee` use asset units.
 #[contractevent(topics = ["position", "flash_loan"])]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct FlashLoanEvent {
@@ -209,8 +209,8 @@ pub struct FlashLoanEvent {
     pub fee: i128,
 }
 
-/// Debt-funded flash position with `fee = 0`. `amount` is requested debt;
-/// `amount_received` is measured receiver delivery. Both use asset units.
+/// Debt-funded flash position with `fee = 0`. `amount` is requested debt. `amount_received` is
+/// measured receiver delivery. Both use asset units.
 #[contractevent(topics = ["position", "flash_position"])]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct FlashPositionEvent {
@@ -226,8 +226,8 @@ pub struct FlashPositionEvent {
 
 /// Protocol revenue claimed and forwarded to the accumulator.
 ///
-/// `amount` is the positive controller-balance increase submitted for onward
-/// transfer, in asset units; it does not measure the accumulator's receipt.
+/// `amount` is the positive controller-balance increase submitted for onward transfer, in asset
+/// units. It does not measure the receipt of the accumulator.
 ///
 /// Claims reduce outstanding pool revenue and are capped by available cash.
 /// With exact token delivery, accrued revenue is cumulative claims plus
@@ -252,7 +252,8 @@ pub struct InitialMultiplyPaymentEvent {
     pub account_id: u64,
 }
 
-/// Completed Blend migration, with collateral, supply and debt entry counts.
+/// Emitted when a Blend migration completes. The event carries the collateral, supply, and debt
+/// entry counts.
 #[contractevent(topics = ["strategy", "blend_migration"])]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct BlendMigrationEvent {

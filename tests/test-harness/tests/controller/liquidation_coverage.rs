@@ -76,7 +76,7 @@ fn test_oracle_rejects_zero_price_before_liquidation_check() {
     t.set_oracle_single_spot("USDC");
     t.set_price("USDC", 0);
 
-    // Calls `liquidate`, not the `is_liquidatable` view: the price read must fail
+    // The test calls `liquidate`, not the `is_liquidatable` view. The price read must fail
     // before the health-factor check.
     assert_contract_error(
         t.try_liquidate(LIQUIDATOR, alice, "ETH", 0.01),
@@ -98,7 +98,7 @@ fn test_liquidation_seize_proportional_subunit_collateral() {
     let alice = "alice_dust";
 
     // Alice's own ETH supply is one base unit. Another account supplies the
-    // ETH she borrows: a debt mint cannot take debt value above supply value.
+    // ETH she borrows, because a debt mint cannot take debt value above supply value.
     t.supply("eth_lp", "ETH", 100.0);
     t.supply(alice, "USDC", 20_000.0);
     t.supply(alice, "ETH", 0.0000001);

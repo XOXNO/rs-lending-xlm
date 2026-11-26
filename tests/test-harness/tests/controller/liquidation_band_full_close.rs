@@ -222,9 +222,9 @@ struct CoverPayoff {
     account_exists: bool,
 }
 
-/// Closes 1 fee-free 7-decimal ETH leg against a $1,400 USDC debt at
+/// The helper closes one fee-free 7-decimal ETH leg against a $1,400 USDC debt at
 /// `C / D = ratio_ppm / 1e6`, with an offer of twice the debt. Amounts are in
-/// WAD USD; `socialized_debt` is the debt that the bad-debt event reports.
+/// WAD USD. `socialized_debt` is the debt that the bad-debt event reports.
 fn payoff_at_cover_ratio(ratio_ppm: i128) -> CoverPayoff {
     let mut t = LendingTest::new()
         .with_market(usdc_preset())

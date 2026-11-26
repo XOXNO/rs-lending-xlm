@@ -89,7 +89,7 @@ fn test_require_utilization_below_max_early_returns_when_supplied_zero() {
     });
 }
 
-/// A 100% ceiling still binds a debt mint: debt value may not exceed supply
+/// A 100% ceiling still binds a debt mint. Debt value may not exceed supply
 /// value (audit finding S-03).
 #[test]
 #[should_panic(expected = "Error(Contract, #127)")]
@@ -115,7 +115,7 @@ fn test_require_utilization_below_max_admits_debt_equal_to_supply_at_a_full_cap(
 }
 
 /// The audit's S-03 state: sub-unit dust supply against whole tokens of debt,
-/// at a full cap. The old gate skipped a full cap; the comparison refuses it.
+/// at a full cap. The old gate skipped a full cap. The comparison refuses it.
 #[test]
 #[should_panic(expected = "Error(Contract, #127)")]
 fn test_require_utilization_below_max_rejects_debt_against_dust_supply_at_a_full_cap() {
@@ -129,7 +129,7 @@ fn test_require_utilization_below_max_rejects_debt_against_dust_supply_at_a_full
 }
 
 /// The same state below a full cap. The old gate divided debt by supply here
-/// and overflowed with `MathOverflow`; the comparison gives the typed error.
+/// and overflowed with `MathOverflow`. The comparison gives the typed error.
 #[test]
 #[should_panic(expected = "Error(Contract, #127)")]
 fn test_require_utilization_below_max_rejects_debt_against_dust_supply_without_overflow() {
@@ -140,8 +140,8 @@ fn test_require_utilization_below_max_rejects_debt_against_dust_supply_without_o
     });
 }
 
-/// The exit gate skips a full cap: an exit is bounded by cash, and the
-/// comparison would only fail on rounding dust.
+/// The exit gate skips a full cap. An exit is bounded by cash, and the
+/// comparison would fail only on rounding dust.
 #[test]
 fn test_require_exit_utilization_below_max_skips_a_full_cap() {
     let t = TestSetup::new();
@@ -258,7 +258,7 @@ fn test_require_within_entry_ceiling_rejects_a_value_grown_past_the_ceiling() {
 }
 
 /// At the supply-index floor a value far below the ceiling carries a share
-/// count 1,000 times larger; the share count is what the guard rejects.
+/// count 1,000 times larger. The share count is what the guard rejects.
 #[test]
 #[should_panic(expected = "Error(Contract, #136)")]
 fn test_require_within_entry_ceiling_rejects_a_share_count_above_at_the_index_floor() {
@@ -442,8 +442,8 @@ fn test_require_liquidation_buffer_admits_cash_at_the_rounded_up_reserve() {
     });
 }
 
-/// Claims 100.9 units, debt 50.1, cash 49: the exact gap is 1.8 units, so the
-/// shortfall is 1. Rounding each side to whole units first would read 0.
+/// Claims are 100.9 units, debt is 50.1, and cash is 49. The exact gap is 1.8
+/// units, so the shortfall is 1. Rounding each side to whole units first would read 0.
 #[test]
 fn test_backing_shortfall_floors_the_exact_gap_once() {
     let t = TestSetup::new();

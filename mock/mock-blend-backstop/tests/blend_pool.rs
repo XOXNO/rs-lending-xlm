@@ -35,7 +35,7 @@ fn reserve_config(index: u32) -> blend::ReserveConfig {
 #[test]
 fn pinned_pool_activates_and_lends_with_the_mock_backstop() {
     let env = Env::default();
-    // The pool constructor requires the admin signature; the live lane signs as admin.
+    // The pool constructor requires the admin signature. The live lane signs as admin.
     env.mock_all_auths_allowing_non_root_auth();
     env.cost_estimate().budget().reset_unlimited();
 

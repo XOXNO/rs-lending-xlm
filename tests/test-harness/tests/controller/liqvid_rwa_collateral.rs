@@ -3,7 +3,7 @@
 //! touches, issuer freezes, and issuer-controlled decimals. The market sits in
 //! its own hub and spoke and borrows 7-decimal USDC from the base hub.
 //!
-//! Tests prefixed `lqv_`.
+//! The tests use the prefix `lqv_`.
 
 use common::types::{AssetOracle, HubAssetKey, PriceKey, SeizeMode};
 use controller::constants::{RAY, WAD};
@@ -38,7 +38,7 @@ struct Listing {
     bonus: u32,
 }
 
-/// $1,000 shares, LTV 60% / LT 70% / bonus 5%.
+/// $1,000 shares with LTV 60%, LT 70%, and bonus 5%.
 const THOUSAND_DOLLAR_SHARES: Listing = Listing {
     decimals: 0,
     unit_cents: 100_000,
@@ -47,10 +47,10 @@ const THOUSAND_DOLLAR_SHARES: Listing = Listing {
     bonus: 500,
 };
 
-/// $1 shares with the LTV, LT and bonus of the testnet LIQVID1039 listing:
-/// LTV 50% / LT 53% / bonus 5%. The spoke keeps the default curve (target
-/// HF 1.10, full bonus at HF 0.80, factor 10000) and the harness oracle, not
-/// the listing curve and band; `liqvid_listing_params.rs` covers those.
+/// $1 shares with the LTV, LT, and bonus of the testnet LIQVID1039 listing:
+/// LTV 50%, LT 53%, and bonus 5%. The spoke keeps the default curve (target
+/// HF 1.10, full bonus at HF 0.80, factor 10000) and the test-harness oracle, not
+/// the listing curve and band. `liqvid_listing_params.rs` covers those.
 const LISTED_ONE_DOLLAR_SHARES: Listing = Listing {
     decimals: 0,
     unit_cents: 100,
@@ -525,7 +525,7 @@ fn lqv_transfer_liquidation_needs_an_allowlisted_liquidator() {
 }
 
 /// Credit mode moves supply shares, not tokens, so the issuer allowlist does
-/// not gate it; the receiver can exit only once the issuer admits it.
+/// not gate it. The receiver can exit only once the issuer admits it.
 #[test]
 fn lqv_credit_liquidation_moves_shares_without_a_token_transfer() {
     let mut z = setup(1_000);
@@ -555,7 +555,7 @@ fn lqv_credit_liquidation_moves_shares_without_a_token_transfer() {
 }
 
 /// An issuer freeze of the pool stops every token movement through it:
-/// deposits, withdrawals and Transfer liquidations revert. Credit liquidation
+/// deposits, withdrawals, and Transfer liquidations revert. Credit liquidation
 /// and USDC repayment keep working, and unfreezing restores exits.
 #[test]
 fn lqv_issuer_pool_freeze_blocks_token_movement_until_unfrozen() {
@@ -601,7 +601,7 @@ fn lqv_issuer_pool_freeze_blocks_token_movement_until_unfrozen() {
     assert_eq!(z.liq_balance(&liquidator), left);
 }
 
-/// The issuer removes the pool from the allowlist after deposits: every exit
+/// The issuer removes the pool from the allowlist after deposits. Every exit
 /// reverts until it is restored, and Credit liquidation still settles.
 #[test]
 fn lqv_pool_removed_from_allowlist_after_deposits_blocks_exits_only() {
@@ -629,7 +629,7 @@ fn lqv_pool_removed_from_allowlist_after_deposits_blocks_exits_only() {
 }
 
 /// An allowlisted but frozen liquidator cannot receive shares in Transfer
-/// mode; Credit mode settles.
+/// mode. Credit mode settles.
 #[test]
 fn lqv_a_frozen_liquidator_can_only_liquidate_in_credit_mode() {
     let mut z = setup(1_000);
@@ -652,7 +652,7 @@ fn lqv_a_frozen_liquidator_can_only_liquidate_in_credit_mode() {
 }
 
 /// A frozen borrower cannot move shares, but the protocol can still liquidate
-/// the position, and the borrower can still repay in USDC: seizure moves shares
+/// the position, and the borrower can still repay in USDC. Seizure moves shares
 /// from the pool, never from the borrower.
 #[test]
 fn lqv_a_frozen_borrower_is_still_liquidatable() {
@@ -680,9 +680,9 @@ fn lqv_a_frozen_borrower_is_still_liquidatable() {
     z.assert_units_conserved(&[id]);
 }
 
-/// An issuer decimals relabel does not reach the protocol: governance keeps
+/// An issuer decimals relabel does not reach the protocol. Governance keeps
 /// resolving the listed decimals from the stored oracle, so maintenance such
-/// as moving the sanity band still works, and a partial liquidation seizes
+/// as moving the sanity band still works. A partial liquidation seizes
 /// exactly what the view quotes.
 #[test]
 fn lqv_issuer_decimals_relabel_keeps_the_listed_unit_and_oracle_maintenance() {
@@ -760,10 +760,10 @@ fn lqv_second_hub_listing_after_a_relabel_uses_the_listed_unit() {
     assert!(create(0).is_ok(), "the listed unit is accepted");
 }
 
-/// Revenue on the gated market: a claim with nothing to claim moves no token,
-/// so it needs no allowlist. Seized-share revenue moves pool -> controller ->
-/// accumulator, so the claim reverts, and takes a batch with it, until the
-/// issuer admits both.
+/// Revenue on the gated market. A claim with nothing to claim moves no token,
+/// so it needs no allowlist. Seized-share revenue moves from the pool to the
+/// controller to the accumulator. Until the issuer admits both, the claim
+/// reverts and takes a batch with it.
 #[test]
 fn lqv_revenue_claim_needs_the_controller_and_accumulator_allowlisted() {
     let mut z = setup(1_000);
@@ -843,7 +843,7 @@ fn lqv_stepwise_nav_markdown_liquidates_in_whole_shares() {
 
 /// The smallest borrowing account (two shares) just below HF 1 sells one
 /// share at `NAV / (1 + bonus)`. The one-share residue, once below HF 1 again,
-/// closes in full: the liquidator repays all debt for the last share.
+/// closes in full. The liquidator repays all debt for the last share.
 #[test]
 fn lqv_two_share_account_sells_one_share_then_closes_in_full() {
     let mut z = setup(1_000);
@@ -877,9 +877,10 @@ fn lqv_two_share_account_sells_one_share_then_closes_in_full() {
     assert_eq!(z.liq_balance(&z.pool), 0);
 }
 
-/// A low-threshold listing on a mainnet-shaped curve, where one share at
-/// `NAV / (1 + bonus)` covers the whole debt, closes in full and takes exactly
-/// one of the two shares; the liquidator's effective bonus is `NAV / debt - 1`.
+/// A low-threshold listing on a mainnet-shaped curve. One share at
+/// `NAV / (1 + bonus)` covers the whole debt, so the liquidation closes in full
+/// and takes exactly one of the two shares. The liquidator's effective bonus is
+/// `NAV / debt - 1`.
 #[test]
 fn lqv_low_threshold_full_close_takes_one_share_of_two() {
     let mut z = setup_listing(Listing {
@@ -950,9 +951,9 @@ fn lqv_small_account_offer_boundary() {
     assert!(paid >= fair && paid <= fair + 2, "paid {paid}, fair {fair}");
 }
 
-/// The one-unit sale covers every leg below 3 decimals, not only 0 decimals:
-/// a two-raw-unit account at 1 and 2 decimals sells one raw unit, while a
-/// 3-decimal leg keeps the plain curve quote.
+/// The one-unit sale covers every leg below 3 decimals, including 1 and 2
+/// decimals. A two-raw-unit account at 1 and 2 decimals sells one raw unit,
+/// while a 3-decimal leg keeps the plain curve quote.
 #[test]
 fn lqv_one_unit_sale_applies_below_three_decimals_only() {
     for decimals in [1u32, 2] {
@@ -1017,7 +1018,7 @@ fn lqv_a_share_leg_stays_its_accounts_only_supply_position() {
     assert_eq!(supplies.len(), 1);
 }
 
-/// $1 shares at LT 53% on the default curve: a NAV markdown path liquidates in
+/// $1 shares at LT 53% on the default curve. A NAV markdown path liquidates in
 /// whole shares, and a gap into insolvency seizes every remaining share.
 #[test]
 fn lqv_listed_one_dollar_shares_markdown_and_insolvency() {
@@ -1048,7 +1049,7 @@ fn lqv_listed_one_dollar_shares_markdown_and_insolvency() {
     assert_eq!(z.liq_balance(&liquidator), 10_000);
 }
 
-/// A NAV move outside the sanity band fails closed: borrowing and liquidation
+/// A NAV move outside the sanity band fails closed. Borrowing and liquidation
 /// revert until governance moves the band. A single-source band keeps a
 /// half-width of at most 10%, so it moves around the new NAV rather than widens.
 #[test]

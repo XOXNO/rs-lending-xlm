@@ -19,9 +19,9 @@ impl LendingTest {
     }
 
     /// Runs the script from the runner's frame. `Err` carries the failing op's
-    /// error: a contract error, or a host error such as
-    /// `Error(Context, InvalidAction)`, which both re-entry and a token pull
-    /// that no runner auth entry matches produce.
+    /// error. That error is a contract error or a host error such as
+    /// `Error(Context, InvalidAction)`. Both re-entry and a token pull that no
+    /// runner auth entry matches produce that host error.
     pub fn run_script(&self, runner: &Address, ops: &Vec<Op>) -> Result<u64, soroban_sdk::Error> {
         match ScriptRunnerClient::new(&self.env, runner).try_run(
             &self.controller,

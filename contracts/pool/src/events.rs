@@ -9,7 +9,7 @@ use soroban_sdk::{contractevent, contracttype, vec, Address, Env, Vec};
 /// supplied, borrowed, revenue.
 ///
 /// `revenue` is the outstanding unclaimed revenue in scaled shares.
-/// `claim_revenue` lowers it; it is not a cumulative counter. See the
+/// `claim_revenue` lowers it. It is not a cumulative counter. See the
 /// controller's `ClaimRevenueEvent`.
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -57,7 +57,7 @@ pub struct PoolMarketParamsEvent {
     pub params: MarketParamsRaw,
 }
 
-/// Batch of market params updates (create / rate-model replace).
+/// Batch of market params updates (create or rate-model replace).
 #[contractevent(topics = ["market", "batch_params_update"], data_format = "single-value")]
 #[derive(Clone, Debug)]
 pub struct PoolMarketParamsBatchEvent {
@@ -78,7 +78,7 @@ pub struct StrategyFeeEvent {
     pub amount_sent: i128,
 }
 
-/// Accrual held a market's interest at `MAX_MARKET_VALUE_RAY`: its total
+/// Accrual held a market's interest at `MAX_MARKET_VALUE_RAY`. Its total
 /// supply or debt value reached the ceiling, so borrowers accrued less
 /// interest than the rate implies (INV-IDX-06). Emitted at most once per
 /// accrual. The data is the market key, a map of `asset` and `hub_id`.
@@ -88,7 +88,7 @@ pub struct MarketValueCeilingEvent {
     pub hub_asset: HubAssetKey,
 }
 
-/// No-op on an empty batch.
+/// Emits nothing for an empty batch.
 pub(crate) fn emit_market_state_batch(env: &Env, snapshots: Vec<MarketStateSnapshot>) {
     if snapshots.is_empty() {
         return;
@@ -101,12 +101,12 @@ pub(crate) fn emit_market_state_batch(env: &Env, snapshots: Vec<MarketStateSnaps
     PoolMarketStateBatchEvent { updates }.publish(env);
 }
 
-/// One snapshot as a one-element batch.
+/// Emits one snapshot as a one-element batch.
 pub(crate) fn emit_market_state(env: &Env, snapshot: MarketStateSnapshot) {
     emit_market_state_batch(env, vec![env, snapshot]);
 }
 
-/// After create or rate-model update.
+/// Emits after a market create or a rate-model update.
 pub(crate) fn emit_market_params(env: &Env, hub_id: u32, asset: Address, params: MarketParamsRaw) {
     let updates = vec![
         env,
@@ -119,7 +119,7 @@ pub(crate) fn emit_market_params(env: &Env, hub_id: u32, asset: Address, params:
     PoolMarketParamsBatchEvent { updates }.publish(env);
 }
 
-/// Only when `fee` is non-zero.
+/// Emits only when `fee` is non-zero.
 pub(crate) fn emit_strategy_fee(
     env: &Env,
     hub_id: u32,
@@ -142,7 +142,7 @@ pub(crate) fn emit_strategy_fee(
     .publish(env);
 }
 
-/// After an accrual that the market value ceiling held.
+/// Emits after an accrual that the market value ceiling held.
 pub(crate) fn emit_market_value_ceiling(env: &Env, hub_asset: &HubAssetKey) {
     MarketValueCeilingEvent {
         hub_asset: hub_asset.clone(),

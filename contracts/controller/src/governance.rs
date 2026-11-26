@@ -41,7 +41,7 @@ pub(crate) fn upgrade(env: &Env, new_wasm_hash: &BytesN<32>) {
         .update_current_contract(ContractExecutable::Wasm(new_wasm_hash.clone()));
 }
 
-/// Records a strictly greater app version; performs no storage transformation.
+/// Records a strictly greater app version. Performs no storage transformation.
 pub(crate) fn migrate(env: &Env, new_version: u32) {
     let current_version: u32 = env
         .storage()
@@ -66,12 +66,12 @@ pub(crate) fn get_app_version(env: &Env) -> u32 {
         .unwrap_or(INITIAL_APP_VERSION)
 }
 
-/// Pauses the controller; fails if already paused.
+/// Pauses the controller. Fails if the controller is already paused.
 pub(crate) fn pause(env: &Env) {
     pausable::pause(env);
 }
 
-/// Unpauses the controller; fails if already unpaused.
+/// Unpauses the controller. Fails if the controller is already unpaused.
 pub(crate) fn unpause(env: &Env) {
     pausable::unpause(env);
 }
@@ -79,7 +79,7 @@ pub(crate) fn unpause(env: &Env) {
 /// Starts a two-step ownership transfer to `new_owner`, acceptable until
 /// ledger `live_until_ledger`.
 pub(crate) fn transfer_ownership(env: &Env, new_owner: &Address, live_until_ledger: u32) {
-    // The entrypoint authenticates the owner; low-level role transfer does not.
+    // The entrypoint authenticates the owner. Low-level role transfer does not.
     let current_owner = ownable::get_owner(env)
         .unwrap_or_else(|| panic_with_error!(env, GenericError::OwnerNotSet));
 

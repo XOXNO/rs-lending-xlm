@@ -1,7 +1,7 @@
-//! Submission validation and price aggregation for the oracle: freshness and
-//! monotonicity checks on incoming submissions, and the median-based
-//! aggregate computation that clusters signer submissions by timestamp skew
-//! and writes the resulting price and history.
+//! Submission validation and price aggregation for the oracle. This module
+//! checks the freshness and monotonicity of incoming submissions. It also
+//! computes the median-based aggregate, which clusters signer submissions by
+//! timestamp skew, and writes the resulting price and history.
 
 use common::constants::{BPS, MS_PER_SECOND};
 use common::oracle::observation::{MAX_FUTURE_SKEW_SECONDS, MAX_TWAP_RECORDS};
@@ -50,7 +50,7 @@ pub(crate) fn require_fresh_submission(env: &Env, package_timestamp: u64) -> Res
 
 /// Rejects `package_timestamp` (milliseconds) with `StaleSubmission` if
 /// `signer` has a stored submission for `feed_id` with a later package
-/// timestamp. Passes if no prior submission exists.
+/// timestamp. The check passes if no prior submission exists.
 pub(crate) fn require_monotonic_package(
     env: &Env,
     feed_id: &String,
@@ -83,27 +83,33 @@ pub(crate) fn store_submission(
 
 /// What a recompute does to the stored aggregate when it cannot form a new one.
 ///
-/// Owner paths use `Clear`. The submit path uses `Retain`: clearing there would
-/// let one signer take a feed offline by submitting alone after its peers'
-/// entries age out.
+/// Owner paths use `Clear`. The submit path uses `Retain`. Clearing there would
+/// let one signer take a feed offline by submitting alone after the entries of
+/// its peers age out.
 pub(crate) enum QuorumMiss {
-    /// Delete the aggregate: the signer set and threshold no longer justify it.
+    /// Delete the aggregate. The signer set and threshold no longer justify it.
     Clear,
     /// Keep the aggregate and let staleness age it out.
     Retain,
 }
 
-/// Recomputes the current aggregate for `feed_id` from the registered signers'
-/// latest submissions: discards submissions older than the maximum submission
-/// age, then keeps only those within `max_relative_skew` of the newest
-/// surviving timestamp, clamped to ledger time so a future-dated submission
-/// cannot drag the cluster window forward. If fewer than `threshold`
-/// submissions survive either filter, or the cluster is smaller than
-/// `spread_free_cluster_size` and its highest price exceeds its lowest by
-/// more than the configured spread, applies `on_miss` and stores no new
-/// aggregate. Otherwise stores the lower median of the clustered prices,
-/// with the oldest clustered package timestamp and the ledger time as write
-/// timestamp, and records it in the feed's history (see `push_history`).
+/// Recomputes the current aggregate for `feed_id` from the latest submissions of
+/// the registered signers.
+///
+/// The function discards submissions older than the maximum submission age. It
+/// then keeps only the submissions within `max_relative_skew` of the newest
+/// surviving timestamp. The newest timestamp is clamped to the ledger time, so a
+/// future-dated submission cannot drag the cluster window forward.
+///
+/// The function applies `on_miss` and stores no new aggregate if fewer than
+/// `threshold` submissions survive either filter. It does the same if the
+/// cluster has fewer than `spread_free_cluster_size` entries and its highest
+/// price exceeds its lowest by more than the configured spread.
+///
+/// Otherwise the function stores the lower median of the clustered prices. The
+/// stored aggregate has the oldest clustered package timestamp and uses the
+/// ledger time as the write timestamp. The function also records the aggregate
+/// in the feed's history (see `push_history`).
 pub(crate) fn recompute_aggregate(env: &Env, feed_id: &String, on_miss: QuorumMiss) {
     let signers = load_signers(env);
     let max_submission_age = load_max_submission_age(env);
@@ -192,8 +198,8 @@ pub(crate) fn spread_free_cluster_size(signer_count: u32, threshold: u32) -> u32
     absent_bound.max(minority_bound)
 }
 
-/// Applies `on_miss` to `feed_id`'s stored aggregate. History is untouched --
-/// it is appended only on a successful write.
+/// Applies `on_miss` to `feed_id`'s stored aggregate. History is untouched.
+/// The code appends to history only on a successful write.
 fn apply_quorum_miss(env: &Env, feed_id: &String, on_miss: QuorumMiss) {
     match on_miss {
         QuorumMiss::Clear => remove_aggregate(env, feed_id),
@@ -247,15 +253,16 @@ fn median_of(prices: &Vec<i128>) -> i128 {
 pub(crate) fn bucket_start_seconds(write_timestamp: u64, resolution: u32) -> u64 {
     let resolution_seconds = u64::from(resolution.max(1));
     let write_seconds = write_timestamp / MS_PER_SECOND;
-    // `write_seconds % resolution_seconds <= write_seconds`: no underflow.
+    // `write_seconds % resolution_seconds <= write_seconds`, so this cannot underflow.
     write_seconds - write_seconds % resolution_seconds
 }
 
 /// Records `aggregate` in `feed_id`'s history, one entry per resolution bucket
 /// (see `bucket_start_seconds`). Overwrites the last entry if its write
-/// timestamp falls in the same bucket as `aggregate`'s, so each entry holds the
-/// newest aggregate of its bucket. Otherwise appends `aggregate`, and first
-/// evicts the oldest entry when the history holds `MAX_HISTORY_LEN` entries.
+/// timestamp falls in the same bucket as the write timestamp of `aggregate`.
+/// Each entry therefore holds the newest aggregate of its bucket. Otherwise
+/// appends `aggregate`. Before it appends, it evicts the oldest entry if the
+/// history holds `MAX_HISTORY_LEN` entries.
 fn push_history(env: &Env, feed_id: &String, aggregate: RedStonePriceData) {
     let mut history: Vec<RedStonePriceData> =
         load_history(env, feed_id).unwrap_or_else(|| Vec::new(env));

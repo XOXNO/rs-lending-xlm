@@ -23,8 +23,8 @@ assert_dfx_uint_lt() {
 deploy_dfx_strategy() {
     [ -n "${STRATEGY:-}" ] && return 0
     local out_f="$LOG_DIR/deploy_strategy.out" err_f="$LOG_DIR/deploy_strategy.err"
-    # init_args is [controller, hub_id, spoke_id]; the constructor validates
-    # the (hub, asset) market exists, so the DFX market must be listed first.
+    # init_args is [controller, hub_id, spoke_id]. The constructor validates
+    # that the (hub, asset) market exists, so the DFX market must be listed first.
     run_deploy "$out_f" "$err_f" -- stellar contract deploy --wasm "$WASM_DIR/defindex_strategy.wasm" \
         --source "$ADMIN" "${NET_ARGS[@]}" \
         -- --asset "$SAC_DFX" \
@@ -33,8 +33,8 @@ deploy_dfx_strategy() {
     local strat txh
     strat=$(sanitize_output "$out_f")
     txh=$(extract_signing_hash "$err_f")
-    # A FAIL row, not just a log line: this deploy is raw CLI, so nothing else
-    # records the failure and the lane would pass with the strategy surface
+    # Record a FAIL row, not only a log line. This deploy is raw CLI, so nothing else
+    # records the failure and the lane would pass with the strategy checks
     # skipped.
     [ -z "$strat" ] && { _assert_fail deploy_defindex_strategy "strategy deploy failed: $(tail_err_note "$err_f" 200)"; return 1; }
     save_state STRATEGY "$strat"
@@ -71,7 +71,7 @@ flow_defindex_strategy() {
     controller_before=$(balance "$SAC_DFX" "$CONTROLLER") || return 1
     reported=$(inv dfx_deposit "$DAVE" "$STRATEGY" -- deposit \
         --amount "$deposit" --from "$DAVE_ADDR" | tr -d '"') || return 1
-    # No debt in DFX: the supply index is exactly RAY, hence zero tolerance.
+    # No debt exists in DFX, so the supply index is exactly RAY and the tolerance is zero.
     assert_raw_within dfx_expected_credit "$reported" "$deposit" 0 || return 1
     assert_dfx_eq dfx_balance_post_deposit "$deposit" balance --from "$DAVE_ADDR" || return 1
     assert_delta dfx_deposit_payer "$payer" "$(balance "$SAC_DFX" "$DAVE_ADDR")" "-$deposit" || return 1
@@ -126,8 +126,8 @@ flow_defindex_strategy() {
     flow_defindex_contract_vault
 }
 
-# A contract address owns this vault; Dave authorizes the caller contract only.
-# The caller's direct invocation authorizes strategy access and its exact nested
+# A contract address owns this vault. Dave authorizes the caller contract only.
+# The caller's direct invocation authorizes strategy access. Its exact nested
 # SAC transfer entry authorizes the strategy to pull the deposit.
 flow_defindex_contract_vault() {
     local out_f="$LOG_DIR/dfx_vault.out" err_f="$LOG_DIR/dfx_vault.err" runner txh

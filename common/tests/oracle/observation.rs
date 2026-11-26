@@ -2,8 +2,8 @@ use super::*;
 use crate::constants::WAD_DECIMALS;
 use soroban_sdk::{Env, U256};
 
-// The LP pricing modules have no test mount of their own; their guard tests
-// ride on this one, the oracle test module the crate already compiles.
+// The LP pricing modules have no test mount of their own. Their guard tests
+// live in this one, the oracle test module the crate already compiles.
 #[path = "lp.rs"]
 mod lp;
 #[path = "lp_stable.rs"]

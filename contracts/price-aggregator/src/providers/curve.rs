@@ -1,4 +1,4 @@
-//! Conservative plain-pool valuation using Curve's own invariant/share view.
+//! Conservative plain-pool valuation using Curve's own invariant and share view.
 
 use common::constants::WAD;
 use common::errors::OracleError;
@@ -10,12 +10,12 @@ use soroban_sdk::{Env, Executable};
 use super::aquarius::token_decimals;
 use crate::{engine, observation::OracleObservation, session::Session};
 
-/// Returns a client for `lp.pool` only if the pool still matches its
-/// configured binding: `key` is `Token(pool)`, the LP and the oracle both use
-/// 18 decimals, the executable is the pinned `wasm_hash`, `pool_info` lists
-/// exactly `lp.coins` in order with WAD precision, and every coin's live token
-/// decimals (at most 18) equal its reported decimals with the fixed rate
-/// `10^(36 - decimals)`. Returns `None` on any mismatch or failed read.
+/// Returns a client for `lp.pool` only if the pool still matches its configured binding.
+/// The binding has these parts. `key` is `Token(pool)`. The LP and the oracle both use 18
+/// decimals. The executable is the pinned `wasm_hash`. `pool_info` lists exactly
+/// `lp.coins` in order with WAD precision. Every coin's live token decimals (at most 18)
+/// equal its reported decimals with the fixed rate `10^(36 - decimals)`. Returns `None`
+/// on any mismatch or failed read.
 fn bound_pool<'a>(
     env: &'a Env,
     key: &PriceKey,
@@ -36,7 +36,8 @@ fn bound_pool<'a>(
     {
         return None;
     }
-    // shortcut: fixed decimal rates only; rate-bearing pools need prices per normalized unit.
+    // Shortcut for fixed decimal rates only. Rate-bearing pools need prices per
+    // normalized unit.
     for (i, coin) in lp.coins.iter().enumerate() {
         let decimals = info.coin_decimals.get(i as u32)?;
         if decimals > 18
@@ -49,9 +50,9 @@ fn bound_pool<'a>(
     Some(client)
 }
 
-/// Values one LP share as `virtual_price * min(coin prices) / WAD`, floored,
-/// a lower bound for a plain pool. The observation timestamp is the oldest
-/// coin's. Coin prices resolve at `depth + 1` and their errors propagate.
+/// Values one LP share as `virtual_price * min(coin prices) / WAD`, floored. The value is
+/// a lower bound for a plain pool. The observation timestamp is the oldest coin's
+/// timestamp. Coin prices resolve at `depth + 1`, and their errors propagate.
 ///
 /// # Errors
 /// - `UnsupportedCurvePool` if the pool no longer matches its binding.

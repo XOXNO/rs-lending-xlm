@@ -155,7 +155,7 @@ swap_xlm_to() (
     [ -z "${E2E_JOB:-}" ] || { job_refuse swap_xlm_to "$label"; return 1; }
     local swap_hex AGGREGATOR_MIN_LEDGER rc=0 hash pending="$INTEG_DIR/runs/.external-funding.${RUN_TS}.pending.json"
     # ponytail: one checkout-wide funding lock; use per-pool locks if throughput matters.
-    # The subshell retains fd 9 through confirmation; exit/cancellation releases it.
+    # The subshell retains fd 9 through confirmation. Exit or cancellation releases it.
     exec 9>"$INTEG_DIR/runs/.external-funding.lock" || { _assert_fail "$label" 'cannot open funding lock'; return 1; }
     python3 -c 'import fcntl; fcntl.flock(9, fcntl.LOCK_EX)' || { _assert_fail "$label" 'funding lock failed'; return 1; }
     [ ! -e "$pending" ] || { _assert_fail "$label" "earlier funding submission unresolved; reconcile evidence in $pending before removing it"; return 1; }
@@ -169,7 +169,7 @@ swap_xlm_to() (
         record "$label" FAIL execute_strategy "" "" "" "" "" "no aggregator route"
         return 1
     }
-    # A cancelled/unknown submission can still commit after releasing the lock.
+    # A cancelled or unknown submission can still commit after releasing the lock.
     # Quarantine subsequent funding until that operation has a terminal receipt.
     jq -nc --arg label "$label" --arg logs "$LOG_DIR" '{label:$label,logs:$logs}' >"$pending" \
         || { _assert_fail "$label" 'cannot record pending funding'; return 1; }
@@ -189,7 +189,7 @@ swap_xlm_to() (
 )
 
 # Compare economic token movement separately from Stellar transaction fees.
-# Raw balance() remains unchanged; fee evidence is retained beside receipts.
+# Raw balance() remains unchanged. The suite retains fee evidence beside receipts.
 financial_balance() {
     local token="$1" address="$2" raw
     raw=$(balance "$token" "$address") || return 1

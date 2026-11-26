@@ -29,7 +29,7 @@ pub enum AccountPositionType {
 }
 
 /// Identifies the trading mode of an account: plain lending, leveraged
-/// multiply, or directional long/short exposure.
+/// multiply, or directional long or short exposure.
 #[contracttype]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[repr(u32)]

@@ -16,7 +16,7 @@ use crate::venues::pool_tokens;
 /// shares minted.
 ///
 /// Panics with `MinSharesNotMet` if `min_shares` is not positive or the shares
-/// received fall below it, and with `InvalidAmount` if the vault holds none of
+/// received fall below it. Panics with `InvalidAmount` if the vault holds none of
 /// the pool's constituent tokens or a constituent balance rises.
 pub(crate) fn add_liquidity(
     env: &Env,

@@ -1,4 +1,4 @@
-//! A two-source key while its push leg has not written. XLM and USDC use the
+//! Covers a two-source key while its push leg has not written. XLM and USDC use the
 //! mainnet spoke 1 listing and oracle configs. `RoundReflector` answers as the
 //! public Reflector contract does.
 
@@ -77,7 +77,7 @@ impl Book {
     }
 
     /// Lists XLM and USDC with the mainnet configs. Four Reflector rounds
-    /// before `MOVE_ROUND` print XLM at `reflector_start_wad`; RedStone wrote
+    /// before `MOVE_ROUND` print XLM at `reflector_start_wad`. RedStone wrote
     /// `XLM_START_WAD` at the last of them.
     fn with_reflector_start(reflector_start_wad: i128) -> Self {
         let t = LendingTest::new()
@@ -106,7 +106,7 @@ impl Book {
             .with_min_borrow_collateral_disabled()
             .build();
         let env = &t.env;
-        // Only the timestamp moves: the mocks keep their temporary entries.
+        // Only the timestamp moves. The mocks keep their temporary entries.
         env.ledger()
             .with_mut(|ledger| ledger.timestamp = MOVE_ROUND);
         let reflector = env.register(RoundReflector, (RESOLUTION as u32,));
@@ -357,7 +357,7 @@ fn test_borrow_fall_after_leg_gap_with_late_push_admits_bad_debt() {
 }
 
 /// After the push lands at the market price the legs disagree until the mean
-/// catches up: two rounds for a 36% fall.
+/// catches up. That takes two rounds for a 36% fall.
 #[test]
 fn test_quotes_push_lands_after_fall_fails_closed_until_mean_catches_up() {
     let book = Book::new();

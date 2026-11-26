@@ -153,9 +153,9 @@ fn test_advance_time_without_sync_stale() {
 
     t.advance_time(days(30));
 
-    // The two views deliberately differ without a sync: balance reads report
-    // the stored (stale) index, while the risk view simulates accrual so
-    // liquidation eligibility is always current.
+    // The two views differ without a sync. Balance reads report the stored
+    // (stale) index, while the risk view simulates accrual so liquidation
+    // eligibility is current.
     let debt = t.borrow_balance(ALICE, "ETH");
     assert_eq!(
         debt, debt_before,

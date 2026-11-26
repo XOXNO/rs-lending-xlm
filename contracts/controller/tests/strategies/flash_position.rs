@@ -52,7 +52,7 @@ fn a_fully_unwound_account_is_rejected() {
     let env = Env::default();
     let debt = key(&env);
     let acct = account(&env);
-    // Nothing left at all: the receiver repaid and withdrew inside its callback.
+    // Nothing is left. The receiver repaid and withdrew inside its callback.
     in_controller(&env, || {
         require_flash_position_still_open(&env, &acct, &debt);
     });
@@ -65,8 +65,8 @@ fn an_account_left_with_collateral_but_no_debt_is_rejected() {
     let debt = key(&env);
     let mut acct = account(&env);
     acct.supply_positions.set(key(&env), supply());
-    // Not empty, but debt-free: the flash borrow was repaid inside the
-    // callback, so there is no flash position left to keep open.
+    // The account is not empty but has no debt. The callback repaid the flash
+    // borrow, so no flash position remains to keep open.
     in_controller(&env, || {
         require_flash_position_still_open(&env, &acct, &debt);
     });
@@ -82,8 +82,9 @@ fn debt_in_a_different_asset_does_not_keep_this_flash_position_open() {
     acct.supply_positions.set(key(&env), supply());
     acct.borrow_positions
         .set(other, DebtPositionRaw { scaled_amount: 1 });
-    // The account carries debt, just not in the asset that was flash-borrowed.
-    // Accepting this would let a receiver swap the obligation to another asset.
+    // The account carries debt, but not in the flash-borrowed asset.
+    // Accepting such an account would let a receiver swap the obligation to
+    // another asset.
     in_controller(&env, || {
         require_flash_position_still_open(&env, &acct, &debt);
     });
@@ -112,8 +113,8 @@ fn debt_without_any_collateral_is_rejected() {
     let mut acct = account(&env);
     acct.borrow_positions
         .set(debt.clone(), DebtPositionRaw { scaled_amount: 1 });
-    // Debt with nothing backing it: the receiver kept the borrow and removed
-    // every deposit.
+    // The account has debt and no collateral. The receiver kept the borrow and
+    // removed every deposit.
     in_controller(&env, || {
         require_flash_position_still_open(&env, &acct, &debt);
     });
@@ -127,7 +128,8 @@ fn a_live_position_in_the_flashed_asset_passes() {
     acct.supply_positions.set(key(&env), supply());
     acct.borrow_positions
         .set(debt.clone(), DebtPositionRaw { scaled_amount: 1 });
-    // Not panicking is the assertion; the reject probes above pin each arm.
+    // The assertion is that the call does not panic. The reject tests above pin
+    // each arm.
     in_controller(&env, || {
         require_flash_position_still_open(&env, &acct, &debt);
     });

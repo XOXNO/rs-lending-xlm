@@ -52,8 +52,8 @@ if [ "$mutation" != wrong_error ]; then [ "$failures" = 1 ]; fi
 print('Flash-position rollback checks reject token/share/NFT changes, failed reads, and wrong errors')
 
 # Execute the gate phase with the stale 1-XLM delegate plan left by the
-# preceding phase. Mock only invocation/funding boundaries; retain fp_set_plan
-# and fp_run so both receiver configuration and controller arguments are checked.
+# preceding phase. Mock only the invocation and funding boundaries. Retain fp_set_plan
+# and fp_run so the test checks both receiver configuration and controller arguments.
 gates_setup = f'''
 set -uo pipefail
 source "{HERE}/flows/flash_position.sh"
@@ -136,8 +136,8 @@ if flow_flash_position_gates; then exit 1; fi
     assert result.returncode == 0, f'gate {fail_at}: {result.stdout}{result.stderr}'
 print('Flash-position gates reset and fund the create plan; every failure prevents completion')
 
-# Run the actual cap/liquidity blocks from both flows, including the real
-# _view_pool_int, raw_add and _uint_ge helpers. Avoid unrelated live setup.
+# Run the actual cap and liquidity blocks from both flows, including the real
+# _view_pool_int, raw_add, and _uint_ge helpers. Avoid unrelated live setup.
 flow_source = (HERE/'flows/flash_position.sh').read_text()
 for flow, start, end, suffix in (
         ('matrix', '    local supplied cap\n', '    assert_hf_at_least hf_flash_position_matrix_end', ''),
@@ -197,7 +197,7 @@ if checked_block; then exit 1; fi
                 f'failed_read={failed_read}; partial={partial}; cash_value=100000000000000000000; borrowed_value=7\n' + expected],
                 capture_output=True, text=True)
             assert result.returncode == 0, f'{flow}/{failed_read}/{partial}: {result.stdout}{result.stderr}'
-    # Zero cash/debt yields one; comparison must retain the existing skip.
+    # Zero cash and debt yield one. The comparison must retain the existing skip.
     result = subprocess.run(['bash', '-c', amount_setup + '''
 failed_read=none; partial=0; cash_value=0; borrowed_value=0
 checked_block || exit 1

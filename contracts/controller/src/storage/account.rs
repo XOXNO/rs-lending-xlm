@@ -1,5 +1,5 @@
-//! Account entries use persistent user storage; successful reads renew user TTL.
-//! Metadata and delegate writes renew TTL; position-map writes do not.
+//! Account entries use persistent user storage. Successful reads renew user TTL. Metadata and
+//! delegate writes renew TTL. Position-map writes do not.
 
 use super::protocol::{get_user, renew_user_key, set_user};
 use crate::constants::MAX_DELEGATES;
@@ -30,8 +30,8 @@ pub(crate) fn account_from_parts(
     }
 }
 
-/// Resolves current NFT ownership; returns `None` for an unconfigured NFT,
-/// unmintable ID, missing token, or failed lookup. Ownership fails closed.
+/// Resolves current NFT ownership. Returns `None` for an unconfigured NFT, an unmintable ID, a
+/// missing token, or a failed lookup. Ownership fails closed.
 pub(crate) fn try_account_owner(env: &Env, account_id: u64) -> Option<Address> {
     let nft = super::protocol::try_get_position_nft(env)?;
     nft_try_owner_of_call(env, &nft, account_id)
@@ -72,7 +72,7 @@ pub(crate) fn get_debt_positions(env: &Env, account_id: u64) -> Map<HubAssetKey,
     get_user(env, &ControllerKey::BorrowPositions(account_id)).unwrap_or_else(|| Map::new(env))
 }
 
-/// Stores supply positions without renewing TTL; deletes an empty map.
+/// Stores supply positions without renewing TTL. Deletes the entry when the map is empty.
 pub(crate) fn set_supply_positions(
     env: &Env,
     account_id: u64,
@@ -81,7 +81,7 @@ pub(crate) fn set_supply_positions(
     write_side_map(env, &ControllerKey::SupplyPositions(account_id), map);
 }
 
-/// Stores debt positions without renewing TTL; deletes an empty map.
+/// Stores debt positions without renewing TTL. Deletes the entry when the map is empty.
 pub(crate) fn set_debt_positions(
     env: &Env,
     account_id: u64,
@@ -90,7 +90,7 @@ pub(crate) fn set_debt_positions(
     write_side_map(env, &ControllerKey::BorrowPositions(account_id), map);
 }
 
-/// Stores a nonempty position map without renewing TTL; deletes an empty map.
+/// Stores a nonempty position map without renewing TTL. Deletes the entry when the map is empty.
 fn write_side_map<V: TryFromVal<Env, Val> + IntoVal<Env, Val>>(
     env: &Env,
     key: &ControllerKey,
@@ -148,8 +148,8 @@ pub(crate) fn get_account(env: &Env, account_id: u64) -> Account {
         .unwrap_or_else(|| panic_with_error!(env, GenericError::AccountNotFound))
 }
 
-/// Loads both position maps and current NFT ownership; returns `None` when
-/// metadata is absent or ownership cannot be resolved.
+/// Loads both position maps and current NFT ownership. Returns `None` when metadata is absent or
+/// ownership cannot be resolved.
 pub(crate) fn try_get_account(env: &Env, account_id: u64) -> Option<Account> {
     let meta = try_get_account_meta(env, account_id)?;
     let owner = try_account_owner(env, account_id)?;
@@ -161,9 +161,9 @@ pub(crate) fn try_get_account(env: &Env, account_id: u64) -> Option<Account> {
     ))
 }
 
-/// Loads metadata, current owner, and debt; leaves supply deliberately unloaded.
-/// Missing metadata raises `AccountNotInMarket`; unresolved ownership raises
-/// `AccountNotFound`. The empty supply map does not prove supply is absent.
+/// Loads metadata, current owner, and debt. Leaves supply unloaded. Missing metadata raises
+/// `AccountNotInMarket`. Unresolved ownership raises `AccountNotFound`. The empty supply map does
+/// not prove supply is absent.
 pub(crate) fn get_account_borrow_only(env: &Env, account_id: u64) -> Account {
     let meta = get_account_meta(env, account_id);
     let owner = account_owner(env, account_id);
@@ -180,8 +180,8 @@ pub(crate) fn get_delegates(env: &Env, account_id: u64, owner: &Address) -> Vec<
         .unwrap_or_else(|| Vec::new(env))
 }
 
-/// Stores delegates stamped by the granting owner and renews user TTL;
-/// deletes the entry when the list is empty.
+/// Stores delegates stamped by the granting owner and renews user TTL. Deletes the entry when the
+/// list is empty.
 fn set_delegates(env: &Env, account_id: u64, owner: &Address, delegates: &Vec<Address>) {
     let key = ControllerKey::Delegates(account_id);
     if delegates.is_empty() {
@@ -198,8 +198,8 @@ fn set_delegates(env: &Env, account_id: u64, owner: &Address, delegates: &Vec<Ad
     }
 }
 
-/// Adds a delegate, enforcing `MAX_DELEGATES`; returns false for duplicates.
-/// Overwrites stale grants with a list stamped by the current owner.
+/// Adds a delegate and enforces `MAX_DELEGATES`. Returns false for duplicates. Overwrites stale
+/// grants with a list stamped by the current owner.
 pub(crate) fn add_delegate(
     env: &Env,
     account_id: u64,
@@ -220,9 +220,9 @@ pub(crate) fn add_delegate(
     true
 }
 
-/// Removes a live delegate and reports whether it changed the list.
-/// Deletes stale grants but returns false, preventing those grants from
-/// reactivating if the NFT returns to their original owner.
+/// Removes a live delegate and reports whether it changed the list. Deletes stale grants but
+/// returns false. The deletion prevents those grants from reactivating if the NFT returns to their
+/// original owner.
 pub(crate) fn remove_delegate(
     env: &Env,
     account_id: u64,
@@ -255,7 +255,7 @@ pub(crate) fn remove_account_entry(env: &Env, account_id: u64) {
     persistent.remove(&ControllerKey::Delegates(account_id));
 }
 
-/// Renews user TTL for each existing account entry; does not renew the NFT.
+/// Renews user TTL for each existing account entry. Does not renew the NFT.
 pub(crate) fn renew_user_account(env: &Env, account_id: u64) {
     let persistent = env.storage().persistent();
     let keys = [
@@ -302,7 +302,7 @@ pub(crate) fn set_flash_loan_ongoing(env: &Env, ongoing: bool) {
     }
 }
 
-/// Runs `f` with the flash-loan flag set; preserves an already-active outer guard.
+/// Runs `f` with the flash-loan flag set. Preserves an already-active outer guard.
 pub(crate) fn with_flash_guard<T>(env: &Env, f: impl FnOnce() -> T) -> T {
     let prev = is_flash_loan_ongoing(env);
     set_flash_loan_ongoing(env, true);

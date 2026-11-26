@@ -1,6 +1,6 @@
 //! Role definitions and access-control state transitions for the governance
-//! contract: the default operational roles, owner/admin transfer
-//! synchronization, role grant/revoke application, and the contract
+//! contract: the default operational roles, owner and admin transfer
+//! synchronization, role grant and revoke application, and the contract
 //! constructor.
 
 use common::errors::GenericError;
@@ -54,9 +54,9 @@ pub(crate) fn require_known_governance_role(env: &Env, role: &Symbol) {
 
 /// Mirrors a pending owner transfer onto the access-control admin role.
 /// Clears the pending-admin temporary-storage entry when `live_until_ledger`
-/// is zero, otherwise records `new_owner` as pending admin until that
-/// ledger, then emits an admin-transfer-initiated event referencing the
-/// current admin (falling back to the current owner). Panics with
+/// is zero. Otherwise it records `new_owner` as pending admin until that
+/// ledger. It then emits an admin-transfer-initiated event that references the
+/// current admin, falling back to the current owner. Panics with
 /// `GenericError::OwnerNotSet` if neither is set.
 fn sync_pending_admin_transfer(env: &Env, new_owner: &Address, live_until_ledger: u32) {
     let pending_admin_key = access_control::AccessControlStorageKey::PendingAdmin;
@@ -78,10 +78,10 @@ fn sync_pending_admin_transfer(env: &Env, new_owner: &Address, live_until_ledger
     );
 }
 
-/// Finalizes an owner handover on the access-control side: sets `new_owner`
-/// as the admin, clears the pending-admin entry, emits an
-/// admin-transfer-completed event, and grants each default operational
-/// role to `new_owner`, revoking it from `previous_owner` when the two
+/// Finalizes an owner handover on the access-control side. The function sets
+/// `new_owner` as the admin, clears the pending-admin entry, and emits an
+/// admin-transfer-completed event. It then grants each default operational
+/// role to `new_owner`. It revokes the role from `previous_owner` when the two
 /// addresses differ and `previous_owner` still holds it.
 fn sync_owner_access_control(env: &Env, previous_owner: &Address, new_owner: &Address) {
     let previous_admin = access_control::get_admin(env).unwrap_or_else(|| previous_owner.clone());
@@ -119,11 +119,12 @@ pub(crate) fn apply_upgrade(env: &Env, new_wasm_hash: &BytesN<32>) {
         .update_current_contract(ContractExecutable::Wasm(new_wasm_hash.clone()));
 }
 
-/// Renews the governance instance's storage TTL, updates the pending-owner
-/// entry for `new_owner` (recording it as pending until `live_until_ledger`,
-/// or clearing an existing pending transfer to it when `live_until_ledger`
-/// is zero), emits an ownership-transfer event, and mirrors the pending
-/// transfer onto the access-control admin role.
+/// Renews the governance instance's storage TTL and updates the pending-owner
+/// entry for `new_owner`. The entry records `new_owner` as pending until
+/// `live_until_ledger`. When `live_until_ledger` is zero, the call clears an
+/// existing pending transfer to `new_owner`. It then emits an
+/// ownership-transfer event and mirrors the pending transfer onto the
+/// access-control admin role.
 pub(crate) fn apply_transfer_ownership(env: &Env, new_owner: &Address, live_until_ledger: u32) {
     renew_instance(env);
     let current_owner = owner_or_panic(env);
@@ -139,17 +140,17 @@ pub(crate) fn apply_transfer_ownership(env: &Env, new_owner: &Address, live_unti
 }
 
 /// Renews the governance instance's storage TTL and grants `role` to
-/// `account`. The role-granted event names this contract as the caller: the
+/// `account`. The role-granted event names this contract as the caller. The
 /// grant runs as a timelocked operation.
 pub(crate) fn apply_grant_role(env: &Env, account: &Address, role: &Symbol) {
     renew_instance(env);
     access_control::grant_role_no_auth(env, account, role, &env.current_contract_address());
 }
 
-/// Renews the governance instance's storage TTL, revokes the canceller role
-/// from every current holder other than `owner`, then grants it to each
-/// address in `new_cancellers` that does not already hold it, skipping
-/// `owner`. The role events name this contract as the caller: the reset runs
+/// Renews the governance instance's storage TTL and revokes the canceller role
+/// from every current holder other than `owner`. It then grants the role to
+/// each address in `new_cancellers` that does not already hold it, and skips
+/// `owner`. The role events name this contract as the caller. The reset runs
 /// as a timelocked operation.
 pub(crate) fn apply_canceller_reset(env: &Env, new_cancellers: &Vec<Address>) {
     renew_instance(env);
@@ -173,9 +174,9 @@ pub(crate) fn apply_canceller_reset(env: &Env, new_cancellers: &Vec<Address>) {
 
 /// Renews the governance instance's storage TTL and revokes `role` from
 /// `account`, naming `caller` in the role-revoked event. Panics with
-/// `GenericError::InvalidRole` if `account` does not hold `role`, with
-/// `GenericError::NotAuthorized` if `account` is the owner, and with
-/// `GenericError::CannotRemoveLastProposer` if this would remove the last
+/// `GenericError::InvalidRole` if `account` does not hold `role`. Panics with
+/// `GenericError::NotAuthorized` if `account` is the owner. Panics with
+/// `GenericError::CannotRemoveLastProposer` if the call would remove the last
 /// remaining holder of the proposer role.
 pub(crate) fn apply_revoke_role(env: &Env, account: &Address, role: &Symbol, caller: &Address) {
     renew_instance(env);
@@ -216,7 +217,7 @@ impl Governance {
     /// `GenericError::InvalidTimelockDelay` if `min_delay` is zero.
     pub fn __constructor(env: Env, admin: Address, min_delay: u32) {
         ownable::set_owner(&env, &admin);
-        // `set_owner` and `set_admin` emit no events; these emissions make the
+        // `set_owner` and `set_admin` emit no events. These emissions make the
         // initial owner and admin visible in the event stream.
         ownable::emit_ownership_transfer_completed(&env, &admin);
         access_control::set_admin(&env, &admin);

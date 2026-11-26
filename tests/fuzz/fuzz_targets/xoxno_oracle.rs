@@ -1,6 +1,6 @@
 #![no_main]
 //! Differential fuzzing of the XOXNO oracle against a reference model of its
-//! signer set, configuration, per-signer submissions, aggregates and history.
+//! signer set, configuration, per-signer submissions, aggregates, and history.
 //! Every entrypoint's result (including the exact error) and every read is
 //! compared against the model after each operation.
 
@@ -308,7 +308,7 @@ fn price_of(p: PriceIn, feed: usize) -> i128 {
 }
 
 /// Mostly within a few minutes of `now` (either side of the future-skew bound), so
-/// quorums form; the top bits select a wide offset that crosses the age limits.
+/// quorums form. The top bits select a wide offset that crosses the age limits.
 fn package_ms(now: u64, back_s: i16) -> u64 {
     let back = if back_s as u16 & 0x7000 == 0x7000 {
         i64::from(back_s) * 3
@@ -474,7 +474,7 @@ fuzz_target!(|i: In| {
     assert_eq!(c.get_owner(), Some(admin));
     assert_eq!(c.base(), ReflectorAsset::Other(Symbol::new(&env, "USD")));
     assert_eq!(c.decimals(), 8);
-    // Two mapped feeds from the start; feed 2 stays unregistered until an op adds it.
+    // Two mapped feeds from the start. Feed 2 stays unregistered until an op adds it.
     for f in 0..2 {
         c.add_feed(&feed_ids[f], &assets[f]);
         m.asset_feed.insert(f, f);

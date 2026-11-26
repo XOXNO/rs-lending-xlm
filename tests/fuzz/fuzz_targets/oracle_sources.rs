@@ -37,7 +37,7 @@ use stellar_fuzz::oracle_mocks::{
 
 const NOW: u64 = 1_000_000;
 
-// Fault selectors; `corrupt % 16` below 8 leaves the feed well-formed.
+// Fault selectors. A `corrupt % 16` value below 8 leaves the feed well-formed.
 const C_ZERO: u8 = 8;
 const C_BAD_VALUE: u8 = 9;
 const C_MISSING: u8 = 10;
@@ -737,7 +737,7 @@ fn check(env: &Env, agg: &PriceAggregatorClient, key: &PriceKey, batch: &[PriceK
             f.price_wad
         );
     }
-    // One session serves a batch; a key's status must not depend on what else is read with it.
+    // One session serves a batch. A key's status must not depend on what else is read with it.
     if let (Some(single), Ok(Ok(m))) = (&q, agg.try_quotes(&Vec::from_slice(env, batch))) {
         if let Some(batched) = m.get(key.clone()) {
             assert_eq!(

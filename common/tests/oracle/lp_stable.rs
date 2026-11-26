@@ -107,7 +107,7 @@ fn out_of_range_amp_alone_is_rejected() {
     }
 }
 
-/// Both legs exactly at the cap solve: the bound is inclusive.
+/// Both legs exactly at the cap solve, because the bound is inclusive.
 #[test]
 fn reserves_exactly_at_cap_are_accepted() {
     let env = Env::default();

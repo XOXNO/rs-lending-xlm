@@ -79,8 +79,8 @@ impl WeirdToken {
     }
 
     /// After each transfer, the token calls the controller's `supply` for 1 unit
-    /// as `from`; a revert there reverts the transfer. Used to prove the flash
-    /// guard covers the token-forward window.
+    /// as `from`. A revert there reverts the transfer. Tests use it to prove the
+    /// flash guard covers the token-forward window.
     pub fn set_hook(env: Env, controller: Address) {
         env.storage().instance().set(&Key::Hook, &controller);
     }

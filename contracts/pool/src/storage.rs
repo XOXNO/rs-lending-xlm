@@ -29,7 +29,7 @@ pub(crate) fn read_params(env: &Env, hub_asset: &HubAssetKey) -> MarketParamsRaw
 
 /// Loads market state, or panics if the market was never created.
 ///
-/// Does not extend the TTL; [`load_state`] does.
+/// Does not extend the TTL. [`load_state`] does.
 pub(crate) fn read_state(env: &Env, hub_asset: &HubAssetKey) -> PoolStateRaw {
     env.storage()
         .persistent()
@@ -44,7 +44,7 @@ pub(crate) fn load_state(env: &Env, hub_asset: &HubAssetKey) -> PoolStateRaw {
     state
 }
 
-/// Loads params + state as [`PoolSyncData`] and renews market TTLs.
+/// Loads params and state as [`PoolSyncData`] and renews market TTLs.
 pub(crate) fn load_sync_data(env: &Env, hub_asset: &HubAssetKey) -> PoolSyncData {
     let params = read_params(env, hub_asset);
     let state = read_state(env, hub_asset);

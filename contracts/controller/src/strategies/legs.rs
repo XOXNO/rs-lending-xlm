@@ -22,7 +22,7 @@ use crate::strategies::swap::swap_tokens_or_passthrough;
 
 pub(crate) struct StrategyRepay<'a> {
     pub debt: &'a HubAssetKey,
-    /// Controller funds available to transfer; the pool's receipt may differ.
+    /// Controller funds available to transfer. The pool's receipt may differ.
     pub debt_available: i128,
     pub debt_pos: &'a DebtPosition,
     pub action: events::PositionAction,
@@ -120,8 +120,8 @@ pub(crate) fn execute_withdraw_all(
         .supply_positions
         .contains_key(repaid_collateral.clone())
     {
-        // Repayment can remove this leg in simulation but leave accrued dust at
-        // inclusion. Reserve the same pool/token/recipient footprint either way.
+        // Repayment can remove this leg in simulation but leave accrued dust at inclusion. Reserve
+        // the same pool, token, and recipient footprint either way.
         pool_withdraw_call(
             env,
             &cache.cached_pool_address(),
@@ -228,8 +228,8 @@ pub(crate) fn net_settle_collateral_against_debt(
     result.settled_amount
 }
 
-/// Withdraws to the controller, then swaps its measured receipt into `token_out`.
-/// Matching assets pass through unchanged; returns the available output.
+/// Withdraws to the controller, then swaps its measured receipt into `token_out`. Matching assets
+/// pass through unchanged. Returns the available output.
 pub(crate) fn withdraw_and_swap_from_supply(
     env: &Env,
     account: &mut Account,

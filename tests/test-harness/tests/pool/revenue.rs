@@ -189,8 +189,8 @@ fn test_permissionless_revenue_endpoints() {
     let acc_before = tok.balance(&accumulator);
     let bob_before = tok.balance(&bob_addr);
 
-    // Permissionless is not unsigned: with no auth entries the caller's own
-    // `require_auth` must still refuse.
+    // A permissionless entry point still requires the caller's auth. With no auth
+    // entries, the caller's own `require_auth` must refuse.
     t.env.set_auths(&[]);
     assert!(
         t.ctrl_client()

@@ -1,9 +1,9 @@
 #![no_std]
 
 //! Adapter contract that exposes a lending-controller position through the
-//! DeFindex strategy interface. Deposits and withdrawals proxy to the
-//! `controller` contract's `supply`/`withdraw` entry points for a single
-//! configured hub asset, and each vault address is mapped to the controller
+//! DeFindex strategy interface. Deposits and withdrawals proxy to the `supply`
+//! and `withdraw` entry points of the `controller` contract for a single
+//! configured hub asset. The contract maps each vault address to the controller
 //! account id that holds its collateral.
 
 use common::constants::{TTL_BUMP_USER, TTL_THRESHOLD_USER};
@@ -20,7 +20,7 @@ use soroban_sdk::{
     Address, Bytes, Env, TryFromVal, Val, Vec,
 };
 
-/// Event published on each `harvest` call, reporting the caller and the
+/// Event published on each `harvest` call. It reports the caller and the
 /// current price per share (12 decimals) for the configured hub asset.
 /// `amount` is always 0.
 #[contractevent(topics = ["strategy", "harvest"])]
@@ -31,7 +31,7 @@ pub struct HarvestEvent {
     pub price_per_share: i128,
 }
 
-/// DeFindex price-per-share is reported with 12 decimals (RAY → 12-dec rescale).
+/// DeFindex reports price per share with 12 decimals, rescaled from RAY.
 const PPS_DECIMALS: u32 = 12;
 
 /// Withdraw amount above any position, so the controller withdraws all of it.
@@ -52,9 +52,9 @@ pub enum DeFindexStrategyError {
     AccountLookupFailed = 463,
 }
 
-/// Configuration stored once at construction: the hub/spoke ids and asset
-/// this strategy supplies to, the controller address, and the pool address
-/// read from the controller at that time.
+/// Configuration stored once at construction. It holds the hub and spoke ids,
+/// the asset this strategy supplies to, the controller address, and the pool
+/// address read from the controller at that time.
 #[contracttype]
 #[derive(Clone)]
 pub struct Config {
@@ -65,9 +65,9 @@ pub struct Config {
     pub pool: Address,
 }
 
-/// Instance/persistent storage keys. `Config` holds the strategy's
-/// `Config` value; `VaultAccount(Address)` maps a vault address to the
-/// controller account id that holds its collateral.
+/// Instance and persistent storage keys. `Config` holds the `Config` value of
+/// the strategy. `VaultAccount(Address)` maps a vault address to the controller
+/// account id that holds its collateral.
 #[contracttype]
 pub enum DataKey {
     Config,
@@ -82,15 +82,15 @@ pub trait DeFindexStrategyTrait {
     fn asset(env: Env) -> Result<Address, DeFindexStrategyError>;
 
     /// Transfers `amount` of the underlying asset from `from` into the
-    /// strategy and supplies the amount received to the controller, creating
-    /// or reusing `from`'s vault account. Requires `from`'s authorization.
-    /// Returns `AmountNotPositive` if `amount` is not positive or
-    /// `NotInitialized` if the contract has not been constructed. Returns the
-    /// account's resulting collateral balance.
+    /// strategy and supplies the amount received to the controller. Creates or
+    /// reuses the vault account of `from`. Requires the authorization of `from`.
+    /// Returns `AmountNotPositive` if `amount` is not positive. Returns
+    /// `NotInitialized` if the contract has not been constructed. On success,
+    /// returns the resulting collateral balance of the account.
     fn deposit(env: Env, amount: i128, from: Address) -> Result<i128, DeFindexStrategyError>;
 
-    /// Emits a `HarvestEvent` carrying the current price per share for the
-    /// configured hub asset. Requires `from`'s authorization and returns
+    /// Emits a `HarvestEvent` with the current price per share for the
+    /// configured hub asset. Requires the authorization of `from`. Returns
     /// `NotInitialized` if the contract has not been constructed. Moves no
     /// funds.
     fn harvest(env: Env, from: Address, data: Option<Bytes>) -> Result<(), DeFindexStrategyError>;
@@ -101,12 +101,13 @@ pub trait DeFindexStrategyTrait {
     fn balance(env: Env, from: Address) -> Result<i128, DeFindexStrategyError>;
 
     /// Withdraws `amount` of collateral from `from`'s vault account to `to`
-    /// via the controller. Requires `from`'s authorization. Returns
-    /// `AmountNotPositive` if `amount` is not positive, `InsufficientBalance`
-    /// if `from` has no vault account or `amount` exceeds its balance, and
-    /// `NotInitialized` if the contract has not been constructed. A
-    /// withdrawal equal to the full balance clears the vault account
-    /// mapping. Returns the account's remaining collateral balance.
+    /// via the controller. Requires the authorization of `from`. Returns
+    /// `AmountNotPositive` if `amount` is not positive. Returns
+    /// `InsufficientBalance` if `from` has no vault account or if `amount`
+    /// exceeds its balance. Returns `NotInitialized` if the contract has not
+    /// been constructed. A withdrawal equal to the full balance clears the
+    /// vault account mapping. On success, returns the remaining collateral
+    /// balance of the account.
     fn withdraw(
         env: Env,
         amount: i128,
@@ -181,8 +182,8 @@ impl<'a> Ctx<'a> {
     }
 
     /// Wraps `amount` in a single-entry payment vector keyed by the
-    /// configured hub asset, as expected by the controller's
-    /// `supply`/`withdraw` entry points.
+    /// configured hub asset, as expected by the `supply` and `withdraw` entry
+    /// points of the controller.
     fn to_payment(&self, amount: i128) -> Vec<(HubAssetKey, i128)> {
         vec![self.env, (self.hub_asset(), amount)]
     }
@@ -202,12 +203,12 @@ impl<'a> Ctx<'a> {
 
 #[contractimpl]
 impl Strategy {
-    /// Decodes `init_args` as `(controller: Address, hub_id: u32, spoke_id: u32)`,
-    /// panics with `NotInitialized` if any argument is missing or of the
-    /// wrong type, verifies that the hub market index exists for `asset`, that
-    /// the spoke exists (`SpokeNotFound`) and that it lists `(hub_id, asset)`
-    /// (`AssetNotInSpoke`), and stores the resulting `Config` (resolving the
-    /// pool address from the controller) in instance storage.
+    /// Decodes `init_args` as `(controller: Address, hub_id: u32, spoke_id: u32)`.
+    /// Panics with `NotInitialized` if any argument is missing or of the wrong
+    /// type. Verifies that the hub market index exists for `asset`, that the
+    /// spoke exists (`SpokeNotFound`), and that the spoke lists
+    /// `(hub_id, asset)` (`AssetNotInSpoke`). Stores the resulting `Config`, with the pool
+    /// address resolved from the controller, in instance storage.
     pub fn __constructor(env: Env, asset: Address, init_args: Vec<Val>) {
         renew_instance(&env);
         let controller_val = init_args
@@ -385,11 +386,11 @@ fn extend_vault_account_ttl(env: &Env, vault: &Address) {
     }
 }
 
-/// Reads `vault`'s stored account id, returning 0 if none is stored. If the
-/// controller confirms the account still exists, extends the mapping's TTL
-/// and returns the id; otherwise clears the mapping when `clear_if_gone` is
-/// set and returns 0. Panics with `AccountLookupFailed` if the controller
-/// lookup itself fails.
+/// Reads the stored account id of `vault`. Returns 0 if none is stored. If the
+/// controller confirms the account still exists, extends the TTL of the mapping
+/// and returns the id. Otherwise clears the mapping when `clear_if_gone` is set
+/// and returns 0. Panics with `AccountLookupFailed` if the controller lookup
+/// itself fails.
 fn resolve_vault_account(
     env: &Env,
     controller: &ControllerClient,
@@ -409,7 +410,7 @@ fn resolve_vault_account(
             extend_vault_account_ttl(env, vault);
             stored
         }
-        // Only an explicit `false` clears: the mapping is the only route back to its collateral.
+        // Only an explicit `false` clears. The mapping is the only route back to its collateral.
         Ok(Ok(false)) => {
             if clear_if_gone {
                 clear_vault_account(env, vault);

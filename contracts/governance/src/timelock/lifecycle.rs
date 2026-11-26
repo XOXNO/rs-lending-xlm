@@ -20,7 +20,7 @@ use crate::op::AdminOperation;
 use crate::storage;
 use crate::timelock::*;
 
-/// Schedules `op` for later execution and returns its operation id; requires the
+/// Schedules `op` for later execution and returns its operation id. Requires the
 /// caller to hold `PROPOSER_ROLE`.
 ///
 /// `RevokeGovRole` rejects a target that is the proposer or the owner, and records
@@ -137,9 +137,9 @@ pub(crate) fn execute_self(env: &Env, op: &AdminOperation, salt: BytesN<32>) {
     finish_execute(env, &operation_id);
 }
 
-/// Cancels a pending operation; requires the caller to hold `CANCELLER_ROLE`.
-/// Rejects cancelling a recovery operation or a role-revocation operation whose
-/// target account is the canceller. Clears the operation's sidecar state on
+/// Cancels a pending operation. Requires the caller to hold `CANCELLER_ROLE`.
+/// Rejects the cancellation of a recovery operation or a role-revocation
+/// operation whose target account is the canceller. Clears the operation's sidecar state on
 /// success.
 pub(crate) fn cancel(env: &Env, canceller: &Address, operation_id: &BytesN<32>) {
     renew_instance(env);

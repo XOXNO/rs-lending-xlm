@@ -20,8 +20,8 @@ const FEE_DEN: i128 = 1_000;
 /// Computes the 0.3% swap fee on `amount_in`, rounded up. Returns zero if `amount_in` is not
 /// positive. Panics with `Error::IntegerOverflow` if the scaled numerator does not fit in `i128`.
 ///
-/// Panics instead of widening like the reserve formula: an `amount_in` above `i128::MAX / 3` is a
-/// corrupt amount, not a trade.
+/// The function panics instead of widening, as the reserve formula does. An `amount_in` above
+/// `i128::MAX / 3` is a corrupt amount, not a trade.
 fn soroswap_fee(env: &Env, amount_in: i128) -> i128 {
     if amount_in <= 0 {
         return 0;
@@ -45,7 +45,7 @@ fn soroswap_amount_out(env: &Env, amount_in: i128, reserve_in: i128, reserve_out
     if let Some(product) = in_less.checked_mul(reserve_out) {
         return product / denominator;
     }
-    // Integer reserve math: widening preserves the exact quotient without quantizing a ratio.
+    // Integer reserve math. Widening preserves the exact quotient without quantizing a ratio.
     U256::from_u128(env, in_less as u128)
         .mul(&U256::from_u128(env, reserve_out as u128))
         .div(&U256::from_u128(env, denominator as u128))
@@ -54,12 +54,12 @@ fn soroswap_amount_out(env: &Env, amount_in: i128, reserve_in: i128, reserve_out
         .unwrap_or_else(|| panic_with_error!(env, GenericError::MathOverflow))
 }
 
-/// Executes a swap against a Soroswap constant-product pair: reads the pair's live reserves,
-/// computes the expected output via `soroswap_amount_out`, transfers `amount_in` of the input
-/// token from the router to the pool, then invokes the pool's `swap` requesting exactly that
-/// output amount. Panics with `Error::ZeroOutput` if the computed output is not positive —
-/// unlike the other venues this is a precondition on a swap *argument*, not a report of the
-/// fill; the fill is measured by [`crate::venues::dispatch_hop`].
+/// Executes a swap against a Soroswap constant-product pair. The function reads the pair's live
+/// reserves and computes the expected output with `soroswap_amount_out`. It then transfers
+/// `amount_in` of the input token from the router to the pool and invokes the pool's `swap`,
+/// which requests exactly that output amount. Panics with `Error::ZeroOutput` if the computed
+/// output is not positive. Unlike the other venues, the check is a precondition on a swap
+/// *argument*, not a report of the fill. [`crate::venues::dispatch_hop`] measures the fill.
 pub(crate) fn swap(ctx: &HopContext<'_>) {
     let (reserve_in, reserve_out) = reserves(ctx);
     let requested_out = soroswap_amount_out(ctx.env, ctx.amount_in, reserve_in, reserve_out);

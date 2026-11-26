@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 
 # Focused live-testnet migrate_from_blend against a Blend v2 pool this run
-# deploys from the pinned executable. Covers allowlist, input rejects, market-flag rejects, collateral /
-# supply / debt migrates, the zero-liability reject, existing-account merge,
-# delegate migrate, remigrate-empty, and the health, debt-cap and min-borrow
-# failures that a web-app happy path does not reach.
+# deploys from the pinned executable. Covers allowlist, input rejects, market-flag
+# rejects, collateral, supply, and debt migrates, the zero-liability reject,
+# existing-account merge, delegate migrate, remigrate-empty, and the health,
+# debt-cap, and min-borrow failures that a web-app happy path does not reach.
 
 set -uo pipefail
 
@@ -49,7 +49,7 @@ phase deploy
 run_case deploy_protocol deploy_protocol || die deploy_protocol "required case failed"
 
 run_case flow_real_markets flow_real_markets || die flow_real_markets "required case failed"
-# Native XLM only: the run pool's USDC is not the protocol USDC SAC, and the
+# Native XLM only. The run pool's USDC is not the protocol USDC SAC, and the
 # aggregator swap is unrelated to migrate_from_blend accounting.
 run_case flow_blend_hub_liquidity flow_blend_hub_liquidity || die flow_blend_hub_liquidity "required case failed"
 

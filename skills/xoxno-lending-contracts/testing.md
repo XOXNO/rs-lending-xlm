@@ -3,31 +3,33 @@
 `xoxno_contract_sdk::testutils::LendingFixture` deploys XOXNO Lending into a
 test `Env` from the embedded WASM: governance, controller, pool, position NFT,
 price aggregator, and two mock oracles, with one hub and one spoke.
-Governance owns the controller, as on mainnet; every configuration step goes
-through its timelock. Tests run on the host; no Wasm build needed.
+Governance owns the controller, as on mainnet. Every configuration step goes
+through its timelock. Tests run on the host. No Wasm build is needed.
 
 A fixture test covers only the embedded WASM (crate `0.2.0`, protocol
-`v1.1.0`, commit `1053ae033`), not later changes such as the current
-low-decimal rules. Compare the target deployment with it before choosing the
-crate, and simulate on the target network. Enable `testutils` only in
+`v1.1.0`, commit `1053ae033`). It does not cover later changes, such as the current
+low-decimal rules. Compare the target deployment with the embedded WASM before
+you choose the crate, and simulate on the target network. Enable `testutils` only in
 dev-dependencies ([SKILL.md](SKILL.md#dependencies)).
 
 ## Fixture API
 
-- `LendingFixture::deploy(&env, &admin)`: deploys; `admin` holds every
-  governance role.
+The fixture exposes these functions and fields:
+
+- `LendingFixture::deploy(&env, &admin)`: deploys the fixture. `admin` holds
+  every governance role.
 - `create_market(&MarketConfig::usdc())`: creates a 7-decimal token, lists it
   in the default hub (`fixture.hub_id`) and spoke (`fixture.spoke_id`) with a
   dual-source oracle, and seeds liquidity from a new provider.
-  `MarketConfig::usdc()`/`MarketConfig::xlm()` use mainnet market parameters
+  `MarketConfig::usdc()` and `MarketConfig::xlm()` use mainnet market parameters
   and "Blue Chip" asset settings. The returned `Market` has `key` (controller
   `HubAssetKey`), `asset`, `token`, and `sac` (asset admin client, for `mint`).
 - `fixture.addresses()`: `LendingAddresses` for your constructor.
 - `set_price(&market, price_wad)`: USD price (WAD) on both mock feeds.
-- `advance_time(seconds)`: moves the timestamp and the sequence (one ledger per
-  5 s), republishes every price, accrues interest on every market.
+- `advance_time(seconds)`: moves the timestamp and the sequence, at one ledger per
+  5 s. It republishes every price and accrues interest on every market.
 - `add_hub`, `add_spoke`, `create_market_in`, `list_market`,
-  `add_market_to_hub`, `supply_liquidity`: more hubs, spokes, listings.
+  `add_market_to_hub`, `supply_liquidity`: more hubs, spokes, and listings.
 - `fixture.controller`, `fixture.pool`, `fixture.position_nft`,
   `fixture.price_aggregator`: generated clients for assertions.
 
@@ -35,33 +37,34 @@ dev-dependencies ([SKILL.md](SKILL.md#dependencies)).
 
 `deploy` changes the `Env`:
 
-- Timestamp ≥ 1,000,000, sequence ≥ 100; each timelocked setup step advances
-  the sequence one ledger.
-- Minimum persistent entry TTL 10,000,000 ledgers, maximum above it. New
-  persistent entries, yours included, start there, so tests never archive them
-  and cannot prove your contract renews its keys.
-- Unlimited budget, since setup exceeds the default. To check one call, run
-  `env.cost_estimate().budget().reset_default()` just before it and read
-  `env.cost_estimate()` after (example below). A contract registered as a Rust
-  type runs natively, costing less than as WASM; protocol contracts run as
-  WASM.
+- The timestamp is at least 1,000,000 and the sequence is at least 100. Each
+  timelocked setup step advances the sequence by one ledger.
+- The minimum persistent entry TTL is 10,000,000 ledgers, and the maximum is
+  above it. New persistent entries, yours included, start at the minimum.
+  Tests therefore never archive them and cannot prove your contract renews its
+  keys.
+- The budget is unlimited, because setup exceeds the default. To check one
+  call, run `env.cost_estimate().budget().reset_default()` immediately before the
+  call and read `env.cost_estimate()` after the call (see the example below).
+  A contract registered as a Rust type runs natively and costs less than the
+  same contract as WASM. Protocol contracts run as WASM.
 
 The fixture authorizes its admin calls per call and leaves the `Env` auth
 mode unchanged.
 
 ## Test your own authorization
 
-`env.mock_all_auths()` accepts every authorization in the tree, hiding
-missing or wrong contract auth. Under test, mock only external users:
+`env.mock_all_auths()` accepts every authorization in the tree, so it hides
+missing or wrong contract auth. In tests, mock only external users:
 
-- `client.mock_auths(&[MockAuth { .. }])`: a user call, with the exact
-  arguments and sub-invocations the user signs
-- `client.mock_all_auths()` on one client: another actor's setup call, e.g.
-  `usdc.sac.mock_all_auths().mint(..)`
+- `client.mock_auths(&[MockAuth { .. }])` mocks a user call, with the exact
+  arguments and sub-invocations that the user signs
+- `client.mock_all_auths()` on one client mocks another actor's setup call, for
+  example `usdc.sac.mock_all_auths().mint(..)`
 
-Your contract's auth then runs as on the network (direct invoker auth for
-`caller.require_auth()`, `authorize_transfer_as_current` entries for nested
-pulls); a missing or wrong entry fails the test.
+Your contract's auth then runs as on the network. It uses direct invoker auth
+for `caller.require_auth()` and `authorize_transfer_as_current` entries for
+nested pulls. A missing or wrong entry fails the test.
 
 ## Example
 

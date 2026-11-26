@@ -144,29 +144,29 @@ pub enum AdminOperation {
 
     RelaxSpokeAssetFlags(RelaxSpokeAssetFlagsArgs),
 
-    /// Replace the curator contract Wasm. The address is the curator; the hash
-    /// is the new code. Sensitive delay, owner-proposed.
+    /// Replace the curator contract Wasm. The address is the curator, and the hash
+    /// is the new code. The owner proposes it, and it uses the sensitive delay.
     UpgradeCurator(Address, BytesN<32>),
 
     /// Suspend (`true`) or resume (`false`) a registrar on the curator contract.
-    /// The address is the curator, the `u32` is the registrar id. Sensitive
-    /// delay, owner-proposed.
+    /// The address is the curator, and the `u32` is the registrar id. The owner
+    /// proposes it, and it uses the sensitive delay.
     SuspendCuratorRegistrar(Address, u32, bool),
 
     /// Bind a hub id to a curator registrar, or unbind it with `None`. The
-    /// address is the curator. Sensitive delay, owner-proposed.
+    /// address is the curator. The owner proposes it, and it uses the sensitive delay.
     ReassignCuratorHub(Address, u32, Option<u32>),
 
     /// Bind a spoke id to a curator registrar, or unbind it with `None`. The
-    /// address is the curator. Sensitive delay, owner-proposed.
+    /// address is the curator. The owner proposes it, and it uses the sensitive delay.
     ReassignCuratorSpoke(Address, u32, Option<u32>),
 
     /// Replace a curator registrar's admin. The first address is the curator.
-    /// Sensitive delay, owner-proposed.
+    /// The owner proposes it, and it uses the sensitive delay.
     SetCuratorRegistrarAdmin(Address, u32, Address),
 
     /// Open a curator registrar run by the second address. The first address
-    /// is the curator. Sensitive delay, owner-proposed.
+    /// is the curator. The owner proposes it, and it uses the sensitive delay.
     RegisterCuratorRegistrar(Address, Address),
 }
 

@@ -3,7 +3,7 @@
 use soroban_sdk::{contractclient, Address, BytesN, Env};
 
 /// The subset of the position-nft ABI the controller consumes. Token ids are
-/// `u32` (OZ sequential ids); the controller widens/narrows exclusively in
+/// `u32` OpenZeppelin sequential ids. The controller widens and narrows them only in
 /// `external/position_nft.rs`.
 #[contractclient(name = "PositionNftClient")]
 pub trait PositionNftInterface {

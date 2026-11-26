@@ -223,7 +223,7 @@ xfail gov_set_controller_absent 'set_controller|unknown|not found|No such' \
 
     inv gov_pause "$ADMIN" "$GOVERNANCE" -- pause --caller "$ADMIN_ADDR" >/dev/null
     # governance `pause` is a guardian action that pauses the controller, not
-    # governance: proposals keep working. Assert that the controller halted.
+    # governance. Proposals keep working. Assert that the controller halted.
     xfail gov_pause_halts_controller 'Error\(Contract, #1000\)' "$ALICE" "$GOV_CONTROLLER" -- supply \
         --caller "$ALICE_ADDR" --account_id 0 --spoke_id 1 \
         --assets "$(pay_vec "$PRIMARY_HUB_ID" "$XLM_SAC" 1000000)"
@@ -255,7 +255,7 @@ flow_gov_recovery_and_roles() {
         xfail gov_deploy_price_agg_twice 'Error\(Contract, #5\)' "$ADMIN" "$GOVERNANCE" -- deploy_price_aggregator \
             --wasm_hash "$PA_HASH"
 
-        # XLM_SAC, not SAC_LIQA: the LIQ* assets exist only in the `liq-*` lanes,
+        # Use XLM_SAC, not SAC_LIQA. The LIQ* assets exist only in the `liq-*` lanes,
         # and an empty --key fails before the call reaches the contract.
         local band_key band_min band_max
         band_key=$(price_key_token "$XLM_SAC")
@@ -283,7 +283,7 @@ flow_gov_recovery_and_roles() {
     xfail gov_revoke_owner_role_rejected 'Error\(Contract, #44\)' "$ADMIN" "$GOVERNANCE" -- revoke_role_immediate \
         --account "$ADMIN_ADDR" --role GUARDIAN
 
-    # Only guardian and oracle are revocable this way; PROPOSER must not be.
+    # Only guardian and oracle are revocable this way. PROPOSER is not revocable this way.
     xfail gov_revoke_proposer_rejected 'Error\(Contract, #41\)' "$ADMIN" "$GOVERNANCE" -- revoke_role_immediate \
         --account "$ADMIN_ADDR" --role PROPOSER
 
@@ -299,7 +299,7 @@ flow_gov_recovery_and_roles() {
 
         inv gov_revoke_guardian_dave "$ADMIN" "$GOVERNANCE" -- revoke_role_immediate \
             --account "$DAVE_ADDR" --role GUARDIAN >/dev/null
-        # A second revoke fails with InvalidRole (#41): the role is gone.
+        # A second revoke fails with InvalidRole (#41) because the role is gone.
         xfail gov_revoke_guardian_twice 'Error\(Contract, #41\)' "$ADMIN" "$GOVERNANCE" -- revoke_role_immediate \
             --account "$DAVE_ADDR" --role GUARDIAN
     else

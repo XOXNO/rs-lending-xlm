@@ -214,7 +214,7 @@ fn test_liquidation_withdraw_uses_post_burn_fee_headroom_and_final_debt_guard() 
     }
 }
 
-/// Simulate a dust close, then execute at the next ledger with precisely the
+/// Simulates a dust close, then executes at the next ledger with exactly the
 /// recorded footprint. The recipient is a classic account, not a mock token.
 #[test]
 fn dust_close_keeps_native_recipient_writable_when_interest_crosses_one_unit() {
@@ -358,7 +358,7 @@ fn dust_close_keeps_native_recipient_writable_when_interest_crosses_one_unit() {
 fn empty_withdrawal_and_zero_refund_do_not_touch_recipient() {
     use soroban_sdk::{xdr, TryIntoVal};
     let t = TestSetup::new();
-    // No account or credit-asset trustline: any SAC transfer would fail.
+    // No account or credit-asset trustline exists, so any SAC transfer would fail.
     let recipient: Address = xdr::ScAddress::Account(xdr::AccountId(
         xdr::PublicKey::PublicKeyTypeEd25519(xdr::Uint256([9; 32])),
     ))

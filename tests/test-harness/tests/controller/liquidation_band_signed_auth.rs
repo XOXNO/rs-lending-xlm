@@ -1,6 +1,6 @@
-//! A simulate-and-sign liquidator in the band `D <= C < D * (1 + base)`, under
-//! enforced authorization. The transfer amount is recorded at simulation and
-//! interest accrues before execution.
+//! These tests cover a simulate-and-sign liquidator in the band
+//! `D <= C < D * (1 + base)`, under enforced authorization. The simulation
+//! records the transfer amount, and interest accrues before execution.
 
 use common::types::{HubAssetKey, SeizeMode};
 use soroban_sdk::testutils::{AuthorizedFunction, MockAuth, MockAuthInvoke};
@@ -13,7 +13,7 @@ const OVER_OFFER: i128 = 40_000_000;
 const PARTIAL: i128 = 10_000_000;
 
 /// 10 000 USDC at `usdc_cents` against 3 ETH ($6 000). At 62 cents the
-/// account sits in the band (cap 333 bps < 500 base); at 50 cents it is
+/// account sits in the band (cap 333 bps < 500 base). At 50 cents it is
 /// insolvent.
 fn account_at(usdc_cents: i128) -> (LendingTest, u64, Address) {
     let mut t = LendingTest::new().standard_two_asset().build();
@@ -31,8 +31,9 @@ fn payments(t: &LendingTest, amount: i128) -> Vec<(HubAssetKey, i128)> {
     vec![&t.env, (hub_asset(t.resolve_asset("ETH")), amount)]
 }
 
-/// Runs `liquidate(offer)` in recording mode, as a simulation does, on a fresh
-/// copy of the book and returns the `transfer` amount the liquidator signs.
+/// The helper runs `liquidate(offer)` in recording mode, as a simulation does, on
+/// a fresh copy of the book and returns the `transfer` amount the liquidator
+/// signs.
 fn simulated_transfer_amount(usdc_cents: i128, offer: i128) -> i128 {
     let (t, account_id, liquidator) = account_at(usdc_cents);
     t.env.mock_all_auths();
@@ -206,8 +207,8 @@ fn a_signed_band_partial_pulls_exactly_the_signed_amount_after_interest() {
 }
 
 /// On an insolvent account the plan caps an over-offer at what the collateral
-/// backs, so the pull differs from the signed amount and the host rejects it:
-/// a racing liquidator reverts instead of paying the whole debt for less.
+/// backs. The pull then differs from the signed amount, and the host rejects it.
+/// A racing liquidator reverts instead of paying the whole debt for less.
 #[test]
 fn a_signed_insolvent_over_offer_fails_authorization_instead_of_overpaying() {
     let (t, account_id, liquidator) = account_at(50);

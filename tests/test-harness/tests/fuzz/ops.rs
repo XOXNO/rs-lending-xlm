@@ -69,12 +69,12 @@ pub enum LendingOp {
         coll_amt: u32,
     },
     /// Merge a healthy same-asset USDC Blend mock position into the user's
-    /// already-tracked default account. `debt_amt == 0` is coll-only.
+    /// already-tracked default account. `debt_amt == 0` is collateral-only.
     MigrateBlend {
         user: &'static str,
         debt_amt: u32,
     },
-    /// LIQUIDATOR donates `amt` units; only the measured shortfall is applied
+    /// LIQUIDATOR donates `amt` units. Only the measured shortfall is applied
     /// and the rest is refunded, so no position appears anywhere.
     Recapitalize {
         asset: &'static str,
@@ -122,12 +122,12 @@ pub enum ScriptLeg {
         asset: &'static str,
         amt: u32,
     },
-    /// `amt` hundredths of a unit; an overpayment is refunded.
+    /// `amt` hundredths of a unit. An overpayment is refunded.
     Repay {
         asset: &'static str,
         amt: u32,
     },
-    /// `amt` units; zero means the whole position.
+    /// `amt` units. Zero means the whole position.
     Withdraw {
         asset: &'static str,
         amt: u32,
@@ -347,7 +347,7 @@ fn units(t: &LendingTest, asset: &str, amount: f64) -> i128 {
 }
 
 /// Builds and runs the script. Borrowed assets are repaid with double the
-/// borrowed total, supplied assets are withdrawn in full, so a committed
+/// borrowed total. Supplied assets are withdrawn in full, so a committed
 /// script leaves the runner with no position and never a richer wallet.
 fn run_script_op(t: &mut LendingTest, asset: &str, open_amt: u32, legs: &[ScriptLeg]) {
     let runner = t.deploy_script_runner();

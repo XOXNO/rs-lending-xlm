@@ -77,8 +77,8 @@ pub struct Controller;
 
 #[contractimpl]
 impl Controller {
-    /// Sets `admin` as owner, initializes maximum position limits, the default
-    /// borrow collateral floor and app version, and leaves the contract paused.
+    /// Sets `admin` as owner. Initializes the maximum position limits, the default borrow
+    /// collateral floor, and the app version. Leaves the contract paused.
     pub fn __constructor(env: Env, admin: Address) {
         governance::init(&env, &admin);
     }
@@ -86,9 +86,9 @@ impl Controller {
 
 #[contractimpl]
 impl ControllerInterface for Controller {
-    /// Supplies `assets` as collateral and returns the account id; `account_id = 0`
-    /// creates an account in `spoke_id`. Third parties may only top up existing
-    /// supply positions; owners and delegates may add assets.
+    /// Supplies `assets` as collateral and returns the account id. `account_id = 0` creates an
+    /// account in `spoke_id`. Third parties may only top up existing supply positions. Owners and
+    /// delegates may add assets.
     #[when_not_paused]
     fn supply(
         env: Env,
@@ -100,8 +100,8 @@ impl ControllerInterface for Controller {
         positions::process_supply(&env, &caller, account_id, spoke_id, &assets)
     }
 
-    /// Borrows against `account_id`'s collateral, paying `to` or the caller.
-    /// Requires owner or delegate authorization and post-borrow solvency.
+    /// Borrows against the collateral of `account_id` and pays `to` or the caller. Requires owner
+    /// or delegate authorization and post-borrow solvency.
     #[when_not_paused]
     fn borrow(
         env: Env,
@@ -127,20 +127,20 @@ impl ControllerInterface for Controller {
         positions::process_withdraw(&env, &caller, account_id, &withdrawals, to)
     }
 
-    /// Repays `account_id`'s debt using measured payments from the caller.
-    /// Anyone may repay; excess payments are refunded to the caller.
+    /// Repays the debt of `account_id` with measured payments from the caller. Anyone may repay.
+    /// The function refunds excess payments to the caller.
     fn repay(env: Env, caller: Address, account_id: u64, payments: Vec<(HubAssetKey, i128)>) {
         positions::process_repay(&env, &caller, account_id, &payments);
     }
 
-    /// Repays debt and seizes collateral at a health-factor-based bonus.
-    /// Permissionless, including self-liquidation; requires liquidator authorization.
-    /// Residual bad debt is socialized only at or below the collateral dust cap.
+    /// Repays debt and seizes collateral at a bonus that depends on the health factor. Any caller
+    /// may liquidate, and self-liquidation is allowed. Requires liquidator authorization. The
+    /// function socializes residual bad debt only at or below the collateral dust cap.
     ///
-    /// `Transfer` pays pool cash and returns `0`. `Credit(id)` moves net supply
-    /// shares to a different, authorized Normal-mode account on the same spoke;
-    /// `Credit(0)` creates one. Credit mode needs no free collateral liquidity
-    /// and returns the receiving account id.
+    /// `Transfer` pays pool cash and returns `0`. `Credit(id)` moves net supply shares to a
+    /// different, authorized Normal-mode account on the same spoke. `Credit(0)` creates that
+    /// account. Credit mode needs no free collateral liquidity and returns the receiving account
+    /// id.
     fn liquidate(
         env: Env,
         liquidator: Address,
@@ -157,16 +157,16 @@ impl ControllerInterface for Controller {
         )
     }
 
-    /// Socializes insolvent debt into the supply index and removes the account
-    /// when remaining collateral is at or below the dust cap. Permissionless;
-    /// requires caller authorization.
+    /// Socializes insolvent debt into the supply index and removes the account when remaining
+    /// collateral is at or below the dust cap. Any caller may call it. It requires caller
+    /// authorization.
     fn clean_bad_debt(env: Env, caller: Address, account_id: u64) {
         positions::liquidation::process_clean_bad_debt(&env, &caller, account_id);
     }
 
-    /// Flash-loans `amount` of `asset` to a deployed Wasm `receiver`, invoking
-    /// its callback with `data`. The pool recovers principal plus fee before return.
-    /// Permissionless; requires caller authorization.
+    /// Flash-loans `amount` of `asset` to a deployed Wasm `receiver` and invokes its callback with
+    /// `data`. The pool recovers principal plus fee before the call returns. Any caller may call
+    /// it. It requires caller authorization.
     #[when_not_paused]
     fn flash_loan(
         env: Env,
@@ -179,12 +179,12 @@ impl ControllerInterface for Controller {
         strategies::flash_loan::process_flash_loan(&env, &caller, &asset, amount, &receiver, &data);
     }
 
-    /// Mints `amount` of `debt` without a flash fee, forwards measured receipts
-    /// and invokes the Wasm receiver's `execute_flash_position` callback.
-    /// `collaterals` sets minimum controller-balance increases to deposit;
-    /// listed `refund_assets` balance increases return to the caller.
-    /// Returns the solvent account's id; `account_id = 0` creates it. An existing
-    /// account requires owner or delegate authorization and a matching mode.
+    /// Mints `amount` of `debt` without a flash fee, forwards measured receipts, and invokes the
+    /// `execute_flash_position` callback of the Wasm receiver. `collaterals` sets the minimum
+    /// controller-balance increases to deposit. The function returns the balance increases of the
+    /// listed `refund_assets` to the caller. Returns the id of the solvent account.
+    /// `account_id = 0` creates the account. An existing account requires owner or delegate
+    /// authorization and a matching mode.
     #[when_not_paused]
     fn flash_position(
         env: Env,
@@ -216,10 +216,10 @@ impl ControllerInterface for Controller {
         )
     }
 
-    /// Borrows `debt_to_flash_loan`, swaps into `collateral` and deposits the
-    /// proceeds. An `initial_payment` in collateral joins the deposit; one in debt
-    /// joins `swap`; a third asset requires `convert_swap` or reverts with
-    /// `ConvertStepsRequired`. Returns the account id; `account_id = 0` creates it.
+    /// Borrows `debt_to_flash_loan`, swaps into `collateral`, and deposits the proceeds. An
+    /// `initial_payment` in collateral joins the deposit. An `initial_payment` in debt joins
+    /// `swap`. An `initial_payment` in a third asset requires `convert_swap`, or the call reverts
+    /// with `ConvertStepsRequired`. Returns the account id. `account_id = 0` creates the account.
     /// An existing account requires owner or delegate authorization and a matching mode.
     #[when_not_paused]
     fn multiply(
@@ -252,8 +252,8 @@ impl ControllerInterface for Controller {
         )
     }
 
-    /// Borrows `amount` of `new_debt`, converts it to `existing_debt` via `swap`
-    /// and repays with the proceeds. Requires owner or delegate authorization.
+    /// Borrows `amount` of `new_debt`, converts it to `existing_debt` via `swap`, and repays with
+    /// the proceeds. Requires owner or delegate authorization.
     #[when_not_paused]
     fn swap_debt(
         env: Env,
@@ -277,8 +277,8 @@ impl ControllerInterface for Controller {
         );
     }
 
-    /// Withdraws `amount` of `current`, converts it to `new` via `swap` and
-    /// redeposits the proceeds. Requires owner or delegate authorization.
+    /// Withdraws `amount` of `current`, converts it to `new` via `swap`, and redeposits the
+    /// proceeds. Requires owner or delegate authorization.
     #[when_not_paused]
     fn swap_collateral(
         env: Env,
@@ -302,11 +302,11 @@ impl ControllerInterface for Controller {
         );
     }
 
-    /// Repays `debt` from `collateral`, netting directly for the same hub asset
-    /// (`swap` must be empty) or converting otherwise. `close_position` withdraws
-    /// all remaining collateral to the caller, reverting with
-    /// `CannotCloseWithRemainingDebt` if any debt remains. Requires owner or
-    /// delegate authorization.
+    /// Repays `debt` from `collateral`. For the same hub asset, the function nets directly and
+    /// `swap` must be empty. Otherwise the function converts through `swap`. `close_position`
+    /// withdraws all remaining collateral to the caller. It reverts with
+    /// `CannotCloseWithRemainingDebt` if any debt remains. Requires owner or delegate
+    /// authorization.
     #[when_not_paused]
     fn repay_debt_with_collateral(
         env: Env,
@@ -332,11 +332,10 @@ impl ControllerInterface for Controller {
         );
     }
 
-    /// Migrates the caller's position from an approved `blend_pool`: borrows
-    /// `debt_caps`, repays Blend and unused borrowing, then deposits withdrawn
-    /// `collateral_assets` and `supply_assets`. Returns the account id;
-    /// `account_id = 0` creates it. An existing account requires owner or
-    /// delegate authorization.
+    /// Migrates the caller's position from an approved `blend_pool`. The function borrows
+    /// `debt_caps`, repays Blend and unused borrowing, then deposits the withdrawn
+    /// `collateral_assets` and `supply_assets`. Returns the account id. `account_id = 0` creates
+    /// the account. An existing account requires owner or delegate authorization.
     #[when_not_paused]
     fn migrate_from_blend(
         env: Env,
@@ -364,32 +363,31 @@ impl ControllerInterface for Controller {
         )
     }
 
-    /// Accrues pool borrow and supply indexes for `assets`. Permissionless;
-    /// requires caller authorization.
+    /// Accrues pool borrow and supply indexes for `assets`. Any caller may call it. It requires
+    /// caller authorization.
     #[when_not_paused]
     fn update_indexes(env: Env, caller: Address, assets: Vec<HubAssetKey>) {
         markets::update_indexes(&env, caller, assets);
     }
 
-    /// Claims pool revenue and forwards measured receipts to the accumulator.
-    /// Returns those amounts in asset units, in input order. Permissionless;
-    /// requires caller authorization.
+    /// Claims pool revenue and forwards measured receipts to the accumulator. Returns those amounts
+    /// in asset units, in input order. Any caller may call it. It requires caller authorization.
     #[when_not_paused]
     fn claim_revenue(env: Env, caller: Address, assets: Vec<HubAssetKey>) -> Vec<i128> {
         markets::claim_revenue(&env, caller, assets)
     }
 
-    /// Refreshes supply LTV snapshots. With `has_risks`, also refreshes gated
-    /// liquidation parameters and requires a final health factor of at least
-    /// 1.05 WAD. Permissionless; requires caller authorization.
+    /// Refreshes supply LTV snapshots. With `has_risks`, the function also refreshes gated
+    /// liquidation parameters and requires a final health factor of at least 1.05 WAD. Any caller
+    /// may call it. It requires caller authorization.
     #[when_not_paused]
     fn update_account_threshold(env: Env, caller: Address, has_risks: bool, account_ids: Vec<u64>) {
         risk::params::update_account_threshold(&env, caller, has_risks, account_ids);
     }
 
-    /// Covers a pool backing shortfall using measured receipts from `payer`.
-    /// Refunds excess and returns the amount applied in asset units.
-    /// Permissionless; requires payer authorization.
+    /// Covers a pool backing shortfall with measured receipts from `payer`. Refunds the excess and
+    /// returns the amount applied in asset units. Any caller may call it. It requires payer
+    /// authorization.
     fn recapitalize(env: Env, payer: Address, hub_asset: HubAssetKey, amount: i128) -> i128 {
         markets::recapitalize(&env, payer, hub_asset, amount)
     }
@@ -466,9 +464,9 @@ impl ControllerInterface for Controller {
         views::account_exists(&env, account_id)
     }
 
-    /// Estimates gross seizure, protocol fees, refunds, maximum payable debt
-    /// in USD (WAD), and bonus (BPS). Seizure and fees use asset units for
-    /// `Transfer`, RAY-scaled supply shares for `Credit`.
+    /// Estimates gross seizure, protocol fees, refunds, maximum payable debt in USD (WAD), and
+    /// bonus (BPS). Seizure and fees use asset units for `Transfer` and RAY-scaled supply shares
+    /// for `Credit`.
     fn get_liquidation_estimate(
         env: Env,
         account_id: u64,
@@ -499,8 +497,8 @@ impl ControllerInterface for Controller {
         MarketIndexRaw::from(&cache.cached_market_index(&hub_asset))
     }
 
-    /// Returns supply/borrow indexes (RAY) and oracle price status for each
-    /// hub asset. Reverts above `MAX_VIEW_INPUTS`.
+    /// Returns the supply and borrow indexes (RAY) and the oracle price status for each hub asset.
+    /// Reverts above `MAX_VIEW_INPUTS`.
     fn get_market_indexes_detailed(env: Env, hub_assets: Vec<HubAssetKey>) -> Vec<MarketIndexView> {
         views::get_all_market_indexes_detailed(&env, &hub_assets)
     }
@@ -510,7 +508,7 @@ impl ControllerInterface for Controller {
         storage::get_spoke(&env, spoke_id)
     }
 
-    /// Returns the spoke asset's configuration; reverts if it is not listed.
+    /// Returns the spoke asset's configuration. Reverts if the asset is not listed.
     fn get_spoke_asset(env: Env, spoke_id: u32, hub_asset: HubAssetKey) -> SpokeAssetConfig {
         storage::get_spoke_asset(&env, spoke_id, &hub_asset)
             .unwrap_or_else(|| panic_with_error!(&env, SpokeError::AssetNotInSpoke))
@@ -521,8 +519,8 @@ impl ControllerInterface for Controller {
         storage::get_spoke_usage(&env, spoke_id, &hub_asset).unwrap_or_default()
     }
 
-    /// Returns the listing's flags epoch, the `expected_epoch` a
-    /// `relax_spoke_asset_flags` call must name; 0 if never written.
+    /// Returns the flags epoch of the listing. A `relax_spoke_asset_flags` call must pass this
+    /// value as `expected_epoch`. Returns 0 if the epoch was never written.
     fn get_spoke_asset_flags_epoch(env: Env, spoke_id: u32, hub_asset: HubAssetKey) -> u64 {
         storage::get_spoke_flags_epoch(&env, spoke_id, &hub_asset)
     }
@@ -532,8 +530,8 @@ impl ControllerInterface for Controller {
         storage::get_price_aggregator(&env)
     }
 
-    /// Returns the LTV-weighted collateral floor in USD (WAD) for accounts with
-    /// debt; borrows, withdrawals and strategies check it. Zero disables it.
+    /// Returns the LTV-weighted collateral floor in USD (WAD) for accounts with debt. Borrows,
+    /// withdrawals, and strategies check it. Zero disables it.
     fn get_min_borrow_collateral_usd(env: Env) -> i128 {
         storage::get_min_borrow_collateral_usd_wad(&env)
     }
@@ -546,33 +544,33 @@ impl ControllerInterface for Controller {
 
 #[contractimpl]
 impl ControllerAdmin for Controller {
-    /// Sets the strategy swap aggregator address. Owner-only.
+    /// Sets the strategy swap aggregator address. Requires owner authorization.
     #[only_owner]
     fn set_swap_aggregator(env: Env, addr: Address) {
         renew_then!(env, config::registry::set_swap_aggregator(&env, addr))
     }
 
-    /// Sets the oracle price aggregator address. Owner-only.
+    /// Sets the oracle price aggregator address. Requires owner authorization.
     #[only_owner]
     fn set_price_aggregator(env: Env, addr: Address) {
         renew_then!(env, config::registry::set_price_aggregator(&env, addr))
     }
 
-    /// Sets the recipient of claimed protocol revenue. Owner-only.
+    /// Sets the recipient of claimed protocol revenue. Requires owner authorization.
     #[only_owner]
     fn set_accumulator(env: Env, addr: Address) {
         renew_then!(env, config::registry::set_accumulator(&env, addr))
     }
 
-    /// Sets per-account supply and borrow position limits in
-    /// `1..=POSITION_LIMIT_MAX`. Owner-only.
+    /// Sets per-account supply and borrow position limits in `1..=POSITION_LIMIT_MAX`. Requires
+    /// owner authorization.
     #[only_owner]
     fn set_position_limits(env: Env, limits: PositionLimits) {
         renew_then!(env, config::registry::set_position_limits(&env, limits))
     }
 
-    /// Sets the non-negative LTV-weighted collateral floor in USD (WAD) for
-    /// accounts with debt; zero disables it. Owner-only.
+    /// Sets the non-negative LTV-weighted collateral floor in USD (WAD) for accounts with debt.
+    /// Zero disables it. Requires owner authorization.
     #[only_owner]
     fn set_min_borrow_collateral_usd(env: Env, floor_wad: i128) {
         renew_then!(
@@ -581,8 +579,8 @@ impl ControllerAdmin for Controller {
         )
     }
 
-    /// Activates or deactivates a manager's eligibility for account delegation.
-    /// Owner-only.
+    /// Activates or deactivates a manager's eligibility for account delegation. Requires owner
+    /// authorization.
     #[only_owner]
     fn set_position_manager(env: Env, manager: Address, is_active: bool) {
         renew_then!(
@@ -591,7 +589,7 @@ impl ControllerAdmin for Controller {
         )
     }
 
-    /// Approves a Blend migration source. Owner-only.
+    /// Approves a Blend migration source. Requires owner authorization.
     #[only_owner]
     fn approve_blend_pool(env: Env, pool: Address) {
         renew_then!(
@@ -600,7 +598,7 @@ impl ControllerAdmin for Controller {
         )
     }
 
-    /// Revokes a Blend migration source. Owner-only.
+    /// Revokes a Blend migration source. Requires owner authorization.
     #[only_owner]
     fn revoke_blend_pool(env: Env, pool: Address) {
         renew_then!(
@@ -609,29 +607,28 @@ impl ControllerAdmin for Controller {
         )
     }
 
-    /// Creates an active hub and returns its id. Owner-only.
+    /// Creates an active hub and returns its id. Requires owner authorization.
     #[only_owner]
     fn create_hub(env: Env) -> u32 {
         renew_then!(env, config::spoke::create_hub(&env))
     }
 
-    /// Creates a spoke with the default liquidation curve and returns its id.
-    /// Owner-only.
+    /// Creates a spoke with the default liquidation curve and returns its id. Requires owner
+    /// authorization.
     #[only_owner]
     fn add_spoke(env: Env) -> u32 {
         renew_then!(env, config::spoke::add_spoke(&env))
     }
 
-    /// Deprecates a spoke, blocking ordinary position entry. Owner-only;
-    /// reverts if already deprecated. Withdrawal, repayment and liquidation remain
-    /// available.
+    /// Deprecates a spoke and blocks ordinary position entry. Requires owner authorization. Reverts
+    /// if the spoke is already deprecated. Withdrawal, repayment, and liquidation remain available.
     #[only_owner]
     fn remove_spoke(env: Env, id: u32) {
         renew_then!(env, config::spoke::remove_spoke(&env, id))
     }
 
-    /// Sets target and max-bonus health factors (WAD) and the bonus factor
-    /// (BPS) for a spoke. Owner-only.
+    /// Sets target and max-bonus health factors (WAD) and the bonus factor (BPS) for a spoke.
+    /// Requires owner authorization.
     #[only_owner]
     fn set_spoke_liquidation_curve(
         env: Env,
@@ -652,22 +649,22 @@ impl ControllerAdmin for Controller {
         )
     }
 
-    /// Lists a spoke asset after validating risk parameters and caps against
-    /// pool decimals. Owner-only; rejects deprecated spokes and duplicate listings.
+    /// Validates risk parameters and caps against pool decimals, then lists a spoke asset. Requires
+    /// owner authorization. Rejects deprecated spokes and duplicate listings.
     #[only_owner]
     fn add_asset_to_spoke(env: Env, input: SpokeAssetArgs) {
         renew_then!(env, config::asset::add_asset_to_spoke(&env, &input))
     }
 
-    /// Updates a listed spoke asset's risk parameters and caps, validating
-    /// against pool decimals. Owner-only; rejects unlisted assets and cleared flags.
+    /// Validates risk parameters and caps against pool decimals, then updates a listed spoke asset.
+    /// Requires owner authorization. Rejects unlisted assets and cleared flags.
     #[only_owner]
     fn edit_asset_in_spoke(env: Env, input: SpokeAssetArgs) {
         renew_then!(env, config::asset::edit_asset_in_spoke(&env, &input))
     }
 
-    /// Sets a spoke asset's paused, frozen and no-seize flags. Owner-only; reverts
-    /// with `SpokeAssetFlagRelaxation` if a set flag would clear.
+    /// Sets a spoke asset's paused, frozen, and no-seize flags. Requires owner authorization.
+    /// Reverts with `SpokeAssetFlagRelaxation` if a set flag would clear.
     #[only_owner]
     fn set_spoke_asset_flags(
         env: Env,
@@ -685,8 +682,8 @@ impl ControllerAdmin for Controller {
         )
     }
 
-    /// Sets a spoke asset's paused, frozen and no-seize flags, clearing
-    /// included, when `expected_epoch` equals its flags epoch. Owner-only.
+    /// Sets a spoke asset's paused, frozen, and no-seize flags, including clearing a flag, when
+    /// `expected_epoch` equals its flags epoch. Requires owner authorization.
     #[only_owner]
     fn relax_spoke_asset_flags(
         env: Env,
@@ -711,7 +708,7 @@ impl ControllerAdmin for Controller {
         )
     }
 
-    /// Removes a listed spoke asset with no supply or borrow usage. Owner-only.
+    /// Removes a listed spoke asset with no supply or borrow usage. Requires owner authorization.
     #[only_owner]
     fn remove_asset_from_spoke(env: Env, hub_asset: HubAssetKey, spoke_id: u32) {
         renew_then!(
@@ -720,15 +717,15 @@ impl ControllerAdmin for Controller {
         )
     }
 
-    /// Deploys the pool from `wasm_hash`, stores and returns its address.
-    /// Owner-only; rejects redeployment.
+    /// Deploys the pool from `wasm_hash`, then stores and returns its address. Requires owner
+    /// authorization. Rejects redeployment.
     #[only_owner]
     fn deploy_pool(env: Env, wasm_hash: BytesN<32>) -> Address {
         renew_then!(env, markets::deploy_pool(&env, wasm_hash))
     }
 
-    /// Deploys the account-ownership NFT and returns its address.
-    /// Owner-only; rejects redeployment.
+    /// Deploys the account-ownership NFT and returns its address. Requires owner authorization.
+    /// Rejects redeployment.
     #[only_owner]
     fn deploy_position_nft(
         env: Env,
@@ -743,8 +740,8 @@ impl ControllerAdmin for Controller {
         )
     }
 
-    /// Creates a pool market and returns the pool address. Owner-only;
-    /// requires an active hub and `params.asset_id == asset`.
+    /// Creates a pool market and returns the pool address. Requires owner authorization, an active
+    /// hub, and `params.asset_id == asset`.
     #[only_owner]
     fn create_liquidity_pool(
         env: Env,
@@ -758,8 +755,8 @@ impl ControllerAdmin for Controller {
         )
     }
 
-    /// Accrues market indexes before replacing the interest-rate model.
-    /// Owner-only.
+    /// Accrues market indexes before replacing the interest-rate model. Requires owner
+    /// authorization.
     #[only_owner]
     fn upgrade_liquidity_pool_params(env: Env, hub_asset: HubAssetKey, params: InterestRateModel) {
         renew_then!(
@@ -768,20 +765,20 @@ impl ControllerAdmin for Controller {
         )
     }
 
-    /// Upgrades the pool to `new_wasm_hash`. Owner-only.
+    /// Upgrades the pool to `new_wasm_hash`. Requires owner authorization.
     #[only_owner]
     fn upgrade_pool(env: Env, new_wasm_hash: BytesN<32>) {
         renew_then!(env, markets::upgrade_pool(&env, new_wasm_hash))
     }
 
-    /// Upgrades the position NFT to `new_wasm_hash`. Owner-only.
+    /// Upgrades the position NFT to `new_wasm_hash`. Requires owner authorization.
     #[only_owner]
     fn upgrade_position_nft(env: Env, new_wasm_hash: BytesN<32>) {
         renew_then!(env, markets::upgrade_position_nft(&env, new_wasm_hash))
     }
 
-    /// Socializes insolvent debt into the supply index and removes the account,
-    /// bypassing the permissionless collateral dust cap. Owner-only.
+    /// Socializes insolvent debt into the supply index and removes the account. It bypasses the
+    /// permissionless collateral dust cap. Requires owner authorization.
     #[only_owner]
     fn force_socialize_bad_debt(env: Env, account_id: u64) {
         renew_then!(
@@ -790,28 +787,28 @@ impl ControllerAdmin for Controller {
         )
     }
 
-    /// Pauses guarded operations. Owner-only. Withdrawal, repayment, liquidation,
-    /// bad-debt cleanup, recapitalization, account renewal and delegate removal
-    /// remain available, subject to listing flags.
+    /// Pauses guarded operations. Requires owner authorization. Withdrawal, repayment, liquidation,
+    /// bad-debt cleanup, recapitalization, account renewal, and delegate removal remain available,
+    /// subject to listing flags.
     #[only_owner]
     fn pause(env: Env) {
         renew_then!(env, governance::pause(&env))
     }
 
-    /// Unpauses guarded operations. Owner-only.
+    /// Unpauses guarded operations. Requires owner authorization.
     #[only_owner]
     fn unpause(env: Env) {
         renew_then!(env, governance::unpause(&env))
     }
 
-    /// Pauses the controller if needed, then upgrades to `new_wasm_hash`.
-    /// Owner-only.
+    /// Pauses the controller if needed, then upgrades to `new_wasm_hash`. Requires owner
+    /// authorization.
     #[only_owner]
     fn upgrade(env: Env, new_wasm_hash: BytesN<32>) {
         renew_then!(env, governance::upgrade(&env, &new_wasm_hash))
     }
 
-    /// Sets an app version strictly greater than the current version. Owner-only.
+    /// Sets an app version strictly greater than the current version. Requires owner authorization.
     #[only_owner]
     fn migrate(env: Env, new_version: u32) {
         renew_then!(env, governance::migrate(&env, new_version))
@@ -822,8 +819,8 @@ impl ControllerAdmin for Controller {
         governance::get_app_version(&env)
     }
 
-    /// Starts an owner-only, two-step transfer to `new_owner`; the pending
-    /// grant expires at `live_until_ledger` unless accepted.
+    /// Starts a two-step transfer to `new_owner`. Requires owner authorization. The pending grant
+    /// expires at `live_until_ledger` unless the new owner accepts it.
     #[only_owner]
     fn transfer_ownership(env: Env, new_owner: Address, live_until_ledger: u32) {
         renew_then!(

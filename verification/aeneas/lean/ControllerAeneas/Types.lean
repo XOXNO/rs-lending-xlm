@@ -383,7 +383,7 @@ def positions.get_supply_position_or_panic.closure := aeneas_soroban_shim.Env
 def types.Account.get_or_create_supply_position.closure := Unit
 
 /-- [controller_aeneas::risk::totals::AccountRiskTotals]
-    Source: 'src/risk/totals.rs', lines 107:0-118:1 -/
+    Source: 'src/risk/totals.rs', lines 107:0-119:1 -/
 structure risk.totals.AccountRiskTotals where
   total_collateral : math.fp.Wad
   ltv_collateral : math.fp.Wad

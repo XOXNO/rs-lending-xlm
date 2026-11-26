@@ -19,7 +19,8 @@ fn test_seizure_equals_debt_times_one_plus_bonus() {
     let liquidator_usdc_before = t.token_balance(LIQUIDATOR, "USDC");
 
     // The bonus comes from the estimate view, not from the measured seizure.
-    // Deriving it from the seizure makes `seizure == debt * (1 + bonus)` an identity.
+    // If the test derived the bonus from the seizure, `seizure == debt * (1 + bonus)`
+    // would be an identity.
     let account_id = t.resolve_account_id(ALICE);
     let payments =
         soroban_sdk::Vec::from_array(&t.env, [(hub_asset(t.resolve_asset("ETH")), 5_000_000)]);
@@ -50,7 +51,7 @@ fn test_seizure_equals_debt_times_one_plus_bonus() {
         actual_bonus_rate * 100.0
     );
 
-    // Gross seizure is `debt * (1 + b)`; the protocol keeps `fee_bps` of the
+    // Gross seizure is `debt * (1 + b)`. The protocol keeps `fee_bps` of the
     // bonus leg only, so the liquidator nets `debt * (1 + b * (1 - fee))`.
     let expected_seizure_usd =
         debt_repaid_usd * (1.0 + (bonus_bps / 10_000.0) * (1.0 - fee_bps / 10_000.0));
@@ -184,8 +185,8 @@ fn test_protocol_fee_on_bonus_only_quantitative() {
     t.borrow(ALICE, "ETH", 3.0);
     t.set_price("USDC", usd_cents(50));
 
-    // Closed form: `seized = principal * (1 + b)`, and the fee is `fee_bps` of the
-    // bonus leg.
+    // The closed form is `seized = principal * (1 + b)`, and the fee is `fee_bps` of
+    // the bonus leg.
     let account_id = t.resolve_account_id(ALICE);
     let payments =
         soroban_sdk::Vec::from_array(&t.env, [(hub_asset(t.resolve_asset("ETH")), 1_0000000)]);
@@ -248,7 +249,7 @@ fn test_bad_debt_index_decrease_exact() {
         "Bob must absorb part of the loss: {bob_loss:.9}"
     );
 
-    // "Exact": the index move and Bob's balance move are the same write-down.
+    // "Exact" means the index move and Bob's balance move are the same write-down.
     let expected_ratio = 1.0 - bob_loss / bob_balance_before;
     assert!(
         (actual_ratio - expected_ratio).abs() < 1e-8,
@@ -324,7 +325,7 @@ fn test_liquidation_bounded_by_available_collateral() {
 
     t.liquidate(LIQUIDATOR, ALICE, "ETH", 0.3);
 
-    // Bounds the deltas, not absolute balances, so a zero seizure fails.
+    // The assertion bounds the deltas, not absolute balances, so a zero seizure fails.
     let seized = collateral_before - t.supply_balance_raw(ALICE, "USDC");
     let received = t.token_balance_raw(LIQUIDATOR, "USDC") - liq_before;
     assert!(

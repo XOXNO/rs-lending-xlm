@@ -937,8 +937,8 @@ fn rate_change(env: &Env, hub: u32) -> AdminOperation {
     })
 }
 
-/// A hub that moves to another registrar takes its queued operations with it:
-/// the new owner cancels them and the former owner no longer can.
+/// A hub that moves to another registrar takes its queued operations with it.
+/// The new owner cancels them, and the former owner no longer can.
 #[test]
 fn the_new_owner_of_a_hub_cancels_what_the_former_owner_queued() {
     let env = Env::default();
@@ -1022,7 +1022,7 @@ fn a_grantee_cannot_list_a_foreign_hub_asset_paused() {
 }
 
 /// A relaxation that carries no pause is not checked against the live
-/// listing: a grantee queues it for a foreign hub's asset under its grant.
+/// listing. A grantee queues it for a foreign hub's asset under its grant.
 #[test]
 fn a_grantee_queues_a_relaxation_of_a_foreign_hub_asset_that_carries_no_pause() {
     let env = Env::default();

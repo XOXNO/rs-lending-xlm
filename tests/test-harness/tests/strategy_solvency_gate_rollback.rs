@@ -101,8 +101,8 @@ fn solvency_gate_failure_reverts_every_token_transfer() {
         t.snapshot_revenue("ETH")
     );
 
-    // The gate's error, not any error: a revert before any transfer would make
-    // the balance checks below vacuous.
+    // The test expects the gate's error, not any error. A revert before any
+    // transfer would make the balance checks below vacuous.
     assert_contract_error(res, errors::INSUFFICIENT_COLLATERAL);
 
     // The pool paid out ETH and the controller forwarded it to the receiver

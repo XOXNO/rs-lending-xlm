@@ -25,7 +25,7 @@ pub(crate) struct WithdrawOutcome {
 /// Accrues interest, burns supply shares, debits cash, and transfers the net
 /// proceeds to `receiver`.
 ///
-/// Mutation `actual_amount` is the **gross** withdrawal; `net_transfer` is what
+/// Mutation `actual_amount` is the **gross** withdrawal. `net_transfer` is what
 /// leaves the pool after any liquidation fee.
 pub(crate) fn apply(
     env: &Env,
@@ -74,7 +74,7 @@ pub(crate) fn accounting(
     );
 
     // A footprint-only close must not add a utilization gate to same-market
-    // net settlement: it burns no shares and moves no cash.
+    // net settlement. It burns no shares and moves no cash.
     let empty_close = position.raw() == 0 && entry.action.amount == i128::MAX;
     gate_and_debit(env, &mut cache, net_transfer, is_liquidation || empty_close);
 

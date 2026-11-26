@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Offline regressions exercise the real shell helpers with mocked CLI/RPC."""
+"""Offline regressions exercise the real shell helpers with mocked CLI and RPC."""
 import csv
 import importlib.util
 import json
@@ -314,7 +314,7 @@ if inv mutation admin contract -- supply; then exit 1; fi
 '''.replace('echo ERROR', f'echo {error}'))
 # Success without submission proof is a failure.
 shell('stellar() { echo 1; }; if inv missing admin contract -- supply; then exit 1; fi')
-# Bad transport, JSON-RPC errors, absent transactionData and invalid XDR fail.
+# Bad transport, JSON-RPC errors, absent transactionData, and invalid XDR fail.
 for payload in ['', '{}', '{', '{"error":{"code":-1}}', '{"jsonrpc":"2.0","id":1,"result":{}}']:
     shell('''
 stellar() { echo invalid; }
@@ -357,7 +357,7 @@ rc=0; run_case b fn || rc=$?
 awk -F'\\t' '$3=="b_selection" && $4=="FAIL" && $5=="case" && $11 ~ /case selection unreadable \\(jq exit [0-9]+\\)/ {found=1} END {exit !found}' "$ACTIONS_TSV" || exit 7
 ''')
 print('E2E offline harness regressions passed')
-# Teardown batches full withdrawals (WITHDRAW_ALL per leg) by account, retaining
+# Teardown batches full withdrawals (WITHDRAW_ALL per leg) by account and retains
 # mixed hub keys and the burn proof. A submitted failure must never fall back to per-asset calls.
 for count, failure in [(1, False), (5, False), (5, True), (6, False)]:
     keys = [dict(hub_id=i % 2 + 1, asset=f'TOKEN{i // 2}') for i in range(count)]
@@ -394,7 +394,7 @@ _td_withdraw_account 7 || rc=$?
 [ "$n" = {0 if count > 5 else 1} ] && [ "$burned" = {int(count <= 5 and not failure)} ] || exit 1
 {('[ "$rc" -ne 0 ] && grep -q FAIL "$ACTIONS_TSV"') if failure or count > 5 else '[ "$rc" = 0 ]'}
 ''')
-# Suppressed refund, wrong fee destination and recap refund must all fail.
+# Suppressed refund, wrong fee destination, and recap refund must all fail.
 for before, after, expected in [('100', '100', '10000000'), ('100', '100', '25'), ('1000', '800', '-20')]:
     shell(f'! assert_delta broken {before} {after} {expected}; grep -q FAIL "$ACTIONS_TSV"')
 shell('assert_delta large 100000000000000000000000 100000000000000000000001 1')
@@ -410,7 +410,7 @@ E2E_RESUME=1
 if run_case partial mutate_then_exit; then exit 1; fi
 [ "$(wc -l < "$RUN_DIR/commits" | tr -d ' ')" = 1 ]
 ''')
-# Quote transport/decoding failures are recorded even if a phase ignores return.
+# Quote transport and decoding failures are recorded even if a phase ignores return.
 shell(f'source "{HERE}/lib/aggregator.sh"; AGGREGATOR_API=https://unused; curl() {{ return 7; }}; ! agg_route_hex a b 1; grep -q FAIL "$ACTIONS_TSV"')
 # Wrong deployed bytecode cannot leave a successful output for ignored callers.
 shell('''
@@ -543,7 +543,7 @@ for index,path,value in [
     elif index==5: broken[5]['state'][path[0]]=value
     else: broken[6][path[0]]=value
     credit_check(broken,False)
-# Both preserve conservation; each must fail the independent amount checks.
+# Both preserve conservation. Each must fail the independent amount checks.
 broken=deepcopy(credit_values)
 broken[3][0]['market']['scaled_amount']=str(seized-fee-1)
 broken[5]['state']['revenue']=str(fee+1)
@@ -556,7 +556,7 @@ credit_check(broken,False)
 
 # Pool ABI exposes params through get_sync_data, never get_market_params. Drive
 # the real successful flash-loan wrapper so a nonexistent method cannot hide
-# behind arithmetic-only tests; retain the protocol-share rejection check.
+# behind arithmetic-only tests. Retain the protocol-share rejection check.
 for flash_mode in (0, 6):
     shell(f'source "{HERE}/flows/strategies.sh"\nMODE={flash_mode}\n'+r'''
 PRIMARY_HUB_ID=1; USDC_SAC=USDC; POOL=POOL; CONTROLLER=CTRL

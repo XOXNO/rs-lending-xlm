@@ -18,7 +18,7 @@ pub enum OracleAssetRef {
 }
 
 /// Basis-point band around a reference price within which a second source's reading is
-/// considered non-deviant. Only `upper_ratio_bps` is read at price time: the deviation check
+/// considered non-deviant. Only `upper_ratio_bps` is read at price time. The deviation check
 /// divides the larger leg by the smaller and compares that ratio, so the band is already
 /// direction-symmetric. `lower_ratio_bps` is the stored reciprocal half, validated at
 /// configuration time to equal `BPS * BPS / upper_ratio_bps` (half up) and never consulted on
@@ -32,7 +32,7 @@ pub struct OracleTolerance {
 }
 
 /// How a feed is sampled: a spot read, or `Twap(records)`, the equal-weight mean of
-/// returned history covering the requested window. The observation count may vary;
+/// returned history covering the requested window. The observation count may vary.
 /// `Twap` is not time-weighted.
 #[contracttype]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -198,7 +198,7 @@ mod tests {
             asset_decimals: 18,
             timestamp: 0,
         };
-        // 1e9 whole tokens at $1e9 each is $1e18, i.e. 1e36 wad: inside i128.
+        // 1e9 whole tokens at $1e9 each is $1e18, that is 1e36 wad. The value fits in i128.
         let one_billion_tokens = 1_000_000_000i128 * WAD;
         assert_eq!(
             feed.usd_value_wad(&env, one_billion_tokens).raw(),

@@ -9,7 +9,7 @@ use common::*;
 
 use xoxno_oracle::Error;
 
-/// Five signers, threshold two: two colluders at the future-skew bound do not
+/// Five signers, threshold two. Two colluders at the future-skew bound do not
 /// evict the three honest submissions, and the aggregate stays at the honest price.
 #[test]
 fn future_dated_submission_cannot_evict_the_honest_cohort() {
@@ -40,7 +40,7 @@ fn future_dated_submission_cannot_evict_the_honest_cohort() {
     );
 }
 
-/// Three signers, threshold two, minimum 61 s skew: a third signer at the future
+/// Three signers, threshold two, minimum 61 s skew. A third signer at the future
 /// bound does not evict the honest pair submitted 2 s earlier, so its submission
 /// writes a fresh aggregate over all three.
 #[test]
@@ -69,9 +69,9 @@ fn one_future_dated_signer_cannot_evict_the_honest_pair() {
     assert_eq!(aggregate.package_timestamp, honest_ms);
 }
 
-/// Control: the skew filter still evicts old submissions that are not future-dated.
-/// Threshold is the full signer set and the three prices fit inside the spread:
-/// without eviction the three submissions form an aggregate, so `NoDataForFeed`
+/// Control test. The skew filter still evicts old submissions that are not future-dated.
+/// Threshold is the full signer set and the three prices fit inside the spread.
+/// Without eviction the three submissions form an aggregate, so `NoDataForFeed`
 /// proves the eviction.
 #[test]
 fn stale_submission_outside_the_skew_window_is_still_evicted() {
@@ -81,7 +81,7 @@ fn stale_submission_outside_the_skew_window_is_still_evicted() {
     let (client, _admin, signers) = setup(&env, 3, 3);
     let feed = feed_id(&env);
 
-    // Wide age window, narrow skew: 200s old is within age but outside skew.
+    // Wide age window, narrow skew. A 200 s old submission is within age but outside skew.
     client.set_max_submission_age_seconds(&86_400u64);
     client.set_max_relative_skew_seconds(&61u64);
 
@@ -92,8 +92,9 @@ fn stale_submission_outside_the_skew_window_is_still_evicted() {
 
     advance_ledger_seconds(&env, 200);
 
-    // One fresh signer publishes 505 at now. The anchor clamps to now; the two
-    // stale 500s are >61s older and evicted, leaving one submission < threshold.
+    // One fresh signer publishes 505 at now. The anchor clamps to now, the two
+    // stale 500s are more than 61 s older and are evicted, and the one remaining
+    // submission is below the threshold.
     let fresh_ms = env.ledger().timestamp() * 1_000;
     client.submit_price(&signers[2], &feed, &505i128, &fresh_ms);
 

@@ -7,7 +7,7 @@ use soroban_sdk::{contracttype, Address, Bytes, Vec};
 
 /// DEX venue selected for a single hop.
 ///
-/// Not a wire type — venues travel as the opcode byte of an instruction and are
+/// Not a wire type. Venues travel as the opcode byte of an instruction and are
 /// resolved by [`crate::program::Opcode`].
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SwapVenue {
@@ -21,7 +21,7 @@ pub enum SwapVenue {
 
 /// One pool hop: swaps `token_in` for `token_out` through `venue`.
 ///
-/// Built per instruction from registry indices; venue adapters consume this.
+/// Built per instruction from registry indices. Venue adapters consume the hop.
 #[derive(Clone, Debug)]
 pub struct SwapHop {
     pub pool: Address,
@@ -51,8 +51,8 @@ pub use swap_aggregator_interface::ReferralConfig;
 
 /// Instance and persistent storage keys.
 ///
-/// Each key encodes as `ScVal::Vec([Symbol("<variant name>"), ..fields])`, so
-/// adding a variant leaves existing entries intact, but a rename orphans every
+/// Each key encodes as `ScVal::Vec([Symbol("<variant name>"), ..fields])`.
+/// Adding a variant leaves existing entries intact. A rename orphans every
 /// entry stored under the old name.
 #[contracttype]
 #[derive(Clone, Debug)]

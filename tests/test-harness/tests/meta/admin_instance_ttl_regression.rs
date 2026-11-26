@@ -1,4 +1,4 @@
-//! Pins instance-TTL renewal on the owner-gated admin surface.
+//! Pins instance-TTL renewal on the owner-gated admin entry points.
 //!
 //! Every owner-gated `ControllerAdmin` entrypoint bumps the controller's instance
 //! TTL through the `renew_then!` wrapper in `contracts/controller/src/lib.rs`. No
@@ -21,7 +21,7 @@ fn instance_ttl(t: &LendingTest) -> u32 {
 }
 
 fn assert_renews(name: &str, call: impl Fn(&LendingTest)) {
-    // A fresh harness per case: aging is cumulative, so sharing one env would
+    // Use a fresh harness per case. Aging is cumulative, so sharing one env would
     // let an earlier case's bump mask a later case's missing one.
     let t = LendingTest::new().standard_two_asset().build();
     t.advance_time_no_refresh(AGE_SECS);

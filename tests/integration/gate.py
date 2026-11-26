@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Fail-closed E2E case/action validation; no network access."""
+"""Validate E2E cases and actions, failing closed. The module does not access the network."""
 import csv
 import json
 import sys
@@ -50,7 +50,7 @@ def mark_incomplete(run, reason):
 
 
 def write_summary(run, status, reason=None, exit_code=None):
-    """Summarize partial evidence too; only validate() can establish a pass."""
+    """Summarize partial evidence. Only validate() can establish a pass."""
     def table(name):
         path = run / name
         if not path.exists():
@@ -165,8 +165,8 @@ def validate(run, expected_lane=None):
     for line in (run/'deployed-artifacts.jsonl').read_text().splitlines():
         item=json.loads(line); name=item['artifact']
         if name == E2E_GOVERNANCE:
-            # Governance runs the short-timelock fixture, never the candidate:
-            # one build per run, and not the candidate's bytes.
+            # Governance runs the short-timelock fixture, never the candidate. A run uses
+            # one build, and that build is not the candidate's bytes.
             if (not re.fullmatch(r'[0-9a-f]{64}',item['sha256']) or item['sha256']==candidate['artifacts']['governance.wasm']
                     or not re.fullmatch(r'C[A-Z2-7]{55}',item['address'])):
                 raise ValueError('wrong deployed end-to-end governance identity')

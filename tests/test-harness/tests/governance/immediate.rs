@@ -165,7 +165,7 @@ fn sanity_band_not_containing_price_fails_closed_at_read() {
         let admin = t.admin();
         let usdc = t.resolve_asset("USDC");
 
-        // The market defaults to a +/-1% band. Widen it outside governance
+        // The market defaults to a band of plus or minus 1%. Widen it outside governance
         // first, because the governed call may only narrow it.
         t.seed_sanity_band("USDC", usd(1) * 95 / 100, usd(1) * 105 / 100);
 
@@ -196,7 +196,7 @@ fn sanity_band_may_only_tighten_on_the_immediate_path() {
     let admin = t.admin();
     let usdc = t.resolve_asset("USDC");
 
-    // Starting band is [0.99, 1.01] (100 bps). Tighten to 75 bps, leaving room
+    // Starting band is [0.99, 1.01] (100 bps). Tighten to 75 bps to leave room
     // for a second tighten to `MIN_SANITY_BAND_BPS` (50).
     let narrow_min = usd(1) * 9925 / 10000;
     let narrow_max = usd(1) * 10075 / 10000;
@@ -349,8 +349,8 @@ fn owner_revokes_role_immediately() {
     let result = gov.try_revoke_role_immediate(&holder, &canceller_role);
     assert_contract_error(flatten(result), errors::INVALID_ROLE);
 
-    // `EXECUTOR` is not a governance role (audit finding I-02); like any name
-    // outside GUARDIAN and ORACLE it is refused.
+    // `EXECUTOR` is not a governance role (audit finding I-02). Like any name
+    // outside GUARDIAN and ORACLE, it is refused.
     for role in ["PROPOSER", "EXECUTOR"] {
         let result = gov.try_revoke_role_immediate(&admin, &Symbol::new(&t.env, role));
         assert_contract_error(flatten(result), errors::INVALID_ROLE);
@@ -644,9 +644,9 @@ fn granted_listing(t: &LendingTest) -> GrantedListing {
     }
 }
 
-/// A pause blocks repayment and liquidation of the listed hub's debt and the
-/// hub owner cannot lift it, so the spoke owner may freeze a foreign hub's
-/// listing but not pause it.
+/// A pause blocks repayment and liquidation of the listed hub's debt, and the
+/// hub owner cannot lift it. The spoke owner may therefore freeze a foreign
+/// hub's listing but not pause it.
 #[test]
 fn curator_spoke_owner_freezes_a_foreign_hub_listing_but_cannot_pause_it() {
     let t = LendingTest::new().with_market(usdc_preset()).build();
@@ -705,7 +705,7 @@ fn curator_spoke_owner_cannot_queue_a_pause_on_a_foreign_hub_listing() {
     };
     let gov = t.gov_client();
 
-    // The listing is not paused: a relaxation that pauses it is refused.
+    // The listing is not paused. A relaxation that pauses it is refused.
     assert_contract_error(
         try_curator_call(&t, &g.curator, "propose", relax(true, 1)),
         errors::FOREIGN_PAUSE,

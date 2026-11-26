@@ -12,9 +12,9 @@ use crate::types::MarketParams;
 /// three-segment piecewise-linear curve defined by `params`.
 ///
 /// Clamps `utilization` to at most `Ray::ONE`. Below `params.mid_utilization`
-/// the annual rate ramps from `params.base_borrow_rate` by `params.slope1`;
-/// between `mid_utilization` and `params.optimal_utilization` it ramps
-/// further by `params.slope2`; above `optimal_utilization` it ramps by
+/// the annual rate ramps from `params.base_borrow_rate` by `params.slope1`.
+/// Between `mid_utilization` and `params.optimal_utilization` it ramps
+/// further by `params.slope2`. Above `optimal_utilization` it ramps by
 /// `params.slope3`. Caps the result at `params.max_borrow_rate`.
 ///
 /// Each segment's contribution is one half-up multiply-divide, so at the top

@@ -123,9 +123,9 @@ fn test_scenario_covers_every_configured_leg() {
     );
 }
 
-/// Replay the same 5+5 Credit authorization against one book at zero and five
-/// seconds elapsed. Production WASM meters both projection and committed accrual;
-/// source-account authorization avoids the mock-auth recorder's extra CPU work.
+/// Replays the same 5+5 Credit authorization against one book at zero and five
+/// seconds elapsed. Production WASM meters both projection and committed accrual.
+/// Source-account authorization avoids the mock-auth recorder's extra CPU work.
 #[test]
 fn credit_5coll_5debt_same_ledger_to_next_ledger_cpu() {
     use common::types::SeizeMode;
@@ -216,7 +216,7 @@ fn credit_5coll_5debt_same_ledger_to_next_ledger_cpu() {
         );
     }
 
-    // Replace native test dispatch after setup, preserving the initialized book.
+    // Replace native test dispatch after setup. The initialized book is kept.
     // Fresh replay environments below discard native controller dispatch tables.
     let wasm_dir = std::env::var_os("STRESS_BUDGET_WASM_DIR")
         .map(std::path::PathBuf::from)
@@ -311,8 +311,8 @@ fn credit_5coll_5debt_same_ledger_to_next_ledger_cpu() {
             env.cost_estimate()
                 .budget()
                 .reset_limits(costs[0] + leeway, 41_943_040);
-            // Only uncharged test/debug auth snapshots get unlimited shadow
-            // budget; normal execution CPU and memory remain bounded above.
+            // Only uncharged test and debug auth snapshots get unlimited shadow
+            // budget. Normal execution CPU and memory remain bounded above.
             env.host()
                 .set_shadow_budget_limits(u64::MAX, u64::MAX)
                 .unwrap();
@@ -335,8 +335,8 @@ fn credit_5coll_5debt_same_ledger_to_next_ledger_cpu() {
                 message.contains("HostError: Error(Budget, ExceededLimit)"),
                 "unexpected failure: {message}"
             );
-            // Wasmi can trap before charging an instruction that exceeds its
-            // remaining fuel, leaving the host counter just below the limit.
+            // Wasmi can trap before it charges an instruction that exceeds its
+            // remaining fuel. The host counter then stays just below the limit.
             assert!(
                 cpu > costs[0] + 2_000_000 || message.contains("OutOfFuel"),
                 "negative control must exhaust CPU: consumed={cpu}, failure={message}"

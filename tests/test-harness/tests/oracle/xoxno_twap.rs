@@ -42,7 +42,7 @@ impl Fx {
             .unwrap()
     }
 
-    /// Runs `rounds` rounds `cadence` seconds apart; every signer submits
+    /// Runs `rounds` rounds `cadence` seconds apart. Every signer submits
     /// `price(round)` with the ledger time as package time. Returns the
     /// `(bucket start, price)` of the last round in each bucket, oldest first.
     fn run(&self, cadence: u64, rounds: u32, price: impl Fn(u32) -> i128) -> Vec<(u64, i128)> {
@@ -154,7 +154,7 @@ fn xoxno_twap_leg_reads_at_every_signer_cadence() {
     }
 }
 
-/// Fewer than three buckets after the first quorum: the leg fails closed and
+/// With fewer than three buckets after the first quorum, the leg fails closed and
 /// the anchor alone does not price the key.
 #[test]
 fn xoxno_twap_leg_fails_closed_until_three_buckets_exist() {
@@ -178,8 +178,8 @@ fn xoxno_twap_leg_fails_closed_until_three_buckets_exist() {
     assert_eq!(status.error_code, Some(205), "UnsafePriceNotAllowed");
 }
 
-/// The multi-feed spot leg reads the stored aggregate at a 60 s cadence: the
-/// lower median of the cluster, whatever the history holds.
+/// The multi-feed spot leg reads the stored aggregate at a 60 s cadence. The
+/// aggregate is the lower median of the cluster, whatever the history holds.
 #[test]
 fn xoxno_spot_leg_serves_the_stored_aggregate_at_a_60_second_cadence() {
     let t = LendingTest::new().with_market(usdc_preset()).build();

@@ -141,7 +141,7 @@ record() {
 }
 
 # Keep every CLI attempt separate, including attempts interrupted before receipt
-# polling finishes. actions.tsv remains the stable action/result interface.
+# polling finishes. actions.tsv remains the stable action and result interface.
 begin_attempt() {
     local marker="$RUN_DIR/active-attempt.json"
     if [ -n "${E2E_JOB:-}" ]; then
@@ -553,8 +553,8 @@ check_stellar_version() {
     local output ver min major minor min_major min_minor
     output=$(stellar --version 2>/dev/null) || { echo "cannot determine stellar version" >&2; return 1; }
     output=${output%%$'\n'*}
-    # Bound numeric fields before shell arithmetic; reject malformed output
-    # instead of letting failed integer comparisons fall through to success.
+    # Bound numeric fields before shell arithmetic. Reject malformed output, so
+    # failed integer comparisons do not pass as success.
     if [[ ! "$output" =~ ^stellar[[:space:]]+([0-9]{1,9})\.([0-9]{1,9})\.([0-9]{1,9})([-+][0-9A-Za-z.-]+)?([[:space:]].*)?$ ]]; then
         echo "cannot determine stellar version: $output" >&2
         return 1

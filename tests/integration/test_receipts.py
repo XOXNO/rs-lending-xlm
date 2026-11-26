@@ -18,7 +18,7 @@ for changed in [(args[0],'wrong network',*args[2:]),(*args[:-1],'withdraw')]:
     except ValueError: pass
     else: raise AssertionError('wrong network/method accepted')
 print('Native receipt decoding and identity regressions passed')
-# Fee adjustment uses actual charged fees exactly once, preserving raw reads.
+# Fee adjustment uses actual charged fees exactly once and preserves raw reads.
 import tempfile
 from network_fees import spent
 from receipts import decode
@@ -37,7 +37,7 @@ try: verify(broken,*args)
 except ValueError: pass
 else: raise AssertionError('suppressed event bytes accepted')
 
-# Native codec round-trips for legal metadata/result variants. These are
+# Native codec round-trips for legal metadata and result variants. These are
 # synthetic structural fixtures, not claims of successful live execution.
 from receipts import cli
 def encode(kind, value):
@@ -71,7 +71,7 @@ except ValueError: pass
 else: raise AssertionError('injected classic contract events accepted')
 print('Classic and failed receipt metadata regressions passed')
 
-# Recovery binds the metadata value/events to the native success result hash.
+# Recovery binds the metadata value and events to the native success result hash.
 from receipts import recover, return_json
 assert recover(r,args[0],args[1],'invoke',args[3],args[4]) == 'CCTE6RN6NK4KWLXL22UBL5DGF3XZ4LT5XBLN4AVOKIKLWVF6D7U7UQFB'
 assert return_json({'map':[{'key':{'symbol':'amount'},'val':{'i128':'1000000000000000001'}},
@@ -151,7 +151,7 @@ except ValueError: pass
 else: raise AssertionError('invoke accepted as asset deployment')
 print('Asset contract deployment recovery binds the requested asset')
 
-# CLI 28 wraps high fees in a fee bump; RPC can be queried by either hash.
+# CLI 28 wraps high fees in a fee bump. RPC can be queried by either hash.
 from receipts import envelope_hash
 fee_source='GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF'
 def fee_bump(receipt):

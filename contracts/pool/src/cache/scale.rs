@@ -1,7 +1,7 @@
 //! Fixed-point scale conversions between asset amounts and share positions.
 //!
 //! Wraps `common::rates` helpers with this market's decimals and live indexes
-//! so ops code does not pass index/decimals on every call.
+//! so ops code does not pass index and decimals on every call.
 
 use common::math::fp::Ray;
 use common::rates::{

@@ -1,5 +1,5 @@
 //! GH-07, strategy verbs. `i128::MAX` as a debt amount fails on liquidity
-//! before any transfer; as a collateral amount it means "all".
+//! before any transfer. As a collateral amount it means "all".
 
 use controller::types::PositionMode;
 use test_harness::{
@@ -14,7 +14,7 @@ fn setup() -> LendingTest {
     t
 }
 
-/// `f64` cannot carry `i128::MAX`; the harness converts back with `as i128`,
+/// `f64` cannot carry `i128::MAX`. The harness converts back with `as i128`,
 /// which saturates to exactly `i128::MAX`.
 const MAX_AS_F64: f64 = i128::MAX as f64 / 10_000_000.0;
 

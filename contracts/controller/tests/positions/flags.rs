@@ -77,9 +77,9 @@ fn clean_asset_allows_all_verbs() {
     run_gate(false, false, FreezePolicy::SeizureLeg);
 }
 
-// Seizure is pro-rata over an account's whole collateral set, so gating it on
-// `paused` would make one paused listing block liquidation of every account
-// holding it. `SeizureLeg` therefore reads only `no_seize`.
+// Seizure is pro-rata over the whole collateral set of an account. A gate on
+// `paused` would let one paused listing block the liquidation of every account
+// that holds it. `SeizureLeg` therefore reads only `no_seize`.
 
 #[test]
 fn paused_does_not_block_seizure() {
@@ -114,7 +114,7 @@ fn missing_spoke_asset_is_noop_for_seizure() {
             asset: Address::generate(&env),
         };
         let mut cache = Context::new_view(&env);
-        // A delisted asset must stay seizable, or its holders become
+        // A delisted asset must stay seizable. Otherwise its holders become
         // unliquidatable.
         enforce_spoke_asset_flags(
             &env,
@@ -354,8 +354,8 @@ fn persist_account_positions_removes_empty_account() {
     env.mock_all_auths();
     let admin = Address::generate(&env);
     let contract_id = env.register(Controller, (admin,));
-    // `cleanup_account_if_empty` burns the account's position NFT, so a real one must be
-    // registered and minted first.
+    // `cleanup_account_if_empty` burns the position NFT of the account. Register
+    // and mint a real NFT first.
     let nft = env.register(
         position_nft::PositionNft,
         (
@@ -411,7 +411,7 @@ fn require_can_supply_blocks_inactive_hub() {
             hub_id: HUB_ID,
             asset: Address::generate(&env),
         };
-        // Spoke/listing present, hub never activated.
+        // The spoke and listing are present. The hub is never activated.
         storage::set_spoke(
             &env,
             SPOKE_ID,

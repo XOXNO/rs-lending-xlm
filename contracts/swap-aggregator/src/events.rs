@@ -4,7 +4,8 @@ use soroban_sdk::{contractevent, Address};
 
 /// Published once per successful swap, after the payout.
 ///
-/// Raw token units. `amount_in` is measured; `amount_out` is after fees.
+/// All amounts are raw token units. `amount_in` is the measured input. `amount_out` is the
+/// output after fees.
 #[contractevent(topics = ["router", "swap"])]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct SwapEvent {

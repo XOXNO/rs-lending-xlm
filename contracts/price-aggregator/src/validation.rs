@@ -1,8 +1,8 @@
-//! Validation checks applied to oracle configuration when a price key is
-//! registered: source counts, composition depth, staleness bounds,
-//! smoothing/independence policy, source shape, and asset decimals. Each
-//! check panics with the corresponding `OracleError` or `GenericError`
-//! variant when the configuration is invalid.
+//! Validation checks applied to the oracle configuration when a price key is registered.
+//! The checks cover source counts, composition depth, staleness bounds, the smoothing and
+//! independence policy, source shape, and asset decimals. Each check panics with the
+//! corresponding `OracleError` or `GenericError` variant when the configuration is
+//! invalid.
 
 use common::constants::{MAX_ASSET_DECIMALS, MAX_REASONABLE_PRICE_WAD, MIN_ASSET_DECIMALS};
 use common::errors::{GenericError, OracleError};
@@ -65,14 +65,13 @@ pub(crate) fn smoothing(env: &Env, first: &SourceProperties, second: Option<&Sou
     }
 }
 
-/// Checks the contracts shared between `first` and `second` against
-/// `policy`, panicking with `OracleError::IndependenceNotDeclared` if
-/// `policy` requires disjoint sources and any contract is shared, or if
-/// `policy` declares an allowed-shared set that is empty or does not
-/// cover the contracts actually shared between the two. With `exact`, the
-/// declared set must also match the shared set exactly; without it (a
-/// dependent revalidated after a key it reads changed, or a sanity-band
-/// edit), any subset passes.
+/// Checks the contracts shared between `first` and `second` against `policy`. Panics with
+/// `OracleError::IndependenceNotDeclared` in two cases. In the first case, `policy`
+/// requires disjoint sources and any contract is shared. In the second case, `policy`
+/// declares an allowed-shared set that is empty or does not cover the contracts actually
+/// shared between the two. With `exact`, the declared set must also match the shared set
+/// exactly. Without `exact`, any subset passes. The callers that run without `exact` are
+/// a dependent revalidated after a key it reads changed, and a sanity-band edit.
 pub(crate) fn independence(
     env: &Env,
     first: &SourceProperties,
@@ -96,8 +95,8 @@ pub(crate) fn independence(
     }
 }
 
-/// Returns whether `left` and `right` contain exactly the same addresses,
-/// irrespective of order or duplicates.
+/// Returns whether `left` and `right` contain exactly the same addresses, regardless of
+/// order or duplicates.
 pub(crate) fn same_address_set(left: &Vec<Address>, right: &Vec<Address>) -> bool {
     covers(left, right) && covers(right, left)
 }
@@ -107,8 +106,8 @@ fn covers(outer: &Vec<Address>, inner: &Vec<Address>) -> bool {
     inner.iter().all(|address| outer.contains(&address))
 }
 
-/// Validates the shape of a single price source, dispatching to the
-/// feed-, factor-, or LP-specific checks depending on the source variant.
+/// Validates the shape of a single price source. Dispatches to the feed, factor, or LP
+/// checks according to the source variant.
 pub(crate) fn source_shape(env: &Env, source: &PriceSource) {
     match source {
         PriceSource::Feed(feed) => feed_shape(env, feed),
@@ -160,15 +159,13 @@ fn key_prices_token(key: &PriceKey, token: &Address) -> bool {
     }
 }
 
-/// Validates a single feed source. Panics with
-/// `OracleError::InvalidOracleDecimals` if `feed.decimals` falls outside
-/// `MIN_ORACLE_DECIMALS..=MAX_ORACLE_DECIMALS`, and with
-/// `OracleError::InvalidStalenessConfig` if `feed.max_stale_seconds` falls
-/// outside `MIN_PRICE_STALE_SECONDS..=MAX_PRICE_STALE_SECONDS`. For a
-/// Reflector provider, panics with `OracleError::InvalidOracleTokenType` if
-/// the asset is a `String` reference; in TWAP read mode, also validates the
-/// TWAP record count via `validate_twap_records` and panics with
-/// `OracleError::TwapInsufficientObservations` if it is below
+/// Validates a single feed source. Panics with `OracleError::InvalidOracleDecimals` if
+/// `feed.decimals` falls outside `MIN_ORACLE_DECIMALS..=MAX_ORACLE_DECIMALS`. Panics with
+/// `OracleError::InvalidStalenessConfig` if `feed.max_stale_seconds` falls outside
+/// `MIN_PRICE_STALE_SECONDS..=MAX_PRICE_STALE_SECONDS`. For a Reflector provider, panics
+/// with `OracleError::InvalidOracleTokenType` if the asset is a `String` reference. In
+/// TWAP read mode, also validates the TWAP record count with `validate_twap_records`.
+/// Panics with `OracleError::TwapInsufficientObservations` if the count is below
 /// `MIN_SMOOTHING_TWAP_RECORDS`.
 fn feed_shape(env: &Env, feed: &FeedSource) {
     if !(MIN_ORACLE_DECIMALS..=MAX_ORACLE_DECIMALS).contains(&feed.decimals) {
@@ -190,10 +187,9 @@ fn feed_shape(env: &Env, feed: &FeedSource) {
     }
 }
 
-/// Validates the decimals declared for a price key. A `Token` key must
-/// declare decimals within `MIN_ASSET_DECIMALS..=MAX_ASSET_DECIMALS`; a
-/// `Ref` key must declare exactly `0`. Panics with
-/// `OracleError::InvalidOracleDecimals` otherwise.
+/// Validates the decimals declared for a price key. A `Token` key must declare decimals
+/// within `MIN_ASSET_DECIMALS..=MAX_ASSET_DECIMALS`. A `Ref` key must declare exactly
+/// `0`. Panics with `OracleError::InvalidOracleDecimals` otherwise.
 pub(crate) fn asset_decimals(env: &Env, key: &PriceKey, decimals: u32) {
     let valid = match key {
         PriceKey::Token(_) => (MIN_ASSET_DECIMALS..=MAX_ASSET_DECIMALS).contains(&decimals),

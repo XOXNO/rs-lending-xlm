@@ -208,7 +208,8 @@ fn test_a_fundamental_leg_may_lag_its_market_partner_past_the_spread_bound() {
     at_now(&env);
     let (adapter, client) = register_redstone_feed(&env);
     publish(&client, &env, "A", WAD, 0);
-    // Five hours old: inside its own 57600s bound, far outside the spread bound.
+    // The leg is five hours old. That is inside its own 57600s bound and far outside the
+    // spread bound.
     publish(&client, &env, "B", WAD, 18_000);
 
     in_contract(&env, || {
@@ -218,8 +219,8 @@ fn test_a_fundamental_leg_may_lag_its_market_partner_past_the_spread_bound() {
     });
 }
 
-/// The bound is inclusive: legs exactly `MAX_LEG_AGE_SPREAD_SECONDS` apart are
-/// still blended. Kills the `>` -> `>=` mutant at the comparison.
+/// The bound is inclusive. Legs exactly `MAX_LEG_AGE_SPREAD_SECONDS` apart are still
+/// blended. The test kills the mutant that changes `>` to `>=` at the comparison.
 #[test]
 fn test_two_market_legs_exactly_at_the_spread_bound_still_price() {
     let env = Env::default();
@@ -1207,7 +1208,7 @@ fn test_twap_read_averages_the_window_and_dates_itself_to_the_oldest_sample() {
     assert_eq!(feed.timestamp, NOW - TWAP_OLDER_AGE_SECS);
 }
 
-/// A skipped round is availability noise, not a bad price: the samples still
+/// A skipped round is a transient gap, not a bad price. The samples still
 /// cover the window, so the read must succeed rather than fail closed.
 #[test]
 fn test_twap_read_accepts_a_gapped_history_that_still_spans_the_window() {
@@ -1270,7 +1271,8 @@ fn test_twap_read_uses_the_newest_records_samples_of_the_answer() {
     at_now(&env);
     let spacing = u64::from(REFLECTOR_RESOLUTION_SECS);
     in_contract(&env, || {
-        // As long as `records`, one longer (the public contract), and longer.
+        // The counts equal `records`, exceed it by one (the public contract), and exceed
+        // it by more.
         for count in [3, 4, 5, 12] {
             let feed = resolve_scripted(&env, 3, sample_run(&env, NOW, spacing, count, 1));
             assert_eq!(feed.price_wad, 2 * WAD, "{count} samples");
@@ -1514,8 +1516,8 @@ fn test_a_scaled_chain_past_the_cap_is_rejected_by_the_depth_it_accumulates() {
             resolve_nested(&mut session, &current, 0),
             Err(common::errors::OracleError::OracleDepthExceeded)
         ));
-        // The depth error belongs to that walk, not to L1: a shallow read of
-        // L1 in the same session must still price.
+        // The depth error belongs to that walk, not to L1. A shallow read of L1 in the
+        // same session must still price.
         let first_level = PriceKey::Ref(Symbol::new(&env, "L1"));
         assert!(resolve_nested(&mut session, &first_level, 0).is_ok());
     });
@@ -1537,8 +1539,9 @@ fn test_a_scaled_factor_outside_its_band_is_rejected() {
 }
 
 /// `PriceAggregator::quotes` returns `to_status` output. An outcome carrying an
-/// error collapses to `unusable()` plus its `error_code`: a consumer reads
-/// `valid` to decide whether to act, so no other field of the errored outcome leaks.
+/// error collapses to `unusable()` plus its `error_code`. A consumer reads
+/// `valid` to decide whether to act, so no other field of the errored outcome
+/// leaks.
 #[test]
 fn to_status_collapses_an_errored_outcome_to_unusable() {
     let mut outcome = Outcome::blank();
@@ -1566,7 +1569,7 @@ fn to_status_collapses_an_errored_outcome_to_unusable() {
     assert_eq!(status.secondary_wad, 0);
 }
 
-/// A nested reference leg going stale surfaces on the dependent asset as
+/// A nested reference leg going stale appears on the dependent asset as
 /// `Outcome::with_err`, which zeroes `stale` and `deviation`. `error_code` is
 /// then the only field that separates it from a healthy price.
 #[test]
@@ -1642,8 +1645,8 @@ fn to_status_preserves_stale_and_deviation_flags_without_an_error() {
 /// resolution stack, the state a re-entrant source produces, and checks that
 /// the entry point refuses rather than recursing.
 ///
-/// `MAX_RESOLUTION_DEPTH` bounds a chain; the stack bounds a cycle that fits
-/// inside the depth cap.
+/// `MAX_RESOLUTION_DEPTH` bounds a chain. The stack bounds a cycle that fits inside the
+/// depth cap.
 #[test]
 fn resolve_outcome_refuses_a_key_already_on_the_resolution_stack() {
     let env = Env::default();
@@ -1685,7 +1688,7 @@ fn validate_cached_path_refuses_a_key_already_on_the_resolution_stack() {
 
         assert_eq!(validate_cached_path(&mut session, &key, 0), Ok(()));
 
-        // A cache hit must not be trusted to skip the cycle check: the cached
+        // A cache hit must not be trusted to skip the cycle check, because the cached
         // value was computed in some other resolution context.
         session.push_key(&key);
         assert_eq!(

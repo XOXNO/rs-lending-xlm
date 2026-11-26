@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Offline mutation checks of Blend's actual embedded receipt/reference checker."""
+"""Offline mutation checks of Blend's actual embedded receipt and reference checker."""
 import copy
 import json
 import re
@@ -66,7 +66,7 @@ def scenario(coll=True, supply=True, debt=True, existing=False, delegate=False):
 def check(before, after, receipt, args, succeeds=True, retried=()):
     with tempfile.TemporaryDirectory() as directory:
         root = Path(directory)
-        # Isolate only the native XDR codec; execute the production checker as-is.
+        # Isolate only the native XDR codec. Execute the production checker unchanged.
         (root / 'receipts.py').write_text('import json\ndef decode(kind, value): return json.loads(value)\n')
         for name, value in [('before', before), ('after', after), ('receipt', receipt), ('reserves', [{'asset': 'XLM', 'index': 0, 'decimals': 7}] + ([{'asset': 'BLEND_USDC', 'index': 2, 'decimals': 6}] if 'BLEND_USDC' in before.get('extra_balances', {}) else []))]:
             (root / name).write_text(json.dumps(value))
@@ -109,8 +109,8 @@ for flags in [(True, True, True, False, False), (True, False, False, False, Fals
         broken = copy.deepcopy(after); broken['owner_xlm'] = '1'
         check(before, broken, receipt, args, False)
 
-# Distinct collateral/debt, then two simultaneous liabilities. Different reserve
-# index, rates and decimals expose accidental XLM constants and cross-netting.
+# Distinct collateral and debt, then two simultaneous liabilities. Different reserve
+# index, rates, and decimals expose accidental XLM constants and cross-netting.
 for multiple in (False, True):
     before, after, receipt, args, key = scenario(True, False, multiple, True, False)
     token='BLEND_USDC'; shares=1000003; dr=10**12+1987; bi=RAY+97*UNIT
@@ -158,7 +158,7 @@ check(before, paid_twice, receipt, args, True, [failed])
 check(before, paid_twice, receipt, args, False)
 print('Blend single/cross-reserve/multiple-liability accounting and mutation checks passed')
 
-# SDK transport preserves arrays and i128/u64 decimal strings before invoking
+# SDK transport preserves arrays and i128 and u64 decimal strings before it calls
 # the exact same wrapper. Financial failures must propagate after submission.
 transport = r'''set -uo pipefail
 source "$1/flows/blend.sh"
@@ -198,7 +198,7 @@ with tempfile.TemporaryDirectory() as directory:
 print('SDK Blend transport reuses exact financial assertions and propagates failures')
 
 # Execute the real migration preflight and compare its observed view call with
-# the manifest demand. Stop at the first mutation; no CLI/network is invoked.
+# the manifest demand. Stop at the first mutation. The test invokes no CLI or network.
 reserve_preflight = r'''set -uo pipefail
 source "$1/flows/blend.sh"
 RUN_DIR="$2"; XLM_SAC=XLM; BLEND_POOL=BLEND

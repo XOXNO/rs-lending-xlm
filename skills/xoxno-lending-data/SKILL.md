@@ -1,6 +1,6 @@
 ---
 name: xoxno-lending-data
-description: "Use when consuming XOXNO Lending data off-chain — indexing controller, pool, position-NFT, token, or oracle events; tracking account lifecycle; deriving liquidation accounting; building analytics; or calling the public Stellar lending REST API."
+description: "Use when consuming XOXNO Lending data off-chain: indexing controller, pool, position-NFT, token, or oracle events; tracking account lifecycle; deriving liquidation accounting; building analytics; or calling the public Stellar lending REST API."
 user-invocable: true
 argument-hint: "[indexing or analytics task]"
 ---
@@ -10,113 +10,113 @@ argument-hint: "[indexing or analytics task]"
 The wire catalog
 [docs/reference/events.md](https://github.com/XOXNO/rs-lending-xlm/blob/main/docs/reference/events.md)
 defines topics, payload layouts, enum discriminants, units, ordering, and
-inherited events; do not copy it into an indexer. This skill covers consuming
-it. REST: [api.md](api.md). Deployment coordinates:
-[addresses.md](../xoxno-lending/addresses.md).
+inherited events. Do not copy the catalog into an indexer. This skill covers
+how to consume the catalog. For REST, see [api.md](api.md). For deployment
+coordinates, see [addresses.md](../xoxno-lending/addresses.md).
 
 ## Wallet and application reads
 
 Portfolio and asset screens use the [v1 arrays](api.md#integrator-v1-arrays):
-balances, prices, token labels/logos, APYs, capacity estimates, and one
+balances, prices, token labels and logos, APYs, capacity estimates, and one
 position per indexed owned NFT, with no event indexing or joins. The optional
-SDK read entry paginates and exports the public types; plain HTTP works from
+SDK read entry paginates and exports the public types. Plain HTTP works from
 any language.
 
 Keep raw strings and nullable fields intact. Indexed data and cached prices
-can lag the ledger: recheck NFT ownership and prepare through the selected
+can lag the ledger. Recheck NFT ownership and prepare through the selected
 network's RPC before signing. See the
 [wallet guide](https://xoxno.com/docs/stellar-lending/dev/wallet-integration).
 
 ## Subscribe by contract address
 
-Resolve the selected network's (`testnet` or `mainnet`) addresses from
-`configs/networks.json` and subscribe to at least:
+Resolve the addresses of the selected network, `testnet` or `mainnet`, from
+`configs/networks.json`. Subscribe to at least these contracts:
 
-- controller: account deltas, liquidation, bad debt, configuration;
-- pool: market indexes, cash, shares, parameters;
-- position NFT: mint, transfer, burn;
-- relevant tokens: transfers and approvals, when cash-flow evidence is needed;
-- price aggregator (`price_aggregator` key, not the swap router's
-  `aggregator`): oracle configuration changes.
+- controller: account deltas, liquidation, bad debt, configuration
+- pool: market indexes, cash, shares, parameters
+- position NFT: mint, transfer, burn
+- relevant tokens: transfers and approvals, when cash-flow evidence is needed
+- price aggregator (use the `price_aggregator` key, not the swap router's
+  `aggregator` key): oracle configuration changes
 
-Match emitting contract address and ordered topic vector; topic text alone is
-no identity.
+Match the emitting contract address and the ordered topic vector. Topic text
+alone is not an identity.
 
 ## Asset and market identity
 
-Discover assets contract-address-first:
+Discover assets in this order, with the contract address first:
 
 1. Start from the token contract address (configuration, event, or explicit
    user selection).
 2. Resolve every v1 asset row for that address.
 3. Select an explicit `(spoke_id, hub_id, asset)` tuple.
-4. Use symbol/name only as display metadata afterward.
+4. Use symbol and name only as display metadata afterward.
 
-Never take the first symbol or search match: symbols are non-unique, and one
+Never take the first symbol or search match. Symbols are non-unique, and one
 asset contract can sit in several hubs and spokes. Key account legs by
-`(account_id, hub_id, asset)`, reserve state by `(spoke_id, hub_id, asset)`,
-pool state by `(hub_id, asset)`.
+`(account_id, hub_id, asset)`, key reserve state by
+`(spoke_id, hub_id, asset)`, and key pool state by `(hub_id, asset)`.
 
 ## Ingestion loop
 
-For every `getEvents` page:
+For every `getEvents` page, follow these steps:
 
 1. Request by contract ids and, where useful, exact topics.
-2. Drop events with `inSuccessfulContractCall === false`; reverted diagnostic
+2. Drop events with `inSuccessfulContractCall === false`. Reverted diagnostic
    events are not state transitions, activities, or liquidation candidates.
-3. Decode known events; keep unknown ones for later decoders instead of
+3. Decode known events. Keep unknown events for later decoders instead of
    failing the page.
-4. Apply the page transactionally, idempotency key
+4. Apply the page transactionally, with the idempotency key
    `(txHash, eventId, childIndex)`.
 5. Commit derived rows and the response cursor durably together.
-6. Resume with `{ cursor }`; never mix cursor and ledger-range modes.
+6. Resume with `{ cursor }`. Never mix cursor and ledger-range modes.
 
 Order by ledger, transaction index, operation index, and event order from the
 RPC event id. Give each child record of a batched event a stable child index.
-Never order by pool timestamp; updates can share it.
+Never order by pool timestamp, because updates can share it.
 
 Before RPC retention, REST history can seed derived balances, charts, or
-candidate sets, but not raw events, transaction order, or missing payloads
-unless an independent archival source supplies them. Label REST-seeded state
-with provenance; reconcile once raw history is available.
+candidate sets. It cannot seed raw events, transaction order, or missing
+payloads unless an independent archival source supplies them. Label
+REST-seeded state with provenance. Reconcile it once raw history is available.
 
 ## Decoding pitfalls
 
-- Soroban map fields are symbol-keyed; never decode by Rust declaration order.
+- Soroban map fields are symbol-keyed. Never decode by Rust declaration order.
 - Vec and tuple payloads are positional. Single-value event data is the value
   itself, not a map holding the Rust field name.
 - Preserve unknown action discriminants as data.
-- Amounts/cash are token base units unless the event reference marks RAY, WAD,
+- Amounts and cash are token base units unless the event reference marks RAY, WAD,
   or BPS.
-- Pool timestamps are milliseconds; ledger close times are seconds.
+- Pool timestamps are milliseconds. Ledger close times are seconds.
 - Position `scaled_amount` is the resulting RAY share balance, not a delta.
 - Position `amount` is the account's token movement. Some events report a
-  requested amount, not a measured receipt: `FlashPositionEvent.amount`,
-  `InitialMultiplyPaymentEvent.amount`.
+  requested amount, not a measured receipt, for example
+  `FlashPositionEvent.amount` and `InitialMultiplyPaymentEvent.amount`.
 - `decodeStellarLendingEvent` (`@xoxno/sdk-js/stellar-lending`) returns `null`
   for an undecoded topic, not an invalid chain event.
 
 ## State is broader than events
 
-Events are incomplete state:
+Events are incomplete state. These cases show the gaps:
 
-- a position batch with no legs is not emitted;
-- bad-debt cleanup emits no cleanup position batch;
-- constructors and inherited helpers can mutate state without a custom event;
-- token and downstream contract state need their own events or direct reads;
-- prices resolve at call time and change without controller events.
+- a position batch with no legs is not emitted
+- bad-debt cleanup emits no cleanup position batch
+- constructors and inherited helpers can mutate state without a custom event
+- token and downstream contract state need their own events or direct reads
+- prices resolve at call time and change without controller events
 
-Treat events as ordered change evidence; reconcile account, market, NFT, and
+Treat events as ordered change evidence. Reconcile account, market, NFT, and
 token state with views. Controller events alone cannot reconstruct state.
 
 ## Account lifecycle
 
-Position NFT token id = lending account id. Track:
+The position NFT token id is the lending account id. Track these events:
 
-- mint: account creation, including `Credit(0)` liquidation receivers;
-- transfer: owner change;
-- burn: account deletion;
-- controller position batches: owner, spoke, mode, position legs.
+- mint: account creation, including `Credit(0)` liquidation receivers
+- transfer: owner change
+- burn: account deletion
+- controller position batches: owner, spoke, mode, position legs
 
 No controller `AccountCreated` event exists. Emptying debt need not burn the
 account, and an absent batch does not prove nothing changed.
@@ -124,22 +124,22 @@ account, and an absent batch does not prove nothing changed.
 ## Liquidation accounting
 
 Group the successful transaction's controller events by the event reference's
-ordering; pool, NFT, and token events can interleave.
+ordering. Pool, NFT, and token events can interleave.
 
 - `LiquidationEvent`: measured repayment value capped at each planned debt leg
-  (`repaid_usd_wad`, USD WAD) and bonus (`bonus_bps`, BPS); not collateral
-  proceeds.
+  (`repaid_usd_wad`, USD WAD) and bonus (`bonus_bps`, BPS). It does not report
+  collateral proceeds.
 - Target `LiqSeize` legs: gross collateral movement.
-- Credit receiver `LiqCredit` legs: net credited movement; zero-net legs
+- Credit receiver `LiqCredit` legs: net credited movement. Zero-net legs are
   omitted.
-- Transfer mode emits no fee leg: `LiqSeize.amount` is gross, the pool sends
-  the net to the liquidator, and the fee is the difference. Pre-execution,
-  `get_liquidation_estimate` reports it in `protocol_fees`.
+- Transfer mode emits no fee leg. `LiqSeize.amount` is gross, the pool sends
+  the net to the liquidator, and the fee is the difference. Before execution,
+  `get_liquidation_estimate` reports the fee in `protocol_fees`.
 
-Credit mode: approximate per-asset fee from gross and net token movement. For
-exact share fees, process batches in event order, earlier account changes
-first, using balances immediately before each liquidation's target and
-receiver batches, never transaction-start balances. An omitted receiver leg
+In Credit mode, approximate the per-asset fee from gross and net token
+movement. For exact share fees, process batches in event order, earlier account
+changes first. Use the balances immediately before each liquidation's target
+and receiver batches, never the transaction-start balances. An omitted receiver leg
 credits zero shares. Key prior balances by `(hub_id, asset)`. Each emitted
 `scaled_amount` is a resulting balance:
 
@@ -159,16 +159,17 @@ directed rounding. A new `Credit(0)` receiver's prior balance is zero. Without
 both keyed prior balances, the exact fee is not derivable.
 
 Never reconstruct gross seizure from repayment times bonus. Estimate net
-proceeds conservatively: Transfer estimates can round a full claim above the
-pool payout, so clamp gross tokens to the floor of the held claim before
-subtracting the fee; Credit estimates use RAY supply shares, so subtract fee
+proceeds conservatively. Transfer estimates can round a full claim above the
+pool payout, so clamp gross tokens to the floor of the held claim before you
+subtract the fee. Credit estimates use RAY supply shares, so subtract fee
 shares before conversion. Simulate the complete write and reconcile confirmed
-effects per the [liquidation runbook](../xoxno-lending-liquidations/SKILL.md).
+effects as the [liquidation runbook](../xoxno-lending-liquidations/SKILL.md)
+describes.
 
 ## Candidate discovery
 
-Take account ids only from successful `position:batch_update` events (seed
-from REST if needed); re-evaluate on a timer and on pool index changes. Drop
+Take account ids only from successful `position:batch_update` events, and seed
+from REST if needed. Re-evaluate on a timer and on pool index changes. Drop
 missing or debt-free accounts after on-chain checks. Persist the event cursor
 before advancing the external checkpoint.
 

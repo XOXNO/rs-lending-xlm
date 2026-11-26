@@ -102,7 +102,7 @@ fn test_redstone_anchor_uses_source_specific_stale_window() {
     assert!(!view.stale);
     assert_eq!(view.error_code, None);
 
-    // Negative twin: the same 950s-old anchor under the default 900s window.
+    // Negative twin. The same 950s-old anchor sits under the default 900s window.
     let tight = test_harness::reflector_primary_redstone_anchor_config(
         &t.env,
         &t.mock_reflector,

@@ -33,8 +33,8 @@ impl LendingTest {
     }
 
     /// Pre-funds `caller` and supplies into `account_id` on `spoke_id`. On
-    /// failure the pre-funded balance is burned again so the harness's token
-    /// books stay comparable across attempts.
+    /// failure the harness burns the pre-funded balance again so its token books
+    /// stay comparable across attempts.
     fn supply_core(
         &mut self,
         caller: &str,

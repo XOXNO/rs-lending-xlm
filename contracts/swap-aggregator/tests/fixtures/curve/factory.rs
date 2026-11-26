@@ -1,5 +1,5 @@
 //! Test-only factory that deploys the real Curve pool fixtures. Shared with
-//! `#[path]` by the router, price-aggregator and harness tests. Every consumer's
+//! `#[path]` by the router, price-aggregator, and harness tests. Every consumer's
 //! manifest sits two directories below the workspace root, so one
 //! `contractimport!` path serves them all.
 

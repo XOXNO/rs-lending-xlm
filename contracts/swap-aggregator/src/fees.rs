@@ -1,4 +1,4 @@
-//! Static and referral fee apply / claim.
+//! Applies and claims static and referral fees.
 
 use common::constants::BPS;
 
@@ -14,8 +14,9 @@ use crate::vault::Vault;
 
 /// Which fee ledger to claim from.
 ///
-/// [`FeeBucket::key`] and `storage::bucket_token` encode the same key set inverted — kind to
-/// `DataKey` here, `DataKey` back to token there — so adding a bucket kind means extending both.
+/// [`FeeBucket::key`] and `storage::bucket_token` encode the same key set in opposite directions.
+/// `FeeBucket::key` maps a kind to a `DataKey`, and `bucket_token` maps a `DataKey` back to a
+/// token, so adding a bucket kind means extending both.
 #[derive(Clone, Copy)]
 pub(crate) enum FeeBucket {
     Admin,
@@ -32,7 +33,7 @@ impl FeeBucket {
     }
 }
 
-/// Persists the static fee in basis points; panics if it exceeds [`FEE_CAP`].
+/// Persists the static fee in basis points. Panics if the fee exceeds [`FEE_CAP`].
 pub(crate) fn set_static_fee(env: &Env, fee_bps: u32) {
     if fee_bps > FEE_CAP {
         panic_with_error!(env, Error::FeeTooHigh);
@@ -53,10 +54,11 @@ pub(crate) fn checked_protocol_fee_bps(
     protocol_bps
 }
 
-/// Debits the vault and accrues static + referral fees for an active referral.
+/// Debits the vault and accrues the static and referral fees for an active referral.
 ///
-/// Returns the charged `(static_fee, referral_fee)`. No-op when `referral_id == 0`, the referral is missing/inactive, the token balance is
-/// non-positive, the combined bps is 0, or the computed fee rounds down to zero. Panics if
+/// Returns the charged `(static_fee, referral_fee)`. The function charges nothing and returns
+/// `(0, 0)` when `referral_id == 0`, the referral is missing or inactive, the token balance is
+/// non-positive, the combined bps is 0, or the computed fee rounds down to zero. It panics if
 /// the combined bps exceeds [`FEE_CAP`].
 ///
 /// The static fee is charged only with an active referral; a swap without one pays no static

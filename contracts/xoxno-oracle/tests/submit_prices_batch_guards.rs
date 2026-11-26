@@ -1,5 +1,5 @@
 #![cfg(test)]
-//! Guards of the batch path `submit_prices`; a rejected batch stores nothing.
+//! Guards of the batch path `submit_prices`. A rejected batch stores nothing.
 extern crate std;
 
 mod common;
@@ -101,7 +101,7 @@ fn submit_prices_rejects_unknown_feed_and_stores_no_earlier_entry() {
     let (client, _admin, signers) = setup(&env, 1, 1);
     let b = two_feed_batch(&client, &env);
 
-    // Known feed first, unknown feed last: the good entry must not land.
+    // Known feed first, unknown feed last. The good entry must not land.
     let feeds = vec![&env, b.feed_a.clone(), String::from_str(&env, "NOPE/USD")];
     let result = client.try_submit_prices(&signers[0], &feeds, &b.prices, &1_000u64);
     assert_eq!(expect_error(result), Error::FeedNotKnown);
@@ -116,7 +116,7 @@ fn submit_prices_rejects_a_timestamp_regression_on_any_entry() {
     advance_ledger_seconds(&env, 100_000);
     let now_ms = env.ledger().timestamp() * 1_000;
 
-    // Only B has a newer stored package; A has none.
+    // Only B has a newer stored package. A has none.
     client.submit_price(&signers[0], &b.feed_b, &200i128, &now_ms);
 
     let regressed_ms = now_ms - 1;

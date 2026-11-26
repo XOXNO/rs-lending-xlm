@@ -192,7 +192,7 @@ fn borrow_against_other_hub_collateral_in_one_spoke() {
     let hub2 = t.create_hub();
     t.list_market_on_hub(hub2, "USDC", 10_000.0);
 
-    // 1 ETH at $2,000 with 75% LTV: $1,500 of borrow capacity, all on hub 1.
+    // 1 ETH at $2,000 with 75% LTV gives $1,500 of borrow capacity, all on hub 1.
     let a = t.supply_on_hub(HARNESS_HUB, ALICE, "ETH", 1.0);
     t.borrow_on_hub(hub2, ALICE, a, "USDC", 1_000.0);
 

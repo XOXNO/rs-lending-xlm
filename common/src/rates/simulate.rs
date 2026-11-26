@@ -28,15 +28,15 @@ pub struct AccrualStep {
     /// Supply index after distributing this step's supplier rewards.
     pub supply_index: Ray,
     /// Scaled supply shares owed to the protocol for this step, valued at
-    /// `supply_index`. `Ray::ZERO` when the step accrued no fee.
+    /// `supply_index`. The value is `Ray::ZERO` when the step accrued no fee.
     ///
-    /// The pool books them as revenue and adds them to total supply; the
-    /// simulator adds them to its running supply only. Either way they must be
-    /// added to total supply before the next step, because the next step's
-    /// utilization reads it.
+    /// The pool books them as revenue and adds them to total supply. The
+    /// simulator adds them to its running supply only. Either way, the caller
+    /// must add them to total supply before the next step, because the next
+    /// step's utilization reads it.
     pub revenue_shares: Ray,
-    /// `true` when [`MAX_MARKET_VALUE_RAY`] held this step's borrow index
-    /// below what the rate implies, so borrowers accrued less interest.
+    /// The value is `true` when [`MAX_MARKET_VALUE_RAY`] held this step's borrow
+    /// index below what the rate implies, so borrowers accrued less interest.
     pub value_capped: bool,
 }
 
@@ -48,10 +48,9 @@ pub struct AccrualStep {
 /// since utilization and the reward split are both computed against it.
 /// `borrowed` does not change across steps.
 ///
-/// Rounding is directed so the residual favours the protocol: whatever the
-/// supply index cannot absorb comes back from
-/// [`supply_index_reward_shortfall`] and is booked as revenue rather than
-/// silently dropped.
+/// Rounding is directed so the residual favours the protocol.
+/// [`supply_index_reward_shortfall`] returns whatever the supply index cannot
+/// absorb, and the step books it as revenue instead of dropping it.
 ///
 /// The step never overflows on non-negative totals (INV-IDX-06). Interest
 /// raises total debt value and total supply value by the same amount, so the
@@ -134,8 +133,8 @@ fn market_value(env: &Env, scaled: Ray, index: Ray) -> Option<Ray> {
 }
 
 /// Returns the value one step's interest may still add before the larger of
-/// `debt_value` and `supply_value` reaches [`MAX_MARKET_VALUE_RAY`]. Zero at
-/// or above the ceiling.
+/// `debt_value` and `supply_value` reaches [`MAX_MARKET_VALUE_RAY`]. Returns zero
+/// at or above the ceiling.
 fn value_room(env: &Env, debt_value: Ray, supply_value: Ray) -> Ray {
     let ceiling = Ray::from(MAX_MARKET_VALUE_RAY);
     let top = debt_value.max(supply_value);

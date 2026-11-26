@@ -23,7 +23,7 @@ pub trait ChainlinkDataFeedsProxy {
     fn latest_round(env: Env, data_id: BytesN<32>, decimals: u32) -> Result<ChainlinkRound, Error>;
 }
 
-/// Reads the latest round for `data_id`. Returns `None` for a missing/frozen
+/// Reads the latest round for `data_id`. Returns `None` for a missing or frozen
 /// feed, an unsupported precision, a contract error, or an invocation failure.
 pub fn read_latest_round(
     env: &Env,

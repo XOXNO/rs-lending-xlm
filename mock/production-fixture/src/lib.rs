@@ -1,5 +1,5 @@
 #![no_std]
-//! Test-only decimal token and configurable Aquarius read surface. Not a venue.
+//! Test-only decimal token and configurable Aquarius read interface. Not a venue.
 use soroban_sdk::{
     contract, contractimpl, contracttype, Address, Env, MuxedAddress, String, Symbol, Vec,
 };

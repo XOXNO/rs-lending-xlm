@@ -26,7 +26,7 @@ const OP_AQUARIUS_SWAP: u8 = 1;
 const OP_BURN: u8 = 5;
 const OP_MINT: u8 = 6;
 
-/// Serialize a hand-built payload: these tests need registry shapes the
+/// Serialize a hand-built payload. These tests need registry shapes the
 /// path-oriented builder cannot express.
 fn payload(env: &Env, assets: &[Address], amounts: &[i128], ops: Bytes) -> Bytes {
     let mut asset_registry = Vec::new(env);
@@ -106,7 +106,7 @@ fn burn_then_fold(env: &Env, min_start: u8) -> (Address, Address, Address, Bytes
     ];
     // Slot 0 is a sentinel outside the floor run, set above anything a
     // constituent can deliver, so a floor read from the wrong offset fails.
-    // `min_start = 1` selects slots 1-2 as the floor run; slot 3 is the
+    // `min_start = 1` selects slots 1-2 as the floor run. Slot 3 is the
     // strategy-wide minimum.
     let amounts = alloc::vec![1_000_000_000i128, 0, 0, 1];
     let ops = encode::program(
@@ -228,7 +228,7 @@ fn lp_init(env: &Env, token_a: Address, token_b: Address, share: Address) {
     env.storage().instance().set(&LpKey::Share, &share);
 }
 
-/// A pool that pulls the first constituent and declines the second outright.
+/// A pool that pulls the first constituent and declines the second.
 #[contract]
 pub struct PartialLpPool;
 
@@ -402,7 +402,7 @@ fn mint_authorizes_only_the_constituents_the_vault_funds() {
     sac_a.mint(&probe, &1_000);
 
     // Nothing is mocked past this point: only the router's own invoker auth
-    // stands behind the pool's transfers.
+    // authorizes the pool's transfers.
     env.set_auths(&[]);
 
     let refused = MintProbeClient::new(&env, &probe).try_mint(
@@ -547,7 +547,7 @@ fn duplicate_lp_constituents_are_rejected_without_balance_changes() {
         accumulate_fee(&env, DataKey::AdminFee(token.clone()), payout);
     });
 
-    // amounts[0] = 2 * payout is min_out: without the uniqueness check the
+    // amounts[0] = 2 * payout is min_out. Without the uniqueness check, the
     // vault would credit the single receipt twice and this strategy would
     // succeed, paying the extra payout from admin-fee backing.
     let xdr = payload(

@@ -910,7 +910,7 @@ fn test_withdraw_rejects_when_reserves_are_insufficient() {
         .supply(&t.sup(0, 10_000_000_000i128))
         .get_unchecked(0);
 
-    // The debt stays under the supplied value: a debt mint cannot exceed it.
+    // The debt stays under the supplied value, because a debt mint cannot exceed it.
     let borrower = Address::generate(&t.env);
     client.borrow(&borrower, &t.bor(0, 9_000_000_000i128));
 
@@ -1047,7 +1047,7 @@ fn same_ledger_index_update_keeps_state_writable_at_inclusion() {
         let pool: Address = xdr::ScAddress::from(&t.pool).try_into_val(&env).unwrap();
         let asset: Address = xdr::ScAddress::from(&t.asset).try_into_val(&env).unwrap();
         let key = hub(&asset);
-        // Keep recording and enforcing in one frame: separate SDK invocations
+        // Keep recording and enforcing in one frame, because separate SDK invocations
         // reset their footprint. No rollback write may contaminate recording.
         let replay = env.try_as_contract::<_, Error>(&pool, || {
             if omit_same_ledger_commit {
@@ -1353,7 +1353,7 @@ fn test_create_strategy_dust_fee_consumes_entire_payout() {
     // A debt mint needs supply shares (INV-ACCT-09).
     token::StellarAssetClient::new(&t.env, &t.asset).mint(&t.pool, &10_000_000_000);
     client.supply(&t.sup(0, 10_000_000_000));
-    enable_flashloan(&t); // flashloan_fee = 100 bps → min fee 1 on amount 1
+    enable_flashloan(&t); // flashloan_fee = 100 bps gives a minimum fee of 1 on amount 1
     let caller = Address::generate(&t.env);
     let tok = token::Client::new(&t.env, &t.asset);
 
@@ -1422,7 +1422,7 @@ fn test_create_strategy_above_max_utilization_panics() {
     // 1000 tokens supplied (7 decimals).
     client.supply(&t.sup(0, 10_000_000_000i128));
     let caller = Address::generate(&t.env);
-    // 600 tokens → 60% util > 50% max.
+    // 600 tokens is 60% utilization, above the 50% max.
     let result = flatten_contract_result(client.try_create_strategy(
         &caller,
         &t.action(0, 6_000_000_000i128),
@@ -1438,7 +1438,7 @@ fn test_create_strategy_near_max_utilization_succeeds() {
     set_max_utilization(&t, RAY / 2);
     client.supply(&t.sup(0, 10_000_000_000i128));
     let caller = Address::generate(&t.env);
-    // 400 tokens → 40% util < 50% max.
+    // 400 tokens is 40% utilization, below the 50% max.
     let result = client.create_strategy(&caller, &t.action(0, 4_000_000_000i128), &false);
     assert_eq!(result.actual_amount, 4_000_000_000i128);
     assert_eq!(result.amount_received, 4_000_000_000i128);
@@ -1450,7 +1450,7 @@ fn test_create_strategy_near_max_utilization_succeeds() {
     );
 }
 
-/// Util gate runs on gross debt mint before fee supply shares; a high fee cannot
+/// The utilization gate runs on gross debt mint before fee supply shares. A high fee cannot
 /// bypass max utilization.
 #[test]
 fn test_create_strategy_fee_cannot_bypass_max_utilization() {
@@ -1461,12 +1461,12 @@ fn test_create_strategy_fee_cannot_bypass_max_utilization() {
     t.env.as_contract(&t.pool, || {
         let key = PoolKey::Params(hub(&t.asset));
         let mut params: MarketParamsRaw = t.env.storage().persistent().get(&key).unwrap();
-        params.flashloan_fee = 5_000; // 50% fee — still mints full gross debt
+        params.flashloan_fee = 5_000; // 50% fee still mints full gross debt
         t.env.storage().persistent().set(&key, &params);
     });
     client.supply(&t.sup(0, 10_000_000_000i128));
     let caller = Address::generate(&t.env);
-    // Gross 60% util fails even though net cash out is only 30% of supply.
+    // Gross 60% utilization fails even though net cash out is only 30% of supply.
     let result = flatten_contract_result(client.try_create_strategy(
         &caller,
         &t.action(0, 6_000_000_000i128),
@@ -2104,7 +2104,7 @@ fn test_rate_views_match_annual_apr_from_utilization() {
     client.supply(&t.sup(0, 10_000_000_000i128));
     assert_annual_apr_views(&client, &t.asset, 0, RAY / 100, 0);
 
-    // 10% util, region 1: 1% + (10/50)*4% = 1.8%. Deposit = 10%*1.8%*90% = 0.162%.
+    // 10% utilization, region 1: 1% + (10/50)*4% = 1.8%. Deposit = 10%*1.8%*90% = 0.162%.
     client.borrow(&borrower, &t.bor(0, 1_000_000_000i128));
     assert_annual_apr_views(
         &client,
@@ -2114,7 +2114,7 @@ fn test_rate_views_match_annual_apr_from_utilization() {
         RAY * 162 / 100_000,
     );
 
-    // 25% util, region 1: 1% + (25/50)*4% = 3%. Deposit = 25%*3%*90% = 0.675%.
+    // 25% utilization, region 1: 1% + (25/50)*4% = 3%. Deposit = 25%*3%*90% = 0.675%.
     client.borrow(&borrower, &t.bor(0, 1_500_000_000i128));
     assert_annual_apr_views(
         &client,
@@ -2124,7 +2124,7 @@ fn test_rate_views_match_annual_apr_from_utilization() {
         RAY * 675 / 100_000,
     );
 
-    // 50% util, kink: base+slope1 = 5%. Deposit = 50%*5%*90% = 2.25%.
+    // 50% utilization, kink: base+slope1 = 5%. Deposit = 50%*5%*90% = 2.25%.
     client.borrow(&borrower, &t.bor(0, 2_500_000_000i128));
     assert_annual_apr_views(
         &client,
@@ -2134,7 +2134,7 @@ fn test_rate_views_match_annual_apr_from_utilization() {
         RAY * 225 / 10_000,
     );
 
-    // 65% util, region 2: 5% + (15/30)*10% = 10%. Deposit = 65%*10%*90% = 5.85%.
+    // 65% utilization, region 2: 5% + (15/30)*10% = 10%. Deposit = 65%*10%*90% = 5.85%.
     client.borrow(&borrower, &t.bor(0, 1_500_000_000i128));
     assert_annual_apr_views(
         &client,
@@ -2144,7 +2144,7 @@ fn test_rate_views_match_annual_apr_from_utilization() {
         RAY * 585 / 10_000,
     );
 
-    // 80% util, kink: base+slope1+slope2 = 15%. Deposit = 80%*15%*90% = 10.8%.
+    // 80% utilization, kink: base+slope1+slope2 = 15%. Deposit = 80%*15%*90% = 10.8%.
     client.borrow(&borrower, &t.bor(0, 1_500_000_000i128));
     assert_annual_apr_views(
         &client,
@@ -2154,7 +2154,7 @@ fn test_rate_views_match_annual_apr_from_utilization() {
         RAY * 108 / 1_000,
     );
 
-    // 90% util, region 3: 15% + (10/20)*80% = 55%. Deposit = 90%*55%*90% = 44.55%.
+    // 90% utilization, region 3: 15% + (10/20)*80% = 55%. Deposit = 90%*55%*90% = 44.55%.
     client.borrow(&borrower, &t.bor(0, 1_000_000_000i128));
     assert_annual_apr_views(
         &client,
@@ -2493,7 +2493,7 @@ fn test_update_params_accrues_under_old_curve_after_time_advance() {
         "old-curve simulation must grow the borrow index over a day"
     );
 
-    // Counterfactual: same state + elapsed time but with a much cheaper curve.
+    // Counterfactual case: the same state and elapsed time under a much cheaper curve.
     // If replace_rate_model wrongly accrued under the new model, indexes would land here.
     let mut pre_with_new = pre.clone();
     pre_with_new.params.base_borrow_rate = 0;
@@ -2978,7 +2978,7 @@ fn twice<T: IntoVal<Env, Val> + TryFromVal<Env, Val>>(mut batch: Vec<T>) -> Vec<
 }
 
 /// Each leg carries a position read before the batch, so a batch that repeats
-/// a market is rejected (RV-I-03). `seize_positions` is exempt: bad-debt
+/// a market is rejected (RV-I-03). `seize_positions` is exempt. Bad-debt
 /// cleanup seizes both sides of one market.
 #[test]
 fn test_batches_reject_a_repeated_market() {
@@ -3259,7 +3259,8 @@ fn backing_snapshot(t: &TestSetup) -> (i128, i128, i128, i128, i128, i128) {
     })
 }
 
-/// Live seize wipeout → index floor → blocked supply → recap → new supply is safe.
+/// A live seize wipeout drops the index to its floor and blocks supply. After a
+/// recapitalization, new supply is safe.
 #[test]
 fn test_floor_wipeout_blocks_supply_until_recap_then_new_deposit_is_safe() {
     let t = TestSetup::new();
@@ -3408,8 +3409,8 @@ fn prepare_with_balance_agrees_with_the_terms_apply_would_build() {
 #[should_panic(expected = "Error(Contract, #401)")]
 fn prepare_with_balance_still_runs_the_flashloan_gate() {
     let t = TestSetup::new();
-    // Deliberately not enabling flash loans: the symbolic entry point must not
-    // be a way around the gate `apply` enforces.
+    // Flash loans stay disabled on purpose, because the symbolic entry point must
+    // not bypass the gate `apply` enforces.
     t.client().supply(&t.sup(0, 10_000_000_000i128));
 
     t.env.as_contract(&t.pool, || {
@@ -3430,7 +3431,7 @@ fn prepare_with_balance_still_runs_the_flashloan_gate() {
 /// received.
 ///
 /// Every pool mutator is `#[only_owner]`, so reaching this needs the controller
-/// to pass an `amount` it did not measure; the controller's
+/// to pass an `amount` it did not measure. The controller's
 /// `markets::recapitalize` measures the receipt. The gap is defence in depth,
 /// not a reachable loss. This test pins that the pool adds no bound of its
 /// own: only the owner's declared amount limits the payout.
@@ -3453,7 +3454,7 @@ fn test_recapitalize_refund_pays_out_tokens_the_pool_never_received() {
     });
     assert_eq!(shortfall, 0, "fixture must be fully backed");
 
-    // Nothing is transferred in; the owner declares a payment on the payer's behalf.
+    // Nothing is transferred in. The owner declares a payment on the payer's behalf.
     let applied = t
         .client()
         .recapitalize(&hub(&t.asset), &payer, &custody_before)
@@ -3530,8 +3531,8 @@ fn test_unfunded_recapitalize_leaves_the_cash_book_overstating_custody() {
         "the book still claims more than the supplier's deposit: {book}"
     );
 
-    // The supplier's exit clears the pool's own liquidity guard -- the book
-    // says the cash is there -- and then fails in the token transfer.
+    // The supplier's exit clears the pool's own liquidity guard, because the book
+    // says the cash is there, and then fails in the token transfer.
     let outcome = t
         .client()
         .try_withdraw(&receiver, &false, &t.wdr(supplied, i128::MAX, 0));
@@ -3542,7 +3543,7 @@ fn test_unfunded_recapitalize_leaves_the_cash_book_overstating_custody() {
     // The failure must come from custody, not from a pool guard. The SAC
     // reports insufficient balance as its own contract error `BalanceError = 10`.
     // The asserts check that exact code and that neither pool liquidity guard
-    // fired: `require_reserves` read the book and let the exit through.
+    // fired. `require_reserves` read the book and let the exit through.
     const SAC_BALANCE_ERROR: u32 = 10;
     match outcome {
         Err(Ok(err)) => {
@@ -3574,9 +3575,9 @@ fn test_unfunded_recapitalize_leaves_the_cash_book_overstating_custody() {
     );
 }
 
-/// Live custody bounds the payout, not the declared amount: claiming more than
-/// the pool holds reverts inside the SAC. This caps an unmeasured owner call at
-/// the pool's real holdings of that asset.
+/// Live custody bounds the payout, not the declared amount. Claiming more than
+/// the pool holds reverts inside the SAC. That bound caps an unmeasured owner
+/// call at the pool's real holdings of that asset.
 #[test]
 fn test_unfunded_recapitalize_is_bounded_by_custody_not_by_the_declared_amount() {
     let t = TestSetup::new();
@@ -3611,7 +3612,7 @@ fn test_unfunded_recapitalize_is_bounded_by_custody_not_by_the_declared_amount()
 /// They cannot. `ops::market::create` derives the storage key from
 /// `params.asset_id`, so `key.asset == params.asset_id` holds for every market,
 /// and a `hub_asset` naming any other token resolves to no market. This test
-/// pins both halves: the guarantee is structural, and a refactor that passes
+/// pins both halves. The guarantee is structural, and a refactor that passes
 /// the key and the params separately would lose it.
 #[test]
 fn test_recapitalize_rejects_a_hub_asset_that_names_no_market() {
@@ -3674,7 +3675,7 @@ fn test_recapitalize_rejects_a_hub_asset_that_names_no_market() {
 /// or passes `require_reserves`.
 ///
 /// A repay against a market with no debt makes the entire declared amount an
-/// overpayment: `current_debt_ceil` is zero, so `resolve_repay` takes the
+/// overpayment. `current_debt_ceil` is zero, so `resolve_repay` takes the
 /// full-close branch and `net_repay` is zero. The `RepayRoundsToZeroShares`
 /// assert in `ops::repay::accounting` passes on its `net_repay == 0` disjunct,
 /// and the whole amount is refunded out of real custody with the book untouched.
@@ -3692,7 +3693,7 @@ fn test_unfunded_repay_overpayment_refund_also_pays_out_of_custody() {
     );
     assert_eq!(before.borrowed, 0, "fixture must carry no debt");
 
-    // Nothing transferred in, no debt to retire: the whole amount is "excess".
+    // Nothing is transferred in and there is no debt to retire. The whole amount is "excess".
     let credited = t
         .client()
         .repay(&payer, &t.ract(0, custody_before))
@@ -3905,14 +3906,14 @@ fn fund_pool(t: &TestSetup, amount: i128) {
     token::StellarAssetClient::new(&t.env, &t.asset).mint(&t.pool, &amount);
 }
 
-/// Half-up RAY value of `scaled` shares at `index`.
+/// Returns the half-up RAY value of `scaled` shares at `index`.
 fn ray_value(t: &TestSetup, scaled: i128, index: i128) -> i128 {
     Ray::from(scaled).mul(&t.env, Ray::from(index)).raw()
 }
 
 /// Audit finding S-03, inverted. The audit borrowed a market's last cash at a
-/// 100% utilization ceiling while its only supply was sub-unit dust: the
-/// ceiling skipped the guard and the dust floored the liquidation buffer to
+/// 100% utilization ceiling while its only supply was sub-unit dust. The
+/// ceiling skipped the guard, and the dust floored the liquidation buffer to
 /// zero. The borrow is now refused with `UtilizationAboveMax`, and the market
 /// keeps working for the next supplier and borrower.
 #[test]
@@ -4064,8 +4065,8 @@ fn market_at_the_admitted_cap_after_ten_years() -> CappedMarket {
 }
 
 /// Audit finding S-04, inverted. The audit supplied a market to the admitted
-/// cap; interest then took a market value past `i128` and every later
-/// accrual panicked with `MathOverflow`, so withdrawals, repayments and
+/// cap. Interest then took a market value past `i128`, and every later
+/// accrual panicked with `MathOverflow`, so withdrawals, repayments, and
 /// liquidations reverted until a pool upgrade. Accrual now holds interest at
 /// the value ceiling, and every exit keeps working.
 #[test]
@@ -4183,7 +4184,7 @@ fn rv_s04_market_at_the_admitted_cap_keeps_exits_open_after_interest() {
 }
 
 /// A market that interest has taken above the entry ceiling takes no entry
-/// until exits bring it back under: supply, borrow, strategy and flash loan
+/// until exits bring it back under: supply, borrow, strategy, and flash loan
 /// are refused with `MarketCeilingReached` (INV-ACCT-11).
 #[test]
 fn test_entries_are_refused_above_the_entry_ceiling() {
@@ -4294,7 +4295,7 @@ fn test_debt_above_the_entry_ceiling_takes_no_new_debt() {
 }
 
 /// A share count above the ceiling is refused even when its value is far
-/// below it: a supply index at its floor mints 1,000 shares per unit of value.
+/// below it. A supply index at its floor mints 1,000 shares per unit of value.
 #[test]
 fn test_supply_at_the_index_floor_is_bounded_by_the_share_count() {
     let t = unseeded_market(|_| {});

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Offline oracle assertions reject changed prices/timestamps and missing receipts."""
+"""Offline oracle assertions reject changed prices and timestamps and missing receipts."""
 import json
 import subprocess
 import tempfile

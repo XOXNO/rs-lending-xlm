@@ -1,12 +1,12 @@
-//! In-memory market cache: load → mutate → commit.
+//! In-memory market cache. A caller loads, mutates, then commits.
 //!
 //! [`Cache`] is the working set for a single hub-asset market during one
 //! operation leg. Submodules extend it:
 //!
-//! - [`cash`] — reserve checks and token transfers
-//! - [`scale`] — share ↔ asset conversions and utilization
-//! - [`shares`] — mint/burn supply, debt, and revenue shares
-//! - [`report`] — snapshots and position mutation DTOs
+//! - [`cash`] holds reserve checks and token transfers.
+//! - [`scale`] holds share to asset conversions and utilization.
+//! - [`shares`] holds mint and burn of supply, debt, and revenue shares.
+//! - [`report`] holds snapshots and position mutation DTOs.
 
 mod cash;
 mod report;
@@ -24,9 +24,10 @@ use crate::{storage, time};
 
 /// Mutable snapshot of one market for the duration of a mutation or view.
 ///
-/// Constructed from persistent storage, updated by ops/interest, then written
-/// back via [`Cache::commit`]. Does not hold a storage lock; callers must not
-/// interleave commits for the same market without reloading.
+/// The code builds it from persistent storage, updates it in `ops` and
+/// `interest`, then writes it back through [`Cache::commit`]. It does not hold
+/// a storage lock. Callers must not interleave commits for the same market
+/// without reloading.
 pub(crate) struct Cache {
     env: Env,
     hub_asset: HubAssetKey,
@@ -44,7 +45,7 @@ pub(crate) struct Cache {
 impl Cache {
     /// Loads params and state from storage, renews market TTLs, stamps current time.
     ///
-    /// Does **not** accrue interest; call [`crate::interest::global_sync`] or
+    /// Does **not** accrue interest. Call [`crate::interest::global_sync`] or
     /// [`crate::ops::synced_market`] when accrual is required.
     pub(crate) fn load(env: &Env, hub_asset: &HubAssetKey) -> Self {
         let raw_params = storage::read_params(env, hub_asset);
@@ -148,7 +149,7 @@ impl Cache {
 
 #[cfg(any(test, feature = "certora"))]
 impl Cache {
-    /// Last committed accrual timestamp (ms). Test / formal-verification only.
+    /// Last committed accrual timestamp (ms). Tests and formal verification only.
     pub(crate) fn last_timestamp(&self) -> u64 {
         self.last_timestamp
     }

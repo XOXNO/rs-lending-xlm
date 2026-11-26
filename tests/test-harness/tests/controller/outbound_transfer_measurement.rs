@@ -77,7 +77,7 @@ fn recapitalize_refund_is_unmeasured_but_strands_nothing() {
         "cash book must be untouched when nothing is applied"
     );
 
-    // in: payer -> pool delivers 99%. out: pool -> payer delivers 99% of that.
+    // in: payer to pool delivers 99%. out: pool to payer delivers 99% of that.
     let received = amount - amount / 100;
     let refunded_to_payer = received - received / 100;
     assert_eq!(
@@ -128,7 +128,7 @@ fn claim_revenue_forwards_the_measured_amount_and_leaves_controller_dust_intact(
     let controller_before = tok.balance(&controller);
 
     let claimed = t.claim_revenue("USDC");
-    // Captured before the balance reads below: `events().all()` is scoped to
+    // Captured before the balance reads below. `events().all()` is scoped to
     // the last contract invocation, and every `tok.balance` call is one.
     let claim_events = t.env.events().all();
     assert!(
@@ -151,7 +151,7 @@ fn claim_revenue_forwards_the_measured_amount_and_leaves_controller_dust_intact(
     );
 
     // The controller publishes the measured receipt, not the pool's larger
-    // reported figure: indexers sum this number into lifetime revenue.
+    // reported figure. Indexers sum this number into lifetime revenue.
     let payloads = data_for_topic(&claim_events, "revenue", "claim");
     assert_eq!(payloads.len(), 1, "one claim, one revenue:claim event");
     assert_eq!(
@@ -172,7 +172,7 @@ fn claim_revenue_emits_nothing_when_there_is_no_revenue() {
     t.set_accumulator(&accumulator);
 
     assert_eq!(t.claim_revenue("USDC"), 0, "fixture must accrue nothing");
-    // Captured immediately: `events().all()` is scoped to the last invocation.
+    // Captured immediately. `events().all()` is scoped to the last invocation.
     let events = t.env.events().all();
     assert!(
         count_topic(&events, "market", "batch_state_update") > 0,
@@ -306,7 +306,7 @@ fn recapitalize_into_an_over_delivering_market_keeps_book_and_custody_in_step() 
 /// receipt. The transfer-hook asset calls `controller.supply` as `from` after
 /// every transfer. The host refuses that call because the controller is already
 /// on the call stack (`ContractReentryMode::Prohibited`). The flash-loan guard
-/// (`require_not_flash_loaning`) does not apply: no flash loan is in flight.
+/// (`require_not_flash_loaning`) does not apply because no flash loan is in flight.
 #[test]
 fn recapitalize_fails_closed_when_the_asset_reenters_during_the_measured_window() {
     let mut t = LendingTest::new()

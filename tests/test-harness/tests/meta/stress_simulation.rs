@@ -143,7 +143,7 @@ fn test_full_exit_solvency() {
 
     // `pool_reserves` reads the pool cash, which the builder seeds with
     // `initial_liquidity`. After everyone exits, the cash still covers that
-    // seed; the rest is unclaimed protocol revenue.
+    // seed. The rest is unclaimed protocol revenue.
     let donated_usdc = usdc_preset().initial_liquidity;
     let donated_eth = eth_preset().initial_liquidity;
     let reserves_usdc = t.pool_reserves("USDC");

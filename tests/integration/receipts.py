@@ -51,7 +51,7 @@ def verify(receipt, hash_, passphrase, status, contract=None, method=None):
     meta=decode('TransactionMeta', result['resultMetaXdr'])
     # Classic and pre-apply failures may carry earlier metadata versions and
     # omit the optional RPC event list. Their decoded metadata must be empty of
-    # contract events; a missing list must never suppress committed events.
+    # contract events. A missing list must never suppress committed events.
     if 'v4' in meta:
         committed_events=[event for operation in meta['v4']['operations'] for event in operation['events']]
     elif 'v3' in meta:

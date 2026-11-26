@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Exercise the routed checker against missing debt and stolen/suppressed refunds."""
+"""Exercise the routed checker against missing debt and stolen and suppressed refunds."""
 import copy
 import json
 import re
@@ -150,7 +150,7 @@ for method, close, all_ in [('multiply', False, False), ('swap_debt', False, Fal
         broken['result']['resultMetaXdr'] = json.dumps(meta)
         check(b, a, broken, req, False)
     if method in ['swap_debt', 'repay_debt_with_collateral']:
-        # Successful repay/account close cannot hide a retained 10-unit excess.
+        # Successful repay or account close cannot hide a retained 10-unit excess.
         broken = copy.deepcopy(a); broken['tokens']['B']['wallet'] = b['tokens']['B']['wallet']
         broken['tokens']['B']['controller'] = str(int(b['tokens']['B']['controller'])+10)
         check(b, broken, receipt, req, False)
@@ -174,7 +174,7 @@ receipt['result']['resultMetaXdr'] = json.dumps(meta); a['tokens']['A']['wallet'
 check(b, a, receipt, req)
 a['tokens']['A']['wallet'] = '1000'
 check(b, a, receipt, req, False)
-# Closed snapshots avoid owner_of/get_account_attributes, which revert after burn.
+# Closed snapshots avoid owner_of and get_account_attributes, which revert after burn.
 script = r'''source "$1"
 XLM_SAC=A; USDC_SAC=B; CONTROLLER=CTRL; POOL=POOL; POSITION_NFT=NFT; PRIMARY_HUB_ID=1
 financial_balance() { echo 1; }; balance() { echo 1; }; hub_key() { echo '{}'; }
@@ -195,7 +195,7 @@ assert snapshot['exists'] is False and snapshot['owner'] is None and snapshot['a
 print('Routed principal, identity, destination, missing debt and suppressed-refund regressions passed')
 
 # The published SDK route must use the same financial checker, bound to its
-# builder inputs, returned account and committed wire receipt. A failed check
+# builder inputs, returned account, and committed wire receipt. A failed check
 # must fail the case even when the independently read health factor is healthy.
 with tempfile.TemporaryDirectory() as tmp:
     script = r'''set -uo pipefail

@@ -28,7 +28,7 @@
 //! All producers of a token precede all consumers.
 //!
 //! The whole blob is copied into a stack buffer with a single host call and
-//! parsed in Wasm; no host object is allocated per instruction.
+//! parsed in Wasm. The parser allocates no host object per instruction.
 
 use soroban_sdk::{panic_with_error, Address, Bytes, Env, Vec};
 
@@ -71,7 +71,7 @@ mod field {
     pub(super) const TOKEN_OUT: usize = 4;
 }
 
-/// Upper bound on instructions per strategy. Well above what the Soroban CPU
+/// Upper bound on instructions per strategy. The bound is well above what the Soroban CPU
 /// budget can execute, but low enough to bound the decode buffer.
 const MAX_OPS: u32 = 48;
 /// Upper bound on split weights per strategy.
@@ -85,9 +85,9 @@ pub(crate) const MAX_ASSETS: u32 = 256;
 /// Largest amount registry addressable by [`Mode::Fixed`].
 pub(crate) const MAX_AMOUNTS: u32 = (MODE_PPM_BASE - MODE_FIXED_BASE) as u32;
 
-/// `mode` byte: consume the whole vault balance of the input token.
+/// `mode` byte that consumes the whole vault balance of the input token.
 const MODE_ALL: u8 = 0;
-/// `mode` byte: consume the previous instruction's output.
+/// `mode` byte that consumes the previous instruction's output.
 const MODE_PREV: u8 = 1;
 /// First `mode` byte that selects `amounts[mode - MODE_FIXED_BASE]`.
 const MODE_FIXED_BASE: u8 = 2;
@@ -142,7 +142,7 @@ pub(crate) enum Mode {
 }
 
 impl Mode {
-    /// Decodes a mode byte. Every byte maps to a variant; `validate` range-checks the index.
+    /// Decodes a mode byte. Every byte maps to a variant. `validate` range-checks the index.
     fn from_u8(value: u8) -> Self {
         match value {
             MODE_ALL => Self::All,
@@ -178,14 +178,14 @@ pub(crate) struct Program {
 }
 
 impl Program {
-    /// Copies, parses, and structurally validates `ops` against the address registry `assets`
-    /// and the amount registry length, returning the decoded program.
+    /// Copies and parses `ops`, validates its structure against the address registry `assets`
+    /// and the amount registry length, and returns the decoded program.
     ///
     /// Panics with [`Error::InvalidRouteXdr`] on a malformed header, version, length, opcode, or
-    /// index, and with a more specific error for other structural violations (empty/oversized
-    /// batch, same-token strategy or swap, broken `Prev` chain, out-of-range split weight).
-    /// Token identity is address identity: a registry may list one address at two indices.
-    /// Touches no external contract.
+    /// index. Panics with a more specific error for other structural violations (empty batch,
+    /// oversized batch, same-token strategy or swap, broken `Prev` chain, out-of-range split
+    /// weight). Token identity is address identity. A registry may list one address at two
+    /// indices. The function touches no external contract.
     pub(crate) fn decode(env: &Env, ops: &Bytes, assets: &Vec<Address>, amounts_len: u32) -> Self {
         let assets_len = assets.len();
         if assets_len == 0 || assets_len > MAX_ASSETS || amounts_len > MAX_AMOUNTS {
@@ -274,7 +274,7 @@ impl Program {
             if idx_a >= assets_len || idx_b >= assets_len {
                 panic_with_error!(env, Error::InvalidRouteXdr);
             }
-            // `Prev` is a purely structural link: the predecessor must exist,
+            // `Prev` is a structural link: the predecessor must exist,
             // must have a single output, and that output must be this
             // instruction's input.
             if mode == Mode::Prev {
@@ -336,11 +336,10 @@ impl Program {
         self.op_count
     }
 
-    /// Returns instruction `i`; callers must respect [`Program::len`].
+    /// Returns instruction `i`. Callers must respect [`Program::len`].
     ///
-    /// Re-decodes and re-checks the opcode byte, panicking with
-    /// [`Error::InvalidRouteXdr`] if it is unrecognized, even though `validate`
-    /// already checked it.
+    /// The function re-decodes and re-checks the opcode byte, even though `validate` already
+    /// checked it. It panics with [`Error::InvalidRouteXdr`] if the opcode is unrecognized.
     pub(crate) fn op(&self, env: &Env, i: u32) -> Op {
         let record = self.raw(i);
         Op {

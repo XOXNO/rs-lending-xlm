@@ -1,11 +1,13 @@
 # Freeze a listing in an emergency
 
-Raising flags needs the governance `GUARDIAN` role; clearing needs `PROPOSER`.
+Raising flags needs the governance `GUARDIAN` role. Clearing flags needs the
+`PROPOSER` role.
 
-Use this when one asset in one spoke must stop and a global pause is too wide.
-The guardian raises `paused`, `frozen` or `no_seize` without the timelock. [ADR-0007](../../explanation/decisions.md#adr-0007) and
+Use this runbook when one asset in one spoke must stop and a global pause is too
+wide. The guardian raises `paused`, `frozen`, or `no_seize` without the
+timelock. [ADR-0007](../../explanation/decisions.md#adr-0007) and
 [ADR-0008](../../explanation/decisions.md#adr-0008) define what each flag
-stops. Neither the guardian nor a listing edit can clear a flag; only the
+stops. Neither the guardian nor a listing edit can clear a flag. Only the
 timelocked `RelaxSpokeAssetFlags` operation can.
 
 ## Raise the flags
@@ -18,20 +20,21 @@ timelocked `RelaxSpokeAssetFlags` operation can.
 
        make <network> tightenAssetFlags <config-spoke-id> <asset> <flags> SIGNER=<guardian>
 
-`<flags>` is a comma list of `paused`, `frozen`, `no_seize`. The verb reads the
-live listing, adds the requested flags, and calls governance
-`set_spoke_asset_flags`; it never clears one. The spoke id comes from
-`configs/<network>/spokes.json`; the verb maps it on-chain.
+`<flags>` is a comma-separated list of `paused`, `frozen`, and `no_seize`. The
+verb reads the live listing, adds the requested flags, and calls governance
+`set_spoke_asset_flags`. The verb never clears a flag. The spoke id comes from
+`configs/<network>/spokes.json`. The verb maps it on-chain.
 
-An unsuspended registrar can still queue a relaxation at the new epoch; it
-executes after its delay.
+An unsuspended registrar can still queue a relaxation at the new epoch. The
+relaxation executes after its delay.
 
 ## Review pending operations
 
-Do these steps immediately after the flags are set.
+Do these steps immediately after you set the flags.
 
-1. Read the operation list the verb prints (operations in
-   `configs/ops/<network>/` with live state; also `make <network> listOps`).
+1. Read the operation list that the verb prints. It shows the operations in
+   `configs/ops/<network>/` with live state. You can also run
+   `make <network> listOps`.
 2. Cancel each `Waiting` or `Ready` operation that must not run during the
    incident:
 
@@ -42,16 +45,16 @@ Do these steps immediately after the flags are set.
 4. If a curator registrar owns the spoke, read the curator's
    `["curator", "proposed"]` events. Curator-queued operations are not
    recorded in `configs/ops/`.
-5. Cancel each operation those events name with `cancelOp`.
+5. Cancel each operation that those events name with `cancelOp`.
 
 Pending operations cannot clear the new flags. The controller rejects a
 pre-freeze listing edit that turns a set flag off. A pre-freeze relaxation
 names the old flags epoch, which every flag change advances. Other pending
 operations, such as `Unpause`, still execute as proposed.
 
-Naming only held flags reverts with `SpokeAssetFlagsUnchanged`, epoch
-unchanged; `tightenAssetFlags` skips such calls. A new flag advances the epoch,
-invalidating pending relaxations.
+A call that names only held flags reverts with `SpokeAssetFlagsUnchanged` and
+leaves the epoch unchanged. `tightenAssetFlags` skips such calls. A new flag advances the epoch
+and invalidates pending relaxations.
 
 ## Clear the flags
 
@@ -73,15 +76,18 @@ invalidating pending relaxations.
        make <network> getSpokeAsset <config-spoke-id> <asset>
 
 `editAssetInSpoke` refuses a config that sets a live flag to `false` and names
-this verb instead.
+`relaxAssetFlags` instead.
 
 ## Notes
+
+Keep these points in mind during the incident.
 
 - `paused` also stops repayment of that asset while interest continues. A
   borrower whose only debt is the paused asset cannot be liquidated during the
   pause, but can be in the first transaction after it ends.
 - `no_seize` on a collateral listing stops liquidation of every account in
-  that spoke holding the collateral. It does not stop new supply; add `frozen`
+  that spoke holding the collateral. It does not stop new supply. Add `frozen`
   for that.
 - Insolvent accounts stay reachable through
-  [force-socialize](force-socialize-bad-debt.md), which ignores `no_seize`.
+  the [force-socialize runbook](force-socialize-bad-debt.md). That cleanup
+  ignores `no_seize`.

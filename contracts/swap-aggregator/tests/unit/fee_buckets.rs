@@ -8,7 +8,7 @@ use crate::storage::{accumulate_fee, accumulate_swap_fees, take_fee_bucket};
 use crate::types::DataKey;
 use crate::Router;
 
-/// Taking a zero-balance bucket returns 0 and writes nothing: the entry stays in
+/// Taking a zero-balance bucket returns 0 and writes nothing. The entry stays in
 /// place.
 #[test]
 fn taking_an_empty_fee_bucket_leaves_its_entry_in_place() {
@@ -50,7 +50,7 @@ fn taking_a_funded_fee_bucket_clears_it() {
 /// Every bucket write moves the token's reserved total by the same amount, in
 /// both directions.
 ///
-/// `sweep_balance` trusts `DataKey::ReservedTotal`: a bucket credited without a
+/// `sweep_balance` trusts `DataKey::ReservedTotal`. A bucket credited without a
 /// matching reserve would be swept out as stray balance.
 #[test]
 fn fee_bucket_writes_move_the_reserved_total_in_step() {

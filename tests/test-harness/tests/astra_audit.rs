@@ -131,7 +131,7 @@ fn as_audit_credit_receivers_repay_refunds_and_cleanup_conserve_exact_books() {
     assert_eq!(reconcile(&t), baseline);
     t.assert_spoke_usage_matches_positions();
 
-    // Post-loss receipt/refund accounting is tested on the changed index.
+    // Post-loss receipt and refund accounting is tested on the changed index.
     let payer = t.get_or_create_user("recap");
     let market = t.resolve_market("ETH");
     let amount = 10i128.pow(market.decimals);

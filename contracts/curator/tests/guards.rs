@@ -599,8 +599,8 @@ fn the_spoke_owner_cancels_a_listing_queued_in_its_spoke() {
     assert!(!p.queued(&op_id));
 }
 
-/// An operator holding only `ROLE_FLAGS` or only `ROLE_MARKET` cancels; one
-/// holding only `ROLE_SPOKE` does not.
+/// An operator holding only `ROLE_FLAGS` or only `ROLE_MARKET` cancels. An
+/// operator holding only `ROLE_SPOKE` does not.
 #[test]
 fn a_flags_or_market_operator_cancels_but_a_spoke_operator_does_not() {
     let env = Env::default();

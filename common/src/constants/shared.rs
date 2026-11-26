@@ -1,5 +1,5 @@
-//! Protocol-wide scaling factors, decimal bounds, price/tolerance/liquidation
-//! limits, and storage TTL thresholds/bump amounts shared across contracts.
+//! Protocol-wide scaling factors, decimal bounds, price limits, tolerance limits,
+//! liquidation limits, storage TTL thresholds, and bump amounts shared across contracts.
 
 /// Ray fixed-point scale: one unit at 27 decimal places.
 pub const RAY: i128 = 1_000_000_000_000_000_000_000_000_000;
@@ -16,7 +16,7 @@ pub const RAY_DECIMALS: u32 = 27;
 /// Number of decimal places represented by [`WAD`].
 pub const WAD_DECIMALS: u32 = 18;
 
-/// Minimum allowed market / listed-token decimals (governance + price-aggregator).
+/// Minimum allowed market and listed-token decimals (governance and price-aggregator).
 pub const MIN_ASSET_DECIMALS: u32 = 0;
 
 /// Minimum decimals for a market listed as borrowable in any spoke.
@@ -26,7 +26,7 @@ pub const MIN_BORROWABLE_ASSET_DECIMALS: u32 = 3;
 /// after any action that leaves the account with debt.
 pub const MIN_WHOLE_UNIT_COLLATERAL: i128 = 2;
 
-/// Maximum allowed market / listed-token decimals (matches WAD-scale prices).
+/// Maximum allowed market and listed-token decimals (matches WAD-scale prices).
 pub const MAX_ASSET_DECIMALS: u32 = 18;
 
 /// Approximate milliseconds per year (~365.2422 days), used to convert
@@ -52,7 +52,8 @@ pub const POSITION_LIMIT_MAX: u32 = 5;
 pub const MIN_TOLERANCE: u32 = 150;
 
 /// Minimum relative half-width of an oracle sanity band, in basis points of
-/// `(max_wad + min_wad)`: requires `(max - min) * BPS / (max + min) >= this`.
+/// `(max_wad + min_wad)`. The check requires `(max - min) * BPS / (max + min)` to be at
+/// least `MIN_SANITY_BAND_BPS`.
 pub const MIN_SANITY_BAND_BPS: i128 = 50;
 
 /// Largest accepted oracle tolerance width, in BPS (`upper_ratio_bps <= BPS + MAX_TOLERANCE`).
@@ -67,9 +68,9 @@ pub(crate) const ONE_DAY_LEDGERS: u32 = 17_280;
 
 const TTL_THRESHOLD_USER_DAYS: u32 = 30;
 
-/// Instance and shared entries bump to 180 days (the mainnet `max_entry_ttl`), so
-/// this threshold sets only how early the bump fires. After any renewal check the
-/// entry has at least 30 days left, the same window as user entries.
+/// Instance and shared entries bump to 180 days (the mainnet `max_entry_ttl`). This
+/// threshold sets only how early the bump fires. After any renewal check, the entry
+/// has at least 30 days left. User entries use the same window.
 const TTL_THRESHOLD_SAFETY_DAYS: u32 = 30;
 const TTL_BUMP_INSTANCE_DAYS: u32 = 180;
 const TTL_BUMP_SHARED_DAYS: u32 = 180;

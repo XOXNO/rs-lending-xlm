@@ -16,7 +16,7 @@
 //!   the loss up and the bound down, within `ROUNDING_TOLERANCE_RAW`.
 //! - I3: the one-unit sale and the full close by one unit keep I1 and I2.
 //!
-//! Tests prefixed `lqv_oracle_bound_`.
+//! The tests use the prefix `lqv_oracle_bound_`.
 
 use common::math::reference::{mul_div_ceil, mul_div_floor, mul_div_half_up};
 use common::types::{AssetOracle, HubAssetKey, PriceKey, SeizeMode};
@@ -402,7 +402,7 @@ impl Z {
         self.debt(id) > 0 && self.t.ctrl_client().get_health_factor(&id) < WAD
     }
 
-    /// One liquidation that offers the whole debt; checks I1 and I2 on it.
+    /// Runs one liquidation that offers the whole debt and checks I1 and I2 on it.
     /// The receiver is zero for Transfer.
     fn liquidate(&mut self, id: u64, mode: SeizeMode) -> Outcome {
         let (p, nav, name) = (self.reported, self.nav, self.case.name);
@@ -580,9 +580,9 @@ impl Z {
 
 const SIZES: [i128; 7] = [2, 2, 3, 3, 5, 8, 40];
 
-/// Borrow at the band top and jump to the floor; borrow again at the top
-/// against the survivors and the credited shares and step down to the floor;
-/// borrow again at the top and jump to the floor.
+/// Borrow at the band top and jump to the floor. Borrow again at the top
+/// against the survivors and the credited shares, then step down to the floor.
+/// Borrow again at the top and jump to the floor.
 fn top_borrow_floor_liquidation(z: &mut Z, sizes: &[i128]) {
     let mut accounts = z.open_borrowers(sizes);
     z.report(z.band.0);
@@ -611,7 +611,7 @@ fn top_borrow_floor_liquidation(z: &mut Z, sizes: &[i128]) {
     );
 }
 
-/// I1 and I2 with the true NAV at the band top: the floor report undervalues
+/// I1 and I2 with the true NAV at the band top. The floor report undervalues
 /// the shares by the full band ratio.
 #[test]
 fn lqv_oracle_bound_nav_at_band_top() {
@@ -624,7 +624,7 @@ fn lqv_oracle_bound_nav_at_band_top() {
     }
 }
 
-/// I1 and I2 with the true NAV at the band floor: the top report lets every
+/// I1 and I2 with the true NAV at the band floor. The top report lets every
 /// account borrow against an overvalued share.
 #[test]
 fn lqv_oracle_bound_nav_at_band_floor() {
@@ -635,10 +635,10 @@ fn lqv_oracle_bound_nav_at_band_floor() {
     }
 }
 
-/// The NAV falls until each account sits at true HF 1.01, governance moves the
+/// The NAV falls until each account sits at true HF 1.01. Governance moves the
 /// band down to the new NAV, and the feed jumps to the new floor. Where the
 /// curve bonus reaches the HF-preserving cap, one liquidation takes the whole
-/// equity at true NAV; the lenders still lose nothing.
+/// equity at true NAV. The lenders still lose nothing.
 #[test]
 fn lqv_oracle_bound_markdown_to_hf_one_then_band_floor() {
     let mut at_cap = 0;

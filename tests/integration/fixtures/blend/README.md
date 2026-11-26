@@ -1,8 +1,9 @@
 # Blend pool fixture
 
-Blend v2 pool executable fetched from Stellar testnet. Its contract meta names
-`github:blend-capital/blend-contracts-v2`, Rust 1.81.0 and soroban-sdk 22.0.7.
-The `blend` and `sdk` live lanes deploy a fresh pool from it on every run.
+This directory holds a Blend v2 pool executable fetched from Stellar testnet. Its
+contract meta names `github:blend-capital/blend-contracts-v2`, Rust 1.81.0, and
+soroban-sdk 22.0.7. The `blend` and `sdk` live lanes deploy a fresh pool from the
+executable on every run.
 
 | File | Source contract | SHA-256 |
 |---|---|---|
@@ -12,9 +13,9 @@ To refetch the file, run
 `stellar contract fetch --id <source contract> --network testnet -o blend_pool.wasm`.
 
 `scripts/build_e2e_wasm.sh fixtures` checks this hash and copies the file into
-`artifacts/wasm/fixtures`, so it gets the same `SHA256SUMS` check as every
+`artifacts/wasm/fixtures`, so the file gets the same `SHA256SUMS` check as every
 other live fixture. A changed file fails the build. Change the file and the
-pinned hash together, on purpose, only.
+pinned hash only together and only on purpose.
 
 ## Backstop
 

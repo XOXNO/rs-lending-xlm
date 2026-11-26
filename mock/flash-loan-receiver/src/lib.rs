@@ -73,8 +73,8 @@ pub struct FlashLoanTestReceiver;
 
 #[contractimpl]
 impl FlashLoanTestReceiver {
-    /// Points nested reentry at a live controller. Any address may call this;
-    /// the mock is test-only.
+    /// Points nested reentry at a live controller. Any address may call this
+    /// because the mock is test-only.
     pub fn set_plan(env: Env, controller: Address, hub_id: u32, spoke_id: u32, account_id: u64) {
         env.storage().instance().set(
             &DataKey::Plan,
@@ -182,7 +182,7 @@ fn decode_request(env: &Env, data: &Bytes) -> FlashLoanRequest {
     })
 }
 
-/// Reentry modes need a `set_plan` first; there is no baked-in controller.
+/// Reentry modes need a `set_plan` first. There is no hard-coded controller.
 fn resolve_plan(env: &Env) -> Plan {
     env.storage()
         .instance()

@@ -4623,7 +4623,7 @@ def risk.totals.calculate_account_risk_totals_body
        }, cache3)
 
 /-- [controller_aeneas::risk::totals::calculate_account_risk_totals]:
-    Source: 'src/risk/totals.rs', lines 128:0-135:1 -/
+    Source: 'src/risk/totals.rs', lines 129:0-136:1 -/
 def risk.totals.calculate_account_risk_totals
   (env : aeneas_soroban_shim.Env) (cache : context.Context)
   (supply_positions : aeneas_soroban_shim.Map types.HubAssetKey

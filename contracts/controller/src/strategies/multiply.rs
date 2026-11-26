@@ -124,8 +124,8 @@ pub(crate) fn process_multiply(env: &Env, caller: &Address, params: MultiplyPara
     account_id
 }
 
-/// Requires positive debt and distinct markets for Multiply, distinct assets
-/// for Long/Short. Rejects other modes.
+/// Requires positive debt. Requires distinct markets for Multiply and distinct assets for Long and
+/// Short. Rejects other modes.
 fn validate_multiply_request(
     env: &Env,
     collateral: &HubAssetKey,

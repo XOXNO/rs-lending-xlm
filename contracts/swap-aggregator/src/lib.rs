@@ -3,7 +3,7 @@
 //! # Swap Aggregator (Router)
 //!
 //! Executes multi-hop, multi-venue swap strategies built off-chain and passed
-//! as XDR. Used by controller strategies; venues are untrusted — only measured
+//! as XDR. Used by controller strategies. Venues are untrusted, so only measured
 //! balance deltas count.
 //!
 //! | Layer | Role |
@@ -11,7 +11,7 @@
 //! | [`Router`] | Public entrypoints and Ownable |
 //! | `execute` | Strategy run: pull, instruction stream, fees, trustline, settle |
 //! | `events` | Swap event for indexers |
-//! | `fees` | Static + referral fee apply and claim |
+//! | `fees` | Applies and claims static and referral fees |
 //! | `storage` | Keys, TTL, fee buckets, whitelist, referrals |
 //! | `vault` | Invocation-local token ledger |
 //! | `venues` | Per-DEX hop adapters and Aquarius LP |
@@ -28,7 +28,7 @@ mod types;
 mod vault;
 mod venues;
 
-// Test payload builders assemble registries before their length is known;
+// Test payload builders assemble registries before their length is known.
 // `alloc` is available under `cargo test` and never linked into the Wasm.
 #[cfg(test)]
 extern crate alloc;
@@ -65,7 +65,7 @@ pub struct Router;
 impl Router {
     /// Sets `admin` as the Ownable owner.
     ///
-    /// The static fee and referral counter stay unwritten; both read as zero when unset.
+    /// The static fee and referral counter stay unwritten. Both read as zero when unset.
     pub fn __constructor(env: Env, admin: Address) {
         ownable::set_owner(&env, &admin);
         renew_instance(&env);
@@ -203,7 +203,7 @@ impl SwapAggregatorInterface for Router {
         }
     }
 
-    /// Returns the current Ownable owner; panics with `Error::NotAdmin` if unset.
+    /// Returns the current Ownable owner. Panics with `Error::NotAdmin` if unset.
     fn admin(env: Env) -> Address {
         ownable::get_owner(&env).unwrap_or_else(|| panic_with_error!(&env, Error::NotAdmin))
     }
@@ -245,9 +245,10 @@ impl SwapAggregatorInterface for Router {
 
     /// Decodes `swap_xdr` as a `StrategyPayload` and runs it for `sender`.
     ///
-    /// Requires `sender` authorization. Pulls `total_in` of the input token, runs the
-    /// instruction stream, applies fees, checks the minimum output, and returns the amount
-    /// delivered to `sender`. Panics with `Error::InvalidRouteXdr` if the XDR does not decode.
+    /// The function requires `sender` authorization. It pulls `total_in` of the input token,
+    /// runs the instruction stream, applies fees, checks the minimum output, and returns the
+    /// amount delivered to `sender`. Panics with `Error::InvalidRouteXdr` if the XDR does not
+    /// decode.
     fn execute_strategy(env: Env, sender: Address, total_in: i128, swap_xdr: Bytes) -> i128 {
         renew_instance(&env);
         let payload = StrategyPayload::from_xdr(&env, &swap_xdr)
@@ -264,7 +265,7 @@ impl Ownable for Router {
     }
 
     /// Starts a two-step ownership transfer to `new_owner`, acceptable until ledger
-    /// `live_until_ledger`. Requires current-owner authorization; overrides any
+    /// `live_until_ledger`. Requires current-owner authorization. Overrides any
     /// pending transfer. A `live_until_ledger` of 0 cancels the pending transfer.
     fn transfer_ownership(e: &Env, new_owner: Address, live_until_ledger: u32) {
         ownable::transfer_ownership(e, &new_owner, live_until_ledger);

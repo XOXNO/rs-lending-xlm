@@ -74,10 +74,10 @@ pub(crate) fn listed_token_decimals(env: &Env, token: &Address, token_decimals: 
 }
 
 /// Validates market creation parameters against `asset` and its listed
-/// `token_decimals`: `params.asset_id` must equal `asset`, `params.asset_decimals`
-/// must equal `token_decimals` and fall within `MIN_ASSET_DECIMALS..=MAX_ASSET_DECIMALS`,
-/// and delegates further checks to `params.verify`. Panics with `GenericError::WrongToken`
-/// or `GenericError::InvalidAsset` on the respective mismatch.
+/// `token_decimals`. `params.asset_id` must equal `asset`. `params.asset_decimals`
+/// must equal `token_decimals` and fall within `MIN_ASSET_DECIMALS..=MAX_ASSET_DECIMALS`.
+/// The function delegates further checks to `params.verify`. Panics with
+/// `GenericError::WrongToken` or `GenericError::InvalidAsset` on the respective mismatch.
 pub(crate) fn validate_market_creation(
     env: &Env,
     asset: &Address,

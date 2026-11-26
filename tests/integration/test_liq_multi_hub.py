@@ -12,7 +12,7 @@ RAY, UNIT = 10**27, 10**20
 
 
 def predicate(name, values):
-    # Execute the actual inline predicate; copies would only test the fixture.
+    # Execute the actual inline predicate. Copies would only test the fixture.
     source = SOURCE.split("<<'" + name + "'\n", 1)[1].split('\n' + name, 1)[0]
     return subprocess.run([sys.executable, '-c', source, *[
         json.dumps(value) if isinstance(value, (dict, list)) else str(value)

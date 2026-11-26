@@ -10,10 +10,10 @@ use test_harness::{
 const MAINNET_CPU_LIMIT: u64 = 400_000_000;
 const MAINNET_MEM_LIMIT: u64 = 41_943_040;
 
-/// Ceilings for the six measured paths: 25M CPU (a sixteenth of the mainnet
-/// limit, a quarter of the 100M test-host default budget) and a quarter of the
-/// mainnet memory limit. The heaviest path measures about 9.9M CPU and 5.6M
-/// memory, so a 3x regression fails here.
+/// Ceilings for the six measured paths. The CPU ceiling is 25M (a sixteenth of
+/// the mainnet limit, a quarter of the 100M test-host default budget). The memory
+/// ceiling is a quarter of the mainnet memory limit. The heaviest path measures
+/// about 9.9M CPU and 5.6M memory, so a 3x regression fails here.
 const CPU_CEILING: u64 = MAINNET_CPU_LIMIT / 16;
 const MEM_CEILING: u64 = MAINNET_MEM_LIMIT / 4;
 
@@ -126,7 +126,7 @@ fn budget_withdraw_5_collateral_double_pass() {
     t.borrow(ALICE, "XLM", 50_000.0);
     t.advance_time(86_400);
 
-    // Measured unbounded on purpose: enforcing the default budget here exhausts
+    // Measured unbounded on purpose. Enforcing the default budget here exhausts
     // it inside the test env's own auth recorder, not in protocol code. The
     // bound lives in `dump`'s assertion instead.
     let mut b = t.env.cost_estimate().budget();
@@ -189,7 +189,7 @@ fn budget_swap_collateral_full() {
 
     let steps = build_aggregator_swap(&t, "USDC", "ETH", 200_000_000_000, 10_0000000);
 
-    // Measured unbounded on purpose: enforcing the default budget here exhausts
+    // Measured unbounded on purpose. Enforcing the default budget here exhausts
     // it inside the test env's own auth recorder, not in protocol code. The
     // bound lives in `dump`'s assertion instead.
     let mut b = t.env.cost_estimate().budget();

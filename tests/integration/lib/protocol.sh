@@ -119,9 +119,9 @@ deploy_protocol() {
 
         inv set_accumulator "$ADMIN" "$CONTROLLER" -- set_accumulator --addr "$ADMIN_ADDR" >/dev/null
         inv set_price_aggregator "$ADMIN" "$CONTROLLER" -- set_price_aggregator --addr "$PRICE_AGGREGATOR" >/dev/null
-        # Reads back the price aggregator: every price the run uses comes from
+        # Reads back the price aggregator. Every price the run uses comes from
         # it. set_swap_aggregator and set_accumulator have no controller
-        # getter; the strategies phase tests the swap path through its effects.
+        # getter. The strategies phase tests the swap path through its effects.
         assert_view_eq_at "$CONTROLLER" wired_price_aggregator "$PRICE_AGGREGATOR" price_aggregator
         save_state WIRED 1
     fi
@@ -288,7 +288,7 @@ asset_config_json() {
 }
 
 # Builds the `SpokeAssetArgs` map. Every key the Rust struct declares must be
-# present: the CLI rejects the call outright ("Missing key <k> in map") rather
+# present. The CLI rejects the call outright ("Missing key <k> in map") rather
 # than defaulting, so a field added to common/src/types/controller.rs has to be
 # mirrored here or every add_asset_to_spoke in the suite fails.
 spoke_args() {
@@ -313,14 +313,14 @@ spoke_args() {
     }'
 }
 
-# `SeizeMode::Transfer` as CLI JSON. A unit variant is a JSON string; a data
+# `SeizeMode::Transfer` as CLI JSON. A unit variant is a JSON string. A data
 # variant is {Variant: value}. The quotes make the CLI parse a value instead of
 # coercing a bare word.
 seize_transfer() {
     jq -nc '"Transfer"'
 }
 
-# `Credit(0)` opens a fresh account owned by the liquidator; any other id must
+# `Credit(0)` opens a fresh account owned by the liquidator. Any other id must
 # already exist and satisfy the binding rules in ADR-0019.
 seize_credit() {
     jq -nc --argjson id "${1:-0}" '{Credit: $id}'
@@ -418,13 +418,14 @@ oracle_cfg_reflector() {
     }'
 }
 
-# Prints "min_wad max_wad" for oracle_cfg_reflector's $2 $3: the live
-# Reflector CEX price of `sym` ±PCT percent (default 9: a 900 bps half-width,
+# Prints "min_wad max_wad" for oracle_cfg_reflector's $2 $3. The values are the live
+# Reflector CEX price of `sym` ±PCT percent (default 9, a 900 bps half-width,
 # between MIN_SANITY_BAND_BPS=50 and MAX_SINGLE_SOURCE_SANITY_BAND_BPS=1000).
-# A fixed band goes stale as the price drifts; a price outside the band fails
-# with OracleError::SanityBoundViolated (#223) and every borrow and multiply
-# reverts. Returns non-zero when no live price exists, so the caller does not
-# list a market that its oracle rejects. Reflector CEX prices have 14 decimals.
+# A fixed band goes stale as the price drifts. A price outside the band fails
+# with OracleError::SanityBoundViolated (#223), and every borrow and multiply
+# reverts. The function returns non-zero when no live price exists, so the caller
+# does not list a market that its oracle rejects. Reflector CEX prices have 14
+# decimals.
 reflector_band() {
     local sym="$1" pct="${2:-9}" raw px14
     raw=$(cli_read stellar contract invoke --id "$REFLECTOR_CEX" --source "$ADMIN" "${NET_ARGS[@]}" \
@@ -437,9 +438,10 @@ reflector_band() {
         || { log "reflector_band[$sym]: price $px14 exceeds 16 digits"; return 1; }
 }
 
-# Prints the WAD band `px14` +/-`pct` percent for a 14-decimal price. Appending
-# four zeros scales to WAD without 64-bit shell arithmetic. Refuses a price of
-# more than 16 digits (about 100 USD), where `px14 * (100 + pct)` can overflow.
+# Prints the WAD band `px14` +/-`pct` percent for a 14-decimal price. The function
+# appends four zeros to scale to WAD without 64-bit shell arithmetic. It refuses a
+# price of more than 16 digits (about 100 USD), where `px14 * (100 + pct)` can
+# overflow.
 wad_band_from_px14() {
     local px14="$1" pct="$2"
     [ "${#px14}" -le 16 ] || return 1

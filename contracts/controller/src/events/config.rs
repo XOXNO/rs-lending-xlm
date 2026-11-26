@@ -28,14 +28,14 @@ impl EventSpoke {
     }
 }
 
-/// Spoke configuration created or updated.
+/// Emitted when a spoke configuration is created or updated.
 #[contractevent(topics = ["config", "spoke"])]
 #[derive(Clone, Debug)]
 pub struct UpdateSpokeEvent {
     pub spoke: EventSpoke,
 }
 
-/// Spoke asset configuration created or updated.
+/// Emitted when a spoke asset configuration is created or updated.
 #[contractevent(topics = ["config", "spoke_asset"])]
 #[derive(Clone, Debug)]
 pub struct UpdateSpokeAssetEvent {
@@ -45,7 +45,7 @@ pub struct UpdateSpokeAssetEvent {
     pub hub_id: u32,
 }
 
-/// Spoke asset configuration removed.
+/// Emitted when a spoke asset configuration is removed.
 #[contractevent(topics = ["config", "remove_spoke_asset"])]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct RemoveSpokeAssetEvent {
@@ -54,7 +54,7 @@ pub struct RemoveSpokeAssetEvent {
     pub hub_id: u32,
 }
 
-/// Blend migration source approval changed.
+/// Emitted when a Blend migration source approval changes.
 #[contractevent(topics = ["config", "approve_blend_pool"])]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ApproveBlendPoolEvent {
@@ -62,7 +62,7 @@ pub struct ApproveBlendPoolEvent {
     pub approved: bool,
 }
 
-/// Position manager eligibility changed.
+/// Emitted when position manager eligibility changes.
 #[contractevent(topics = ["config", "position_manager"])]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct UpdatePositionManagerEvent {
@@ -70,28 +70,28 @@ pub struct UpdatePositionManagerEvent {
     pub is_active: bool,
 }
 
-/// Swap aggregator address changed.
+/// Emitted when the swap aggregator address changes.
 #[contractevent(topics = ["config", "swap_aggregator"])]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct UpdateSwapAggregatorEvent {
     pub swap_aggregator: Address,
 }
 
-/// Price aggregator address changed.
+/// Emitted when the price aggregator address changes.
 #[contractevent(topics = ["config", "price_aggregator"])]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct UpdatePriceAggregatorEvent {
     pub price_aggregator: Address,
 }
 
-/// Revenue accumulator address changed.
+/// Emitted when the revenue accumulator address changes.
 #[contractevent(topics = ["config", "accumulator"])]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct UpdateAccumulatorEvent {
     pub accumulator: Address,
 }
 
-/// Per-account supply and borrow position limits changed.
+/// Emitted when the per-account supply and borrow position limits change.
 #[contractevent(topics = ["config", "position_limits"])]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct UpdatePositionLimitsEvent {
@@ -99,14 +99,14 @@ pub struct UpdatePositionLimitsEvent {
     pub max_borrow_positions: u32,
 }
 
-/// Minimum borrow collateral changed, in USD (WAD).
+/// Emitted when the minimum borrow collateral changes. The value is in USD (WAD).
 #[contractevent(topics = ["config", "min_borrow_collateral"])]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct UpdateMinBorrowCollateralEvent {
     pub min_borrow_collateral_usd_wad: i128,
 }
 
-/// Hub created.
+/// Emitted when a hub is created.
 #[contractevent(topics = ["config", "hub"])]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CreateHubEvent {

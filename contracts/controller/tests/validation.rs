@@ -175,7 +175,7 @@ fn test_validate_bulk_position_limits_empty_aggregated_is_noop_at_cap() {
     });
 }
 
-/// GH-16. Governance lowered the limit below the account's count; topping up
+/// GH-16. Governance lowered the limit below the account's count. A top-up of
 /// a held asset opens no slot and passes.
 #[test]
 fn test_validate_bulk_position_limits_topup_over_cap_passes() {

@@ -88,7 +88,7 @@ fn audit_borrow_withdraw_liquidate_stale_anchor_blends_5pct_skew_into_ltv() {
         exploit.borrow
     );
 
-    // Pin the reason: an unrelated fixture break that reverts for any other
+    // Pin the reason. An unrelated fixture break that reverts for any other
     // cause would otherwise "prove" the stale anchor enabled the borrow.
     assert_contract_error(control.borrow, errors::INSUFFICIENT_COLLATERAL);
 }

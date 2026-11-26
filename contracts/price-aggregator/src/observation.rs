@@ -1,6 +1,6 @@
 //! Converts raw provider price payloads (Chainlink, RedStone, Reflector) into normalized,
-//! WAD-scaled observations, rejecting prices timestamped in the future or that
-//! fail decimal normalization.
+//! WAD-scaled observations. Rejects prices timestamped in the future and prices that fail
+//! decimal normalization.
 
 use common::oracle::observation::{
     is_future_at, millis_to_seconds, try_normalize_positive_price, try_u256_to_i128,
@@ -11,11 +11,10 @@ use common::oracle::providers::reflector::ReflectorPriceData;
 /// A normalized price observation: a WAD-scaled price and the timestamps, in
 /// seconds, of the oldest and the newest sample it uses.
 ///
-/// `timestamp` is the oldest sample; the staleness checks and the reported
-/// price timestamp use it. `newest_timestamp` is the newest sample; the
-/// two-leg age-spread check uses it. A one-sample observation carries the
-/// same value in both. A composite observation carries the minimum of each
-/// over its inputs.
+/// `timestamp` is the oldest sample. The staleness checks and the reported price
+/// timestamp use it. `newest_timestamp` is the newest sample. The two-leg age-spread
+/// check uses it. A one-sample observation carries the same value in both. A composite
+/// observation carries the minimum of each over its inputs.
 #[cfg_attr(feature = "certora", allow(dead_code))]
 #[derive(Clone, Debug)]
 pub(crate) struct OracleObservation {

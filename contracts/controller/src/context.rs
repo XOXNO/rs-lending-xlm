@@ -1,6 +1,4 @@
-//! Invocation-local market data, spoke usage, and ordered position-event deltas.
-//! Reuse cached values within a flow; persist usage and drain events explicitly.
-//! Certora replaces bulk index fetching through `spec_hooks.rs`.
+//! Reuse cached values within a flow. Persist usage and drain events explicitly.
 
 use common::collections::{collect_uncached_keys, unique_hub_tokens};
 use common::errors::{GenericError, OracleError, SpokeError};
@@ -73,7 +71,7 @@ impl Context {
         self.fetch_market_indexes(hub_assets);
     }
 
-    /// Requires an active hub, caching successful checks for this invocation.
+    /// Requires an active hub. Caches successful checks for this invocation.
     pub(crate) fn require_hub_active(&mut self, hub_id: u32) {
         if self.verified_hubs.contains_key(hub_id) {
             return;
@@ -82,15 +80,15 @@ impl Context {
         self.verified_hubs.set(hub_id, true);
     }
 
-    /// Returns the pool address, loading it from storage on first access.
+    /// Returns the pool address. Loads it from storage on first access.
     pub(crate) fn cached_pool_address(&mut self) -> Address {
         self.pool_address
             .get_or_insert_with(|| storage::get_pool(&self.env))
             .clone()
     }
 
-    /// Returns stored pool parameters and state, fetching once per hub asset.
-    /// Does not accrue interest or refresh a cached snapshot.
+    /// Returns stored pool parameters and state. Fetches them once per hub asset. Does not accrue
+    /// interest or refresh a cached snapshot.
     pub(crate) fn cached_pool_sync_data(&mut self, hub_asset: &HubAssetKey) -> PoolSyncData {
         if let Some(data) = self.pool_sync_data.get(hub_asset.clone()) {
             return data;
@@ -106,7 +104,7 @@ impl Context {
         self.market_indexes.set(hub_asset.clone(), index.clone());
     }
 
-    /// Fetches missing simulated indexes in one pool call; retains cached indexes.
+    /// Fetches missing simulated indexes in one pool call. Retains cached indexes.
     #[cfg(not(feature = "certora"))]
     pub(crate) fn fetch_market_indexes(&mut self, hub_assets: &Vec<HubAssetKey>) {
         let missing = collect_uncached_keys(&self.env, hub_assets, &self.market_indexes);
@@ -138,7 +136,7 @@ impl Context {
         self.token_prices = prices;
     }
 
-    /// Fetches missing prices in one aggregator call; retains cached prices.
+    /// Fetches missing prices in one aggregator call. Retains cached prices.
     pub(crate) fn fetch_prices(&mut self, assets: &Vec<Address>) {
         let missing = collect_uncached_keys(&self.env, assets, &self.token_prices);
         if missing.is_empty() {
@@ -150,7 +148,7 @@ impl Context {
         }
     }
 
-    /// Returns a previously loaded price; fails if the cache has no entry.
+    /// Returns a previously loaded price. Fails if the cache has no entry.
     pub(crate) fn cached_price(&mut self, asset: &Address) -> PriceFeed {
         let raw = self
             .token_prices
@@ -159,7 +157,7 @@ impl Context {
         (&raw).into()
     }
 
-    /// Binds usage to one spoke; rejects another spoke until the context is reset.
+    /// Binds usage to one spoke. Rejects another spoke until the context is reset.
     fn ensure_spoke_context(&mut self, spoke_id: u32) {
         if let Some(ctx) = &self.spoke_usage {
             assert_with_error!(
@@ -180,7 +178,7 @@ impl Context {
         self.spoke_assets = Map::new(&self.env);
     }
 
-    /// Loads usage for this spoke; rejects a different already-loaded spoke.
+    /// Loads usage for this spoke. Rejects a different, already-loaded spoke.
     fn require_spoke_usage_context(&mut self, spoke_id: u32) -> &mut SpokeUsageContext {
         self.ensure_spoke_context(spoke_id);
         self.spoke_usage
@@ -188,7 +186,7 @@ impl Context {
             .unwrap_or_else(|| panic_with_error!(&self.env, GenericError::InternalError))
     }
 
-    /// Returns the listed spoke asset config, caching successful reads only.
+    /// Returns the listed spoke asset config. Caches successful reads only.
     pub(crate) fn cached_spoke_asset(
         &mut self,
         spoke_id: u32,
@@ -203,7 +201,7 @@ impl Context {
         Some(loaded)
     }
 
-    /// Returns risk parameters for a listed asset; fails if it is unlisted.
+    /// Returns risk parameters for a listed asset. Fails if the asset is unlisted.
     pub(crate) fn require_spoke_asset(
         &mut self,
         spoke_id: u32,
@@ -214,7 +212,7 @@ impl Context {
         (&asset).into()
     }
 
-    /// Returns the full listed asset config; fails if it is unlisted.
+    /// Returns the full listed asset config. Fails if the asset is unlisted.
     pub(crate) fn require_spoke_asset_config(
         &mut self,
         spoke_id: u32,
@@ -224,7 +222,7 @@ impl Context {
             .unwrap_or_else(|| panic_with_error!(&self.env, SpokeError::AssetNotInSpoke))
     }
 
-    /// Returns listed risk parameters after rejecting a deprecated spoke.
+    /// Returns listed risk parameters. Rejects a deprecated spoke.
     pub(crate) fn require_listed_active_config(
         &mut self,
         spoke_id: u32,
@@ -242,7 +240,7 @@ impl Context {
             .clone()
     }
 
-    /// Returns the spoke config, rejecting deprecated spokes.
+    /// Returns the spoke config. Rejects deprecated spokes.
     pub(crate) fn active_spoke(&mut self, spoke_id: u32) -> SpokeConfig {
         let spoke = self.spoke_config(spoke_id);
         assert_with_error!(&self.env, !spoke.is_deprecated, SpokeError::SpokeDeprecated);
@@ -272,7 +270,7 @@ impl Context {
         );
     }
 
-    /// Buffers a scaled usage decrease; missing usage is a no-op, underflow fails.
+    /// Buffers a scaled usage decrease. Missing usage is a no-op, and underflow fails.
     pub(crate) fn apply_spoke_exit(
         &mut self,
         spoke_id: u32,
@@ -284,14 +282,14 @@ impl Context {
             .apply_exit(side, hub_asset, delta_scaled);
     }
 
-    /// Writes cached spoke usage without clearing it; no-op if none is loaded.
+    /// Writes cached spoke usage without clearing it. It is a no-op if no usage is loaded.
     pub(crate) fn persist_spoke_usage(&self) {
         if let Some(ctx) = &self.spoke_usage {
             ctx.persist();
         }
     }
 
-    /// Appends a supply delta for the next position batch, preserving insertion order.
+    /// Appends a supply delta for the next position batch and preserves insertion order.
     pub(crate) fn record_supply_position_update(
         &mut self,
         action: PositionAction,
@@ -310,7 +308,7 @@ impl Context {
         ));
     }
 
-    /// Appends a debt delta for the next position batch, preserving insertion order.
+    /// Appends a debt delta for the next position batch and preserves insertion order.
     pub(crate) fn record_debt_position_update(
         &mut self,
         action: PositionAction,

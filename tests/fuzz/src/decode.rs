@@ -31,7 +31,7 @@ fn splitmix64(mut x: u64) -> u64 {
     x ^ (x >> 31)
 }
 
-/// Maps fuzzer entropy to an integer in `[lo, hi]`, favouring the bounds, `hi - 1`,
+/// Maps fuzzer entropy to an integer in `[lo, hi]` and favours the bounds, `hi - 1`,
 /// powers of ten, and log-uniform magnitudes.
 ///
 /// A linear mapping over a 128-bit span almost never lands on a bit-width or a bound,

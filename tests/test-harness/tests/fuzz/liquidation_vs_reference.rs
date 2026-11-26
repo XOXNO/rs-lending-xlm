@@ -234,7 +234,7 @@ proptest! {
         // Inclusive, so a full (100%) repayment is generated. The reference
         // clamps the payment to the outstanding debt.
         liq_repay_frac_bps in 500u16..=10_000u16,
-        // Both seize modes share one planner and one reference model: the mode
+        // Both seize modes share one planner and one reference model. The mode
         // decides only how the liquidator takes delivery, never what the
         // liquidated account gives up.
         use_credit in any::<bool>(),

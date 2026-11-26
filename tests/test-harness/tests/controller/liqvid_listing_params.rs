@@ -5,7 +5,7 @@
 //! [0.849, 1.03] x the reference NAV with a 93,600 s staleness budget. The
 //! share sits behind the Asterizm gate (`RwaGatedToken`) and borrows USDC.
 //!
-//! Tests prefixed `lqv_params_`.
+//! The tests use the prefix `lqv_params_`.
 
 use common::types::{AssetOracle, HubAssetKey, PriceKey, PriceSource, SeizeMode};
 use controller::constants::{RAY, WAD};
@@ -403,7 +403,7 @@ fn effective_bonus_bps(shares: i128, nav_wad: i128, paid_raw: i128) -> i128 {
 }
 
 /// The listing's band and staleness pass oracle admission at their on-chain
-/// caps; a band past the 10% single-source width and a budget past 26 hours
+/// caps. A band past the 10% single-source width and a budget past 26 hours
 /// are refused. The supply cap holds at most $1M of shares at the ceiling.
 #[test]
 fn lqv_params_listing_oracle_config_sits_inside_the_on_chain_caps() {
@@ -528,7 +528,7 @@ fn lqv_params_bonus_at_hf_099_095_090_stays_in_the_target_range() {
 }
 
 /// Every NAV step from the HF-1 trigger down to the band floor liquidates a
-/// max-LTV account; one step past either band edge fails closed for
+/// max-LTV account. One step past either band edge fails closed for
 /// liquidation and borrowing, and the edges themselves price.
 #[test]
 fn lqv_params_nav_sweep_liquidates_inside_the_band_and_fails_closed_outside() {
@@ -578,7 +578,7 @@ fn lqv_params_nav_sweep_liquidates_inside_the_band_and_fails_closed_outside() {
         .expect("the band ceiling itself prices");
 }
 
-/// A NAV signed up to 26 hours ago still prices; one second more fails closed.
+/// A NAV signed up to 26 hours ago still prices. One second more fails closed.
 #[test]
 fn lqv_params_nav_prices_until_the_26_hour_staleness_budget() {
     let mut p = setup(100);
@@ -604,7 +604,7 @@ fn lqv_params_nav_prices_until_the_26_hour_staleness_budget() {
 
 /// At $1 per share the $5 minimum LTV collateral keeps accounts below 10
 /// shares debt-free, so 1-5 share accounts never reach liquidation. The
-/// smallest borrower, 10 shares with $5 of debt, closes in full: the residue
+/// smallest borrower, 10 shares with $5 of debt, closes in full. The residue
 /// would sit below $5, and the seizure rounds up to whole shares.
 #[test]
 fn lqv_params_one_dollar_accounts_below_ten_shares_cannot_borrow() {
@@ -637,9 +637,9 @@ fn lqv_params_one_dollar_accounts_below_ten_shares_cannot_borrow() {
     assert_eq!(p.units(id), 10 - shares);
 }
 
-/// At $1,000 per share, a 1-share account cannot borrow, and each 2-5 share
+/// At $1,000 per share, a 1-share account cannot borrow. Each 2-5 share
 /// account at max LTV sells exactly one share at `NAV / (1 + bonus)` just
-/// past the HF-1 trigger and at the band floor, and ends above HF 1.
+/// past the HF-1 trigger and at the band floor. It ends above HF 1.
 #[test]
 fn lqv_params_two_to_five_thousand_dollar_shares_sell_one_share_inside_the_band() {
     let mut p = setup(100_000);
@@ -698,9 +698,9 @@ fn loss_cents(shares: i128, nav_wad: i128, paid_raw: i128) -> i128 {
     (loss_raw + USDC_UNIT / 200) / (USDC_UNIT / 100)
 }
 
-/// 1,000 shares opened at max LTV. One jump to the band floor liquidates to
-/// HF 1.06 and costs the borrower $16.75 when it borrowed at $1, $18.37 at
-/// $1.015 and $20.07 at the $1.03 ceiling. A path of 1% NAV steps from $1
+/// An account opened at max LTV holds 1,000 shares. One jump to the band floor
+/// liquidates to HF 1.06 and costs the borrower $16.75 when it borrowed at $1,
+/// $18.37 at $1.015, and $20.07 at the $1.03 ceiling. A path of 1% NAV steps from $1
 /// liquidates at 0.94 and 0.88 only, costs $8.76 in total, and leaves HF 1.022
 /// at the floor.
 #[test]

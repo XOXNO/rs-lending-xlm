@@ -798,7 +798,7 @@ impl MockCurator {
 const REGISTRAR: u32 = 7;
 
 /// Governance with a guardian who is not the owner and a curator contract that
-/// holds `CURATOR_ROLE`. Returns the governance client, the guardian and the
+/// holds `CURATOR_ROLE`. Returns the governance client, the guardian, and the
 /// curator client.
 fn governance_with_curator(env: &Env) -> (GovernanceClient<'_>, Address, MockCuratorClient<'_>) {
     env.mock_all_auths();

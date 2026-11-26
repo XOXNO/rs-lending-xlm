@@ -259,7 +259,7 @@ fn pow10(exp: u32) -> BigInt {
     big(10).pow(exp)
 }
 
-/// The four `mul_div` primitives, `mul_ratio_ceil`, `div_floor_saturating`
+/// The four `mul_div` functions, `mul_ratio_ceil`, `div_floor_saturating`,
 /// and `flash_loan_fee_on` against an exact quotient. Operands reach past
 /// `i128::MAX` in the product, so the `I256` fallback is on the path.
 fn directed_rounding(env: &Env, i: &In) {
@@ -332,7 +332,7 @@ fn directed_rounding(env: &Env, i: &In) {
     );
 }
 
-/// Exact mirrors of `position_value*`, `resolve_repay`, `resolve_withdrawal`
+/// Exact mirrors of `position_value*`, `resolve_repay`, `resolve_withdrawal`,
 /// and `resolve_net_settle`, stage by stage in `BigInt`, plus the bracket
 /// `floor <= exact <= ceil` that the directed rounding must respect.
 fn rational_differential(env: &Env, i: &In) {
@@ -399,7 +399,7 @@ fn rational_differential(env: &Env, i: &In) {
         "half-up outside [floor, ceil]"
     );
 
-    // Token-unit conversions: amounts are exact in ray for decimals <= 27.
+    // Token-unit conversions. Amounts are exact in ray for decimals <= 27.
     let unit = pow10(27 - decimals);
     let exact_supply = ratio(big(scaled) * big(index), &ray * &unit);
     let supply_floor = floor_i128(&exact_supply).expect("supply fits");

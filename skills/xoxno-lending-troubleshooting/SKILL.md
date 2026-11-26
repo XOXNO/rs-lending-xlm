@@ -1,6 +1,6 @@
 ---
 name: xoxno-lending-troubleshooting
-description: 'Use when an XOXNO Lending call fails — Error(Contract, #NNN), a simulation or transaction reverts, authorization fails, submission returns a lifecycle status, an archived entry needs restoration, or an integration must be reproduced locally or on testnet.'
+description: 'Use when an XOXNO Lending call fails: Error(Contract, #NNN), a simulation or transaction reverts, authorization fails, submission returns a lifecycle status, an archived entry needs restoration, or an integration must be reproduced locally or on testnet.'
 user-invocable: true
 argument-hint: "[error string, hash, or test setup]"
 ---
@@ -9,21 +9,24 @@ argument-hint: "[error string, hash, or test setup]"
 
 ## Decision tree
 
-1. **Simulation contract error:** capture all diagnostic events;
+Match your situation to one of these cases:
+
+1. **Simulation contract error:** capture all diagnostic events. Then
    [identify the panicking contract](#identify-the-panicking-contract-first)
    before mapping the code.
-2. **Archived footprint entries:** [Archived entries](#archived-entries).
-3. **Simulation succeeded:** sign that exact prepared envelope; do not rebuild.
-4. **Submission status, or `getTransaction` `NOT_FOUND`:**
+2. **Archived footprint entries:** see [Archived entries](#archived-entries).
+3. **Simulation succeeded:** sign that exact prepared envelope. Do not rebuild
+   it.
+4. **Submission status, or `getTransaction` `NOT_FOUND`:** follow the
    [submission lifecycle](#submission-lifecycle).
-5. **Confirmed `FAILED`:** decode diagnostics, pairing code with panicking
-   contract.
-6. **Confirmed `SUCCESS`:** decode the return; reconcile events with state.
+5. **Confirmed `FAILED`:** decode the diagnostics. Pair the code with the
+   panicking contract.
+6. **Confirmed `SUCCESS`:** decode the return. Reconcile events with state.
 
-Catalogs: [errors](https://github.com/XOXNO/rs-lending-xlm/blob/main/docs/reference/errors.md)
-(variants and conditions) and
-[events](https://github.com/XOXNO/rs-lending-xlm/blob/main/docs/reference/events.md)
-(topics, payloads, units, ordering).
+The [errors reference](https://github.com/XOXNO/rs-lending-xlm/blob/main/docs/reference/errors.md)
+lists variants and conditions. The
+[events reference](https://github.com/XOXNO/rs-lending-xlm/blob/main/docs/reference/events.md)
+lists topics, payloads, units, and ordering.
 
 ## Identify the panicking contract first
 
@@ -31,19 +34,21 @@ Catalogs: [errors](https://github.com/XOXNO/rs-lending-xlm/blob/main/docs/refere
 traverse controller, pool, price aggregator, oracle, token, position NFT,
 router, and DEX contracts, whose codes overlap.
 
+Follow these steps:
+
 1. Extract only `Error(Contract, #N)`.
 2. Find the code and emitting address in the same diagnostic event.
-3. Trace handled and propagated errors: a caught nested error can precede the
-   final failure. Never pair the code with the first error event or an
+3. Trace handled and propagated errors, because a caught nested error can
+   precede the final failure. Never pair the code with the first error event or an
    adjacent log.
 4. Match that address against the deployment manifest and invoked contracts.
 5. Only then map `N` with the error reference.
 
-Do not keep a "non-user/collision" set containing controller #101 or #114:
-`HealthFactorTooHigh` #101 is legitimate when a liquidation target has no
-debt or is no longer liquidatable; `CannotCleanBadDebt` #114 when
+Do not keep a "non-user or collision" set that contains controller #101 or
+#114. `HealthFactorTooHigh` #101 is legitimate when a liquidation target has no
+debt or is no longer liquidatable. `CannotCleanBadDebt` #114 is legitimate when
 `clean_bad_debt` finds debt not above collateral or collateral above the dust
-cap. Either can also collide with another contract's code.
+cap. Either code can also collide with another contract's code.
 
 Host errors (`Error(Auth, ...)`, `Error(Storage, ...)`, budget errors, Wasm
 traps) are not lending contract codes.
@@ -81,7 +86,7 @@ export async function inspectSimulation(
 }
 ```
 
-Keep the original simulation and diagnostic records; humanized events are for
+Keep the original simulation and diagnostic records. Humanized events are for
 display only. An SDK helper that maps the number without the diagnostic
 contract id gives a hint, never a final diagnosis.
 
@@ -92,63 +97,66 @@ hash, sequence, timebounds, and application idempotency key.
 
 | Observation | Required action |
 |---|---|
-| `ERROR` | Rejected by this RPC. Decode `errorResult` (transaction cause) and `diagnosticEvents` (contract cause); check the original hash before reusing the sequence. |
+| `ERROR` | Rejected by this RPC. Decode `errorResult` (transaction cause) and `diagnosticEvents` (contract cause). Check the original hash before reusing the sequence. |
 | `PENDING` | Poll the original hash. |
-| `DUPLICATE` | Poll the original hash; no replacement, no second success. |
-| `TRY_AGAIN_LATER` | Check the hash, retry the identical envelope; keep the record until resolved. |
-| `getTransaction NOT_FOUND` | Not terminal; keep checking/resubmitting the original while timebounds are valid. |
-| confirmed `FAILED` | Decode result and diagnostics; terminal. |
-| confirmed `SUCCESS` | Verify return, events, post-state; terminal. |
+| `DUPLICATE` | Poll the original hash. Send no replacement. Count no second success. |
+| `TRY_AGAIN_LATER` | Check the hash. Retry the identical envelope. Keep the record until resolved. |
+| `getTransaction NOT_FOUND` | Not terminal. Keep checking or resubmitting the original while timebounds are valid. |
+| confirmed `FAILED` | Decode result and diagnostics. Terminal. |
+| confirmed `SUCCESS` | Verify return, events, and post-state. Terminal. |
 
-A send status is never success. Check expiry by ledger close time; expiry
+A send status is never success. Check expiry by ledger close time. Expiry
 blocks future inclusion but does not prove non-inclusion. After expiry,
-resolve the hash from retained or complete history and reconcile account and
-token state; while unknown, keep the record and submit no replacement. After
-a resolved failure or proven non-inclusion, fetch sequence, rebuild,
-re-simulate, sign, and persist the replacement before sending.
+resolve the hash from retained or complete history, and reconcile account and
+token state. While the outcome is unknown, keep the record and submit no
+replacement. After a resolved failure or proven non-inclusion, fetch the
+sequence, rebuild, re-simulate, sign, and persist the replacement before you
+send it.
 
-`txBAD_SEQ` usually means another envelope used the sequence; `txTOO_LATE`,
-expired timebounds. Neither justifies forgetting a still-live signed envelope.
+`txBAD_SEQ` usually means another envelope used the sequence. `txTOO_LATE`
+means expired timebounds. Neither justifies forgetting a still-live signed envelope.
 
 ## Archived entries
 
 **On protocol 23 and later, simulate the invocation, assemble it with the
-simulation result, and submit it; archived footprint entries are restored
-inline and the submitter pays restoration rent.** Do not turn every
+simulation result, and submit it. The transaction restores archived footprint entries
+inline, and the submitter pays restoration rent.** Do not turn every
 simulation restore response into a separate restore transaction.
 
-A separate `restoreFootprint` is only for a hand-built footprint submitted
-without simulation/assembly: confirm the restore, then re-simulate. For
-dormant accounts the archived entry is often the position NFT owner record;
-permissionless NFT `renew(token_id)` extends it proactively.
+Use a separate `restoreFootprint` only for a hand-built footprint submitted
+without simulation or assembly. Confirm the restore, then re-simulate. For
+dormant accounts, the archived entry is often the position NFT owner record.
+The permissionless NFT `renew(token_id)` extends it proactively.
 
 ## Authorization ordering in calling contracts
 
 A direct-invoking contract satisfies the controller's `caller.require_auth()`,
 but nested pulls like `token.transfer(caller, pool, amount)` need exact
-authorization. Do all views, balance and config reads first, then
-`authorize_as_current_contract` for the exact transfer and invoke the
+authorization. Do all views and balance and config reads first. Then
+call `authorize_as_current_contract` for the exact transfer. Invoke the
 controller immediately. An outbound call in between can consume the "next
 invocation" authorization and produce `Error(Auth, InvalidAction)`.
 
 Contract liquidators must not repeat a token address across hub-specific debt
-legs; see [unique debt-token addresses](../xoxno-lending-liquidations/SKILL.md#unique-debt-token-addresses-for-contract-liquidators).
+legs. See [unique debt-token addresses](../xoxno-lending-liquidations/SKILL.md#unique-debt-token-addresses-for-contract-liquidators).
 
 ## Common operational interpretations
 
-- `SpokeNotFound`: take controller address and on-chain spoke id (not the
-  config key) from the same network manifest; never spoke 0.
+Apply these interpretations:
+
+- `SpokeNotFound`: take the controller address and the on-chain spoke id, not
+  the config key, from the same network manifest. Never use spoke 0.
 - `SpokeMismatch`: keep every leg in the account's stored spoke.
-- Pause/freeze/no-seize: read the spoke-asset configuration against the
+- Pause, freeze, and no-seize: read the spoke-asset configuration against the
   [listing-flag table](../xoxno-lending-liquidations/SKILL.md#listing-flags).
-- Router slippage or venue errors: identify the emitting contract, re-quote,
-  rebuild route XDR, re-simulate the composed call.
+- Router slippage or venue errors: identify the emitting contract. Re-quote.
+  Rebuild the route XDR. Re-simulate the composed call.
 - `InvalidPayments`: check the endpoint's rules for empty lists, length,
   duplicate assets, same-token legs, and swap-route shape.
 - `expected a Transaction, got [object Object]`: rebuild the XDR with the same
   `@stellar/stellar-sdk` instance as the RPC server.
-- Budget/storage failure after clean simulation: stale state or resources;
-  re-simulate immediately before signing.
+- Budget or storage failure after a clean simulation: the cause is stale state
+  or resources. Re-simulate immediately before signing.
 
 ## Reproduction and completion
 
@@ -158,20 +166,20 @@ Use the narrowest harness target:
 make test-match PATTERN=<substring>
 ```
 
-`PATTERN=` is required; `MATCH=` is not recognised, and an empty `PATTERN`
+`PATTERN=` is required. `MATCH=` is not recognised, and an empty `PATTERN`
 exits with status 2.
 
-Testnet: controller and pool addresses and on-chain hub and spoke ids from [`configs/networks.json`](https://github.com/XOXNO/rs-lending-xlm/blob/main/configs/networks.json),
-asset addresses from
+For testnet, take the controller and pool addresses and the on-chain hub and spoke ids from [`configs/networks.json`](https://github.com/XOXNO/rs-lending-xlm/blob/main/configs/networks.json).
+Take asset addresses from
 [`configs/testnet/markets.json`](https://github.com/XOXNO/rs-lending-xlm/blob/main/configs/testnet/markets.json) or
-[addresses](../xoxno-lending/addresses.md). Asset identity is contract
-address plus hub and spoke, never a display-symbol or search hit.
+[addresses](../xoxno-lending/addresses.md). Asset identity is the contract
+address plus the hub and spoke, never a display symbol or search hit.
 
-Completion checks:
+Before you finish, confirm each check:
 
-- [ ] Final write was simulated with the same operations that were signed.
-- [ ] Error number was mapped only after identifying the panicking contract.
-- [ ] Original signed envelope/hash was persisted until its outcome was resolved.
-- [ ] Success was confirmed for the original hash, not inferred from send.
-- [ ] Expected events were reconciled with post-transaction state.
-- [ ] Event/indexer cursor and application idempotency state were persisted.
+- [ ] You simulated the final write with the same operations that you signed.
+- [ ] You mapped the error number only after you identified the panicking contract.
+- [ ] You persisted the original signed envelope and hash until you resolved its outcome.
+- [ ] You confirmed success for the original hash and did not infer it from the send.
+- [ ] You reconciled expected events with post-transaction state.
+- [ ] You persisted the event or indexer cursor and the application idempotency state.

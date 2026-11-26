@@ -161,8 +161,8 @@ fn median_even_count_with_odd_gap_rounds_toward_lower_middle() {
 }
 
 /// A submission whose peers have aged out cannot reach threshold, so it cannot
-/// price the feed. The earlier quorum's aggregate is kept -- unchanged package
-/// timestamp proves no write occurred -- and fails closed on age instead.
+/// price the feed. The earlier quorum's aggregate is kept, and its unchanged
+/// package timestamp proves no write occurred. The read fails closed on age instead.
 #[test]
 fn stale_submission_excluded_from_aggregate() {
     let env = Env::default();
@@ -204,7 +204,7 @@ fn stale_submission_excluded_from_aggregate() {
     );
 }
 
-/// Two signers price the feed; a third submits alone 22 minutes later, when both
+/// Two signers price the feed. A third submits alone 22 minutes later, when both
 /// earlier submissions are past the 900 s window. The lone submission misses
 /// threshold, and the pair's aggregate stays in place.
 #[test]

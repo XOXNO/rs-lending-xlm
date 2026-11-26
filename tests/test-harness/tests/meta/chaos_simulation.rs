@@ -217,7 +217,7 @@ fn test_chaos_bank_run_full_exit() {
 
     // `pool_reserves` reads the pool cash, which the builder seeds with
     // `initial_liquidity`. After every supplier exits, the cash still covers
-    // that seed; the rest is unclaimed protocol revenue.
+    // that seed. The rest is unclaimed protocol revenue.
     let usdc_reserves = t.pool_reserves("USDC");
     let eth_reserves = t.pool_reserves("ETH");
     assert!(

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Offline policy/decimal assertions; no network or signing keys required."""
+"""Offline policy and decimal assertions. No network or signing keys are required."""
 import hashlib
 import json
 import shutil
@@ -29,7 +29,7 @@ class ProductionPolicyChecks(unittest.TestCase):
             # Band midpoint (1.1) differs from the coin-derived price (1.0).
             lp['oracle'].update(asset_decimals=18, min_sanity_price_wad=str(9 * 10**17), max_sanity_price_wad=str(13 * 10**17), sources=[{'CurveStableLp': {'pool': pool, 'coins': coins,
                 'wasm_hash': hashes[2].upper(), 'min_pool_value_wad': '1000000000000000000000000'}}])
-            # Listed first as 18-decimal collateral: decimal_cases must still skip it.
+            # Listed first as 18-decimal collateral. decimal_cases must still skip it.
             markets['markets'].insert(0, lp)
             spokes['1']['assets'] = {'CurveLP': dict(spokes['1']['assets']['USDC'], can_be_borrowed=False,
                 borrow_cap='0', supply_cap=str(10**30)), **spokes['1']['assets']}
@@ -76,7 +76,8 @@ class ProductionPolicyChecks(unittest.TestCase):
             (out / 'fixtures.json').write_text(json.dumps(imbalanced))
             with self.assertRaisesRegex(AssertionError, 'balanced deposit'):
                 fixture_price(out, key)
-            # Shell side: the pool deploys over the mapped coins and is seeded with the fixture amounts.
+            # On the shell side, the pool deploys over the mapped coins and is seeded with the
+            # fixture amounts.
             body = r'''
 set -uo pipefail
 source "$1"
@@ -398,7 +399,7 @@ flow_production_operator
                 self.assertNotEqual(check(invocation,'c'*64).returncode,0)
                 self.assertNotEqual(check(dict(invocation,contract_address='ATTACKER')).returncode,0)
                 self.assertNotEqual(check(dict(invocation,function_name='unpause')).returncode,0)
-            # The execute entrypoints take no executor: a receipt with the
+            # The execute entrypoints take no executor. A receipt with the
             # removed leading argument is not a current-form execution.
             self.assertNotEqual(check(dict(execution,args=['void',*execution['args']])).returncode,0)
 

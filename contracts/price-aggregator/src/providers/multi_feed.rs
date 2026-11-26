@@ -1,7 +1,7 @@
-//! Reads RedStone-format price data from a multi-feed contract, caching each
-//! feed lookup for the duration of the session. Outside the `certora` build,
-//! also exposes a bulk-read helper for fetching several feed IDs from one
-//! contract in a single call.
+//! Reads RedStone-format price data from a multi-feed contract. The module caches each
+//! feed lookup for the duration of the session. Outside the `certora` build, it also
+//! exposes a bulk-read helper that fetches several feed IDs from one contract in a single
+//! call.
 
 #[cfg(not(feature = "certora"))]
 use common::oracle::providers::redstone::RedStonePriceFeedClient;
@@ -51,9 +51,9 @@ pub(crate) fn read_multi_feed_source_impl(
     OracleObservation::from_multi_feed(now_secs, &price_data, decimals)
 }
 
-/// Returns `feed_id`'s price data for `contract`, taking it from the
-/// session cache if already present, otherwise reading it uncached from the
-/// contract and storing it in the session cache before returning it.
+/// Returns `feed_id`'s price data for `contract`. Takes the data from the session cache
+/// if present. Otherwise reads it uncached from the contract and stores it in the session
+/// cache.
 fn read_price_data(
     session: &mut Session,
     contract: &Address,

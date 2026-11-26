@@ -9,8 +9,8 @@ use crate::risk::AccountRiskTotals;
 use crate::spoke_usage::UsageSide;
 use crate::storage::{iter_debt_positions, iter_typed_positions};
 
-/// Seizes remaining positions and releases spoke usage. Emits pre-cleanup WAD
-/// USD totals, then removes the account and burns its NFT; emits no position deltas.
+/// Seizes remaining positions and releases spoke usage. Emits pre-cleanup WAD USD totals, then
+/// removes the account and burns its NFT. Emits no position deltas.
 pub(crate) fn execute_bad_debt_cleanup(
     env: &Env,
     cache: &mut Context,

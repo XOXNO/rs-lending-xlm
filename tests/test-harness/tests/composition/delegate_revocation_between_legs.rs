@@ -1,5 +1,5 @@
 //! GH-12. A delegate contract keeps only the permissionless verbs after the
-//! owner removes it, and loses the owner-gated verbs the moment governance
+//! owner removes it. It loses the owner-gated verbs the moment governance
 //! deactivates it as a position manager, even while the stored grant lists it.
 
 use crate::helpers::{borrow_op, repay_op, withdraw_op};

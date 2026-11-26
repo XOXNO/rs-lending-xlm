@@ -103,7 +103,7 @@ fn test_extreme_high_target_hf_curve() {
     let (si_before, _) = get_indexes(&t, "USD");
     t.liquidate(LIQUIDATOR, ALICE, "USD", 6_000.0);
     // The `is_none()` disjunct is satisfied by any full close, including one
-    // that produced bad debt; exclude that case unconditionally.
+    // that produced bad debt. Exclude that case unconditionally.
     let (si_after, _) = get_indexes(&t, "USD");
     assert_eq!(
         si_after, si_before,
@@ -558,7 +558,7 @@ fn debt_leg(t: &LendingTest, account_id: u64, name: &str, decimals: u32) -> (i12
 
 /// Two 3-decimal debt legs at $1 per unit whose ceiling-rounded balances
 /// together exceed the account's debt by at least one unit. A full close keeps
-/// each offer at its leg's ceiling without trimming: the estimate refunds only
+/// each offer at its leg's ceiling without trimming. The estimate refunds only
 /// the offer above each ceiling, and execution pulls the offers and nets
 /// exactly that. The seizure is credited only the debt cleared, so the
 /// ceiling units buy no collateral.
@@ -695,7 +695,7 @@ fn test_full_close_of_ceiling_rounded_legs_credits_the_debt_cleared() {
     );
 }
 
-/// 1 000 COL against a $90 CHEAP debt and two EXP units at $10 each; the
+/// 1 000 COL against a $90 CHEAP debt and two EXP units at $10 each. The
 /// collateral is then priced at `col_price_wad`.
 fn insolvent_book_with_a_ten_dollar_unit(col_price_wad: i128) -> (LendingTest, u64) {
     let mut t = LendingTest::new()
@@ -715,7 +715,7 @@ fn insolvent_book_with_a_ten_dollar_unit(col_price_wad: i128) -> (LendingTest, u
 
 /// $100 of collateral backs $95.24 at the 5% base bonus. Offered $90 of CHEAP
 /// and two $10 EXP units, the trim drops the EXP leg whole instead of keeping
-/// one unit above the backed quote: only CHEAP is pulled.
+/// one unit above the backed quote. Only CHEAP is pulled.
 #[test]
 fn test_insolvent_liquidation_pulls_only_the_leg_that_fits_the_backed_quote() {
     let (mut t, account_id) = insolvent_book_with_a_ten_dollar_unit(usd(1) / 10);
@@ -763,7 +763,7 @@ fn test_insolvent_liquidation_pulls_only_the_leg_that_fits_the_backed_quote() {
     assert_eq!(seized, 945_0000000, "$90 * 1.05 of COL at $0.10");
 }
 
-/// $9 of collateral backs $8.57, less than one $10 EXP unit: the estimate
+/// $9 of collateral backs $8.57, less than one $10 EXP unit. The estimate
 /// keeps no repayment and refunds the whole offer, and execution reverts.
 #[test]
 fn test_insolvent_liquidation_reverts_when_no_debt_unit_fits_the_backed_quote() {

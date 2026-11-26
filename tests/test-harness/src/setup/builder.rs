@@ -109,7 +109,7 @@ impl LendingTestBuilder {
     /// Sets the seeded liquidity of market `name`, in whole tokens.
     ///
     /// Use `0.0` when a test counts supply, utilization or interest from its
-    /// own suppliers only: seeded liquidity carries supply shares.
+    /// own suppliers only. Seeded liquidity carries supply shares.
     pub fn with_market_liquidity(mut self, name: &str, amount: f64) -> Self {
         for pm in &mut self.pending_markets {
             if pm.name == name {
@@ -215,9 +215,9 @@ impl LendingTestBuilder {
         );
         gov.set_price_aggregator(&price_aggregator_address);
 
-        // Production deploys the controller through governance, which becomes its
-        // owner; every owner-gated controller verb is then reached through the
-        // timelock. Mirror that so enforcing-auth tests see the real auth tree.
+        // Production deploys the controller through governance, and governance
+        // becomes its owner. Every owner-gated controller verb then runs through the
+        // timelock. Mirror production so enforcing-auth tests see the real auth tree.
         let controller_address =
             env.register(controller::Controller, (governance_address.clone(),));
         gov.set_controller(&controller_address);
@@ -434,8 +434,8 @@ impl LendingTestBuilder {
                     )
                 });
                 let asset_addr = market.asset.clone();
-                // Cap must track the market's own decimals: a fixed base-unit
-                // value is only meaningful at one scale.
+                // Cap must track the market's own decimals. A fixed base-unit
+                // value is meaningful at only one scale.
                 let cap = unconstrained_test_cap(market.decimals);
                 gov.execute_immediate(
                     &admin,

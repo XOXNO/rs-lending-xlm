@@ -348,7 +348,7 @@ fn test_supply_new_account_rejects_unknown_spoke() {
 }
 
 /// Spoke ids are 1-based, so `0` is the "unset" sentinel and can never name a
-/// listing. On an existing account it surfaces as `SpokeMismatch`; on a new one
+/// listing. On an existing account it surfaces as `SpokeMismatch`. On a new one
 /// there is nothing to mismatch, so the explicit `spoke_id >= 1` guard answers.
 #[test]
 fn test_supply_new_account_rejects_zero_spoke() {

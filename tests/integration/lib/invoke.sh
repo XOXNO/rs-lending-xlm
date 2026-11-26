@@ -105,7 +105,7 @@ run_deploy_body() {
     # the option before constructor args, and reject conflicting explicit limits.
     case "${1:-} ${2:-} ${3:-}" in
         'stellar contract upload'|'stellar contract deploy')
-            # Diagnostic only: historical fee stats cannot prove admission.
+            # Diagnostic only. Historical fee stats cannot prove admission.
             if [ ! -f "$LOG_DIR/deployment-fee-stats.json" ]; then
                 local fee_log
                 fee_log=$(job_log deployment-fee-stats)
@@ -134,7 +134,7 @@ run_deploy_body() {
                 shift
             done
             # Retain unsigned XDR and native simulation fees in each attempt's
-            # stderr: rejected submissions have no getTransaction envelope.
+            # stderr. Rejected submissions have no getTransaction envelope.
             set -- stellar contract "$verb" --filter-logs stellar_cli::assembled=trace \
                 --instruction-leeway "$leeway" "${deployment_args[@]}";;
     esac
@@ -565,7 +565,7 @@ PYDEPLOY
 }
 
 # Verifies that contract `id` runs the candidate `name.wasm`. A fourth argument
-# names another file to verify against: governance runs the short-timelock
+# names another file to verify against. Governance runs the short-timelock
 # fixture, not the candidate.
 verify_candidate_contract() {
     local label="$1" id="$2" name="$3" wasm="${4:-$WASM_DIR/$3.wasm}" proof="$LOG_DIR/$1.contract-id"

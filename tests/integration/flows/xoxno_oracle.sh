@@ -2,9 +2,9 @@
 # tests the admin calls with read-backs, drives threshold-gated median
 # aggregation through real multi-signer submissions, checks the designed
 # reverts (#NN = contracts/xoxno-oracle Error), and upgrades to the same hash
-# with state kept. Self-contained: no controller wiring.
+# with state kept. The flow is self-contained and has no controller wiring.
 
-# Prices fit exactly in jq's integer range; accept CLI numeric/string encoding.
+# Prices fit exactly in jq's integer range. Accept both numeric and string CLI encoding.
 _xo_assert_json() {
     local label="$1" payload="$2"; shift 2
     if ! jq -e "$@" <<<"$payload" >/dev/null; then
@@ -89,7 +89,7 @@ flow_xoxno_oracle() {
     assert_int_view_at_nonneg xo_decimals "$XO" decimals
     view xo_base "$XO" -- base >/dev/null
 
-    # Admin surface with read-backs and the designed rejects.
+    # Admin calls with read-backs and the designed rejects.
     xfail xo_threshold_zero 'Error\(Contract, #3\)' "$ADMIN" "$XO" -- set_threshold --threshold 0
     xfail xo_threshold_over 'Error\(Contract, #3\)' "$ADMIN" "$XO" -- set_threshold --threshold 9
     inv xo_set_threshold "$ADMIN" "$XO" -- set_threshold --threshold 2 >/dev/null
@@ -109,7 +109,7 @@ flow_xoxno_oracle() {
     inv xo_set_sub_age "$ADMIN" "$XO" -- set_max_submission_age_seconds --seconds 900 >/dev/null
     assert_view_eq_at "$XO" xo_sub_age_read 900 max_submission_age_seconds
     # Skew must be above MAX_FUTURE_SKEW_SECONDS (60) and at most the
-    # submission age; both bounds revert #18.
+    # submission age. Both bounds revert #18.
     xfail xo_skew_too_low 'Error\(Contract, #18\)' "$ADMIN" "$XO" -- set_max_relative_skew_seconds --seconds 60
     xfail xo_skew_over_age 'Error\(Contract, #18\)' "$ADMIN" "$XO" -- set_max_relative_skew_seconds --seconds 1000
     inv xo_set_skew "$ADMIN" "$XO" -- set_max_relative_skew_seconds --seconds 120 >/dev/null
@@ -136,7 +136,7 @@ flow_xoxno_oracle() {
     # Zero resolution is a one-second history bucket.
     inv xo_history_resolution "$ADMIN" "$XO" -- set_resolution --resolution 0 >/dev/null || return 1
 
-    # Submission validation chain. Timestamps are milliseconds; anchor a few
+    # Submission validation chain. Timestamps are milliseconds. Anchor a few
     # seconds behind wall clock so ledger-time skew cannot make them future.
     local ts
     ts=$(( ($(date +%s) - 10) * 1000 ))
@@ -152,13 +152,14 @@ flow_xoxno_oracle() {
         --signer "$ALICE_ADDR" --feed_id USDX --price 100000000 \
         --package_timestamp $(( ($(date +%s) + 3600) * 1000 ))
 
-    # One live submission is below the threshold of two: no aggregate yet.
+    # One live submission is below the threshold of two, so there is no
+    # aggregate yet.
     inv xo_submit_alice "$ALICE" "$XO" -- submit_price \
         --signer "$ALICE_ADDR" --feed_id USDX --price 100000000 --package_timestamp "$ts" >/dev/null
     xfail_sim xo_read_below_threshold 'Error\(Contract, #7\)' "$ALICE" "$XO" -- read_price_data_for_feed \
         --feed_id USDX
 
-    # Second signer meets quorum; the aggregate is the median of the cluster.
+    # Second signer meets quorum. The aggregate is the median of the cluster.
     inv xo_submit_bob "$BOB" "$XO" -- submit_price \
         --signer "$BOB_ADDR" --feed_id USDX --price 102000000 --package_timestamp $((ts + 2000)) >/dev/null
     local agg agg2 agg3 hist_before
@@ -177,8 +178,8 @@ flow_xoxno_oracle() {
     xfail xo_submit_backwards 'Error\(Contract, #16\)' "$ALICE" "$XO" -- submit_price \
         --signer "$ALICE_ADDR" --feed_id USDX --price 100000000 --package_timestamp $((ts - 5000))
 
-    # A later invalid price must leave both feeds, history and per-signer
-    # monotonicity unchanged. The valid retry deliberately has an older time.
+    # A later invalid price must leave both feeds, history, and per-signer
+    # monotonicity unchanged. The valid retry has an older time.
     local ts2=$((ts + 6000))
     xfail xo_batch_mismatch 'Error\(Contract, #10\)' "$ALICE" "$XO" -- submit_prices \
         --signer "$ALICE_ADDR" --feed_ids '["USDX","XLMX"]' --prices '["103000000"]' \
@@ -234,7 +235,7 @@ flow_xoxno_oracle() {
     xfail xo_recompute_unknown 'Error\(Contract, #14\)' "$ADMIN" "$XO" -- recompute_feeds \
         --feed_ids '["NOPE"]' || return 1
 
-    # Removal re-aggregates USDX from Bob/Carol but clears XLMX's lost quorum.
+    # Removal re-aggregates USDX from Bob and Carol but clears XLMX's lost quorum.
     _xo_history_settle xo_removal_bucket 1 || return 1
     inv xo_remove_active_alice "$ADMIN" "$XO" -- remove_signer --signer "$ALICE_ADDR" >/dev/null || return 1
     agg=$(view xo_after_removal "$XO" -- read_price_data_for_feed --feed_id USDX) || return 1
