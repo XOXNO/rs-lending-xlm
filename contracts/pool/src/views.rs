@@ -1,7 +1,7 @@
 //! Read-only market queries used by public view entrypoints.
 //!
 //! Views load a [`Cache`] (or raw state for cash) without accrual, so rates,
-//! utilization and amounts use the stored indexes. Each load extends the
+//! utilization, and amounts use the stored indexes. Each load extends the
 //! market TTL. Rate getters return annual RAY APR, not the per-millisecond
 //! rate used by accrual.
 

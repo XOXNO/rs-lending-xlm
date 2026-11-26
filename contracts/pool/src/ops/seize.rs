@@ -1,7 +1,7 @@
 //! Seizes positions during liquidation or bad-debt cleanup.
 //!
 //! - **Borrow side:** socializes unpaid debt onto the supply index and burns the debt.
-//! - **Deposit side:** reclassifies supply shares as protocol revenue; no cash moves.
+//! - **Deposit side:** reclassifies supply shares as protocol revenue. No cash moves.
 
 use common::math::fp::Ray;
 use common::types::{AccountPositionType, MarketStateSnapshot, PoolSeizeEntry};
@@ -11,10 +11,11 @@ use soroban_sdk::Env;
 
 use crate::{interest, ops};
 
-/// Applies one seize entry, syncing the market, socializing bad debt or
-/// reclassifying supply as revenue depending on `entry.side`, and returns the
-/// committed market snapshot. Does not transfer tokens; the controller adjusts
-/// the position books. Panics if `entry.position.scaled_amount` is negative.
+/// Applies one seize entry and returns the committed market snapshot. The
+/// function syncs the market, then socializes bad debt or reclassifies supply
+/// as revenue, depending on `entry.side`. It does not transfer tokens. The
+/// controller adjusts the position books. Panics if `entry.position.scaled_amount`
+/// is negative.
 pub(crate) fn apply(env: &Env, entry: &PoolSeizeEntry) -> MarketStateSnapshot {
     require_nonneg_amount(env, entry.position.scaled_amount);
     let mut cache = ops::synced_market(env, &entry.hub_asset);

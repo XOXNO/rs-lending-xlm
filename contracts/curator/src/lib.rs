@@ -1,6 +1,6 @@
 //! Registrar registry owned by governance, which opens registrars and moves
 //! hubs and spokes through its timelock. This contract is the address that
-//! holds the governance `CURATOR`, `PROPOSER` and `CANCELLER` roles.
+//! holds the governance `CURATOR`, `PROPOSER`, and `CANCELLER` roles.
 
 #![no_std]
 #![allow(clippy::too_many_arguments)]
@@ -13,7 +13,7 @@ mod storage;
 
 use soroban_sdk::{contract, contracterror, contractmeta, contracttype, Address, BytesN};
 
-/// Registers markets, sets cap grants, and queues listings, listing edits and
+/// Registers markets, sets cap grants, and queues listings, listing edits, and
 /// rate changes. Cancels queued operations that name an owned hub or spoke.
 pub const ROLE_MARKET: u32 = 1;
 /// Creates hubs and spokes.

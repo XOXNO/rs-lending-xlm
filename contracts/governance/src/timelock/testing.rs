@@ -1,6 +1,5 @@
 //! Test-only and `testing`-feature-only contract entry point that applies an
-//! admin operation immediately, bypassing the timelock's scheduling and delay
-//! machinery entirely.
+//! admin operation immediately, bypassing the timelock's scheduling and delay.
 
 use common::ttl::renew_instance;
 
@@ -18,12 +17,12 @@ use crate::{Governance, GovernanceArgs, GovernanceClient};
 impl Governance {
     /// Applies `op` immediately without scheduling it through the timelock.
     /// Requires `caller`'s authorization. For `ConfigureAssetOracle` and
-    /// `EditOracleTolerance`, requires `caller` to hold `ORACLE_ROLE`; for every
-    /// other operation, requires `caller` to be the contract owner (panics with
-    /// "Owner not set" if no owner is set, or "not owner" on mismatch). If the
-    /// resolved operation targets this contract, applies it via `apply_self_op`
-    /// and returns `()`; otherwise invokes the resolved target contract directly
-    /// and returns its result.
+    /// `EditOracleTolerance`, requires `caller` to hold `ORACLE_ROLE`. For every
+    /// other operation, requires `caller` to be the contract owner. The call
+    /// panics with "Owner not set" if no owner is set, or with "not owner" on a
+    /// mismatch. If the resolved operation targets this contract, the call
+    /// applies it through `apply_self_op` and returns `()`. Otherwise the call
+    /// invokes the resolved target contract directly and returns its result.
     pub fn execute_immediate(env: Env, caller: Address, op: AdminOperation) -> Val {
         renew_instance(&env);
         caller.require_auth();

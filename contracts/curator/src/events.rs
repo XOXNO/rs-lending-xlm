@@ -1,7 +1,7 @@
 //! One event per registry write, published by the storage setter that makes
 //! the write. Forwarded calls are covered by controller and governance
-//! events; `ProposedEvent` names the registrar behind a queued operation and
-//! `CancelledEvent` the registrar that cancelled one.
+//! events. `ProposedEvent` names the registrar behind a queued operation.
+//! `CancelledEvent` names the registrar that cancelled one.
 
 use soroban_sdk::{contractevent, Address, BytesN};
 
@@ -15,7 +15,7 @@ pub struct RegistrarAdminEvent {
     pub admin: Address,
 }
 
-/// An account's role bits in a registrar; `0` removes the account.
+/// An account's role bits in a registrar. A value of `0` removes the account.
 #[contractevent(topics = ["curator", "roles"])]
 #[derive(Clone, Debug)]
 pub struct RolesEvent {
@@ -31,7 +31,7 @@ pub struct SuspendedEvent {
     pub suspended: bool,
 }
 
-/// Hub ownership; `None` unbinds the hub from every registrar.
+/// Hub ownership. `None` unbinds the hub from every registrar.
 #[contractevent(topics = ["curator", "hub_registrar"])]
 #[derive(Clone, Debug)]
 pub struct HubRegistrarEvent {
@@ -39,7 +39,7 @@ pub struct HubRegistrarEvent {
     pub registrar: Option<u32>,
 }
 
-/// Spoke ownership; `None` unbinds the spoke from every registrar.
+/// Spoke ownership. `None` unbinds the spoke from every registrar.
 #[contractevent(topics = ["curator", "spoke_registrar"])]
 #[derive(Clone, Debug)]
 pub struct SpokeRegistrarEvent {

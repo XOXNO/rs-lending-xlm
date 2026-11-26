@@ -116,7 +116,7 @@ pub(crate) fn create_market(
 
 /// The spoke owner tightens any flag on a listing of its own hub's asset or of
 /// a hub no registrar owns. On a listing of another registrar's hub asset it
-/// may freeze or halt seizure but not pause: a pause blocks repayment and
+/// may freeze or halt seizure but not pause. A pause blocks repayment and
 /// liquidation of that hub's debt, and the hub owner could not lift it. The
 /// owner of the listed hub may only freeze a listing of its asset in another
 /// registrar's spoke.
@@ -258,7 +258,7 @@ pub(crate) fn propose(
 
 /// Cancels a queued operation on behalf of the registrar that now owns the hub
 /// or the spoke it names. Checks made when the operation was queued do not run
-/// again at execution, so this is how a later revocation, reassignment or
+/// again at execution. Cancellation is how a later revocation, reassignment, or
 /// admin change reaches an operation that is still pending.
 pub(crate) fn cancel_proposal(env: &Env, caller: &Address, registrar: u32, op_id: &BytesN<32>) {
     auth::require_role(env, caller, registrar, ROLE_MARKET | ROLE_FLAGS);
@@ -303,7 +303,7 @@ fn require_cap_lowering(env: &Env, args: &SpokeAssetArgs) {
     );
 }
 
-/// Whether a registrar other than `registrar` owns `hub_id`.
+/// Returns whether a registrar other than `registrar` owns `hub_id`.
 fn owned_by_another(env: &Env, hub_id: u32, registrar: u32) -> bool {
     storage::hub_registrar(env, hub_id).is_some_and(|owner| owner != registrar)
 }
@@ -326,10 +326,10 @@ fn assign_spoke(env: &Env, spoke_id: u32, registrar: u32) {
     storage::set_spoke_registrar(env, spoke_id, Some(registrar));
 }
 
-/// Own hub passes. A foreign hub must fit the cap its registrar stored for this
-/// spoke, and a listing of another registrar's hub asset may not gain a pause:
-/// a new listing (`listed` false) must be unpaused, and an edit may carry
-/// `paused` only if it is already set.
+/// A hub that `registrar` owns passes. A foreign hub must fit the cap its
+/// registrar stored for this spoke. A listing of another registrar's hub asset
+/// may not gain a pause. A new listing (`listed` false) must be unpaused. An
+/// edit may carry `paused` only if it is already set.
 fn require_grant(env: &Env, registrar: u32, args: &SpokeAssetArgs, listed: bool) {
     if storage::hub_registrar(env, args.hub_id) == Some(registrar) {
         return;

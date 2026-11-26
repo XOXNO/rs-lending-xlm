@@ -22,7 +22,7 @@ impl Cache {
         self.borrow_index = index;
     }
 
-    /// Current borrow/supply indexes as a raw DTO for the controller.
+    /// Current borrow and supply indexes as a raw DTO for the controller.
     pub(crate) fn market_index(&self) -> MarketIndexRaw {
         MarketIndexRaw {
             borrow_index: self.borrow_index.raw(),
@@ -44,7 +44,7 @@ impl Cache {
         }
     }
 
-    /// Builds a supply/borrow position mutation for a batch leg result,
+    /// Builds a supply or borrow position mutation for a batch leg result,
     /// pairing the caller's updated scaled position with the actual asset
     /// amount applied.
     pub(crate) fn position_mutation(

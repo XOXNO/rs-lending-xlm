@@ -35,7 +35,7 @@ fn constructor_grants_oracle_role_to_admin() {
 }
 
 /// No role restricts execution (audit finding I-02), so `EXECUTOR` is not a
-/// governance role: the constructor does not grant it.
+/// governance role. The constructor does not grant it.
 #[test]
 fn constructor_does_not_grant_an_executor_role() {
     let env = Env::default();
@@ -48,7 +48,7 @@ fn constructor_does_not_grant_an_executor_role() {
     assert!(!client.has_role(&admin, &Symbol::new(&env, "EXECUTOR")));
 }
 
-/// A grant or revoke proposal cannot name `EXECUTOR`: it is not a known role.
+/// A grant or revoke proposal cannot name `EXECUTOR`. It is not a known role.
 #[test]
 #[should_panic(expected = "Error(Contract, #41)")]
 fn executor_is_not_a_known_governance_role() {
@@ -199,7 +199,7 @@ fn cancelling_the_admin_mirror_tolerates_an_entry_that_is_already_gone() {
                 .has(&AccessControlStorageKey::PendingAdmin),
             "nothing pending to begin with"
         );
-        // transfer_role would panic NoPendingTransfer here.
+        // `transfer_role` would panic with `NoPendingTransfer` here.
         sync_pending_admin_transfer(&env, &stranger, 0);
         assert!(!env
             .storage()
@@ -231,8 +231,8 @@ fn cancelling_the_admin_mirror_clears_it_whoever_is_named() {
             "the mirror must be armed first"
         );
 
-        // A different address than the pending one: transfer_role would panic
-        // InvalidPendingAccount, the explicit arm clears regardless.
+        // The address differs from the pending one. `transfer_role` would panic with
+        // `InvalidPendingAccount`, but the explicit arm clears the entry regardless.
         sync_pending_admin_transfer(&env, &stranger, 0);
         assert!(
             !env.storage()

@@ -1,4 +1,4 @@
-//! Solvency, utilization and liquidity checks on the in-memory [`Cache`].
+//! Solvency, utilization, and liquidity checks on the in-memory [`Cache`].
 //!
 //! Callers run them after interest accrual and before committing state.
 
@@ -13,10 +13,10 @@ use crate::cache::Cache;
 /// Panics with `UtilizationAboveMax` if utilization exceeds `params.max_utilization`.
 ///
 /// Debt-creating legs call it (INV-ACCT-08). It compares the ceiled debt value
-/// with the floored supply value times the ceiling, rounded down, so rounding
-/// cannot admit utilization above the ceiling and no quotient can overflow.
-/// A 100% ceiling still binds: debt value may not exceed supply value.
-/// Skipped when there are no supply shares or no debt value.
+/// with the floored supply value times the ceiling, rounded down. Rounding
+/// cannot admit utilization above the ceiling, and no quotient can overflow.
+/// A 100% ceiling still binds. Debt value may not exceed supply value.
+/// The guard is skipped when there are no supply shares or no debt value.
 pub(crate) fn require_utilization_below_max(env: &Env, cache: &Cache) {
     if cache.supplied() == Ray::ZERO {
         return;
@@ -38,9 +38,10 @@ pub(crate) fn require_utilization_below_max(env: &Env, cache: &Cache) {
 /// Exit form of [`require_utilization_below_max`], for ordinary withdrawals
 /// and revenue claims.
 ///
-/// Skipped at a 100% ceiling. An exit cannot draw more than cash, so there
-/// the comparison could only fail on the rounding dust between cash plus
-/// debt and supplier claims, and would stop the withdrawal of the last cash.
+/// The guard is skipped at a 100% ceiling. An exit cannot draw more than cash.
+/// At that ceiling the comparison could fail only on the rounding dust between
+/// cash plus debt and supplier claims. A failure would block the withdrawal of
+/// the last cash.
 pub(crate) fn require_exit_utilization_below_max(env: &Env, cache: &Cache) {
     if cache.params().max_utilization >= Ray::ONE {
         return;
@@ -51,10 +52,10 @@ pub(crate) fn require_exit_utilization_below_max(env: &Env, cache: &Cache) {
 /// Panics with `MarketCeilingReached` if total supply or total debt, as a
 /// share count or as a value, exceeds `MAX_MARKET_ENTRY_RAY` (INV-ACCT-11).
 ///
-/// Supply, borrow, strategy and flash-loan entries call it after they raise a
-/// total. Exits do not: accrual holds interest at `MAX_MARKET_VALUE_RAY`, so a
-/// market above the entry ceiling still accrues, repays, withdraws and
-/// liquidates.
+/// Supply, borrow, strategy, and flash-loan entries call it after they raise a
+/// total. Exits do not call it. Accrual holds interest at
+/// `MAX_MARKET_VALUE_RAY`, so a market above the entry ceiling still accrues,
+/// repays, withdraws, and liquidates.
 pub(crate) fn require_within_entry_ceiling(env: &Env, cache: &Cache) {
     assert_with_error!(
         env,
@@ -92,7 +93,7 @@ pub(crate) fn require_liquidation_buffer(env: &Env, cache: &Cache, draw: i128) {
 
 /// Panics with `PoolInsolvent` if the market has a positive backing shortfall.
 ///
-/// Backing = cash + ceiled debt value; claims = floored supply value.
+/// Backing = cash + ceiled debt value. Claims = floored supply value.
 pub(crate) fn require_backed_market(env: &Env, cache: &Cache) {
     assert_with_error!(
         env,
@@ -101,10 +102,12 @@ pub(crate) fn require_backed_market(env: &Env, cache: &Cache) {
     );
 }
 
-/// Asset units by which supplier claims exceed cash + debt (0 if solvent).
+/// Returns the asset units by which supplier claims exceed cash plus debt.
+/// Returns 0 if the market is solvent.
 ///
-/// Floored claims minus ceiled debt, at RAY precision, floor to asset units
-/// once before cash is subtracted, so the shortfall is never over-reported.
+/// The function subtracts ceiled debt from floored claims at RAY precision and
+/// floors the result to asset units once, before it subtracts cash. The
+/// shortfall is never over-reported.
 pub(crate) fn backing_shortfall(cache: &Cache) -> i128 {
     let env = cache.env();
     let claims = cache.supplied().mul_floor(env, cache.supply_index());
@@ -120,7 +123,7 @@ pub(crate) fn backing_shortfall(cache: &Cache) -> i128 {
 
 /// Panics with `PoolInsolvent` if supplied is zero while borrowed debt is non-zero.
 ///
-/// Debt mints, withdrawals, net settlements and revenue claims call it
+/// Debt mints, withdrawals, net settlements, and revenue claims call it
 /// (INV-ACCT-09).
 pub(crate) fn require_supply_for_debt(env: &Env, cache: &Cache) {
     if cache.supplied() == Ray::ZERO && cache.borrowed() != Ray::ZERO {

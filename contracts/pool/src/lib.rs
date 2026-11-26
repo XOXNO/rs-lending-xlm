@@ -13,11 +13,11 @@
 //! | Layer | Role |
 //! |-------|------|
 //! | [`LiquidityPool`] / [`LiquidityPoolInterface`] | Public entrypoints, owner gates |
-//! | `ops` | Mutation legs (supply, borrow, repay, …) |
+//! | `ops` | Mutation legs (supply, borrow, repay, and others) |
 //! | `cache::Cache` | In-memory market view + commit |
 //! | `interest` | Index accrual, revenue booking and bad-debt socialization |
 //! | `guards` | Utilization and solvency checks |
-//! | `storage` | Persistent params/state + TTL bumps |
+//! | `storage` | Persistent params, state, and TTL bumps |
 //! | `views` | Read-only rate and balance queries |
 //!
 //! ## Accounting model
@@ -32,7 +32,7 @@
 //!
 //! - Every mutator requires the owner through `#[only_owner]`; views are public.
 //! - Cash is an accounting book, separate from the token balance. A flash loan
-//!   checks the token balance after payout, after the callback and after
+//!   checks the token balance after payout, after the callback, and after
 //!   repayment.
 //! - Write paths extend the instance TTL. Every market load, views included,
 //!   extends the market's params and state TTL.
@@ -81,7 +81,7 @@ contractmeta!(
 
 /// Deployed liquidity pool instance.
 ///
-/// Holds no methods of its own beyond construction; market operations live on
+/// Holds no methods of its own beyond construction. Market operations live on
 /// [`LiquidityPoolInterface`].
 #[contract]
 pub struct LiquidityPool;
@@ -100,7 +100,7 @@ impl LiquidityPool {
 impl LiquidityPoolInterface for LiquidityPool {
     /// Creates a new asset market under `hub_id` with the given rate
     /// parameters. Initializes indexes at RAY (1.0) with zero cash, supply,
-    /// and debt; panics with `AssetAlreadySupported` if the hub-asset pair
+    /// and debt. Panics with `AssetAlreadySupported` if the hub-asset pair
     /// already exists. Restricted to the owner.
     #[only_owner]
     fn create_market(env: Env, hub_id: u32, params: MarketParamsRaw) {
@@ -125,7 +125,7 @@ impl LiquidityPoolInterface for LiquidityPool {
             .update_current_contract(ContractExecutable::Wasm(new_wasm_hash));
     }
 
-    /// Accrues, mints scaled supply shares and credits cash per entry. The
+    /// Accrues, mints scaled supply shares, and credits cash per entry. The
     /// controller transfers the tokens in before this call. Rejects a market
     /// total above the entry ceiling. Owner-only.
     #[only_owner]
@@ -133,11 +133,11 @@ impl LiquidityPoolInterface for LiquidityPool {
         ops::run_batch(&env, entries, true, ops::supply::apply)
     }
 
-    /// Batch-borrows assets and transfers them to `receiver`: accrues
-    /// interest, mints scaled debt, debits cash, and enforces the entry
-    /// ceiling and max utilization after each mint (at a 100% ceiling, debt
-    /// value at most supply value). Restricted to the owner; returns one
-    /// [`PoolPositionMutation`] per entry.
+    /// Batch-borrows assets and transfers them to `receiver`. For each entry,
+    /// the call accrues interest, mints scaled debt, debits cash, and enforces
+    /// the entry ceiling and max utilization after each mint. At a 100%
+    /// ceiling, debt value is at most supply value. Restricted to the owner.
+    /// Returns one [`PoolPositionMutation`] per entry.
     #[only_owner]
     fn borrow(
         env: Env,
@@ -151,7 +151,7 @@ impl LiquidityPoolInterface for LiquidityPool {
 
     /// Burns supply shares and transfers the underlying to `receiver`.
     /// `is_liquidation` skips the max-utilization check and may withhold a
-    /// protocol fee. Owner-only; `actual_amount` is gross of that fee.
+    /// protocol fee. Owner-only. `actual_amount` is gross of that fee.
     #[only_owner]
     fn withdraw(
         env: Env,
@@ -197,7 +197,7 @@ impl LiquidityPoolInterface for LiquidityPool {
 
     /// Transfers out, invokes `execute_flash_loan` on the receiver, pulls
     /// principal plus fee back via `transfer_from`, and books the fee as
-    /// protocol revenue. Returns the fee. Owner-only; requires the market to
+    /// protocol revenue. Returns the fee. Owner-only. Requires the market to
     /// allow flash loans.
     #[only_owner]
     fn flash_loan(
@@ -224,8 +224,8 @@ impl LiquidityPoolInterface for LiquidityPool {
     }
 
     /// Seizes positions during liquidation or bad-debt cleanup. Borrow-side
-    /// entries socialize bad debt onto the supply index and burn the debt;
-    /// deposit-side entries reclassify supply shares as protocol revenue.
+    /// entries socialize bad debt onto the supply index and burn the debt.
+    /// Deposit-side entries reclassify supply shares as protocol revenue.
     /// Restricted to the owner.
     #[only_owner]
     fn seize_positions(env: Env, entries: Vec<PoolSeizeEntry>) {
@@ -258,7 +258,7 @@ impl LiquidityPoolInterface for LiquidityPool {
     /// Current utilization ratio for a market (RAY fixed-point raw value),
     /// at most one RAY.
     ///
-    /// Computed from stored indexes without forcing a state write.
+    /// The view computes it from stored indexes and does not write state.
     fn get_utilisation(env: Env, hub_asset: HubAssetKey) -> i128 {
         views::utilization(&env, &hub_asset)
     }
@@ -284,7 +284,7 @@ impl LiquidityPoolInterface for LiquidityPool {
         views::borrow_rate(&env, &hub_asset)
     }
 
-    /// Revenue in asset units at the **stored** index; does not accrue first.
+    /// Revenue in asset units at the **stored** index. Does not accrue first.
     ///
     /// `claim_revenue` syncs before paying `min(cash, revenue)`, so the amount
     /// actually paid can be higher (pending accrual mints more shares) or

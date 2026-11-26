@@ -1,4 +1,4 @@
-//! Strategy open: mints debt like a borrow, optionally withholding a flash-style fee.
+//! Strategy open: mints debt like a borrow, and optionally withholds a flash-style fee.
 //!
 //! The controller calls it to open a strategy position that draws pool
 //! liquidity. A charged fee stays in pool cash and is booked as protocol
@@ -90,8 +90,8 @@ pub(crate) fn accounting(env: &Env, action: PoolAction, charge_fee: bool) -> Str
     }
 }
 
-/// Computes the strategy fee from `flashloan_fee` bps when `charge_fee` is true;
-/// returns 0 otherwise (does not consult the market flash-loan enable flag).
+/// Computes the strategy fee from `flashloan_fee` bps when `charge_fee` is true.
+/// Returns 0 otherwise. Does not consult the market flash-loan enable flag.
 ///
 /// Panics if the fee would exceed principal when charging.
 fn compute_fee(env: &Env, cache: &Cache, amount: i128, charge_fee: bool) -> i128 {

@@ -13,11 +13,11 @@ use soroban_sdk::{assert_with_error, Env};
 use crate::{guards, ops};
 
 /// Accrues interest, mints scaled supply shares, credits cash, and commits the
-/// market state. A zero amount mints no shares; a positive amount that rounds
-/// to zero shares panics with `SupplyRoundsToZeroShares`, and a mint that
-/// takes a market total above the entry ceiling with `MarketCeilingReached`. Returns
-/// the position mutation (updated scaled supply and indexes) and the market
-/// snapshot.
+/// market state. A zero amount mints no shares. A positive amount that rounds
+/// to zero shares panics with `SupplyRoundsToZeroShares`. A mint that takes a
+/// market total above the entry ceiling panics with `MarketCeilingReached`.
+/// Returns the position mutation (updated scaled supply and indexes) and the
+/// market snapshot.
 pub(crate) fn apply(
     env: &Env,
     entry: &PoolSupplyEntry,

@@ -72,7 +72,7 @@ pub(crate) fn apply(
 
 /// Accrues interest, requires flash loans enabled, and requires cash reserves for `amount`.
 ///
-/// Front half of [`apply`], before any token call or callback.
+/// Runs as the front half of [`apply`], before any token call or callback.
 pub(crate) fn prepare(env: &Env, hub_asset: HubAssetKey, amount: i128) -> Cache {
     require_positive_amount(env, amount);
 
@@ -129,7 +129,7 @@ pub(crate) fn book_fee(cache: &mut Cache, fee: i128) {
 
 /// Successful-path tail of [`apply`]: books the fee, commits the market, and emits market state.
 ///
-/// Called only after token balance checks confirm principal+fee returned.
+/// Runs only after token balance checks confirm that principal plus fee returned.
 /// Panics with `MarketCeilingReached` if the fee shares leave a market total
 /// above the entry ceiling (INV-ACCT-11).
 pub(crate) fn finalize(env: &Env, cache: &mut Cache, fee: i128) {
@@ -165,7 +165,7 @@ fn invoke_receiver(
     );
 }
 
-/// Pulls principal + fee via `transfer_from` after verifying allowance.
+/// Pulls principal + fee via `transfer_from` after it verifies the allowance.
 fn collect_repayment(
     env: &Env,
     asset: &token::Client,

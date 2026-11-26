@@ -1,6 +1,6 @@
 //! Recapitalization: injects cash to cover a market backing shortfall.
 //!
-//! Only the shortfall amount is applied; any excess is refunded to the payer.
+//! The pool applies only the shortfall amount and refunds any excess to the payer.
 //! The controller transfers `amount` into the pool before this call.
 
 use common::errors::GenericError;

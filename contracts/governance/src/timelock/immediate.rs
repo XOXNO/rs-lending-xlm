@@ -44,7 +44,7 @@ pub(crate) fn set_spoke_asset_flags(
     controller_client(env).set_spoke_asset_flags(&spoke_id, hub_asset, &paused, &frozen, &no_seize);
 }
 
-/// Tightens the sanity-check price band (min/max, WAD) for `key` on the price
+/// Tightens the sanity-check price band (minimum and maximum, WAD) for `key` on the price
 /// aggregator. Requires the caller to hold `ORACLE_ROLE`. The aggregator rejects
 /// a wider band with `SanityBandMustTighten`.
 pub(crate) fn set_sanity_band(
@@ -121,10 +121,10 @@ pub(crate) fn revoke_blend_pool(env: &Env, caller: &Address, pool: &Address) {
 }
 
 /// Revokes `role` from `account` without going through the timelock. Only
-/// `GUARDIAN_ROLE`, `ORACLE_ROLE` and `CURATOR_ROLE` can be revoked this way;
-/// panics with `GenericError::InvalidRole` for any other role. Revoking
-/// `CURATOR_ROLE` stops a faulty curator contract's immediate calls at once. The role-revoked event names
-/// the owner, who calls this entrypoint, as the caller.
+/// `GUARDIAN_ROLE`, `ORACLE_ROLE`, and `CURATOR_ROLE` can be revoked this way.
+/// Panics with `GenericError::InvalidRole` for any other role. Revoking
+/// `CURATOR_ROLE` stops a faulty curator contract's immediate calls at once. The
+/// role-revoked event names the owner, who calls this entrypoint, as the caller.
 pub(crate) fn revoke_role_immediate(env: &Env, account: &Address, role: &Symbol) {
     assert_with_error!(
         env,
