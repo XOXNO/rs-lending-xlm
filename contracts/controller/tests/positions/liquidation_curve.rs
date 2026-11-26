@@ -734,18 +734,23 @@ fn hf_preserving_cap_equals_collateral_over_debt_ratio() {
             let Some(s) = grid_snap(collateral, p_pct, hf_pct) else {
                 continue;
             };
-            let Some(cap) = clamped_hf_preserving_bonus_bps(&env, &s).map(Bps::raw) else {
+            let Some(cap) = max_hf_preserving_bonus_bps(&env, &s) else {
                 continue;
             };
 
-            let want = (10_000i128 * s.total_collateral.raw() / s.total_debt.raw() - 10_000).max(0);
-            assert!(
-                (cap - want).abs() <= 1,
-                "cap {cap} != BPS*(V/D-1) {want} at p={p_pct}% hf={hf_pct}%"
+            let want = 10_000i128 * s.total_collateral.raw() / s.total_debt.raw() - 10_000;
+            let insolvent = s.total_collateral < s.total_debt;
+            assert_eq!(
+                matches!(cap, HfPreservingBonusCap::BelowZero),
+                insolvent,
+                "BelowZero must hold exactly when the account is insolvent at p={p_pct}% hf={hf_pct}%"
             );
-
-            if s.total_collateral < s.total_debt {
-                assert_eq!(cap, 0, "an insolvent cap must floor at zero");
+            if let HfPreservingBonusCap::NonNegative(bps) = cap {
+                assert!(
+                    (bps.raw() - want).abs() <= 1,
+                    "cap {} != BPS*(V/D-1) {want} at p={p_pct}% hf={hf_pct}%",
+                    bps.raw()
+                );
             }
             checked += 1;
         }
