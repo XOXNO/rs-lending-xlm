@@ -1,8 +1,7 @@
-use crate::constants::{BAD_DEBT_USD_THRESHOLD, BPS, WAD};
-use common::errors::GenericError;
+use crate::constants::BAD_DEBT_USD_THRESHOLD;
 use common::math::fp::{Bps, Wad};
 use common::types::SpokeConfig;
-use soroban_sdk::{panic_with_error, Env};
+use soroban_sdk::Env;
 
 #[derive(Clone, Copy)]
 pub(crate) struct LiquidationSnapshot {
@@ -17,6 +16,25 @@ pub(crate) struct LiquidationSnapshot {
 pub(crate) struct BonusBounds {
     pub base: Bps,
     pub max: Bps,
+}
+
+/// Result of the signed bonus ceiling that preserves the health factor. The type avoids
+/// representing a negative rate as a raw integer. `BelowZero` means even a zero bonus cannot
+/// preserve the health factor. `NonNegative` carries the usable BPS ceiling.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum HfPreservingBonusCap {
+    BelowZero,
+    NonNegative(Bps),
+}
+
+impl HfPreservingBonusCap {
+    #[cfg(test)]
+    pub(super) fn clamped(self) -> Bps {
+        match self {
+            Self::BelowZero => Bps::ZERO,
+            Self::NonNegative(cap) => cap,
+        }
+    }
 }
 
 /// Admits socialization when debt exceeds collateral and collateral is at or
@@ -36,7 +54,7 @@ impl LiquidationCurve {
         Self {
             target_hf: Wad::from(cfg.liquidation_target_hf_wad),
             hf_for_max_bonus: Wad::from(cfg.hf_for_max_bonus_wad),
-            bonus_factor: Bps::from(i128::from(cfg.liquidation_bonus_factor_bps)),
+            bonus_factor: Bps::from(cfg.liquidation_bonus_factor_bps),
         }
     }
 
@@ -54,8 +72,9 @@ impl LiquidationCurve {
     }
 }
 
-/// Interpolates the base-to-max bonus increment as HF falls, then applies the
-/// configured factor. HF at or above `target` receives the base bonus.
+/// Interpolates the base-to-max bonus increment as the health factor falls, then
+/// applies the configured factor. A health factor at or above `target` receives the
+/// base bonus.
 pub(crate) fn calculate_linear_bonus_with_target(
     env: &Env,
     hf: Wad,
@@ -69,34 +88,33 @@ pub(crate) fn calculate_linear_bonus_with_target(
     }
     let scale = curve.bonus_scale(env, hf, target);
 
-    let bonus_range = max.checked_sub(env, base);
-    let bonus_increment = Wad::from(bonus_range.raw()).mul(env, scale).raw();
-    let scaled_increment = curve.bonus_factor.apply_to(env, bonus_increment);
-    Bps::from(
-        base.raw()
-            .checked_add(scaled_increment)
-            .unwrap_or_else(|| panic_with_error!(env, GenericError::MathOverflow)),
-    )
+    let bonus_increment = max.checked_sub(env, base).mul_wad(env, scale);
+    base.checked_add(env, bonus_increment.mul(env, curve.bonus_factor))
 }
 
-/// Returns the BPS ceiling satisfying `1 + bonus <= HF / proportion_seized`.
-/// Returns `None` for nonpositive seizure proportion or HF >= 1 WAD.
-pub(super) fn max_hf_preserving_bonus_bps(snap: &LiquidationSnapshot) -> Option<i128> {
-    let proportion = snap.proportion_seized.raw();
-    if proportion <= 0 || snap.hf.raw() >= WAD {
+/// Returns the BPS ceiling that satisfies `1 + bonus <= HF / proportion_seized`. `BelowZero`
+/// records that the mathematical ceiling is negative without leaving typed fixed-point arithmetic.
+/// Returns `None` for nonpositive seizure proportion or a health factor at or above 1 WAD.
+pub(super) fn max_hf_preserving_bonus_bps(
+    env: &Env,
+    snap: &LiquidationSnapshot,
+) -> Option<HfPreservingBonusCap> {
+    if snap.proportion_seized <= Wad::ZERO || snap.hf >= Wad::ONE {
         return None;
     }
 
-    // Nonnegative HF below 1e18 bounds `hf * BPS` below 1e22, within i128;
-    // positive proportion prevents division by zero.
-    Some(snap.hf.raw() * BPS / proportion - BPS)
+    let hf_over_seizure = Bps::from_fraction_floor(env, snap.hf, snap.proportion_seized);
+    Some(if hf_over_seizure < Bps::ONE {
+        HfPreservingBonusCap::BelowZero
+    } else {
+        HfPreservingBonusCap::NonNegative(hf_over_seizure.checked_sub(env, Bps::ONE))
+    })
 }
 
-/// Estimates WAD USD repayment and BPS bonus toward the target HF.
-/// Caps the curve bonus to preserve HF. With a positive seizure proportion,
-/// collateral below debt quotes the collateral-backed repayment
-/// `min(D, floor(C / (1 + base)))` at the base bonus; otherwise a cap below
-/// base quotes the full debt at the cap, floored at zero. A target-HF quote
+/// Estimates WAD USD repayment and BPS bonus toward the target health factor. Caps the curve bonus
+/// to preserve the health factor. With a positive seizure proportion, collateral below debt quotes
+/// the collateral-backed repayment `min(D, floor(C / (1 + base)))` at the base bonus. Otherwise a
+/// cap below base quotes the full debt at the cap, floored at zero. A target-health-factor quote
 /// that would leave positive debt below `BAD_DEBT_USD_THRESHOLD` becomes the full debt.
 pub(crate) fn estimate_liquidation_amount(
     env: &Env,
@@ -113,17 +131,20 @@ pub(crate) fn estimate_liquidation_amount(
         curve.target_hf,
     );
 
-    let bonus = match max_hf_preserving_bonus_bps(snap) {
+    let bonus = match max_hf_preserving_bonus_bps(env, snap) {
         None => scaled_bonus,
         Some(_) if snap.total_collateral < snap.total_debt => {
             let one_plus_base = Wad::ONE.checked_add(env, bounds.base.to_wad(env));
             let backed = snap.total_collateral.div_floor(env, one_plus_base);
             return (backed.min(snap.total_debt), bounds.base);
         }
-        Some(cap) if cap < bounds.base.raw() => {
-            return (snap.total_debt, Bps::from(cap.max(0)));
+        Some(HfPreservingBonusCap::BelowZero) => {
+            return (snap.total_debt, Bps::ZERO);
         }
-        Some(cap) => Bps::from(scaled_bonus.raw().min(cap)),
+        Some(HfPreservingBonusCap::NonNegative(cap)) if cap < bounds.base => {
+            return (snap.total_debt, cap);
+        }
+        Some(HfPreservingBonusCap::NonNegative(cap)) => scaled_bonus.min(cap),
     };
 
     let ideal = liquidation_at_target(env, snap, bonus, curve.target_hf);
@@ -146,8 +167,9 @@ pub(super) fn calculate_post_liquidation_hf(
     let one_plus_bonus = Bps::ONE.checked_add(env, bonus);
 
     let seized_proportion = snap.proportion_seized.mul(env, debt_to_repay);
-    let seized_weighted_raw = one_plus_bonus.apply_to(env, seized_proportion.raw());
-    let seized_weighted = Wad::from(seized_weighted_raw).min(snap.weighted_collateral);
+    let seized_weighted = one_plus_bonus
+        .apply_to_wad(env, seized_proportion)
+        .min(snap.weighted_collateral);
 
     let new_weighted = snap.weighted_collateral.checked_sub(env, seized_weighted);
     let new_debt = if debt_to_repay >= snap.total_debt {
@@ -159,12 +181,12 @@ pub(super) fn calculate_post_liquidation_hf(
     if new_debt == Wad::ZERO {
         return Wad::from(i128::MAX);
     }
-    // Production rounds the health factor down and saturates; the mirror must
-    // agree or a test can accept a case the controller rejects.
+    // Production rounds the health factor down and saturates. The mirror must agree, or a test can
+    // accept a case the controller rejects.
     new_weighted.div_floor_saturating(env, new_debt)
 }
 
-/// Solves the target-HF repayment, capped by collateral backing and total debt.
+/// Solves the target-health-factor repayment, capped by collateral backing and total debt.
 /// If seizure's weighted rate meets the target, or weighted collateral already
 /// covers target debt, returns the capped maximum directly.
 fn liquidation_at_target(env: &Env, snap: &LiquidationSnapshot, bonus: Bps, target_hf: Wad) -> Wad {
@@ -186,20 +208,18 @@ fn liquidation_at_target(env: &Env, snap: &LiquidationSnapshot, bonus: Bps, targ
         .min(snap.total_debt)
 }
 
-/// Computes the BPS bonus ceiling for `(1 + bonus) * proportion_seized = 1`.
-/// Ceils the proportion to BPS and clamps it to `[1, BPS]`; zero seizure returns zero.
+/// Computes the BPS bonus ceiling for `(1 + bonus) * proportion_seized = 1`. Ceils the proportion
+/// to BPS and clamps it to `[1, BPS]`. Zero seizure returns zero.
 pub(crate) fn max_bonus_for_threshold(env: &Env, proportion_seized: Wad) -> Bps {
     if proportion_seized <= Wad::ZERO {
-        return Bps::from(0);
+        return Bps::ZERO;
     }
 
-    let eff_thr_bps = Bps::from_fraction_ceil(env, proportion_seized, Wad::ONE)
-        .raw()
-        .clamp(1, BPS);
-    let numerator = BPS
-        .checked_mul(BPS - eff_thr_bps)
-        .unwrap_or_else(|| panic_with_error!(env, GenericError::MathOverflow));
-    Bps::from(numerator / eff_thr_bps)
+    let effective_threshold =
+        Bps::from_fraction_ceil(env, proportion_seized, Wad::ONE).clamp(Bps::from(1i128), Bps::ONE);
+    Bps::ONE
+        .checked_sub(env, effective_threshold)
+        .div_floor(env, effective_threshold)
 }
 
 #[cfg(test)]

@@ -1,7 +1,7 @@
 extern crate std;
 
 use super::*;
-use crate::constants::RAY;
+use crate::constants::{RAY, WAD};
 use common::types::{
     AccountMeta, AccountPositionRaw, DebtPositionRaw, MarketIndexRaw, MarketParamsRaw,
     PoolStateRaw, PoolSyncData, PositionMode, PriceFeedRaw, PriceKey,
@@ -86,8 +86,8 @@ fn register_view_deps(env: &Env, contract_id: &Address) {
 }
 
 /// Registers a native position-nft owned by `controller` and records it in the controller's
-/// instance storage. Returns the NFT contract address. Duplicated from
-/// `tests/helpers/account.rs`: pinned test modules cannot import each other.
+/// instance storage. Returns the NFT contract address. This function duplicates the one in
+/// `tests/helpers/account.rs`, because pinned test modules cannot import each other.
 fn setup_position_nft(env: &Env, controller: &Address) -> Address {
     let nft = env.register(
         position_nft::PositionNft,
@@ -114,9 +114,9 @@ fn one_ray_position() -> AccountPositionRaw {
     }
 }
 
-/// Mints a position NFT to a fresh owner and writes matching account metadata (and, if given,
-/// supply/debt positions). Returns the minted account id; ownership resolves through the NFT,
-/// so callers must use this id, not a fixed one.
+/// Mints a position NFT to a fresh owner and writes matching account metadata. If given, it also
+/// writes the supply and debt positions. Returns the minted account id. Ownership resolves
+/// through the NFT, so callers must use this id and not a fixed one.
 fn seed_account(
     env: &Env,
     contract_id: &Address,
@@ -186,8 +186,8 @@ fn aggregate_views_return_zero_for_missing_or_empty_account() {
         assert_eq!(total_borrow_in_usd(&env, 1), 0);
         assert_eq!(ltv_collateral_in_usd(&env, 1), 0);
 
-        // No position NFT is registered: `total_collateral_in_usd` reads account
-        // metadata and supply positions, never the owner.
+        // No position NFT is registered. `total_collateral_in_usd` reads the account
+        // metadata and the supply positions, and never reads the owner.
         storage::set_account_meta(
             &env,
             1,
@@ -213,9 +213,9 @@ fn health_factor_debt_free_account_skips_pricing() {
     let owner = Address::generate(&env);
     let account_id = u64::from(position_nft::PositionNftClient::new(&env, &nft).mint(&owner));
     env.as_contract(&contract_id, || {
-        // A minted, debt-free account: `try_get_account` returns `Some(account)`,
-        // so `health_factor` returns `i128::MAX` through the debt-free check, not
-        // through the `None` (missing-owner) arm.
+        // The account is minted and has no debt. `try_get_account` returns
+        // `Some(account)`, so `health_factor` returns `i128::MAX` through the
+        // debt-free check and not through the `None` arm for a missing owner.
         storage::set_account_meta(
             &env,
             account_id,
@@ -288,7 +288,7 @@ fn collateral_and_borrow_amount_return_zero_for_missing_position() {
             hub_id: 0,
             asset: Address::generate(&env),
         };
-        // Missing account / position short-circuits before pool index fetch.
+        // A missing account or position returns early, before the pool index fetch.
         assert_eq!(collateral_amount_for_hub_asset(&env, 1, &hub), 0);
         assert_eq!(borrow_amount_for_hub_asset(&env, 1, &hub), 0);
     });
