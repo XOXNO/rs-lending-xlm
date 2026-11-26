@@ -1,12 +1,12 @@
 # Live testnet coverage for controller `flash_position`.
-# The mock receiver does not mint: it must be pre-funded and pushes collateral.
+# The mock receiver does not mint. It must be pre-funded, and it pushes collateral.
 
 FP_MODE_SUCCESS=0
 FP_MODE_KEEP_FUNDS=1
 FP_MODE_BELOW_MIN=2
 FP_MODE_PANIC=3
-# PositionMode::Multiply / Normal / Long. flash_position accepts only the
-# strategy modes; Normal is kept for the rejection check.
+# PositionMode::Multiply, Normal, and Long. flash_position accepts only the
+# strategy modes. Normal remains for the rejection check.
 FP_POSITION_MODE=1
 FP_MODE_NORMAL=0
 FP_MODE_LONG=2
@@ -90,7 +90,7 @@ fp_run() {
 }
 
 # Raw position shares and token balances do not accrue between ledgers.
-# Exclude the signer's XLM balance: a submitted failure may charge a network fee.
+# Exclude the signer's XLM balance. A submitted failure may charge a network fee.
 fp_snapshot() {
     local label="$1" positions total asset holder values='[]' amount
     positions=$(view "${label}_positions" "$CONTROLLER" -- get_account_positions --account_id "${FP_ACCOUNT_ID:-0}") || return 1
@@ -286,7 +286,7 @@ fp_deploy_matrix_receiver() {
 }
 
 # Existing-account success, spare-HF KeepFunds denial, dust-min success,
-# and the reachable error surface on the live controller.
+# and the reachable errors on the live controller.
 flow_flash_position_matrix() {
     phase flash_position_matrix
     [ -n "${ALICE_FP_ACCT:-}" ] || die flash_position_matrix "ALICE_FP_ACCT missing; run baseline first"
@@ -333,23 +333,23 @@ flow_flash_position_matrix() {
     _uint_lt "$coll_before" "$coll_after" \
         || _assert_fail fp_ext_coll_grew "collateral $coll_before -> $coll_after"
 
-    # Spare HF does not skip the push: KeepFunds on a healthy existing account
-    # is still #504. flash_position is not a free borrow-to-receiver.
+    # Spare HF does not skip the push. KeepFunds on a healthy existing account
+    # still returns #504. flash_position is not a free borrow-to-receiver.
     fp_set_plan fp_plan_keep_existing "$FP_MODE_KEEP_FUNDS" "$FP_EXTEND_COLLATERAL" || return 1
     FP_COLS="$(fp_collaterals "$FP_EXTEND_COLLATERAL")"
     fp_run xfail flash_position_keep_funds_existing 'Error\(Contract, #504\)' || true
 
-    # The callback pushes only a dust minimum; the existing collateral covers
+    # The callback pushes only a dust minimum. The existing collateral covers
     # the new debt at finalize.
     FP_COLS="$(fp_collaterals "$FP_DUST_COLLATERAL")"
     fp_set_plan fp_plan_dust_existing "$FP_MODE_SUCCESS" "$FP_DUST_COLLATERAL" || return 1
     fp_run inv flash_position_dust_min_existing "" || return 1
     assert_hf_at_least hf_flash_position_dust_existing "$ALICE_FP_ACCT" "$WAD"
 
-    # Extra undeclared asset is not deposited; listed refund returns it to caller.
+    # The controller does not deposit an extra undeclared asset. A listed refund returns it to the caller.
     local alice_usdc_pre alice_usdc_post extra_usdc=10000000
     local controller_usdc_pre controller_xlm_pre
-    # Nonzero balances make accidental refund/credit of preexisting funds visible.
+    # Nonzero balances make an accidental refund or credit of preexisting funds visible.
     # Both donations remain below the teardown's 1,000-stroop controller dust cap.
     inv fp_protected_usdc_funding "$ALICE" "$CONTROLLER" -- borrow \
         --caller "$ALICE_ADDR" --account_id "$ALICE_FP_ACCT" \
@@ -372,7 +372,7 @@ flow_flash_position_matrix() {
     assert_delta fp_protected_collateral "$controller_xlm_pre" "$(balance "$XLM_SAC" "$CONTROLLER")" 0 || return 1
     FP_REFUNDS='[]'
 
-    # Push the wrong listed asset (USDC) while declaring XLM — measured XLM
+    # Push the wrong listed asset (USDC) while declaring XLM. The measured XLM
     # delta is 0, so the min fails. The undeclared USDC is not credited.
     fp_set_plan fp_plan_wrong_asset "$FP_MODE_SUCCESS" 0 "$USDC_SAC" 10000000 || return 1
     FP_COLS="$(fp_collaterals "$FP_EXTEND_COLLATERAL")"
@@ -430,7 +430,7 @@ flow_flash_position_matrix() {
     fp_run xfail flash_position_spoke_mismatch 'Error\(Contract, #310\)' || true
     FP_SPOKE="$PRIMARY_SPOKE_ID"
 
-    # Long against a Multiply account: a strategy mode that does not match.
+    # Long against a Multiply account is a strategy mode that does not match.
     # Normal would be refused earlier with #111 (flow_flash_position_gates).
     FP_POS_MODE="$FP_MODE_LONG"
     fp_run xfail flash_position_mode_mismatch 'Error\(Contract, #25\)' || true
@@ -494,13 +494,12 @@ flow_flash_position_matrix() {
     fp_run xfail flash_position_borrow_cap 'Error\(Contract, #312\)' || true
     fp_restore_usdc_listing || return 1
 
-    # A 0.03% utilization cap, so the next flash position trips the gate. The
-    # cap must be at or above optimal_utilization, which puts both breakpoints
+    # A 0.03% utilization cap, so the next flash position trips the gate.
+    # The cap must be at or above optimal_utilization, which puts both breakpoints
     # near zero. InterestRateModel::verify refuses a curve whose steepness per
-    # unit of utilization falls from one segment to the next, so the first two
-    # segments rise by 10^23 each over their 10^23-wide spans (steepness 1)
-    # and the last by 1.5 RAY over the rest (steepness about 1.5). slope1 may
-    # not be below base_borrow_rate, hence a base of 0.
+    # unit of utilization falls from one segment to the next. So the first two
+    # segments rise by 10^23 each over their 10^23-wide spans (steepness 1), and
+    # the last rises by 1.5 RAY over the rest (steepness about 1.5).
     inv fp_usdc_util_cap "$ADMIN" "$CONTROLLER" -- upgrade_liquidity_pool_params \
         --hub_asset "$(hub_key "$PRIMARY_HUB_ID" "$USDC_SAC")" \
         --params "$(jq -nc '{
@@ -523,7 +522,7 @@ flow_flash_position_matrix() {
     cash=$(_view_pool_int fp_usdc_cash get_reserves --hub_asset "$(hub_key "$PRIMARY_HUB_ID" "$USDC_SAC")") || return 1
     borrowed_now=$(_view_pool_int fp_usdc_borrowed_liq get_borrowed_amount \
         --hub_asset "$(hub_key "$PRIMARY_HUB_ID" "$USDC_SAC")") || return 1
-    # Draw more than remaining cash so the pool's liquidation buffer / cash
+    # Draw more than remaining cash so the pool's liquidation buffer and cash
     # check binds rather than the spoke borrow cap (restored above).
     try_liq=$(raw_add "$cash" "$borrowed_now" 1) || return 1
     if _uint_ge "$try_liq" 2; then
@@ -538,7 +537,7 @@ flow_flash_position_matrix() {
     record flash_position_matrix ok flash_position "" "" "" "" "" "matrix complete"
 }
 
-# Two declared pushes use the receiver's existing collateral + extra plan.
+# Two declared pushes use the receiver's existing collateral and the extra plan.
 # A separate Long account keeps the baseline account's position-limit tests intact.
 fp_long_multi_collateral() {
     local FP_RECV="${FLASH_POSITION_RECEIVER_V2:-$FLASH_POSITION_RECEIVER}"
@@ -561,7 +560,7 @@ fp_long_multi_collateral() {
     save_state ALICE_FP_LONG_ACCT "$acct"
     assert_delta fp_long_xlm_paid "$receiver_xlm" "$(balance "$XLM_SAC" "$FP_RECV")" "-$collateral" || return 1
     assert_delta fp_long_xlm_received "$pool_xlm" "$(balance "$XLM_SAC" "$POOL")" "$collateral" || return 1
-    # All newly borrowed USDC is pushed back as collateral; no wallet receives it.
+    # All newly borrowed USDC is pushed back as collateral. No wallet receives it.
     assert_delta fp_long_usdc_receiver "$receiver_usdc" "$(balance "$USDC_SAC" "$FP_RECV")" 0 || return 1
     assert_delta fp_long_usdc_pool "$pool_usdc" "$(balance "$USDC_SAC" "$POOL")" 0 || return 1
     assert_delta fp_long_xlm_protected "$controller_xlm" "$(balance "$XLM_SAC" "$CONTROLLER")" 0 || return 1
@@ -595,10 +594,10 @@ fp_long_multi_collateral() {
     inv fp_delegate_manager_off "$ADMIN" "$CONTROLLER" -- set_position_manager --manager "$BOB_ADDR" --is_active false >/dev/null
 }
 
-# Remaining create-path and dual-path cases that the baseline/matrix did not
-# exercise: same-asset open, spoke 0 / unknown / deprecated, $5-floor #126,
+# Remaining create-path and dual-path cases that the baseline and matrix cases did not
+# exercise: same-asset open, spoke 0, unknown, and deprecated spokes, $5-floor #126,
 # two-collateral position limit on an empty account, borrow-position limit,
-# frozen listings, is_flashloanable=false, and the error surface on account_id=0.
+# frozen listings, is_flashloanable=false, and the errors on account_id=0.
 flow_flash_position_gaps() {
     phase flash_position_gaps
     [ -n "${ALICE_FP_ACCT:-}" ] || die flash_position_gaps "ALICE_FP_ACCT missing"
@@ -624,11 +623,11 @@ flow_flash_position_gaps() {
     line=$(classic_line "$USDC_SAC")
     trustline "$ALICE" "${line%%:*}" "${line##*:}" || true
     # Several account_id=0 successes each need ~200 XLM so HF clears on a
-    # brand-new account. 1 XLM vs 1 USDC is not enough if XLM is cheap.
+    # brand-new account. 1 XLM against 1 USDC is not enough if XLM is cheap.
     local create_coll=2000000000
     fp_ensure_token "$XLM_SAC" 12000000000 fund_fp_gaps_xlm || return 1
     fp_ensure_token "$USDC_SAC" 150000000 fund_fp_gaps_usdc || return 1
-    # Resume after a mid-flow RPC fail can leave listings/caps/limits tight.
+    # Resume after a mid-flow RPC failure can leave listings, caps, and limits tight.
     fp_restore_xlm_listing || true
     fp_restore_usdc_listing || true
     fp_restore_usdc_curve || true
@@ -736,23 +735,23 @@ flow_flash_position_gaps() {
     fp_xfail_pair flash_position_not_borrowable_gap 'Error\(Contract, #107\)'
     fp_restore_usdc_listing || return 1
 
-    # Empty account + two new collaterals vs max_supply=1.
+    # An empty account declares two new collaterals while max_supply=1.
     inv fp_limits_one_supply_gaps "$ADMIN" "$CONTROLLER" -- set_position_limits \
         --limits '{"max_supply_positions":1,"max_borrow_positions":5}' >/dev/null
     FP_COLS="$(jq -nc --argjson h "$PRIMARY_HUB_ID" --arg x "$XLM_SAC" --arg u "$USDC_SAC" \
         '[[{hub_id:$h,asset:$x},"1"],[{hub_id:$h,asset:$u},"1"]]')"
     FP_ACCOUNT_ID=0
-    # List length is checked before unique-position count: 2 declared
-    # collaterals with max_supply_positions=1 is InvalidPayments (#16), not #109.
+    # The controller checks list length before unique-position count. Two declared
+    # collaterals with max_supply_positions=1 return InvalidPayments (#16), not #109.
     fp_run xfail flash_position_two_collaterals_limit_new 'Error\(Contract, #16\)' || true
-    # Existing already has XLM supply; declaring USDC as a second supply also #109.
+    # An existing account already has XLM supply. Declaring USDC as a second supply also returns #109.
     FP_ACCOUNT_ID="$ALICE_FP_ACCT"
     FP_COLS="$(pay_vec "$PRIMARY_HUB_ID" "$USDC_SAC" 1)"
     fp_run xfail flash_position_second_supply_limit_ex 'Error\(Contract, #109\)' || true
     FP_COLS="$(fp_collaterals "$FP_EXTEND_COLLATERAL")"
     fp_restore_position_limits || return 1
 
-    # Existing already has USDC debt; a second debt asset is a new borrow position.
+    # An existing account already has USDC debt. A second debt asset is a new borrow position.
     inv fp_limits_one_borrow_gaps "$ADMIN" "$CONTROLLER" -- set_position_limits \
         --limits '{"max_supply_positions":5,"max_borrow_positions":1}' >/dev/null
     FP_DEBT="$(hub_key "$PRIMARY_HUB_ID" "$XLM_SAC")"
@@ -828,7 +827,8 @@ flow_flash_position_gaps() {
     FP_PLAN_ASSET="$USDC_SAC"
     FP_DEBT="$(hub_key "$PRIMARY_HUB_ID" "$USDC_SAC")"
     FP_AMOUNT=10000000
-    # USDC LTV is 75%: 5 USDC → $3.75 LTV-gated < $5 min-borrow floor (#126).
+    # USDC LTV is 75%, so 5 USDC is $3.75 LTV-gated, below the $5 min-borrow
+    # floor (#126).
     # 10 USDC clears the default floor on a brand-new account.
     FP_COLS="$(pay_vec "$PRIMARY_HUB_ID" "$USDC_SAC" 100000000)"
     fp_set_plan fp_plan_same_asset_new "$FP_MODE_SUCCESS" 100000000 || return 1
@@ -912,8 +912,8 @@ flow_flash_position_gaps() {
 # Live malicious receiver: every nested controller entry from the callback
 # must fail. The Soroban host rejects same-contract re-entry with
 # Error(Context, InvalidAction) before the controller's own #400 guard can
-# run, so that host error is the only outcome a live test can observe; #400
-# is covered by the harness reentrancy matrix. Uses a freshly deployed wasm
+# run, so that host error is the only outcome a live test can observe. The
+# harness reentrancy matrix covers #400. The test uses a freshly deployed wasm
 # so reentry modes exist on-chain.
 flow_flash_position_malicious() {
     phase flash_position_malicious
@@ -968,7 +968,7 @@ flow_flash_position_malicious() {
 
 # GH-18 and GH-19. Two gates run before the mint: the mode must be a strategy
 # mode, and the debt market must allow flash loans. `multiply` is not gated on
-# the flag because its funds reach only the governance-owned router;
+# the flag because its funds reach only the governance-owned router.
 # `flash_position` hands them to a caller-chosen contract. Both gates run for a
 # new account and for an existing one, and the USDC curve is restored after.
 flow_flash_position_gates() {
@@ -987,7 +987,7 @@ flow_flash_position_gates() {
     FP_REFUNDS='[]'
     FP_PLAN_ASSET="$XLM_SAC"
     # This phase creates a fresh account after restoring the flag. The previous
-    # delegate plan pushes only 1 XLM, relying on an existing account's collateral.
+    # delegate plan pushes only 1 XLM and relies on an existing account's collateral.
     local create_coll=2000000000
     FP_COLS="$(fp_collaterals "$create_coll")"
     fp_ensure_token "$XLM_SAC" "$create_coll" fp_gates_fund || return 1
@@ -1014,7 +1014,7 @@ flow_flash_position_gates() {
     FP_ACCOUNT_ID="$ALICE_FP_ACCT"
     fp_run xfail flash_position_flash_disabled_ex 'Error\(Contract, #401\)' || return 1
     fp_restore_usdc_curve || return 1
-    # The flag is back on: the same call opens a position again.
+    # The flag is back on, so the same call opens a position again.
     FP_ACCOUNT_ID=0
     fp_run create flash_position_after_flag_restored "" >/dev/null || return 1
     save_state FP_GATES_DONE 1

@@ -1,4 +1,4 @@
-# Check stored risk snapshots, preserving supply shares and the entire debt map.
+# Check that stored risk snapshots preserve supply shares and the entire debt map.
 risk_assert_stamps() {
     local label="$1" account="$2" asset="$3" expected="$4" before="$5" after
     after=$(view "$label" "$CONTROLLER" -- get_account_positions --account_id "$account") || return 1
@@ -18,7 +18,8 @@ risk_assert_stamps() {
 flow_risk_refresh() {
     phase risk_refresh
     # Zero rates from creation keep both indexes at RAY. At price $1, 150
-    # collateral * 70% / 100 debt is exactly HF 1.05; test +/- one raw unit.
+    # collateral * 70% / 100 debt is exactly HF 1.05. Test one raw unit above and
+    # below that value.
     deploy_mock_reflector || return 1
     issue_sac SAC_RISK RISK || return 1
     trustline "$ALICE" RISK "$ADMIN_ADDR" || return 1
@@ -71,7 +72,7 @@ flow_risk_refresh() {
         --input "$(spoke_args "$PRIMARY_HUB_ID" "$SAC_RISK" "$PRIMARY_SPOKE_ID" true true 5000 7000 900 | jq -c '.liquidation_fees=50')" >/dev/null || return 1
     inv risk_edit_other "$ADMIN" "$CONTROLLER" -- edit_asset_in_spoke \
         --input "$(spoke_args "$PRIMARY_HUB_ID" "$SAC_RISK" "$other" true true 5100 6900 800 | jq -c '.liquidation_fees=60')" >/dev/null || return 1
-    # Permissionless keeper; alternate spokes within the same cached batch.
+    # This is a permissionless keeper call. Alternate spokes within the same cached batch.
     inv risk_ltv_batch "$BOB" "$CONTROLLER" -- update_account_threshold --caller "$BOB_ADDR" \
         --has_risks false --account_ids "[$below,$free,$equal,$low,$above]" >/dev/null || return 1
     for name in below equal above; do
@@ -242,7 +243,7 @@ inv manager_deactivate_alice "$ADMIN" "$CONTROLLER" -- set_position_manager \
 local blend_pool blend_seeded
 blend_pool=$(jq -r '.pools[0].address // empty' "$REPO_ROOT/configs/$NETWORK/blend.json")
 if [ -n "$blend_pool" ] && [ "$blend_pool" != "null" ]; then
-# Assert each allowlist transition: an approve or revoke must move the flag.
+# Assert each allowlist transition. An approve or revoke must move the flag.
 view blend_pool_initial "$CONTROLLER" -- is_blend_pool_approved --pool "$blend_pool" >/dev/null
 inv blend_pool_approve "$ADMIN" "$CONTROLLER" -- approve_blend_pool --pool "$blend_pool" >/dev/null
 assert_bool_view blend_pool_true true is_blend_pool_approved --pool "$blend_pool"
@@ -250,8 +251,8 @@ inv blend_pool_revoke "$ADMIN" "$CONTROLLER" -- revoke_blend_pool --pool "$blend
 assert_bool_view blend_pool_false false is_blend_pool_approved --pool "$blend_pool"
 inv blend_pool_reapprove "$ADMIN" "$CONTROLLER" -- approve_blend_pool --pool "$blend_pool" >/dev/null
 assert_bool_view blend_pool_reapproved true is_blend_pool_approved --pool "$blend_pool"
-# Migration financial/negative coverage belongs to the isolated Blend and SDK
-# lanes; this case exercises only approval administration.
+# Migration financial and negative coverage belongs to the isolated Blend and SDK
+# lanes. This case exercises only approval administration.
 fi
 
     local xlm_sec_band
@@ -292,7 +293,7 @@ flow_admin_upgrade() {
         inv unpause_after_upgrade "$ADMIN" "$CONTROLLER" -- unpause >/dev/null
     fi
 
-    # Same-hash position NFT upgrade: it proves the owner-gated controller
+    # Same-hash position NFT upgrade. It proves the owner-gated controller
     # entrypoint and the NFT's controller-only upgrade auth. Token ids are
     # account ids, so the owner read-back checks the NFT after the upgrade.
     inv nft_upgrade_via_controller "$ADMIN" "$CONTROLLER" -- upgrade_position_nft \
@@ -335,14 +336,14 @@ flow_admin_upgrade() {
 
 # Covers the price-aggregator reads and set_sanity_band for `key`.
 #
-# `seed_oracle` and `remove_oracle` are not covered: they sit behind
+# `seed_oracle` and `remove_oracle` are not covered. They sit behind
 # #[cfg(any(test, feature = "testing"))], and `make integration-wasm` builds
 # without the `testing` feature, so the deployed wasm does not have them.
 flow_price_aggregator_extra() {
     local key="${1:-}"
     [ -n "$key" ] || { _assert_fail pa_prerequisite "missing price key"; return 1; }
 
-    # Reads run before the band change: a narrower sanity band can make later
+    # Reads run before the band change. A narrower sanity band can make later
     # reads of this key fail with #223 SanityBoundViolated.
 
     # price_spread returns the (low, high) pair behind a resolved price.
@@ -366,7 +367,7 @@ flow_price_aggregator_extra() {
         _assert_fail pa_oracle_registered "oracle returned no config for a registered key: $(head -c 160 <<<"$orc")"
     fi
 
-    # prices and quotes are keyed maps: one requested key must yield at least one
+    # prices and quotes are keyed maps. One requested key must yield at least one
     # entry.
     local keys_json px qt
     keys_json=$(jq -nc --argjson k "$key" '[$k]')
@@ -383,11 +384,11 @@ flow_price_aggregator_extra() {
         _assert_fail pa_quotes_keyed "quotes returned no entry for the requested key: $(head -c 160 <<<"$qt")"
     fi
 
-    # The sanity band is the outer bound on any price the protocol will accept,
-    # so it is owner-only. Width is capped for a single-source feed:
-    # ceil((max-min)*10000/(max+min)) <= MAX_SINGLE_SOURCE_SANITY_BAND_BPS
-    # (1000); +/-8% is 800 bps. Centred on the asset's *current* price rather
-    # than on parity, so the band contains the price it is guarding.
+    # The sanity band is the outer bound on any price the protocol accepts, so it is
+    # owner-only. Width is capped for a single-source feed at
+    # ceil((max-min)*10000/(max+min)) <= MAX_SINGLE_SOURCE_SANITY_BAND_BPS (1000).
+    # A band of 8% on each side is 800 bps. Center the band on the asset's *current*
+    # price, not on parity, so the band contains the price it guards.
     local band_min band_max band_px cur_min cur_max
     band_px=$(jq -r '[.. | objects | select(has("price_wad")) | .price_wad] | first // empty' <<<"$px" 2>/dev/null)
     [[ "$band_px" =~ ^[0-9]+$ ]] || {
@@ -396,12 +397,12 @@ flow_price_aggregator_extra() {
     }
     band_min=$((band_px / 100 * 92))
     band_max=$((band_px / 100 * 108))
-    # set_sanity_band is a one-way ratchet: the new band must sit inside the
-    # registered one or it reverts with SanityBandMustTighten (#227). A live
-    # feed drifts between registration and here, so clamp into the registered
-    # band -- the call must narrow, never widen. Clamping keeps the live price
-    # inside the result (any healthy oracle already has reg_min <= px <= reg_max)
-    # and can only lower the width in bps, so both band-width bounds still hold.
+    # set_sanity_band only narrows. The new band must sit inside the registered band,
+    # or the call reverts with SanityBandMustTighten (#227). A live feed drifts
+    # between registration and this step, so clamp into the registered band. The call
+    # must narrow and must not widen. Clamping keeps the live price inside the result,
+    # because any healthy oracle already has reg_min <= px <= reg_max. Clamping can
+    # only lower the width in bps, so both band-width bounds still hold.
     cur_min=$(jq -r '.min_sanity_price_wad // empty' <<<"$orc" 2>/dev/null)
     cur_max=$(jq -r '.max_sanity_price_wad // empty' <<<"$orc" 2>/dev/null)
     if [[ "$cur_min" =~ ^[0-9]+$ ]] && [ "$cur_min" -gt "$band_min" ]; then band_min="$cur_min"; fi
@@ -427,11 +428,11 @@ flow_pool_surface() {
     # --- privileged: must reject a non-owner ---
     # require_auth never reverts in recording mode, so the only proof of the
     # owner gate is the CLI failing to sign for the pool's owner (the
-    # controller). Every argument must therefore pass body validation: an
+    # controller). Every argument must therefore pass body validation. An
     # unused hub id keeps create_market clear of AssetAlreadySupported.
     xfail pool_create_market_not_owner "Missing signing key for account $CONTROLLER" "$ADMIN" "$POOL" -- create_market \
         --hub_id 4242 --params "$(market_params_json "$USDC_SAC" 7)"
-    # InterestRateModel also carries is_flashloanable and flashloan_fee; without
+    # InterestRateModel also carries is_flashloanable and flashloan_fee. Without
     # them the CLI rejects the argument before the auth check.
     xfail pool_update_params_not_owner "Missing signing key for account $CONTROLLER" "$ADMIN" "$POOL" -- update_params \
         --hub_asset "$hub_asset" --model "$(market_params_json "$USDC_SAC" 7 | jq -c '{
@@ -482,7 +483,7 @@ flow_gap_hunt_admin() {
         || die gap_hunt_admin "seed account $ADMIN_ACCT is gone (post-teardown resume?); rerun from lifecycle"
     local xlm_leg
     xlm_leg=$(pay_vec "$PRIMARY_HUB_ID" "$XLM_SAC" 10000000)
-    # `to` is Option<Address>: the CLI wants JSON, so an address goes as a
+    # `to` is Option<Address>. The CLI wants JSON, so an address goes as a
     # JSON string and None as null.
     local to_pool to_ctrl to_bob
     to_pool="\"$POOL\""
@@ -506,8 +507,8 @@ flow_gap_hunt_admin() {
         --payments "$(pay_vec "$PRIMARY_HUB_ID" "$XLM_SAC" 20000000)" >/dev/null
 
     # --- GH-16: a limit below the account's count keeps top-ups open ---
-    # The seed account holds two supply positions (XLM, USDC); a limit of one
-    # is below that. Topping up XLM opens no slot and passes; EURC would open
+    # The seed account holds two supply positions (XLM, USDC), and a limit of one
+    # is below that. Topping up XLM opens no slot and passes. EURC would open
     # a slot and is refused with #109 before any token moves.
     inv gh16_lower_limits "$ADMIN" "$CONTROLLER" -- set_position_limits \
         --limits '{"max_supply_positions":1,"max_borrow_positions":1}' >/dev/null

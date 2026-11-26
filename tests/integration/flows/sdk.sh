@@ -52,7 +52,8 @@ sdk_inv() {
     done
 }
 
-# Same financial checker as CLI lifecycle; only public-builder transport differs.
+# This uses the same financial checker as the CLI lifecycle. Only the
+# public-builder transport differs.
 sdk_lifecycle_submit() {
     local label="$1" signer="$2" contract="$3"; shift 3
     local method="$2" caller='' acct=0 spoke="$PRIMARY_SPOKE_ID" payments='' builder args
@@ -122,7 +123,7 @@ flow_sdk_strategy() {
     assert_hf_at_least sdk_multiply_hf "$acct" "$WAD"
 }
 
-# Transport adapter only: snapshot, committed rates and financial predicates
+# Transport adapter only: snapshot, committed rates, and financial predicates
 # stay in the same wrapper exercised by native CLI migrations.
 sdk_blend_submit() {
     local label="$1" signer="$2" contract="$3"; shift 3

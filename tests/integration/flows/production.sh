@@ -57,8 +57,8 @@ prod_upgrade_hash() {
         upgradePoolHash) echo "$POOL_HASH";;
         upgradePositionNftHash) echo "$NFT_HASH";;
         upgradePriceAggregatorHash) echo "$PA_HASH";;
-        # Same-hash upgrade of the deployed short-timelock build; the candidate
-        # governance.wasm would hold every later sensitive operation for 7 days.
+        # This is a same-hash upgrade of the deployed short-timelock build. The
+        # candidate governance.wasm would hold every later sensitive operation for 7 days.
         upgradeGovernanceHash) sha256sum "$GOVERNANCE_E2E_WASM" | cut -c1-64 | grep -E '^[0-9a-f]{64}$';;
         *) return 1;;
     esac
@@ -228,7 +228,7 @@ flow_production_fixtures() {
     while read -r row; do prod_curve_seed "$row" || return 1; done < <(jq -c '.curve_pools[]?' "$fixtures")
 }
 
-# One balanced first deposit; production_config.py prices the LP from it.
+# One balanced first deposit. production_config.py prices the LP from it.
 prod_curve_seed() {
     local pool i=0 coin
     pool=$(jq -r '.contract' <<<"$1")
@@ -419,7 +419,7 @@ prod_decimal_roundtrips() {
     done < <(jq -c '.[]' "$cases")
 }
 
-# Stable state only: ledger timestamps are deliberately excluded.
+# Stable state only. Ledger timestamps are excluded.
 prod_position_snapshot() {
     local label="$1" acct="$2" asset="$3" runner="$4" positions attributes usage owner wallet pool
     local controller_cash book nft_state roles='[]' role held pa_owner n=9
@@ -456,7 +456,7 @@ prod_position_snapshot() {
         '{positions:$positions,attributes:$attributes,usage:$usage,owner:$owner,wallet:$wallet,pool:$pool,controller_cash:$controller_cash,book:$book,nft:$nft,roles:$roles,pa_owner:$pa_owner}'
 }
 
-# Authority-only calls may change the NFT owner, never principal, usage or cash.
+# Authority-only calls may change the NFT owner, never principal, usage, or cash.
 prod_caller_state() {
     local label="$1"
     if ! python3 - "$2" "$3" "$4" <<'PYAUTHSTATE'
@@ -642,7 +642,7 @@ flow_production_upgrade() {
 }
 
 # Real candidate XOXNO adapter feeds the production-shaped risk path. The
-# underlying token/provider data are explicitly disposable fixtures.
+# underlying token and provider data are disposable fixtures.
 flow_production_lending() {
     phase production_lending
     local plan asset hub amount spoke debt debt_hub supplier acct

@@ -1,4 +1,4 @@
-"""Integer principal/refund reference and suppressed-refund regressions."""
+"""Integer principal and refund reference and suppressed-refund regressions."""
 import json
 import subprocess
 import unittest
@@ -52,7 +52,7 @@ sdk_lifecycle_submit check alice CTRL -- "$2" --caller CALLER --account_id "$3" 
         self.assertNotEqual(subprocess.run(['bash','-c',script,'_',str(HERE),'upgrade','0'],capture_output=True).returncode,0)
 
     def test_suppressed_refund_fails_cash_predicate(self):
-        # Offered 110, current debt100: payer loses100, not110.
+        # Offered 110 and the current debt is 100, so the payer loses 100, not 110.
         paid=amount('repay',100*10**20,0,R,110,7)
         self.assertEqual(paid.stdout,'100\n')
         for final,ok in [('900',True),('890',False)]:

@@ -1,6 +1,6 @@
 # Every E2E quote tolerates 50% slippage (the API takes a fraction). The
 # routes run on live testnet venues whose prices move between the quote, the
-# simulation and the ledger that includes the transaction; a tight minimum
+# simulation, and the ledger that includes the transaction. A tight minimum
 # output made signed swaps fail with SlippageExceeded for reasons unrelated to
 # the contracts under test. AGGREGATOR_SLIPPAGE overrides the default.
 agg_route_hex() {
@@ -40,7 +40,7 @@ PYROUTE
     [ "$?" -eq 0 ] || { _assert_fail quote_xdr "invalid route encoding: $quote_f"; return 1; }
 }
 
-# Keep the API's venue route, changing only its documented referral header.
+# Keep the API's venue route and change only its documented referral header.
 # This is route XDR, never a prepared or signed transaction envelope.
 agg_referral_route_hex() {
     python3 - "$1" "$2" <<'PYROUTE'

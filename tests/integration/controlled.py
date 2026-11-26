@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Check native regression logs and attach candidate metadata; WASM consumption is not attested."""
+"""Check native regression logs and attach candidate metadata. WASM use is not attested."""
 import hashlib
 import json
 import re

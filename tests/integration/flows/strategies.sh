@@ -55,7 +55,7 @@ flow_flash_loans() {
     local mode name pattern
     # The Soroban host rejects re-entry into a contract already on the call
     # stack with Context/InvalidAction, before the controller's #400 guard runs.
-    # A live callback sees only that host error; the harness test
+    # A live callback sees only that host error. The harness test
     # meta/reentrancy_matrix.rs pins #400.
     local re_pattern='Error\(Context, InvalidAction\)'
     for mode in 1 2 3 4 5 7 8 9 10 11 12 13 14 15 16 17 18; do
@@ -84,7 +84,7 @@ flow_flash_loans() {
     done
 }
 
-# Snapshot the two routed fixture assets; use fee-adjusted XLM wallet balances.
+# Snapshot the two routed fixture assets. Use fee-adjusted XLM wallet balances.
 strategy_snapshot() {
     local label="$1" caller="$2" acct="$3" positions='[{},{}]' tokens='{}' token wallet cash ctrl sync
     local exists=false owner=null attrs=null
@@ -92,7 +92,7 @@ strategy_snapshot() {
         exists=$(view "${label}_exists" "$CONTROLLER" -- account_exists --account_id "$acct" | tr -d '[:space:]') || return 1
         [[ "$exists" = true || "$exists" = false ]] || return 1
         positions=$(view "${label}_positions" "$CONTROLLER" -- get_account_positions --account_id "$acct") || return 1
-        # A closed account has no NFT or attributes: do not call reverting views.
+        # A closed account has no NFT or attributes. Do not call reverting views.
         if [ "$exists" = true ]; then
             owner=$(view "${label}_owner" "$POSITION_NFT" -- owner_of --token_id "$acct") || return 1
             attrs=$(view "${label}_attributes" "$CONTROLLER" -- get_account_attributes --account_id "$acct") || return 1
@@ -358,7 +358,7 @@ flow_strategies() {
 flow_same_market() {
     phase same_market
     local acct key pool_pre ctrl_pre debt_pre positions_pre positions_post synced payer_pre payer_post pool_post
-    # CLI Bytes file arguments contain raw bytes; an empty argv value is rejected.
+    # CLI Bytes file arguments contain raw bytes. An empty argv value is rejected.
     : > "$RUN_DIR/empty-route.bin"
     key=$(hub_key "$PRIMARY_HUB_ID" "$USDC_SAC")
     acct=$(inv_create net_supply "$ALICE" "$CONTROLLER" -- supply --caller "$ALICE_ADDR" --account_id 0 --spoke_id "$PRIMARY_SPOKE_ID" --assets "$(pay_vec "$PRIMARY_HUB_ID" "$USDC_SAC" 1000000000)") || return 1

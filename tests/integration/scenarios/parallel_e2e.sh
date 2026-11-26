@@ -17,7 +17,7 @@ E2E_LANE_GAP="${E2E_LANE_GAP:-10}"
 # affects (for example `liq-a liq-b liq-c` after a liquidation change). Unset
 # runs every release lane.
 #
-# `-`, not `:-`: an explicitly empty E2E_LANES must reach the zero-lane check
+# Use `-`, not `:-`. An empty E2E_LANES must reach the zero-lane check
 # below and abort, not expand to the default and run every lane.
 RELEASE_LANES='agg-core agg-admin agg-gov liq-a liq-b liq-c stress flash-a flash-b blend prod-full prod-caller sdk'
 read -r -a RELEASE <<<"$RELEASE_LANES"
@@ -25,7 +25,8 @@ read -r -a LANES <<<"${E2E_LANES-$RELEASE_LANES}"
 CRITICAL_LANES='prod-full prod-caller stress'
 
 # The scenarios carry their own wallet sets, wasm preflights, and green gate, so
-# the orchestrator only maps lane -> script and applies the same outer gate.
+# the orchestrator only maps each lane to its script and applies the same
+# outer gate.
 script_for() {
     case "$1" in
         prod-full|prod-caller) echo "production.sh" ;;
@@ -106,7 +107,7 @@ stagger_pid=''
 stop_children() {
     trap - INT TERM
     [ -z "$stagger_pid" ] || kill "$stagger_pid" 2>/dev/null || true
-    # GNU timeout owns a process group; kill that group, including CLI/RPC children.
+    # GNU timeout owns a process group. Kill that group, including the CLI and RPC children.
     for pid in "${pids[@]}"; do [ -z "$pid" ] || kill -TERM -- "-$pid" 2>/dev/null || true; done
     for pid in ${gate_pids[@]+"${gate_pids[@]}"}; do [ -z "$pid" ] || { kill -STOP "$pid"; pkill -TERM -P "$pid"; kill -TERM "$pid"; kill -CONT "$pid"; } 2>/dev/null || true; done
     sleep 2

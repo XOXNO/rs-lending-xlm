@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Production policy with explicit testnet token/provider address substitution."""
+"""Production policy with explicit testnet token and provider address substitution."""
 import hashlib
 import json
 from math import isqrt
@@ -51,7 +51,7 @@ def load(root, name):
 
 
 def canonical(value):
-    """CLI encodes i128 as strings; never pass money through float/jq numbers."""
+    """The CLI encodes i128 as strings. Never pass money through float or jq numbers."""
     if isinstance(value, str) and re.fullmatch(r'-?[0-9]+', value):
         return int(value)
     if isinstance(value, list):
@@ -62,7 +62,7 @@ def canonical(value):
 
 
 def verify_equal(expected, actual):
-    # bool is an int subclass: serialized comparison retains that distinction.
+    # bool is an int subclass, and serialized comparison retains that distinction.
     assert json.dumps(canonical(actual), sort_keys=True) == json.dumps(canonical(expected), sort_keys=True), f'policy mismatch: expected {expected}, observed {actual}'
 
 
@@ -109,7 +109,7 @@ def decimal_cases(root, networks):
             if market['oracle']['asset_decimals'] == decimals
             and (listing := spoke['assets'].get(market['name']))
             and listing['can_be_collateral'] and int(listing['supply_cap']) >= amount
-            # A Curve LP is minted only by depositing coins; the flow mints directly.
+            # A Curve LP is minted only by depositing coins. The flow mints directly.
             and not any('CurveStableLp' in node for node in walk(market['oracle']))]
         assert candidates, f'no collateral fixture for {decimals} decimals'
         market, config_id = candidates[0]
@@ -154,8 +154,8 @@ def verify_price(root, name, observed):
 def fixture_price(root, key):
     """Independent integer valuation from seeded providers and LP reserves.
 
-    Mirrors specified rounding, never reads the contract's calculated price.
-    This checks fixture-backed composition; external providers are separate.
+    Mirrors specified rounding and never reads the contract's calculated price.
+    This checks fixture-backed composition. External providers are separate.
     """
     config, fixtures = load(root, 'markets.json'), load(root, 'fixtures.json')
     entries = {json.dumps(e.get('key', {'Token': e.get('asset_address')}), sort_keys=True): e['oracle']
@@ -265,9 +265,10 @@ def plan(root, only=None):
     for node in walk([enabled, markets.get('references', [])]):
         if 'CurveStableLp' in node:
             lp = node['CurveStableLp']
-            # Fails before any deploy; validate_configs repeats this on the materialized config.
+            # Fails before any deploy. validate_configs repeats this on the materialized config.
             curve_reviewed(root, lp)
-            # Deployed after its coins: the constructor takes their fixture addresses.
+            # The flow deploys it after its coins because the constructor takes their
+            # fixture addresses.
             definitions[lp['pool']] = dict(kind='curve_pool', wasm=curve_fixture(lp), coins=lp['coins'],
                                            decimals=18, name=definitions.get(lp['pool'], {}).get('name', 'CURVELP'))
         for kind in ('Reflector', 'RedStone', 'Xoxno', 'Chainlink'):
@@ -360,7 +361,7 @@ def materialize(source, output, mapping, network, only=None):
             else:
                 kind=next(iter(source_)); s=source_[kind]
                 pa=prices[json.dumps(s['key_a'],sort_keys=True)]; pb=prices[json.dumps(s['key_b'],sort_keys=True)]
-                # Equal USD reserves; comfortably above production depth floors.
+                # Equal USD reserves, above production depth floors.
                 usd=10**26
                 pools.append(dict(contract=mapping[s['pool']],snapshot=dict(
                     tokens=[mapping[s['token_a']],mapping[s['token_b']]],
@@ -368,7 +369,7 @@ def materialize(source, output, mapping, network, only=None):
                     shares=str(2*usd*10**entry['oracle']['asset_decimals']//price),
                     share_token=mapping[entry['asset_address']], stable=kind=='AquariusStableLp',amplification='100')))
                 if kind == 'AquariusStableLp':
-                    # An imbalanced pool makes amplification/invariant math observable.
+                    # An imbalanced pool makes amplification and invariant math observable.
                     snapshot = pools[-1]['snapshot']
                     snapshot['reserves'][1] = str(int(snapshot['reserves'][1])*3//2)
                     snapshot['shares'] = str(int(snapshot['shares'])*5//4)

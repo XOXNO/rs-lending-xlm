@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Real orchestrator/process-group cancellation, with network-free lane stubs."""
+"""Real orchestrator and process-group cancellation, with network-free lane stubs."""
 import hashlib
 import json
 import os
