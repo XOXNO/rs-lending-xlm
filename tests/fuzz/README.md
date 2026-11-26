@@ -58,7 +58,7 @@ libFuzzer targets live in `tests/fuzz/fuzz_targets/<target>.rs` ([Targets](#targ
 |---|---|
 | `flow_e2e` | Fixed-width byte op streams: multi-asset supply, borrow, withdraw, repay, liquidation, flash-loan failure/success, oracle jitter, index sync, revenue claim, bad-debt cleanup, rollback |
 | `flow_strategy` | `multiply`, `swap_debt`, `swap_collateral`, `repay_debt_with_collateral`, index sync; controller holds no token balance after a strategy op |
-| `pool_native` | Native pool supply, borrow, withdraw, repay, index and parameter updates, revenue claim, seizure, strategy creation, flash loan (needs `flash_loan_receiver.wasm` from `make build`), net settle, recapitalize and views, indexes optionally pinned near caps, against reserve invariants (tracked cash ≤ token balance, revenue ≤ supplied) |
+| `pool_native` | Native pool supply, borrow, withdraw, repay, index and parameter updates, revenue claim, seizure, strategy creation, flash loan (needs `flash_loan_receiver.wasm` from `make build`), net settle, recapitalize and views, indexes optionally pinned near caps, against reserve invariants (tracked cash ≤ token balance, revenue ≤ supplied, cash plus debt ≥ supplied until a writeoff clamps the supply index at its floor) |
 | `aggregator` | Arbitrary prices, ages, tolerances and sanity bands on single and dual sources: per-feed staleness ceiling, tolerance disagreement, sanity band |
 | `oracle_sources` | Every provider (Reflector spot and TWAP, RedStone, Xoxno, Chainlink) and source shape (feed, scaled, Aquarius constant-product and stable LP, dual blends) with injected faults, via `set_oracle` and `seed_oracle` |
 | `xoxno_oracle` | XOXNO oracle vs a reference model of signers, config, submissions, aggregates and history |
