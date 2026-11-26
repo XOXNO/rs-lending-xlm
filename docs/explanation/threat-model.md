@@ -378,11 +378,23 @@ XOXNO aggregation follows the
 [oracle reference](../reference/endpoints.md#xoxno-oracle). A quorum of fresh,
 timestamp-clustered submissions, one registered signer each, gives the lower
 median. Future skew is bounded at 60 seconds, not forbidden. Equal package
-timestamps may replace a signer's observation. Evaluate honest quorum
-participation against the accepted cluster. A threshold above half the
-registered signers does not alone give an honest median when some signers are
-absent. A small cluster must fit inside `max_cluster_spread_bps`, so one
-signer moves it by at most that bound.
+timestamps may replace a signer's observation.
+
+A cluster of fewer than
+`max(2 * (signers - threshold) + 1, 2 * threshold - 1)` entries must fit
+inside `max_cluster_spread_bps`. While fewer signers than the threshold
+collude, each new aggregate therefore has one of two bounds. From a cluster
+that takes the spread check, it is within `max_cluster_spread_bps` of an
+honest submission in that cluster. From a larger cluster, it is inside the
+range of the honest submissions in that cluster. Colluding signers equal in
+number to the threshold can set the price.
+
+Only `signers == 2 * threshold - 1` lets a cluster skip the spread check, and
+that cluster is the full signer set. Every other cluster takes the check, so
+one submission outside the spread causes a quorum miss. That submission can
+come from a faulty signer or from an honest signer that lags the market.
+Updates resume when the whole cluster fits inside the spread and holds at
+least `threshold` entries. Until then the stored aggregate ages toward stale.
 
 Below quorum the prior aggregate stays readable until stale. Setters do not
 recompute existing aggregates. Follow them with batched `recompute_feeds`. The

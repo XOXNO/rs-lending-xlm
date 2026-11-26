@@ -96,7 +96,8 @@ impl XoxnoOracle {
     }
 
     /// Returns the configured maximum price spread, in basis points, of a
-    /// cluster smaller than `2 * (signers - threshold) + 1` entries.
+    /// cluster smaller than
+    /// `max(2 * (signers - threshold) + 1, 2 * threshold - 1)` entries.
     pub fn max_cluster_spread_bps(env: Env) -> u32 {
         load_max_cluster_spread_bps(&env)
     }

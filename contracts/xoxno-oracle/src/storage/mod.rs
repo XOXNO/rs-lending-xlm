@@ -43,7 +43,7 @@ pub(crate) const MIN_SUBMISSION_AGE_SECONDS: u64 = MAX_FUTURE_SKEW_SECONDS + 1;
 pub(crate) const DEFAULT_MAX_RELATIVE_SKEW_SECONDS: u64 = DEFAULT_MAX_SUBMISSION_AGE_SECONDS;
 
 /// Default maximum price spread, in basis points, of a cluster smaller than
-/// `2 * (signers - threshold) + 1` entries.
+/// `max(2 * (signers - threshold) + 1, 2 * threshold - 1)` entries.
 pub(crate) const DEFAULT_MAX_CLUSTER_SPREAD_BPS: u32 = 200;
 
 /// Storage keys for the oracle contract. The keys `Signers` through

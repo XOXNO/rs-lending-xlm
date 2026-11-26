@@ -4,11 +4,12 @@
 //! authorized signers. Each signer posts the latest submission for each feed and
 //! authorizes the call. The contract forms a median once at least `threshold`
 //! fresh, skew-clustered submissions exist. A cluster smaller than
-//! `2 * (signers - threshold) + 1` must also fit inside the configured price
-//! spread. History keeps one entry per resolution bucket and is bounded. The
-//! contract exposes prices through RedStone-shaped feed APIs and a
-//! Reflector-compatible asset API. Owner-only admin functions configure the
-//! signers, the threshold, the feeds, and the staleness, skew, and spread bounds.
+//! `max(2 * (signers - threshold) + 1, 2 * threshold - 1)` entries must also fit
+//! inside the configured price spread. History keeps one entry per resolution
+//! bucket and is bounded. The contract exposes prices through RedStone-shaped
+//! feed APIs and a Reflector-compatible asset API. Owner-only admin functions
+//! configure the signers, the threshold, the feeds, and the staleness, skew, and
+//! spread bounds.
 
 mod admin;
 mod aggregation;

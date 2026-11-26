@@ -287,7 +287,7 @@ The constructor `(owner: Address)` sets the owner and emits OwnershipTransferCom
 
 ## XOXNO oracle
 
-Constructor `(admin: Address, signers: Vec<Address>, threshold: u32, resolution: u32) -> Result<(), Error>` sets the owner and quorum. Each submission authenticates one registered signer. A quorum of fresh stored submissions within the timestamp cluster yields the lower-median aggregate. A cluster under `2 * (signers - threshold) + 1` entries must also satisfy `max * 10000 <= min * (10000 + max_cluster_spread_bps)`, or the quorum check fails. A successful submission need not aggregate.
+Constructor `(admin: Address, signers: Vec<Address>, threshold: u32, resolution: u32) -> Result<(), Error>` sets the owner and quorum. Each submission authenticates one registered signer. A quorum of fresh stored submissions within the timestamp cluster yields the lower-median aggregate. A cluster under `max(2 * (signers - threshold) + 1, 2 * threshold - 1)` entries must also satisfy `max * 10000 <= min * (10000 + max_cluster_spread_bps)`, or the quorum check fails. Only `signers == 2 * threshold - 1` lets a cluster skip that check, and that cluster is the full signer set. A successful submission need not aggregate.
 
 Prices have 8 decimals. Package and aggregate-write timestamps use milliseconds. Freshness, resolution, and Reflector timestamps use seconds.
 
@@ -303,7 +303,7 @@ The [ownership methods](#router-and-xoxno-oracle-ownership) are also exported. T
 
 The history keeps one entry per `resolution`-second bucket of the write time. Each entry is the newest aggregate of that bucket. The history holds at most 12 entries. `prices` and `price` serve each entry as a round stamped with its bucket start, in seconds. Round timestamps are distinct and at least one resolution apart. `price(asset, timestamp)` serves the newest round written at or before `timestamp`.
 
-Threshold, submission-age, relative-skew, and cluster-spread setters do not recompute. The owner calls `recompute_feeds` in bounded batches. `remove_signer` deletes the signer's submissions and recomputes affected feeds. Without quorum, submissions keep the previous aggregate. Recomputation or signer removal clears the previous aggregate. Reads check aggregate freshness without reevaluating quorum. Package timestamps allow 60 seconds of future skew after flooring to seconds. Equal timestamps from one signer are accepted.
+Threshold, submission-age, relative-skew, and cluster-spread setters do not recompute. The owner calls `recompute_feeds` in bounded batches. `add_signer` can raise the cluster size that skips the spread check, and it does not recompute. `remove_signer` deletes the signer's submissions and recomputes affected feeds. Without quorum, submissions keep the previous aggregate. Recomputation or signer removal clears the previous aggregate. Reads check aggregate freshness without reevaluating quorum. Package timestamps allow 60 seconds of future skew after flooring to seconds. Equal timestamps from one signer are accepted.
 
 ## DeFindex strategy
 

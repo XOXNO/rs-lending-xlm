@@ -521,6 +521,9 @@ echo 'listed token decimals: OK'
 
 # A Chainlink proposal proves that the configured deployment serves the exact
 # feed selector and precision before governance receives the operation.
+# The fake proxy dates its "future" round 120 seconds ahead. The preflight
+# allows 60 seconds and reads its own clock after the proxy call. A margin of
+# 61 seconds passes whenever the second changes between the two reads.
 chainlink_id=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 cat > "$tmp/chainlink-preflight.sh" <<EOF
 NETWORK=mainnet SOURCE_FLAG=
@@ -533,7 +536,7 @@ invoke_view() {
         malformed) echo '{}' ;;
         zero) echo '{"answer":"0","round_id":1,"timestamp":1}' ;;
         stale) echo '{"answer":"1","round_id":1,"timestamp":1}' ;;
-        future) printf '{"answer":"1","round_id":1,"timestamp":%s}\n' "\$(( \$(date +%s) + 61 ))" ;;
+        future) printf '{"answer":"1","round_id":1,"timestamp":%s}\n' "\$(( \$(date +%s) + 120 ))" ;;
         wrong_type) echo '{"answer":{},"round_id":"1","timestamp":"1"}' ;;
         *) printf '{"answer":"1000000000000000000","round_id":1,"timestamp":%s}\n' "\$(date +%s)" ;;
     esac
