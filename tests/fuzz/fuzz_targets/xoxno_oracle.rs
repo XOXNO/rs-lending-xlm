@@ -146,7 +146,8 @@ impl Model {
         let spread_free = (self.signers.len() as u32)
             .saturating_sub(self.threshold)
             .saturating_mul(2)
-            .saturating_add(1);
+            .saturating_add(1)
+            .max(self.threshold.saturating_mul(2).saturating_sub(1));
         let within = match (
             highest.checked_mul(BPS),
             lowest.checked_mul(BPS + i128::from(self.spread_bps)),

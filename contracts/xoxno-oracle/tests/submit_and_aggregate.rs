@@ -81,12 +81,12 @@ fn median_odd_count() {
     let (client, _admin, signers) = setup(&env, 3, 3);
     let feed = feed_id(&env);
 
-    client.submit_price(&signers[0], &feed, &100i128, &1_000u64);
-    client.submit_price(&signers[1], &feed, &300i128, &2_000u64);
-    client.submit_price(&signers[2], &feed, &200i128, &3_000u64);
+    client.submit_price(&signers[0], &feed, &1_000i128, &1_000u64);
+    client.submit_price(&signers[1], &feed, &1_020i128, &2_000u64);
+    client.submit_price(&signers[2], &feed, &1_010i128, &3_000u64);
 
     let data = client.read_price_data_for_feed(&feed);
-    assert_eq!(data.price.to_u128(), Some(200u128));
+    assert_eq!(data.price.to_u128(), Some(1_010u128));
 
     assert_eq!(data.package_timestamp, 1_000u64);
 }
@@ -98,13 +98,13 @@ fn median_even_count() {
     let (client, _admin, signers) = setup(&env, 4, 4);
     let feed = feed_id(&env);
 
-    client.submit_price(&signers[0], &feed, &100i128, &1_000u64);
-    client.submit_price(&signers[1], &feed, &300i128, &1_000u64);
-    client.submit_price(&signers[2], &feed, &200i128, &1_000u64);
-    client.submit_price(&signers[3], &feed, &400i128, &1_000u64);
+    client.submit_price(&signers[0], &feed, &1_000i128, &1_000u64);
+    client.submit_price(&signers[1], &feed, &1_015i128, &1_000u64);
+    client.submit_price(&signers[2], &feed, &1_005i128, &1_000u64);
+    client.submit_price(&signers[3], &feed, &1_020i128, &1_000u64);
 
     let data = client.read_price_data_for_feed(&feed);
-    assert_eq!(data.price.to_u128(), Some(200u128));
+    assert_eq!(data.price.to_u128(), Some(1_005u128));
 }
 
 #[test]
@@ -137,7 +137,7 @@ fn relative_skew_boundary_is_inclusive() {
     client.set_max_relative_skew_seconds(&100u64);
     let newest_ms = env.ledger().timestamp() * 1_000;
     client.submit_price(&signers[0], &feed, &100i128, &newest_ms);
-    client.submit_price(&signers[1], &feed, &200i128, &(newest_ms - 100 * 1_000));
+    client.submit_price(&signers[1], &feed, &102i128, &(newest_ms - 100 * 1_000));
 
     assert_eq!(
         client.read_price_data_for_feed(&feed).price.to_u128(),
@@ -173,7 +173,7 @@ fn stale_submission_excluded_from_aggregate() {
     advance_ledger_seconds(&env, 1_000);
     let initial_ms = env.ledger().timestamp() * 1_000;
     client.submit_price(&signers[0], &feed, &100i128, &initial_ms);
-    client.submit_price(&signers[1], &feed, &200i128, &initial_ms);
+    client.submit_price(&signers[1], &feed, &102i128, &initial_ms);
 
     let data = client.read_price_data_for_feed(&feed);
     assert_eq!(data.price.to_u128(), Some(100u128));
@@ -182,7 +182,8 @@ fn stale_submission_excluded_from_aggregate() {
 
     client.set_max_relative_skew_seconds(&900u64);
     let fresh_ms = (env.ledger().timestamp() - 1) * 1_000;
-    client.submit_price(&signers[0], &feed, &500i128, &fresh_ms);
+    // Inside the spread of the stale 102: a kept stale entry would form a quorum.
+    client.submit_price(&signers[0], &feed, &101i128, &fresh_ms);
 
     let after = client.read_price_data_for_feed(&feed);
     assert_eq!(
@@ -444,19 +445,19 @@ fn remove_signer_refreshes_aggregate_excluding_removed() {
     let (client, _admin, signers) = setup(&env, 3, 2);
     let feed = feed_id(&env);
 
-    client.submit_price(&signers[0], &feed, &100i128, &1_000u64);
-    client.submit_price(&signers[1], &feed, &200i128, &1_000u64);
-    client.submit_price(&signers[2], &feed, &300i128, &1_000u64);
+    client.submit_price(&signers[0], &feed, &1_000i128, &1_000u64);
+    client.submit_price(&signers[1], &feed, &1_010i128, &1_000u64);
+    client.submit_price(&signers[2], &feed, &1_500i128, &1_000u64);
 
     assert_eq!(
         client.read_price_data_for_feed(&feed).price.to_u128(),
-        Some(200u128)
+        Some(1_010u128)
     );
 
     client.remove_signer(&signers[2]);
     assert_eq!(
         client.read_price_data_for_feed(&feed).price.to_u128(),
-        Some(100u128)
+        Some(1_000u128)
     );
 }
 
@@ -469,15 +470,15 @@ fn remove_signer_only_recomputes_touched_feeds() {
     let feed_b = String::from_str(&env, "B/USD");
     register_extra_feeds(&client, &env, &["A/USD", "B/USD"]);
 
-    client.submit_price(&signers[0], &feed_a, &100i128, &1_000u64);
-    client.submit_price(&signers[1], &feed_a, &200i128, &1_000u64);
-    client.submit_price(&signers[2], &feed_a, &300i128, &1_000u64);
+    client.submit_price(&signers[0], &feed_a, &1_000i128, &1_000u64);
+    client.submit_price(&signers[1], &feed_a, &1_010i128, &1_000u64);
+    client.submit_price(&signers[2], &feed_a, &1_020i128, &1_000u64);
     client.submit_price(&signers[1], &feed_b, &1_000i128, &1_000u64);
     client.submit_price(&signers[2], &feed_b, &1_010i128, &1_000u64);
 
     assert_eq!(
         client.read_price_data_for_feed(&feed_a).price.to_u128(),
-        Some(200u128)
+        Some(1_010u128)
     );
     assert_eq!(
         client.read_price_data_for_feed(&feed_b).price.to_u128(),
@@ -487,7 +488,7 @@ fn remove_signer_only_recomputes_touched_feeds() {
     client.remove_signer(&signers[0]);
     assert_eq!(
         client.read_price_data_for_feed(&feed_a).price.to_u128(),
-        Some(200u128)
+        Some(1_010u128)
     );
     assert_eq!(
         client.read_price_data_for_feed(&feed_b).price.to_u128(),
@@ -698,7 +699,7 @@ fn purge_feed_clears_submission_state_and_allows_reuse() {
     let feed = feed_id(&env);
 
     client.submit_price(&signers[0], &feed, &100i128, &1_000u64);
-    client.submit_price(&signers[1], &feed, &200i128, &1_000u64);
+    client.submit_price(&signers[1], &feed, &102i128, &1_000u64);
     assert_eq!(
         client.read_price_data_for_feed(&feed).price.to_u128(),
         Some(100u128)
@@ -712,7 +713,7 @@ fn purge_feed_clears_submission_state_and_allows_reuse() {
 
     client.register_feed(&feed);
     client.submit_price(&signers[0], &feed, &100i128, &2_000u64);
-    client.submit_price(&signers[1], &feed, &200i128, &2_000u64);
+    client.submit_price(&signers[1], &feed, &102i128, &2_000u64);
     assert_eq!(
         client.read_price_data_for_feed(&feed).price.to_u128(),
         Some(100u128)

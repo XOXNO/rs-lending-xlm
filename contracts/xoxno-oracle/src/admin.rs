@@ -28,6 +28,9 @@ use crate::{Error, XoxnoOracle, XoxnoOracleArgs, XoxnoOracleClient};
 impl XoxnoOracle {
     /// Adds `signer` to the set of addresses authorized to submit prices.
     /// Fails with `SignerAlreadyRegistered` if the address is already present.
+    /// A larger signer set can raise the cluster size that skips the spread
+    /// check. Does not re-derive existing aggregates: call `recompute_feeds`
+    /// afterwards to apply the new size to feeds that already hold one.
     #[only_owner]
     pub fn add_signer(env: Env, signer: Address) -> Result<(), Error> {
         renew_instance(&env);
@@ -73,7 +76,10 @@ impl XoxnoOracle {
 
     /// Sets the minimum number of signer submissions required to accept a
     /// price for a feed. Fails with `InvalidThreshold` if `threshold` is zero
-    /// or exceeds the current signer count. Does not re-derive existing
+    /// or exceeds the current signer count. Only `signers == 2 * threshold - 1`
+    /// lets a cluster skip the spread check, and that cluster is the full
+    /// signer set. Every other cluster takes the check, and one submission
+    /// outside the spread is a quorum miss. Does not re-derive existing
     /// aggregates: call `recompute_feeds` afterwards to apply the new
     /// threshold to feeds that already hold one.
     #[only_owner]
@@ -136,8 +142,9 @@ impl XoxnoOracle {
     }
 
     /// Sets the maximum price spread, in basis points, of a cluster smaller
-    /// than `2 * (signers - threshold) + 1` entries: such a cluster is a
-    /// quorum miss unless `highest * BPS <= lowest * (BPS + bps)`. Fails with
+    /// than `max(2 * (signers - threshold) + 1, 2 * threshold - 1)` entries:
+    /// such a cluster is a quorum miss unless
+    /// `highest * BPS <= lowest * (BPS + bps)`. Fails with
     /// `InvalidClusterSpread` if `bps` is zero or above `BPS`. Does not
     /// re-derive existing aggregates: call `recompute_feeds` afterwards to
     /// apply the new bound to feeds that already hold one.

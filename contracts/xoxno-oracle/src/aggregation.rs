@@ -98,10 +98,10 @@ pub(crate) enum QuorumMiss {
 /// age, then keeps only those within `max_relative_skew` of the newest
 /// surviving timestamp, clamped to ledger time so a future-dated submission
 /// cannot drag the cluster window forward. If fewer than `threshold`
-/// submissions survive either filter, or the cluster has fewer than
-/// `2 * (signers - threshold) + 1` entries and its highest price exceeds its
-/// lowest by more than the configured spread, applies `on_miss` and stores no
-/// new aggregate. Otherwise stores the lower median of the clustered prices,
+/// submissions survive either filter, or the cluster is smaller than
+/// `spread_free_cluster_size` and its highest price exceeds its lowest by
+/// more than the configured spread, applies `on_miss` and stores no new
+/// aggregate. Otherwise stores the lower median of the clustered prices,
 /// with the oldest clustered package timestamp and the ledger time as write
 /// timestamp, and records it in the feed's history (see `push_history`).
 pub(crate) fn recompute_aggregate(env: &Env, feed_id: &String, on_miss: QuorumMiss) {
@@ -156,12 +156,7 @@ pub(crate) fn recompute_aggregate(env: &Env, feed_id: &String, on_miss: QuorumMi
         return;
     }
 
-    let spread_free_cluster = signers
-        .len()
-        .saturating_sub(threshold)
-        .saturating_mul(2)
-        .saturating_add(1);
-    if clustered_prices.len() < spread_free_cluster
+    if clustered_prices.len() < spread_free_cluster_size(signers.len(), threshold)
         && !within_spread(lowest, highest, load_max_cluster_spread_bps(env))
     {
         apply_quorum_miss(env, feed_id, on_miss);
@@ -178,6 +173,23 @@ pub(crate) fn recompute_aggregate(env: &Env, feed_id: &String, on_miss: QuorumMi
 
     store_aggregate(env, feed_id, &aggregate);
     push_history(env, feed_id, aggregate);
+}
+
+/// Returns the smallest cluster size that skips the spread check:
+/// `max(2 * (signer_count - threshold) + 1, 2 * threshold - 1)`.
+///
+/// In a cluster of the first size or more, `signer_count - threshold` signers
+/// cannot place the lower median outside the other submissions. The second
+/// size gives the same for `threshold - 1` signers. The larger size covers
+/// both counts, so a higher threshold cannot let fewer signers than the
+/// threshold set the price.
+pub(crate) fn spread_free_cluster_size(signer_count: u32, threshold: u32) -> u32 {
+    let absent_bound = signer_count
+        .saturating_sub(threshold)
+        .saturating_mul(2)
+        .saturating_add(1);
+    let minority_bound = threshold.saturating_mul(2).saturating_sub(1);
+    absent_bound.max(minority_bound)
 }
 
 /// Applies `on_miss` to `feed_id`'s stored aggregate. History is untouched --
