@@ -1,6 +1,6 @@
-//! Owner-only administrative entry points for the oracle contract: signer
-//! and threshold management, staleness, skew, and spread bound configuration,
-//! feed registration and asset mapping, and price resolution.
+//! Owner-only administrative entry points for the oracle contract. The module
+//! manages signers and the threshold, configures the staleness, skew, and spread
+//! bounds, registers feeds, maps assets to feeds, and sets the price resolution.
 
 use common::constants::BPS;
 use common::oracle::observation::MAX_FUTURE_SKEW_SECONDS;
@@ -41,12 +41,12 @@ impl XoxnoOracle {
     }
 
     /// Removes `signer` from the signer set. Fails with `SignerNotRegistered`
-    /// if the address is not currently a signer, and with
+    /// if the address is not currently a signer. Fails with
     /// `CannotRemoveBelowThreshold` if removal would drop the signer count
-    /// below the configured threshold. Deletes the signer's latest submission
-    /// for every feed it had submitted to, recomputes the aggregate for each
-    /// of those feeds (deleting it on a quorum miss), and clears the signer's
-    /// feed list.
+    /// below the configured threshold. Deletes the latest submission of the
+    /// signer for every feed it had submitted to. Recomputes the aggregate for
+    /// each of those feeds and deletes the aggregate on a quorum miss. Then
+    /// clears the feed list of the signer.
     #[only_owner]
     pub fn remove_signer(env: Env, signer: Address) -> Result<(), Error> {
         renew_instance(&env);
@@ -74,7 +74,7 @@ impl XoxnoOracle {
     /// Sets the minimum number of signer submissions required to accept a
     /// price for a feed. Fails with `InvalidThreshold` if `threshold` is zero
     /// or exceeds the current signer count. Does not re-derive existing
-    /// aggregates: call `recompute_feeds` afterwards to apply the new
+    /// aggregates. Call `recompute_feeds` afterwards to apply the new
     /// threshold to feeds that already hold one.
     #[only_owner]
     pub fn set_threshold(env: Env, threshold: u32) -> Result<(), Error> {
@@ -105,7 +105,7 @@ impl XoxnoOracle {
     /// have relative to ledger time to be accepted. Fails with
     /// `InvalidSubmissionAge` if `seconds` is below `MIN_SUBMISSION_AGE_SECONDS`
     /// or above the configured maximum stale age. Does not re-derive
-    /// existing aggregates: call `recompute_feeds` afterwards to apply the
+    /// existing aggregates. Call `recompute_feeds` afterwards to apply the
     /// new bound to feeds that already hold one.
     #[only_owner]
     pub fn set_max_submission_age_seconds(env: Env, seconds: u64) -> Result<(), Error> {
@@ -122,7 +122,7 @@ impl XoxnoOracle {
     /// signer submissions for the same aggregate. Fails with
     /// `InvalidRelativeSkew` if `seconds` exceeds the configured maximum
     /// submission age or is not greater than `MAX_FUTURE_SKEW_SECONDS`.
-    /// Does not re-derive existing aggregates: call `recompute_feeds`
+    /// Does not re-derive existing aggregates. Call `recompute_feeds`
     /// afterwards to apply the new bound to feeds that already hold one.
     #[only_owner]
     pub fn set_max_relative_skew_seconds(env: Env, seconds: u64) -> Result<(), Error> {
@@ -136,10 +136,10 @@ impl XoxnoOracle {
     }
 
     /// Sets the maximum price spread, in basis points, of a cluster smaller
-    /// than `2 * (signers - threshold) + 1` entries: such a cluster is a
+    /// than `2 * (signers - threshold) + 1` entries. Such a cluster is a
     /// quorum miss unless `highest * BPS <= lowest * (BPS + bps)`. Fails with
     /// `InvalidClusterSpread` if `bps` is zero or above `BPS`. Does not
-    /// re-derive existing aggregates: call `recompute_feeds` afterwards to
+    /// re-derive existing aggregates. Call `recompute_feeds` afterwards to
     /// apply the new bound to feeds that already hold one.
     #[only_owner]
     pub fn set_max_cluster_spread_bps(env: Env, bps: u32) -> Result<(), Error> {
@@ -153,16 +153,17 @@ impl XoxnoOracle {
     }
 
     /// Re-derives the stored aggregate for each feed in `feed_ids` under the
-    /// current threshold, submission-age, skew, and spread configuration, and
-    /// deletes the aggregate of any feed that misses quorum.
+    /// current threshold, submission-age, skew, and spread configuration.
+    /// Deletes the aggregate of any feed that misses quorum.
     ///
-    /// The configuration setters do not sweep feeds, because a full sweep can
-    /// exceed the transaction footprint limit. Call this after a configuration
-    /// change, in batches inside that limit: each feed costs about one ledger
-    /// entry per signer plus three. Use `feeds()` to list the registered ids.
+    /// A full sweep can exceed the transaction footprint limit, so the
+    /// configuration setters do not sweep feeds. After a configuration change,
+    /// call this function in batches inside that limit. Each feed costs about
+    /// one ledger entry per signer plus three. Use `feeds()` to list the
+    /// registered ids.
     ///
-    /// Fails with `FeedNotKnown` if any id is not registered, in which case
-    /// no aggregate is recomputed.
+    /// Fails with `FeedNotKnown` if any id is not registered. In that case the
+    /// function recomputes no aggregate.
     #[only_owner]
     pub fn recompute_feeds(env: Env, feed_ids: Vec<String>) -> Result<(), Error> {
         renew_instance(&env);
@@ -222,9 +223,9 @@ impl XoxnoOracle {
         Ok(())
     }
 
-    /// Sets the price resolution, in seconds: the width of a history bucket.
-    /// Stored history entries stay as they are; the history reads group them
-    /// by the new resolution.
+    /// Sets the price resolution, in seconds. The resolution is the width of a
+    /// history bucket. Stored history entries stay as they are. The history
+    /// reads group them by the new resolution.
     #[only_owner]
     pub fn set_resolution(env: Env, resolution: u32) -> Result<(), Error> {
         renew_instance(&env);

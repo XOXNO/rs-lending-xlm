@@ -162,7 +162,7 @@ fn history_grows_one_entry_per_bucket_at_a_60_second_cadence() {
     }
 
     // The point-in-time read answers for a time 30 minutes ago (11 800). Bucket
-    // 11 700 closes with round 32, written at 11 980: after 11 800. Bucket
+    // 11 700 closes with round 32, written at 11 980, which is after 11 800. Bucket
     // 11 400 closes with round 27, written at 11 680.
     let half_hour_ago = fx.now() - 1_800;
     let sample = fx
@@ -210,7 +210,7 @@ fn history_keeps_the_gaps_of_a_cadence_slower_than_the_resolution() {
 #[test]
 fn a_write_on_a_bucket_boundary_opens_the_next_bucket() {
     let fx = fixture();
-    // 10 000 -> 10 199: the last second of bucket 9 900.
+    // The ledger moves from 10 000 to 10 199, the last second of bucket 9 900.
     advance_ledger_seconds(&fx.env, 199);
     fx.submit_all(1_000);
     assert_eq!(fx.rounds(12), [(9_900, 1_000)]);
@@ -311,7 +311,7 @@ fn price_returns_the_newest_round_written_at_or_before_the_timestamp() {
 }
 
 /// A lost quorum on an owner path removes the aggregate, and the history
-/// reads answer `None`. A new quorum opens a new bucket; the rounds stay
+/// reads answer `None`. A new quorum opens a new bucket. The rounds stay
 /// distinct.
 #[test]
 fn losing_quorum_hides_the_history_until_a_new_quorum_forms() {
@@ -320,12 +320,12 @@ fn losing_quorum_hides_the_history_until_a_new_quorum_forms() {
     let closes = fx.run(60, 20);
     assert_eq!(fx.rounds(12).len(), 5);
 
-    // Two of three signers leave the cluster: only signer 0 stays fresh.
+    // Two of three signers leave the cluster. Only signer 0 stays fresh.
     advance_ledger_seconds(&fx.env, 1_000);
     let ts_ms = fx.now() * 1_000;
     fx.client
         .submit_price(&fx.signers[0], &fx.feed, &2_000, &ts_ms);
-    // The submit path keeps the aggregate; the owner path removes it.
+    // The submit path keeps the aggregate. The owner path removes it.
     assert_eq!(fx.rounds(12), newest(&closes, 12));
     fx.client
         .recompute_feeds(&soroban_sdk::vec![&fx.env, fx.feed.clone()]);
@@ -333,7 +333,7 @@ fn losing_quorum_hides_the_history_until_a_new_quorum_forms() {
     assert!(fx.client.price(&fx.asset, &fx.now()).is_none());
     assert!(fx.client.lastprice(&fx.asset).is_none());
 
-    // Signer 1 returns: the quorum forms in bucket 12 000.
+    // Signer 1 returns, and the quorum forms in bucket 12 000.
     fx.client
         .submit_price(&fx.signers[1], &fx.feed, &2_000, &ts_ms);
     let rounds = fx.rounds(12);
@@ -421,10 +421,10 @@ fn spot_reads_keep_the_package_and_write_timestamps_at_a_60_second_cadence() {
 #[test]
 fn rounds_follow_the_live_resolution_after_a_change() {
     for (resolution, expected) in [
-        // 900 s buckets: the closes at 10 180, 10 480 and 10 780 land in
-        // 9 900; 11 080 and 11 200 land in 10 800.
+        // With 900 s buckets, the closes at 10 180, 10 480 and 10 780 land in
+        // 9 900, and 11 080 and 11 200 land in 10 800.
         (900u32, std::vec![(10_800u64, 1_019i128), (9_900, 1_012)]),
-        // 250 s buckets: stored closes at 10 180, 10 480, 10 780, 11 080 and
+        // With 250 s buckets, stored closes at 10 180, 10 480, 10 780, 11 080 and
         // 11 200 land in 10 000, 10 250, 10 750, 11 000 and again 11 000.
         (
             250,
@@ -487,15 +487,15 @@ fn a_zero_resolution_uses_one_bucket_per_second() {
     );
 }
 
-/// The previous contract version kept one entry at a sub-resolution cadence:
-/// the newest aggregate, with its own write time. After the upgrade the first
-/// reads serve that entry as one round at its bucket start. Later writes
-/// replace it inside its bucket and append from the next bucket on.
+/// The previous contract version kept one entry at a sub-resolution cadence.
+/// That entry was the newest aggregate, with its own write time. After the
+/// upgrade the first reads serve that entry as one round at its bucket start.
+/// Later writes replace it inside its bucket and append from the next bucket on.
 #[test]
 fn a_single_entry_history_from_before_the_change_reads_and_grows() {
     let fx = fixture();
-    // 10 000 -> 10 140. The aggregate is written now; the legacy history holds
-    // that aggregate only, as the previous version stores it.
+    // The ledger moves from 10 000 to 10 140. The aggregate is written now. The
+    // legacy history holds that aggregate only, as the previous version stores it.
     advance_ledger_seconds(&fx.env, 140);
     fx.submit_all(1_000);
     let aggregate = fx.client.read_price_data_for_feed(&fx.feed);
@@ -515,7 +515,7 @@ fn a_single_entry_history_from_before_the_change_reads_and_grows() {
     let spot = fx.client.lastprice(&fx.asset).expect("spot");
     assert_eq!((spot.timestamp, spot.price), (10_140, 1_000));
 
-    // 10 170: still bucket 9 900, so the entry is replaced.
+    // At 10 170 the ledger is still in bucket 9 900, so the entry is replaced.
     advance_ledger_seconds(&fx.env, 30);
     fx.submit_all(1_001);
     assert_eq!(fx.stored(), [(1_001, 10_170)]);

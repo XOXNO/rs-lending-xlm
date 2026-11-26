@@ -35,7 +35,7 @@ fn lone_late_low_submission_cannot_move_the_aggregate() {
         Some(HONEST_PRICE as u128)
     );
 
-    // now = ts_a + 901 s: A is one second past the window, B is 898 s old.
+    // now = ts_a + 901 s. A is one second past the window, and B is 898 s old.
     advance_ledger_seconds(&env, 898);
     client.submit_price(malicious, &feed, &1i128, &now_ms(&env));
     let after = client.read_price_data_for_feed(&feed);

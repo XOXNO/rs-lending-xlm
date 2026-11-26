@@ -1,8 +1,8 @@
-//! Persistent-storage operations for the asset/feed registry: mapping
-//! between `ReflectorAsset`s and feed ids, listing all registered assets
-//! and feeds, tracking which feeds a signer submits for, clearing a feed's
-//! aggregate/history/submission state, and the registered-signer and
-//! known-feed checks used by the rest of the contract.
+//! Persistent-storage operations for the asset and feed registry. The module
+//! maps `ReflectorAsset`s to feed ids and back, lists all registered assets and
+//! feeds, and tracks which feeds a signer submits for. It also clears the
+//! aggregate, history, and submission state of a feed. The rest of the contract
+//! uses its registered-signer and known-feed checks.
 
 use common::oracle::providers::reflector::ReflectorAsset;
 use soroban_sdk::{Address, Env, String, Vec};
@@ -39,7 +39,7 @@ pub(crate) fn has_feed_mapping(env: &Env, asset: &ReflectorAsset) -> bool {
         .has(&DataKey::FeedMapping(asset.clone()))
 }
 
-/// Stores the bidirectional mapping between `asset` and `feed_id`, renewing the
+/// Stores the bidirectional mapping between `asset` and `feed_id`, and renews the
 /// TTL of both directions.
 pub(crate) fn map_feed(env: &Env, asset: &ReflectorAsset, feed_id: &String) {
     let mapping_key = DataKey::FeedMapping(asset.clone());
@@ -51,14 +51,14 @@ pub(crate) fn map_feed(env: &Env, asset: &ReflectorAsset, feed_id: &String) {
     renew_persistent_key(env, &owner_key);
 }
 
-/// Removes `asset`'s feed mapping, if any, discarding the mapped feed id.
+/// Removes `asset`'s feed mapping, if any. The mapped feed id is discarded.
 pub(crate) fn remove_feed_mapping(env: &Env, asset: &ReflectorAsset) {
     env.storage()
         .persistent()
         .remove(&DataKey::FeedMapping(asset.clone()));
 }
 
-/// Returns every registered asset, reading each from its indexed slot and renewing its TTL.
+/// Returns every registered asset. Reads each asset from its indexed slot and renews its TTL.
 /// Skips any slot without a stored value.
 pub(crate) fn load_all_assets(env: &Env) -> Vec<ReflectorAsset> {
     let count = asset_count(env);
@@ -73,8 +73,8 @@ pub(crate) fn load_all_assets(env: &Env) -> Vec<ReflectorAsset> {
     out
 }
 
-/// Returns every registered feed id, reading each from its indexed slot and renewing its TTL.
-/// Skips any slot without a stored value.
+/// Returns every registered feed id. Reads each feed id from its indexed slot and renews its
+/// TTL. Skips any slot without a stored value.
 pub(crate) fn load_all_feeds(env: &Env) -> Vec<String> {
     let count = feed_count(env);
     let mut out = Vec::new(env);
@@ -88,8 +88,8 @@ pub(crate) fn load_all_feeds(env: &Env) -> Vec<String> {
     out
 }
 
-/// Ensures `feed_id` is present in the feed index: renews its TTL if already indexed, otherwise
-/// inserts it.
+/// Ensures `feed_id` is present in the feed index. Renews its TTL if the feed is already
+/// indexed. Otherwise inserts it.
 pub(crate) fn ensure_known_feed(env: &Env, feed_id: &String) {
     if !renew_known_feed(env, feed_id) {
         feed_index_insert(env, feed_id.clone());
@@ -97,7 +97,7 @@ pub(crate) fn ensure_known_feed(env: &Env, feed_id: &String) {
 }
 
 /// Renews the TTL of `feed_id`'s index entry and its indexed slot if `feed_id` is already
-/// indexed. Returns whether it was indexed.
+/// indexed. Returns whether `feed_id` was indexed.
 pub(crate) fn renew_known_feed(env: &Env, feed_id: &String) -> bool {
     let index_key = DataKey::FeedIndex(feed_id.clone());
     match env.storage().persistent().get::<DataKey, u32>(&index_key) {
@@ -144,8 +144,8 @@ pub(crate) fn clear_signer_feeds(env: &Env, signer: &Address) {
 }
 
 /// Removes `feed_id` from `signer`'s list of feeds. If `signer` has no recorded feeds, this is a
-/// no-op. If removing `feed_id` leaves the list empty, deletes the list entry entirely; otherwise
-/// writes the reduced list back and renews its TTL.
+/// no-op. If removing `feed_id` leaves the list empty, deletes the list entry entirely.
+/// Otherwise writes the reduced list back and renews its TTL.
 pub(crate) fn remove_signer_feed(env: &Env, signer: &Address, feed_id: &String) {
     let key = DataKey::SignerFeeds(signer.clone());
     let Some(feeds): Option<Vec<String>> = env.storage().persistent().get(&key) else {

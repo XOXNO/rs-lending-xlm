@@ -1,6 +1,6 @@
-//! Read-only query entry points for the oracle: RedStone-shaped feed price
-//! and history lookups, configuration getters, and a Reflector-compatible
-//! asset price API built on top of the feed data.
+//! Read-only query entry points for the oracle. The module has RedStone-shaped
+//! feed price and history lookups, configuration getters, and a
+//! Reflector-compatible asset price API built on the feed data.
 
 use common::constants::MS_PER_SECOND;
 use common::oracle::observation::{millis_to_seconds, u256_to_i128};
@@ -20,9 +20,10 @@ use crate::{Error, XoxnoOracle, XoxnoOracleArgs, XoxnoOracleClient};
 #[contractimpl]
 impl XoxnoOracle {
     /// Returns the current aggregate for `feed_id`. Fails with `NoDataForFeed`
-    /// if none is stored, or `StaleData` if `now - write_timestamp` (seconds;
-    /// timestamps stored in ms) exceeds `max_stale_seconds`. Package timestamp
-    /// is not used for this check.
+    /// if no aggregate is stored. Fails with `StaleData` if
+    /// `now - write_timestamp` exceeds `max_stale_seconds`. The check converts
+    /// the stored millisecond write timestamp to seconds. It does not use the
+    /// package timestamp.
     pub fn read_price_data_for_feed(env: Env, feed_id: String) -> Result<RedStonePriceData, Error> {
         let aggregate = load_aggregate(&env, &feed_id).ok_or(Error::NoDataForFeed)?;
 
@@ -88,8 +89,8 @@ impl XoxnoOracle {
     }
 
     /// Returns the effective maximum relative timestamp skew, in seconds,
-    /// between clustered submissions: the configured value, clamped to the
-    /// maximum submission age.
+    /// between clustered submissions. The getter clamps the configured value to
+    /// the maximum submission age.
     pub fn max_relative_skew_seconds(env: Env) -> u64 {
         load_max_relative_skew(&env)
     }
@@ -144,18 +145,18 @@ impl XoxnoOracle {
     /// `timestamp` (seconds). See [`history_rounds`] for what a round holds.
     /// The answer never holds a price written after `timestamp`, and its
     /// timestamp is at or before `timestamp`.
-    /// Returns `None` if `asset` has no feed mapping, the feed has no current
-    /// aggregate or that aggregate is stale, the feed's history is
-    /// unavailable, or no round satisfies the timestamp bound.
+    /// Returns `None` if `asset` has no feed mapping. Returns `None` if the feed
+    /// has no current aggregate or that aggregate is stale. Returns `None` if the
+    /// feed's history is unavailable or no round satisfies the timestamp bound.
     pub fn price(env: Env, asset: ReflectorAsset, timestamp: u64) -> Option<ReflectorPriceData> {
         history_rounds(&env, &asset, timestamp, 1)?.first()
     }
 
     /// Returns up to `records` history rounds of `asset`, newest first. See
     /// [`history_rounds`] for what a round holds. Returns `None` if `asset`
-    /// has no feed mapping, the feed has no current aggregate or that
-    /// aggregate is stale, its history is empty or unavailable, or `records`
-    /// is zero.
+    /// has no feed mapping. Returns `None` if the feed has no current aggregate
+    /// or that aggregate is stale. Returns `None` if the feed's history is
+    /// empty or unavailable, or if `records` is zero.
     pub fn prices(
         env: Env,
         asset: ReflectorAsset,
@@ -174,11 +175,11 @@ impl XoxnoOracle {
 /// before `written_by` (seconds).
 ///
 /// A round is the newest such entry of one resolution bucket at the live
-/// resolution: its price, stamped with the bucket start in seconds
-/// ([`bucket_start_seconds`] of the entry's write timestamp). Round timestamps
-/// are distinct, at least one resolution apart and never later than the ledger
-/// time. An entry whose bucket is not older than the round before it is
-/// skipped.
+/// resolution. It carries the entry's price, stamped with the bucket start in
+/// seconds ([`bucket_start_seconds`] of the entry's write timestamp). Round
+/// timestamps are distinct, at least one resolution apart, and never later than
+/// the ledger time. The function skips an entry whose bucket is not older than
+/// the round before it.
 ///
 /// Returns `None` if `asset` has no feed mapping or `read_price_history` fails
 /// for its feed.
@@ -214,9 +215,9 @@ fn history_rounds(
     Some(rounds)
 }
 
-/// Converts a `RedStonePriceData` entry into `ReflectorPriceData`, narrowing
-/// the U256 price to i128 and scaling the millisecond package timestamp
-/// down to seconds.
+/// Converts a `RedStonePriceData` entry into `ReflectorPriceData`. Narrows the
+/// U256 price to i128 and scales the millisecond package timestamp down to
+/// seconds.
 fn to_reflector_price_data(env: &Env, data: &RedStonePriceData) -> ReflectorPriceData {
     let price = u256_to_i128(env, &data.price);
     let timestamp = millis_to_seconds(data.package_timestamp);

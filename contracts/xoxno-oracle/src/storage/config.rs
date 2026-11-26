@@ -1,7 +1,7 @@
-//! Reads and writes instance-storage configuration values for the oracle:
-//! the signer set, submission threshold, staleness, skew and spread bounds,
-//! and price resolution. Every read accessor falls back to a default when the
-//! underlying key is absent from instance storage.
+//! Reads and writes instance-storage configuration values for the oracle. The
+//! values are the signer set, the submission threshold, the staleness, skew, and
+//! spread bounds, and the price resolution. Every read accessor falls back to a
+//! default when the underlying key is absent from instance storage.
 
 use soroban_sdk::{Address, Env, Vec};
 

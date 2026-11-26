@@ -1,13 +1,14 @@
 #![no_std]
 
-//! XOXNO oracle contract. Aggregates prices from a configured set of authorized
-//! signers: each signer posts their latest per-feed submission (with auth), and
-//! the contract forms a median once at least `threshold` fresh, skew-clustered
-//! submissions exist. A cluster smaller than `2 * (signers - threshold) + 1`
-//! must also fit inside the configured price spread. History keeps one entry
-//! per resolution bucket and is bounded; prices are exposed via RedStone-shaped
-//! feed APIs and a Reflector-compatible asset API. Owner-only admin configures
-//! signers, threshold, feeds, and staleness/skew/spread bounds.
+//! XOXNO oracle contract. The contract aggregates prices from a configured set of
+//! authorized signers. Each signer posts the latest submission for each feed and
+//! authorizes the call. The contract forms a median once at least `threshold`
+//! fresh, skew-clustered submissions exist. A cluster smaller than
+//! `2 * (signers - threshold) + 1` must also fit inside the configured price
+//! spread. History keeps one entry per resolution bucket and is bounded. The
+//! contract exposes prices through RedStone-shaped feed APIs and a
+//! Reflector-compatible asset API. Owner-only admin functions configure the
+//! signers, the threshold, the feeds, and the staleness, skew, and spread bounds.
 
 mod admin;
 mod aggregation;
@@ -73,11 +74,11 @@ pub struct XoxnoOracle;
 
 #[contractimpl]
 impl XoxnoOracle {
-    /// Initializes the contract: sets `admin` as owner and stores the
-    /// initial signer set, submission threshold, price resolution, and
+    /// Initializes the contract. Sets `admin` as owner and stores the initial
+    /// signer set, the submission threshold, the price resolution, and the
     /// default staleness, submission-age, and skew bounds. Fails with
-    /// `InvalidThreshold` if `threshold` is zero, exceeds the number of
-    /// signers, or `signers` contains a duplicate address.
+    /// `InvalidThreshold` if `threshold` is zero, if `threshold` exceeds the
+    /// number of signers, or if `signers` contains a duplicate address.
     pub fn __constructor(
         env: Env,
         admin: Address,

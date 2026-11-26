@@ -113,9 +113,9 @@ fn read_price_history_renews_history_ttl() {
 
     client.submit_price(&signers[0], &feed, &100i128, &1_000u64);
 
-    // Advance by sequence, not timestamp: this ages the TTL without making the
-    // aggregate stale, which would make read_price_history fail before it ever
-    // reaches the renewal.
+    // Advance by sequence, not timestamp. This ages the TTL without making the
+    // aggregate stale. A stale aggregate would make `read_price_history` fail
+    // before it reaches the renewal.
     let decay: u32 = TTL_BUMP_SHARED - 20_000;
     advance_ledger_sequence(&env, decay);
 

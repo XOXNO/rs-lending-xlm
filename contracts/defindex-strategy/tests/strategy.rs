@@ -566,9 +566,9 @@ fn test_withdraw_over_balance_returns_insufficient_balance() {
     assert_strategy_error(result, DeFindexStrategyError::InsufficientBalance as u32);
 }
 
-/// A mapping pointing at an account the controller has no record of is an
-/// explicit "gone": it clears and the next supply opens a fresh account, rather
-/// than surfacing as a lookup failure.
+/// A mapping that points at an account the controller has no record of is an
+/// explicit "gone". The mapping clears and the next supply opens a fresh
+/// account. The lookup does not fail.
 #[test]
 fn test_supply_reopens_when_the_mapping_points_at_a_missing_account() {
     let s = StrategyTest::new();
@@ -594,7 +594,7 @@ fn test_supply_reopens_when_the_mapping_points_at_a_missing_account() {
 //
 // `__constructor` decodes `init_args` positionally, and every arity or type
 // error maps to `NotInitialized`. Each position is tested both absent and
-// present with the wrong type: only one of the two cases catches a drift from
+// present with the wrong type. Only one of the two cases catches a drift from
 // `get(n)` to `get(n+1)`.
 //
 // The panic fires before `get_market_index`, so these tests need no lending
@@ -639,7 +639,7 @@ fn constructor_rejects_missing_hub_id_argument() {
 #[should_panic(expected = "Error(Contract, #401)")]
 fn constructor_rejects_hub_id_argument_of_the_wrong_type() {
     let (env, asset, controller) = ctor_env();
-    // An Address where a u32 is expected -- the shape a caller gets by passing
+    // An Address where a u32 is expected. A caller gets this shape by passing
     // (controller, controller, spoke) instead of (controller, hub, spoke).
     let args: Vec<Val> = vec![
         &env,
@@ -706,7 +706,7 @@ fn constructor_rejects_a_spoke_that_does_not_list_the_asset() {
 // ---------------------------------------------------------------------------
 
 /// Asserts that a `try_*` call failed with `NotInitialized`. Generic over the
-/// inner conversion error, which is `ConversionError` for an `Address` or `()` result;
+/// inner conversion error, which is `ConversionError` for an `Address` or `()` result.
 /// `flatten_strategy_result` accepts only `Error`.
 fn assert_not_initialized<T: core::fmt::Debug, E: core::fmt::Debug>(
     result: Result<Result<T, E>, Result<DeFindexStrategyError, InvokeError>>,
@@ -740,7 +740,7 @@ fn asset_reports_not_initialized_when_the_config_is_gone() {
 fn deposit_reports_not_initialized_when_the_config_is_gone() {
     let s = strategy_with_config_erased();
     let vault = s.vault.clone();
-    // Positive amount on purpose: a non-positive one short-circuits on
+    // Positive amount on purpose. A non-positive one short-circuits on
     // AmountNotPositive and never reaches the config load.
     assert_not_initialized(s.client().try_deposit(&UNIT, &vault));
 }
@@ -780,8 +780,8 @@ fn a_failed_controller_lookup_aborts_instead_of_clearing_the_vault_mapping() {
     s.t.env.mock_all_auths();
     let vault = s.vault.clone();
 
-    // Give the vault a stored account id so the lookup is actually attempted;
-    // a stored 0 returns early and never calls the controller.
+    // Give the vault a stored account id so the lookup runs. A stored 0 returns
+    // early and never calls the controller.
     s.t.env.as_contract(&s.client_address, || {
         s.t.env
             .storage()
@@ -791,7 +791,7 @@ fn a_failed_controller_lookup_aborts_instead_of_clearing_the_vault_mapping() {
         s.t.env.storage().instance().set(
             &DataKey::Config,
             &Config {
-                // The strategy itself: a real contract that has no
+                // The strategy itself. It is a real contract with no
                 // `account_exists` entry point, so the call errors rather than
                 // returning a boolean.
                 controller: s.client_address.clone(),
@@ -805,7 +805,7 @@ fn a_failed_controller_lookup_aborts_instead_of_clearing_the_vault_mapping() {
         ACCOUNT_LOOKUP_FAILED,
     );
 
-    // The mapping survives: an unanswerable lookup is not evidence of absence.
+    // The mapping survives. An unanswerable lookup is not evidence of absence.
     let still_there = s.t.env.as_contract(&s.client_address, || {
         s.t.env
             .storage()
@@ -817,7 +817,7 @@ fn a_failed_controller_lookup_aborts_instead_of_clearing_the_vault_mapping() {
 
 /// `asset` renews the strategy instance TTL once it falls below the threshold.
 /// `asset` touches only the instance, so aging the ledger cannot expire an
-/// unrelated entry; the other entry points share the same first-line
+/// unrelated entry. The other entry points share the same first-line
 /// `renew_instance` call.
 #[test]
 fn asset_renews_the_strategy_instance_ttl() {
