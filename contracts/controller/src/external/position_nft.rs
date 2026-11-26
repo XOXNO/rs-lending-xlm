@@ -7,7 +7,7 @@ pub(crate) fn nft_mint_call(env: &Env, nft: &Address, to: &Address) -> u64 {
     u64::from(PositionNftClient::new(env, nft).mint(to))
 }
 
-/// Burns the NFT; IDs outside the mintable `u32` domain fail with `AccountNotFound`.
+/// Burns the NFT. IDs outside the mintable `u32` domain fail with `AccountNotFound`.
 pub(crate) fn nft_burn_call(env: &Env, nft: &Address, account_id: u64) {
     let token_id = u32::try_from(account_id)
         .unwrap_or_else(|_| panic_with_error!(env, GenericError::AccountNotFound));

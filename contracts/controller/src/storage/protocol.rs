@@ -132,12 +132,12 @@ pub(crate) fn set_position_nft(env: &Env, addr: &Address) {
         .set(&ControllerKey::PositionNft, addr);
 }
 
-/// Returns shared persistent manager config, renewing TTL when present.
+/// Returns shared persistent manager config. Renews TTL when the config is present.
 pub(crate) fn get_position_manager(env: &Env, addr: &Address) -> Option<PositionManagerConfig> {
     get_shared(env, &ControllerKey::PositionManager(addr.clone()))
 }
 
-/// Stores active manager config with shared TTL renewal; removes inactive config.
+/// Stores active manager config with shared TTL renewal. Removes inactive config.
 pub(crate) fn set_position_manager(env: &Env, addr: &Address, config: &PositionManagerConfig) {
     let key = ControllerKey::PositionManager(addr.clone());
     if config.is_active {
@@ -161,7 +161,7 @@ pub(super) fn renew_user_key(env: &Env, key: &ControllerKey) {
     renew_persistent_key(env, key, TTL_THRESHOLD_USER, TTL_BUMP_USER);
 }
 
-/// Increments an instance counter from zero when absent; fails on overflow.
+/// Increments an instance counter from zero when absent. Fails on overflow.
 pub(super) fn increment_counter(env: &Env, key: &ControllerKey) -> u32 {
     let current: u32 = env.storage().instance().get(key).unwrap_or(0);
     let next = current

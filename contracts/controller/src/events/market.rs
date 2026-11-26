@@ -3,9 +3,9 @@
 use common::types::{InterestRateModel, MarketParamsRaw};
 use soroban_sdk::{contractevent, Address};
 
-/// Market creation for `(hub_id, base_asset)` at `market_address`.
-/// Curve fields and reserve factor are flattened; flash-loan settings and
-/// asset decimals are omitted.
+/// Emitted when a market is created for `(hub_id, base_asset)` at `market_address`. The event
+/// flattens the curve fields and reserve factor. It omits the flash-loan settings and asset
+/// decimals.
 #[contractevent(topics = ["market", "create"])]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CreateMarketEvent {
@@ -24,7 +24,7 @@ pub struct CreateMarketEvent {
 }
 
 impl CreateMarketEvent {
-    /// Copies curve fields and reserve factor, using the supplied market identity.
+    /// Copies curve fields and reserve factor and uses the supplied market identity.
     pub fn from_params(
         hub_id: u32,
         base_asset: Address,
@@ -48,8 +48,8 @@ impl CreateMarketEvent {
     }
 }
 
-/// Rate-model replacement for `(hub_id, asset)`.
-/// Curve fields and reserve factor are flattened; flash-loan settings are omitted.
+/// Emitted when the rate model is replaced for `(hub_id, asset)`. The event flattens the curve
+/// fields and reserve factor. It omits the flash-loan settings.
 #[contractevent(topics = ["market", "params_update"])]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct UpdateMarketParamsEvent {

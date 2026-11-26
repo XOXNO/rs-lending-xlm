@@ -30,9 +30,9 @@ pub(crate) use supply::{
 };
 pub(crate) mod supply;
 
-/// Rejects pool and controller recipients with `InvalidFlashloanReceiver`.
-/// Pool self-transfers debit cash without moving tokens; controller receipts
-/// would remain unclaimed by balance-delta accounting.
+/// Rejects pool and controller recipients with `InvalidFlashloanReceiver`. Pool self-transfers
+/// debit cash without moving tokens. Controller receipts would remain unclaimed by balance-delta
+/// accounting.
 pub(crate) fn require_external_recipient(env: &Env, cache: &mut Context, recipient: &Address) {
     let pool = cache.cached_pool_address();
     assert_with_error!(
@@ -58,7 +58,7 @@ impl From<&PoolPositionMutation> for LegOutcome {
     }
 }
 
-/// Pairs requests and pool results in order; rejects mismatched lengths.
+/// Pairs requests and pool results in order. Rejects mismatched lengths.
 pub(crate) fn for_each_leg<E, R>(
     env: &Env,
     entries: &Vec<E>,
@@ -96,8 +96,8 @@ pub(crate) enum LegDirection {
     Exit,
 }
 
-/// Applies the scaled position delta to spoke usage; entries enforce caps
-/// using the leg's market index and asset decimals.
+/// Applies the scaled position delta to spoke usage. Entries enforce caps using the leg's market
+/// index and asset decimals.
 pub(crate) fn apply_leg_usage(
     env: &Env,
     cache: &mut Context,
@@ -128,15 +128,15 @@ pub(crate) fn apply_leg_usage(
 
 /// Listing halt policy for each leg.
 ///
-/// Seizure uses `no_seize`: applying `paused` to pro-rata seizure would block
-/// liquidation of every account holding the paused collateral (ADR-0008).
+/// Seizure uses `no_seize`. Applying `paused` to pro-rata seizure would block liquidation of every
+/// account holding the paused collateral (ADR-0008).
 #[derive(Clone, Copy, PartialEq)]
 pub(crate) enum FreezePolicy {
-    /// New exposure: rejects `paused` and `frozen`.
+    /// New exposure rejects `paused` and `frozen`.
     BlockOnEntry,
-    /// User-initiated exit: rejects `paused`, tolerates `frozen`.
+    /// User-initiated exit rejects `paused` and tolerates `frozen`.
     AllowOnExit,
-    /// Liquidation seizure: rejects `no_seize` only, tolerates `paused` and `frozen`.
+    /// Liquidation seizure rejects only `no_seize` and tolerates `paused` and `frozen`.
     SeizureLeg,
 }
 

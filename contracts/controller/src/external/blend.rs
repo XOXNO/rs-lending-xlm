@@ -29,8 +29,8 @@ pub struct BlendPositions {
 #[allow(dead_code)]
 #[contractclient(name = "BlendPoolClient")]
 pub trait BlendPool {
-    /// Submits requests against `from`'s position, pulling repayments from `spender`
-    /// and sending withdrawals to `to`.
+    /// Submits requests against `from`'s position, pulls repayments from `spender`, and sends
+    /// withdrawals to `to`.
     fn submit(
         env: Env,
         from: Address,
@@ -40,9 +40,8 @@ pub trait BlendPool {
     ) -> BlendPositions;
 }
 
-/// Fully withdraws the specified collateral and supply assets to the controller.
-/// Requests `BLEND_WITHDRAW_ALL_AMOUNT` per asset, which Blend clamps to the
-/// position; see that constant for why this is not `i128::MAX`.
+/// Requests `BLEND_WITHDRAW_ALL_AMOUNT` per asset, and Blend clamps the amount to the position. See
+/// that constant for why the amount is not `i128::MAX`.
 pub(crate) fn blend_sweep_all(
     env: &Env,
     blend_pool: &Address,
@@ -88,8 +87,8 @@ pub(crate) fn blend_repay_all(
     guarded_submit(env, blend_pool, from, &requests);
 }
 
-/// Submits with the controller as spender and recipient while holding the
-/// flash-loan guard against reentry into guarded controller operations.
+/// Submits with the controller as spender and recipient. The function holds the flash-loan guard to
+/// block reentry into guarded controller operations.
 fn guarded_submit(env: &Env, blend_pool: &Address, from: &Address, requests: &Vec<BlendRequest>) {
     storage::with_flash_guard(env, || {
         let controller = env.current_contract_address();
@@ -98,8 +97,8 @@ fn guarded_submit(env: &Env, blend_pool: &Address, from: &Address, requests: &Ve
     });
 }
 
-/// Authorizes exact cap-sized token transfers from the controller to Blend
-/// for nested repayment calls; no-op when no debt caps are supplied.
+/// Authorizes exact cap-sized token transfers from the controller to Blend for nested repayment
+/// calls. It is a no-op when no debt caps are supplied.
 fn authorize_repay_pulls(env: &Env, blend_pool: &Address, debt_caps: &Vec<(Address, i128)>) {
     if debt_caps.is_empty() {
         return;

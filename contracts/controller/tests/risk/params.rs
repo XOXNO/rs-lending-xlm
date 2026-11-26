@@ -507,8 +507,8 @@ fn refresh_keeps_ltv_under_the_held_threshold_when_gate_rejects() {
             },
         );
 
-        // The higher bonus favors liquidators and the empty position fails
-        // the 1.05 gate, so the stamped threshold stays.
+        // The higher bonus favors liquidators, and the empty position fails the
+        // 1.05 gate. The stamped threshold therefore stays.
         let mut position = stamped_position();
         let changed = refresh_supply_risk_params(
             &env,
@@ -703,7 +703,8 @@ fn refresh_returns_false_when_gate_holds_and_ltv_already_matches() {
             },
         );
 
-        // Listed LTV already equals stamp; adverse tuple is gated and held.
+        // The listed LTV already equals the stamped LTV. The 1.05 gate holds the
+        // adverse tuple back, so the stamped values stay.
         let mut position = stamped_position();
         let adverse = AssetConfig {
             loan_to_value: Bps::from(STAMPED_LTV),

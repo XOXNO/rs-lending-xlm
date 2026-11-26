@@ -6,8 +6,8 @@ use soroban_sdk::testutils::Address as _;
 use soroban_sdk::{Address, Env, Map};
 
 /// Registers a native position-nft owned by `controller` and records it in the controller's
-/// instance storage. Returns the NFT contract address. Duplicated from
-/// `tests/helpers/account.rs`: pinned test modules cannot import each other.
+/// instance storage. Returns the NFT contract address. This function duplicates the one in
+/// `tests/helpers/account.rs`, because pinned test modules cannot import each other.
 fn setup_position_nft(env: &Env, controller: &Address) -> Address {
     let nft = env.register(
         position_nft::PositionNft,
@@ -156,8 +156,8 @@ fn renew_user_account_renews_delegates_ttl() {
     });
 }
 
-/// A previous owner's grant reads as empty after the NFT transfers. The new owner's next
-/// write replaces it; it does not merge with it.
+/// A previous owner's grant reads as empty after the NFT transfers. The next write by the new
+/// owner replaces the grant and does not merge with it.
 #[test]
 fn delegates_of_previous_owner_read_as_empty() {
     let env = Env::default();
@@ -315,7 +315,7 @@ fn set_debt_positions_empty_map_removes_key() {
 }
 
 /// `set_supply_positions` does not renew sibling TTLs. The caller renews the
-/// account once (for example `persist_account_positions`).
+/// account once, for example in `persist_account_positions`.
 #[test]
 fn set_supply_positions_does_not_renew_sibling_ttls() {
     use common::constants::TTL_BUMP_USER;
@@ -338,7 +338,7 @@ fn set_supply_positions_does_not_renew_sibling_ttls() {
         );
         set_debt_positions(&env, account_id, &sample_debt_map(&env));
         add_delegate(&env, account_id, &owner, &Address::generate(&env));
-        // Establish live supply so subsequent set is an update.
+        // Establish live supply, so the next set is an update.
         set_supply_positions(&env, account_id, &sample_supply_map(&env));
         renew_user_account(&env, account_id);
 

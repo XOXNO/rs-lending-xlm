@@ -110,9 +110,8 @@ pub(crate) fn process_deposit(
         cache,
         AccountPositionType::Deposit,
     );
-    // A new leg on an indebted account needs a live price, so a borrower
-    // cannot plant a dust leg on a feed that is already down to shield the
-    // account from liquidation.
+    // A new leg on an indebted account needs a live price. Otherwise a borrower could plant a dust
+    // leg on a feed that is already down, to shield the account from liquidation.
     if !account.debt_free() {
         let mut new_legs: Vec<Address> = Vec::new(env);
         for (hub_asset, _) in aggregated.iter() {
@@ -146,9 +145,8 @@ pub(crate) fn process_deposit(
     });
 }
 
-/// Withdraws for an authorized owner/delegate and checks post-pool solvency.
-/// An amount at or above the position withdraws all; returns the pool's actual
-/// payouts per asset.
+/// Withdraws for an authorized owner or delegate and checks post-pool solvency. An amount at
+/// or above the position withdraws all. Returns the actual payouts of the pool per asset.
 pub(crate) fn process_withdraw(
     env: &Env,
     caller: &Address,
@@ -180,8 +178,7 @@ pub(crate) fn process_withdraw(
     paid
 }
 
-/// Enforces exit flags and withdraws the batch.
-/// Returns each asset's actual pool payout.
+/// Enforces exit flags and withdraws the batch. Returns the actual payout of the pool per asset.
 fn settle_withdraw(
     env: &Env,
     account: &mut Account,
@@ -277,8 +274,8 @@ pub(crate) fn apply_withdraw_batch(
     results
 }
 
-/// Merges a supply result, refreshing risk parameters and updating usage,
-/// market index, and event state.
+/// Merges a supply result. Refreshes risk parameters and updates usage, market index, and event
+/// state.
 pub(crate) fn merge_supply_leg(
     env: &Env,
     account: &mut Account,

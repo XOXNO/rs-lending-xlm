@@ -33,8 +33,8 @@ pub(crate) fn add_spoke(env: &Env) -> u32 {
     id
 }
 
-/// Permanently deprecates an active spoke and emits its config.
-/// Existing positions and usage remain; no empty-spoke check is performed.
+/// Permanently deprecates an active spoke and emits its config. Existing positions and usage
+/// remain. The function performs no empty-spoke check.
 pub(crate) fn remove_spoke(env: &Env, id: u32) {
     let mut spoke = storage::get_spoke(env, id);
     assert_with_error!(env, !spoke.is_deprecated, SpokeError::SpokeDeprecated);

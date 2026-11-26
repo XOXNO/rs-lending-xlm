@@ -3,7 +3,7 @@ use common::errors::{GenericError, SpokeError};
 use common::types::{ControllerKey, HubAssetKey, SpokeAssetConfig, SpokeConfig, SpokeUsageRaw};
 use soroban_sdk::{panic_with_error, Env};
 
-/// Issues the next spoke ID from the instance counter; fails on overflow.
+/// Issues the next spoke ID from the instance counter. Fails on overflow.
 pub(crate) fn increment_spoke_id(env: &Env) -> u32 {
     increment_counter(env, &ControllerKey::LastSpokeId)
 }
@@ -13,7 +13,7 @@ pub(crate) fn get_spoke(env: &Env, id: u32) -> SpokeConfig {
     try_get_spoke(env, id).unwrap_or_else(|| panic_with_error!(env, SpokeError::SpokeNotFound))
 }
 
-/// Returns shared persistent spoke config, renewing TTL when present.
+/// Returns shared persistent spoke config. Renews TTL when the config is present.
 pub(crate) fn try_get_spoke(env: &Env, id: u32) -> Option<SpokeConfig> {
     get_shared(env, &ControllerKey::Spoke(id))
 }
@@ -23,7 +23,7 @@ pub(crate) fn set_spoke(env: &Env, id: u32, spoke: &SpokeConfig) {
     set_shared(env, &ControllerKey::Spoke(id), spoke);
 }
 
-/// Returns listed asset risk parameters and caps, renewing shared TTL if present.
+/// Returns listed asset risk parameters and caps. Renews shared TTL when they are present.
 pub(crate) fn get_spoke_asset(
     env: &Env,
     spoke_id: u32,
@@ -55,7 +55,7 @@ pub(crate) fn get_spoke_flags_epoch(env: &Env, spoke_id: u32, hub_asset: &HubAss
     .unwrap_or(0)
 }
 
-/// Increments the listing's flags epoch and renews shared TTL; fails on overflow.
+/// Increments the listing's flags epoch and renews shared TTL. Fails on overflow.
 pub(crate) fn bump_spoke_flags_epoch(env: &Env, spoke_id: u32, hub_asset: &HubAssetKey) {
     let next = get_spoke_flags_epoch(env, spoke_id, hub_asset)
         .checked_add(1)
@@ -67,14 +67,14 @@ pub(crate) fn bump_spoke_flags_epoch(env: &Env, spoke_id: u32, hub_asset: &HubAs
     );
 }
 
-/// Deletes the listed asset config; does not modify usage or the flags epoch.
+/// Deletes the listed asset config. Does not modify usage or the flags epoch.
 pub(crate) fn remove_spoke_asset(env: &Env, spoke_id: u32, hub_asset: &HubAssetKey) {
     env.storage()
         .persistent()
         .remove(&ControllerKey::SpokeAsset(spoke_id, hub_asset.clone()));
 }
 
-/// Returns scaled supply and debt usage in RAY, renewing shared TTL if present.
+/// Returns scaled supply and debt usage in RAY. Renews shared TTL when usage is present.
 pub(crate) fn get_spoke_usage(
     env: &Env,
     spoke_id: u32,
@@ -83,7 +83,7 @@ pub(crate) fn get_spoke_usage(
     get_shared(env, &ControllerKey::SpokeUsage(spoke_id, hub_asset.clone()))
 }
 
-/// Stores usage and renews shared TTL; deletes the row when both sides are zero.
+/// Stores usage and renews shared TTL. Deletes the row when both sides are zero.
 pub(crate) fn set_spoke_usage(
     env: &Env,
     spoke_id: u32,

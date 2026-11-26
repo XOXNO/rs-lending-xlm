@@ -5,7 +5,7 @@ use soroban_sdk::{panic_with_error, token, Address, Env, Map, Vec};
 pub(crate) use common::token::transfer_amount_measured;
 use common::validation::{expect_invariant, require_non_empty_payments, require_positive_amount};
 
-/// Returns the measured balance change since `before`, negative for an outflow.
+/// Returns the measured balance change since `before`. The value is negative for an outflow.
 /// Custody accounting uses this delta rather than reported transfer amounts.
 pub(crate) fn balance_delta_since(
     env: &Env,
@@ -36,8 +36,8 @@ pub(crate) fn snapshot_balances(
     snapshot
 }
 
-/// Refunds only the controller balance increase since `balance_before`,
-/// preserving the pre-existing balance; no-op for a nonpositive delta.
+/// Refunds only the controller balance increase since `balance_before` and preserves the
+/// pre-existing balance. It is a no-op for a nonpositive delta.
 pub(crate) fn refund_controller_balance_delta(
     env: &Env,
     asset: &Address,

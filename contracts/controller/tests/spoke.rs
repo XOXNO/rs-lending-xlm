@@ -201,7 +201,8 @@ fn apply_entry_stores_single_add_not_dual_add() {
     let contract = new_controller(&env);
     let asset = Address::generate(&env);
     let key = hub(&asset);
-    // decimals=7: 1 asset unit as ray = 10^(27-7). Cap is asset units; usage is scaled ray.
+    // With decimals = 7, 1 asset unit as RAY is 10^(27-7). The cap is in asset units.
+    // The usage is in scaled RAY.
     let unit = Ray::from_asset(&env, 1, 7).raw();
     let prior = 3 * unit;
     let delta = 2 * unit;
@@ -243,7 +244,7 @@ fn apply_entry_at_exact_cap_succeeds() {
     let contract = new_controller(&env);
     let asset = Address::generate(&env);
     let key = hub(&asset);
-    // Cap 5 asset units at index RAY → scaled = from_asset(env, 5, 7).
+    // A cap of 5 asset units at index RAY gives scaled = from_asset(env, 5, 7).
     let cap_asset = 5;
     let delta = Ray::from_asset(&env, 5, 7).raw();
     env.as_contract(&contract, || {
@@ -268,7 +269,8 @@ fn apply_entry_one_over_cap_reverts_with_supply_cap() {
     let env = Env::default();
     let contract = new_controller(&env);
     let asset = Address::generate(&env);
-    // Cap 1 raw asset unit, 1e20 scaled at index RAY; delta is the scaled cap plus 1.
+    // The cap is 1 raw asset unit, which is 1e20 scaled at index RAY. The delta is the scaled
+    // cap plus 1.
     let delta = Ray::from_asset(&env, 1, 7).raw() + 1;
     env.as_contract(&contract, || {
         let mut ctx = SpokeUsageContext::new(&env, 1);
@@ -368,8 +370,8 @@ fn apply_borrow_without_listing_panics() {
     });
 }
 
-/// Exit path must not invent a zero usage row when storage is empty.
-/// Positive delta against a missing row is a silent no-op (not InternalError).
+/// The exit path must not invent a zero usage row when storage is empty.
+/// A positive delta against a missing row is a silent no-op. It does not return `InternalError`.
 #[test]
 fn exit_without_usage_row_is_noop_and_does_not_persist() {
     let env = Env::default();
@@ -414,7 +416,7 @@ fn zero_usage_exit_preserves_an_existing_usage_row() {
     });
 }
 
-/// Entry path must default-insert a zero row so the first supply or borrow is recorded.
+/// The entry path must insert a default zero row, so the first supply or borrow is recorded.
 #[test]
 fn entry_without_usage_row_default_inserts_and_persists() {
     let env = Env::default();
@@ -441,8 +443,8 @@ fn entry_without_usage_row_default_inserts_and_persists() {
     });
 }
 
-/// Same-context entry then exit must see the default-inserted/updated row,
-/// not re-load as absent.
+/// An entry followed by an exit in the same context must see the row that the entry
+/// inserted or updated. The exit must not reload the row as absent.
 #[test]
 fn exit_sees_entry_cached_row_in_same_context() {
     let env = Env::default();
@@ -459,7 +461,7 @@ fn exit_sees_entry_cached_row_in_same_context() {
             Ray::from(RAY),
             7,
         );
-        // No intermediate persist: exit must hit the in-memory map.
+        // No intermediate persist runs, so the exit must hit the in-memory map.
         ctx.apply_exit(UsageSide::Supply, &hub_asset, Ray::from(4));
         ctx.persist();
 
@@ -495,7 +497,8 @@ fn spoke_usage_context_preserves_spoke_id() {
     assert_eq!(ctx.spoke_id(), 7);
 }
 
-/// Full exit of an entry-created row deletes it on persist: `set_spoke_usage` prunes zero rows.
+/// A full exit of an entry-created row deletes the row on persist, because `set_spoke_usage`
+/// prunes zero rows.
 #[test]
 fn full_exit_after_entry_prunes_storage() {
     let env = Env::default();

@@ -37,7 +37,7 @@ pub(crate) fn account_price_assets(
     assets
 }
 
-/// Values debt in USD WAD with `value`; prices must already be cached.
+/// Values debt in USD WAD with `value`. Prices must already be cached.
 fn sum_debt_usd_loaded(
     env: &Env,
     cache: &mut Context,
@@ -108,7 +108,8 @@ pub(crate) struct AccountRiskTotals {
     pub weighted_collateral: Wad,
     /// Debt valued with ceiling rounding.
     pub total_debt: Wad,
-    /// Weighted collateral / debt; saturated maximum when debt-free.
+    /// Weighted collateral divided by debt. The value is the saturated maximum when the account has
+    /// no debt.
     pub health_factor: Wad,
 }
 
@@ -138,7 +139,7 @@ pub(crate) fn calculate_account_risk_totals(
 ))]
 cvlr_soroban_macros::apply_summary!(
     crate::spec::summaries::calculate_account_risk_totals_summary,
-    /// Computes WAD risk totals; substituted by a summary in this Certora build.
+    /// Computes WAD risk totals. A summary replaces it in this Certora build.
     pub(crate) fn calculate_account_risk_totals(
         env: &Env,
         cache: &mut Context,
@@ -149,11 +150,10 @@ cvlr_soroban_macros::apply_summary!(
     }
 );
 
-/// Loads missing market data and values stored position risk snapshots in WAD.
-/// Total collateral rounds half-up; collateral used for risk gates and its
-/// weights round down, while debt rounds up. Health factor is weighted
-/// collateral / debt, floored and saturated at `i128::MAX`; debt-free accounts
-/// use `i128::MAX`.
+/// Loads missing market data and values stored position risk snapshots in WAD. Total collateral
+/// rounds half-up. Collateral used for risk gates and its weights round down, while debt rounds up.
+/// Health factor is weighted collateral divided by debt, floored and saturated at `i128::MAX`.
+/// Debt-free accounts use `i128::MAX`.
 fn calculate_account_risk_totals_body(
     env: &Env,
     cache: &mut Context,
@@ -186,8 +186,8 @@ fn calculate_account_risk_totals_body(
         );
 
         total_collateral = total_collateral.checked_add(env, value);
-        // A refresh keeps LTV below the stored threshold; a tuple stored
-        // without that clamp may not, so cap the borrow limit at the threshold.
+        // A refresh keeps LTV below the stored threshold. A tuple stored without that clamp may
+        // not, so cap the borrow limit at the threshold.
         let effective_ltv = position.loan_to_value.min(position.liquidation_threshold);
         ltv_collateral =
             ltv_collateral.checked_add(env, effective_ltv.apply_to_wad_floor(env, gate_value));
