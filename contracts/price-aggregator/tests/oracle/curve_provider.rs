@@ -302,7 +302,8 @@ fn configuration_and_every_read_reject_binding_scale_rate_and_hash_drift() {
         assert!(bound_pool(&f.env, &PriceKey::Token(f.feed.clone()), &f.source, 18).is_none());
         assert!(bound_pool(&f.env, &f.key(), &f.source, 7).is_none());
     });
-    // Healthy pool state, wrong pinned executable: only the hash check rejects.
+    // The pool state is healthy but the pinned executable is wrong, so only the hash
+    // check rejects.
     let pinned = f.source.wasm_hash.clone();
     f.source.wasm_hash = BytesN::from_array(&f.env, &[7; 32]);
     assert_eq!(f.read_error(), OracleError::UnsupportedCurvePool);
@@ -360,7 +361,8 @@ fn price_and_supply_fail_closed_and_liquidity_uses_conservative_value() {
     f.source.min_pool_value_wad -= 1;
     f.register();
     assert_eq!(f.price().price_wad, WAD + 1);
-    // The liquidity floor uses the min-coin price, not the virtual price: 970 WAD, not 1000.
+    // The liquidity floor uses the min-coin price, not the virtual price. The value is
+    // 970 WAD, not 1000.
     let (feed, prices) = register_redstone_feed(&f.env);
     prices.set_price(&String::from_str(&f.env, "USD"), &(WAD * 97 / 100));
     let coin = PriceKey::Token(f.source.coins.get_unchecked(0));
@@ -431,9 +433,9 @@ fn third_coin_controls_freshness() {
     assert_eq!(f.read_error(), OracleError::PriceFeedStale);
 }
 
-/// The LP observation carries the oldest coin timestamp and the oldest coin
-/// newest-sample timestamp. Coin 0 is `Twap(3)` at 300 s: oldest round 700 s
-/// old, newest 100 s old. Coin 1 is one sample 300 s old.
+/// The LP observation carries the oldest coin timestamp and the oldest coin newest-sample
+/// timestamp. Coin 0 is `Twap(3)` at 300 s, with the oldest round 700 s old and the
+/// newest 100 s old. Coin 1 is one sample 300 s old.
 #[test]
 fn read_dates_the_lp_to_the_oldest_coin_and_the_oldest_newest_sample() {
     let f = Fixture::new(2, false);
@@ -495,11 +497,10 @@ impl DecimalsToken {
     }
 }
 
-/// A two-coin mock pool whose second coin is a token with `decimals` decimals.
-/// The pool reports the same decimals and the matching fixed rate, so the live
-/// token binding and the rate check both hold and only the 18-decimal bound can
-/// refuse the pool. The coin is priced by the fixture's feed; the pool binding
-/// does not read that oracle.
+/// A two-coin mock pool whose second coin is a token with `decimals` decimals. The pool
+/// reports the same decimals and the matching fixed rate, so the live token binding and
+/// the rate check both hold and only the 18-decimal bound can refuse the pool. The
+/// fixture's feed prices the coin. The pool binding does not read that oracle.
 fn fixture_with_coin_decimals(decimals: u32) -> Fixture {
     let mut f = Fixture::new(2, false);
     let coin = f.env.register(DecimalsToken, (decimals,));
@@ -536,10 +537,9 @@ fn a_coin_with_more_than_18_decimals_is_refused_at_configuration_and_on_every_re
     );
 }
 
-/// Stores an oracle that scales `quote` by a factor of exactly one and returns
-/// its key. It writes straight to the registry: `set_oracle` would refuse the
-/// over-deep chain on its structural depth check, before the engine resolves a
-/// price.
+/// Stores an oracle that scales `quote` by a factor of exactly one and returns its key.
+/// It writes straight to the registry, because `set_oracle` would refuse the over-deep
+/// chain on its structural depth check before the engine resolves a price.
 fn scaled_onto(f: &Fixture, quote: PriceKey) -> PriceKey {
     let key = PriceKey::Token(Address::generate(&f.env));
     let mut oracle = feed_oracle(&f.env, &f.feed);
@@ -562,7 +562,7 @@ fn scaled_onto(f: &Fixture, quote: PriceKey) -> PriceKey {
 }
 
 /// Every scaled level and the Curve LP itself add one level of depth. With
-/// `MAX_RESOLUTION_DEPTH - 1` scaled levels above the LP its coins sit exactly
+/// `MAX_RESOLUTION_DEPTH - 1` scaled levels above the LP, its coins sit exactly
 /// at the cap and the chain prices. One more level pushes the coins past the
 /// cap, and the read fails on the depth limit.
 #[test]

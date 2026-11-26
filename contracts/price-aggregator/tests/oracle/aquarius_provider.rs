@@ -124,8 +124,8 @@ fn attest_stable_rejects_a_pool_with_no_shares_outstanding() {
         .register_stellar_asset_contract_v2(issuer.clone())
         .address();
     let share = env.register_stellar_asset_contract_v2(issuer).address();
-    // Zero shares: a pool nobody has minted against cannot have its share
-    // priced, and dividing by it later would trap.
+    // Zero shares. A pool nobody has minted against cannot have its share priced, and
+    // dividing by the zero supply later would trap.
     let pool = env.register(
         MockAquariusPool,
         (share.clone(), token_a.clone(), token_b.clone(), 0u128),
@@ -153,8 +153,8 @@ fn attest_stable_rejects_a_share_decimals_claim_the_token_does_not_back() {
     let p = pool_fixture(&env, "stable");
     let lp = lp_source(&p);
     let key = PriceKey::Token(p.share.clone());
-    // The SAC reports 7; the oracle claims 6. Believing the claim would scale
-    // every share price by 10x.
+    // The SAC reports 7. The oracle claims 6. Believing the claim would scale every share
+    // price by 10x.
     in_pa(&env, || {
         attest(&env, &key, &lp_oracle(&env, &lp, 6), &lp, true)
     });
@@ -166,7 +166,7 @@ fn attest_stable_rejects_a_key_that_is_not_the_pools_share_token() {
     let env = Env::default();
     let p = pool_fixture(&env, "stable");
     let lp = lp_source(&p);
-    // A reserve token, not the share token: `bound_tokens` refuses it.
+    // The key names a reserve token, not the share token, so `bound_tokens` refuses it.
     let stranger = PriceKey::Token(p.token_a.clone());
     in_pa(&env, || {
         attest(&env, &stranger, &lp_oracle(&env, &lp, 7), &lp, true)
@@ -183,8 +183,8 @@ fn read_refuses_a_pool_that_stopped_reporting_constant_product() {
     let key = PriceKey::Token(p.share.clone());
     in_pa(&env, || {
         let mut session = Session::new(&env);
-        // Attested as constant-product, now answering "stable": the read must
-        // not fall through to the constant-product maths.
+        // The pool was attested as constant-product and now answers "stable". The read
+        // must not fall through to the constant-product math.
         assert_eq!(
             read(&mut session, &key, &lp, 7, 0, false).unwrap_err(),
             OracleError::NoLastPrice
@@ -313,8 +313,8 @@ fn read_refuses_a_pool_that_stopped_answering_for_its_reserves() {
     in_pa(&env, || {
         price_both_legs(&env, &p);
         let mut session = Session::new(&env);
-        // Both legs price fine; it is the pool itself that has gone quiet, and
-        // a share price cannot be derived without reserves.
+        // Both legs price fine. The pool itself no longer answers, and a share
+        // price cannot be derived without reserves.
         assert_eq!(
             read(&mut session, &key, &lp, 7, 0, false).unwrap_err(),
             OracleError::NoLastPrice
@@ -392,9 +392,9 @@ fn store_one_leg(env: &Env, key: &PriceKey, leg: PriceSource) {
     );
 }
 
-/// The LP observation carries the older leg timestamp and the older leg
-/// newest-sample timestamp. Leg A is `Twap(3)` at 300 s: oldest round 700 s
-/// old, newest 100 s old. Leg B is one sample 300 s old.
+/// The LP observation carries the older leg timestamp and the older leg newest-sample
+/// timestamp. Leg A is `Twap(3)` at 300 s, with the oldest round 700 s old and the newest
+/// 100 s old. Leg B is one sample 300 s old.
 #[test]
 fn read_dates_the_lp_to_the_older_leg_and_the_older_newest_sample() {
     let env = Env::default();

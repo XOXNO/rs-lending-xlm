@@ -1,8 +1,8 @@
 #![no_std]
 
-//! Soroban contract entry point for the price aggregator: exposes price and
-//! quote queries plus owner-gated oracle administration, and wires the
-//! sub-modules that implement resolution, validation, and storage.
+//! Soroban contract entry point for the price aggregator. It exposes price and quote
+//! queries and owner-gated oracle administration. It also wires the sub-modules that
+//! implement resolution, validation, and storage.
 
 mod admin;
 mod engine;
@@ -14,7 +14,7 @@ mod session;
 mod tolerance;
 mod validation;
 
-/// Certora formal-verification harness for this contract, sourced from the
+/// Certora formal-verification spec for this contract, sourced from the
 /// external `certora/price-aggregator/spec` path.
 #[cfg(feature = "certora")]
 #[path = "../../../certora/price-aggregator/spec/mod.rs"]
@@ -66,8 +66,8 @@ impl PriceAggregatorInterface for PriceAggregator {
         ownable::get_owner(&env)
     }
 
-    /// Resolves and returns the price feed for each of `keys`, panicking if
-    /// any key fails to resolve to a usable price.
+    /// Resolves and returns the price feed for each of `keys`. Panics if any key fails to
+    /// resolve to a usable price.
     fn prices(env: Env, keys: Vec<PriceKey>) -> Map<PriceKey, PriceFeedRaw> {
         let mut out = Map::new(&env);
         let mut session = warmed_session(&env, &keys);
@@ -77,8 +77,8 @@ impl PriceAggregatorInterface for PriceAggregator {
         out
     }
 
-    /// Resolves and returns the `PriceStatus` for each of `keys`, without
-    /// panicking on individually unusable prices.
+    /// Resolves and returns the `PriceStatus` for each of `keys`. Does not panic on an
+    /// individually unusable price.
     fn quotes(env: Env, keys: Vec<PriceKey>) -> Map<PriceKey, PriceStatus> {
         let mut out = Map::new(&env);
         let mut session = warmed_session(&env, &keys);
@@ -88,8 +88,8 @@ impl PriceAggregatorInterface for PriceAggregator {
         out
     }
 
-    /// Resolves `key` and returns the min and max of its two leg prices (WAD)
-    /// as `(low, high)`, panicking if resolution fails.
+    /// Resolves `key` and returns the minimum and maximum of its two leg prices (WAD) as
+    /// `(low, high)`. Panics if resolution fails.
     fn price_spread(env: Env, key: PriceKey) -> (i128, i128) {
         let keys = Vec::from_array(&env, [key.clone()]);
         let (_, outcome) = engine::resolve_detailed(&mut warmed_session(&env, &keys), &key, 0);
@@ -127,9 +127,9 @@ impl PriceAggregatorInterface for PriceAggregator {
         admin::set_tolerance(&env, key, tolerance);
     }
 
-    /// Upgrades the contract WASM to `new_wasm_hash`, extending instance TTL
-    /// first. Restricted to the owner, which in a deployed protocol is the
-    /// governance contract, so an upgrade only lands through the timelock.
+    /// Upgrades the contract WASM to `new_wasm_hash` after it extends the instance TTL.
+    /// Only the owner can call this entry point. In a deployed protocol the owner is the
+    /// governance contract, so an upgrade lands only through the timelock.
     #[only_owner]
     fn upgrade(env: Env, new_wasm_hash: BytesN<32>) {
         renew_instance(&env);

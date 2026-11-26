@@ -33,8 +33,8 @@ pub(crate) struct Session {
 }
 
 impl Session {
-    /// Creates an empty session, capturing the current ledger timestamp for
-    /// use as the resolution time.
+    /// Creates an empty session and captures the current ledger timestamp as the
+    /// resolution time.
     pub(crate) fn new(env: &Env) -> Self {
         Session {
             env: env.clone(),
@@ -144,15 +144,15 @@ impl Session {
         self.key_statuses.set(key.clone(), status);
     }
 
-    /// No-op under the `certora` feature, where bulk warming is disabled.
+    /// Does nothing under the `certora` feature, where bulk warming is disabled.
     #[cfg(feature = "certora")]
     pub(crate) fn warm(&mut self, _keys: &Vec<PriceKey>) {}
 
-    /// Pre-fetches the RedStone and Xoxno multi-feed payloads of the given
-    /// keys and their transitive dependencies into the feed cache, with one
-    /// bulk read per adapter that has at least `MIN_BULK_FEEDS` distinct
-    /// feeds. Adapters with fewer feeds are skipped, and a failed bulk read
-    /// for an adapter is skipped rather than propagated.
+    /// Pre-fetches the RedStone and Xoxno multi-feed payloads of the given keys and their
+    /// transitive dependencies into the feed cache. The method makes one bulk read per
+    /// adapter that has at least `MIN_BULK_FEEDS` distinct feeds. The method skips
+    /// adapters with fewer feeds. It also skips a failed bulk read for an adapter instead
+    /// of propagating it.
     #[cfg(not(feature = "certora"))]
     pub(crate) fn warm(&mut self, keys: &Vec<PriceKey>) {
         use crate::providers::multi_feed::read_price_data_bulk;
@@ -183,11 +183,11 @@ impl Session {
     }
 }
 
-/// Walks the oracle configuration for `key` and its dependent keys (through
-/// scaled and LP sources), collecting the provider feeds each one touches
-/// into `by_adapter` keyed by adapter address. Stops recursing once a key
-/// has already been visited or `depth` exceeds `MAX_RESOLUTION_DEPTH`, and
-/// returns without collecting anything if the key has no registered oracle.
+/// Walks the oracle configuration for `key` and its dependent keys (through scaled and LP
+/// sources). The walk collects the provider feeds each key touches into `by_adapter`,
+/// keyed by adapter address. The walk stops recursing once a key has already been visited
+/// or `depth` exceeds `MAX_RESOLUTION_DEPTH`. The walk collects nothing if the key has no
+/// registered oracle.
 #[cfg(not(feature = "certora"))]
 fn collect_key(
     env: &Env,
@@ -219,9 +219,9 @@ fn collect_key(
     }
 }
 
-/// Records the feed id referenced by `provider` under its adapter contract
-/// in `by_adapter`, deduplicating against feeds already recorded for that
-/// adapter. Chainlink and Reflector providers are not bulk-fetchable and are skipped.
+/// Records the feed id referenced by `provider` under its adapter contract in
+/// `by_adapter`, and deduplicates against feeds already recorded for that adapter.
+/// Chainlink and Reflector providers are not bulk-fetchable, so the function skips them.
 #[cfg(not(feature = "certora"))]
 fn collect_provider(env: &Env, by_adapter: &mut Map<Address, Vec<String>>, provider: &ProviderRef) {
     let multi_feed = match provider {

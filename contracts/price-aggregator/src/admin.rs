@@ -23,10 +23,10 @@ use crate::registry;
 use crate::session::Session;
 use crate::validation;
 
-/// Attests every price source configured on `oracle`, dispatching feed, scaled-feed,
-/// Aquarius LP, and Aquarius stable-LP sources to their respective provider
-/// attestation routines. A Curve LP source is a no-op here: the hard probe in
-/// `set_oracle` enforces its pool binding.
+/// Attests every price source configured on `oracle`. Feed, scaled-feed, Aquarius LP, and
+/// Aquarius stable-LP sources go to their respective provider attestation routines. A
+/// Curve LP source is a no-op here, because the hard probe in `set_oracle` enforces its
+/// pool binding.
 fn attest_sources(env: &Env, key: &PriceKey, oracle: &AssetOracle) {
     for source in oracle.sources.iter() {
         match &source {
@@ -40,8 +40,8 @@ fn attest_sources(env: &Env, key: &PriceKey, oracle: &AssetOracle) {
     }
 }
 
-/// Attests a single feed source by dispatching to the provider-specific attestation
-/// routine identified by `feed.provider`.
+/// Attests a single feed source with the provider-specific attestation routine that
+/// `feed.provider` identifies.
 fn attest_feed(env: &Env, feed: &FeedSource, quote: Option<&PriceKey>) {
     match &feed.provider {
         ProviderRef::Reflector(reflector) => {
@@ -74,10 +74,10 @@ fn attest_feed(env: &Env, feed: &FeedSource, quote: Option<&PriceKey>) {
     }
 }
 
-/// Validates `oracle` and attests its sources, then probes it: a hard probe
-/// for LP (Aquarius or Curve) oracles that panics on any unusable outcome, or a soft
-/// probe otherwise that panics only on configuration-level failures. Stores
-/// the oracle, revalidates dependents, and emits the registry event.
+/// Validates `oracle`, attests its sources, and then probes it. LP (Aquarius or Curve)
+/// oracles get a hard probe that panics on any unusable outcome. Other oracles get a soft
+/// probe that panics only on configuration-level failures. Stores the oracle, revalidates
+/// dependents, and emits the registry event.
 ///
 /// A replacement must keep the stored `asset_decimals`. Panics with
 /// `OracleError::InvalidOracleDecimals` otherwise.
@@ -107,12 +107,11 @@ pub(crate) fn set_oracle(env: &Env, key: PriceKey, oracle: AssetOracle) {
 /// transitively depends on `changed`, panicking if any of them fails
 /// validation under the new state.
 ///
-/// Structural only: the walk reads the registry and never crosses a contract
-/// boundary. A live re-probe costs one VM instantiation per provider call, and
-/// three LP dependents can exceed the 40 MiB mainnet transaction memory budget.
-/// The pool-kind check is not repeated: only `aquarius::attest` raises
-/// `UnsupportedAquariusPool`, it ran when the dependent was admitted, and
-/// `changed` cannot alter the pool kind.
+/// The check is structural only. The walk reads the registry and never crosses a contract
+/// boundary. A live re-probe costs one VM instantiation per provider call, and three LP
+/// dependents can exceed the 40 MiB mainnet transaction memory budget. The pool-kind
+/// check is not repeated. Only `aquarius::attest` raises `UnsupportedAquariusPool`, it
+/// ran when the dependent was admitted, and `changed` cannot alter the pool kind.
 fn revalidate_dependents(env: &Env, changed: &PriceKey) {
     for candidate in registry::oracle_keys(env).iter() {
         if candidate == *changed || !depends_on(env, &candidate, changed, &mut Vec::new(env)) {
@@ -125,8 +124,8 @@ fn revalidate_dependents(env: &Env, changed: &PriceKey) {
 }
 
 /// Returns whether `root`'s registered oracle composition depends, directly or
-/// transitively, on `target`. Guards against cycles in the dependency graph via
-/// `visiting`, treating a key already on the current path as a non-match.
+/// transitively, on `target`. The walk guards against cycles with `visiting`. It treats a
+/// key already on the current path as a non-match.
 fn depends_on(env: &Env, root: &PriceKey, target: &PriceKey, visiting: &mut Vec<PriceKey>) -> bool {
     if visiting.first_index_of(root).is_some() {
         return false;
@@ -145,17 +144,17 @@ fn depends_on(env: &Env, root: &PriceKey, target: &PriceKey, visiting: &mut Vec<
     found
 }
 
-/// Runs the full validation suite for `oracle` under `key`, covering sanity
-/// bounds, source shape and count, asset decimals, composition depth,
-/// staleness, smoothing, tolerance, and source independence, with the
-/// smoothing and tolerance checks waived for LP oracles. Panics if any check
-/// fails. An `AllowShared` declaration must match the shared set exactly.
+/// Runs the full validation suite for `oracle` under `key`. The suite covers sanity
+/// bounds, source shape and count, asset decimals, composition depth, staleness,
+/// smoothing, tolerance, and source independence. The smoothing and tolerance checks are
+/// waived for LP oracles. Panics if any check fails. An `AllowShared` declaration must
+/// match the shared set exactly.
 pub(crate) fn validate_asset_oracle(env: &Env, key: &PriceKey, oracle: &AssetOracle) {
     validate_oracle(env, key, oracle, true);
 }
 
-/// Runs [`validate_asset_oracle`]'s checks; `exact_independence` false lets a
-/// stored `AllowShared` declaration cover a shared set that has since shrunk.
+/// Runs the checks of [`validate_asset_oracle`]. When `exact_independence` is false, a
+/// stored `AllowShared` declaration can cover a shared set that has since shrunk.
 fn validate_oracle(env: &Env, key: &PriceKey, oracle: &AssetOracle, exact_independence: bool) {
     let mut session = Session::new(env);
     session.push_key(key);
@@ -231,13 +230,12 @@ fn validate_oracle(env: &Env, key: &PriceKey, oracle: &AssetOracle, exact_indepe
     }
 }
 
-/// Narrows the sanity band of the oracle under `key`; panics with
-/// `SanityBandMustTighten` if either bound widens. Revalidates and re-probes
-/// before committing.
+/// Narrows the sanity band of the oracle under `key`. Panics with `SanityBandMustTighten`
+/// if either bound widens. Revalidates and re-probes before committing.
 ///
-/// Governance calls this on the immediate `ORACLE_ROLE` path, so it only
-/// narrows and repeated calls cannot walk the band. Widening goes through the
-/// timelocked `ConfigureAssetOracle` (INV-AUTH-04).
+/// Governance calls this on the immediate `ORACLE_ROLE` path, so it only narrows.
+/// Repeated calls cannot widen the band. Widening goes through the timelocked
+/// `ConfigureAssetOracle` (INV-AUTH-04).
 pub(crate) fn set_sanity_band(env: &Env, key: PriceKey, min_wad: i128, max_wad: i128) {
     let mut oracle = registry::get_oracle(env, &key)
         .unwrap_or_else(|| panic_with_error!(env, OracleError::OracleNotConfigured));

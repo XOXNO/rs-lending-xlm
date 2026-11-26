@@ -255,8 +255,8 @@ fn test_set_oracle_attests_the_factor_leg_of_a_scaled_source() {
     env.ledger().set_timestamp(1_000_000);
     with_contract(&env, || {
         // The factor's own quote currency has to match the key it is scaled by,
-        // so this pairs a token-quoting oracle with that token — clearing the
-        // base check and leaving the decimals mismatch as the failure under test.
+        // so this pairs a token-quoting oracle with that token. That clears the
+        // base check and leaves the decimals mismatch as the failure under test.
         let quote_asset = Address::generate(&env);
         let reflector = env.register(QuotedReflector, ());
         QuotedReflectorClient::new(&env, &reflector).set_base(&quote_asset);
@@ -350,7 +350,7 @@ fn test_set_oracle_admits_a_twap_budget_only_if_the_oldest_sample_stays_fresh() 
                 "{case:?}"
             );
 
-            // One second less than that age: rejected, and stale at that read.
+            // A budget one second less than that age is rejected, and the read is stale.
             let short = PriceKey::Token(Address::generate(&env));
             let config = round_twap_oracle(&env, &reflector, records, oldest_age - 1);
             assert_eq!(
@@ -365,7 +365,8 @@ fn test_set_oracle_admits_a_twap_budget_only_if_the_oldest_sample_stays_fresh() 
                 "{case:?}"
             );
 
-            // Exactly that age: admitted, and fresh until the next round is due.
+            // A budget of exactly that age is admitted, and fresh until the next round is
+            // due.
             let exact = PriceKey::Token(Address::generate(&env));
             client.set_oracle(
                 &exact,
@@ -878,8 +879,8 @@ fn test_set_oracle_lists_a_stableswap_lp_and_prices_it() {
     });
 }
 
-/// Stable-pool attestation rejects a constant-product pool before the pricing
-/// probe runs; the error code pins that gate.
+/// Stable-pool attestation rejects a constant-product pool before the pricing probe runs.
+/// The error code pins that gate.
 #[test]
 #[should_panic(expected = "Error(Contract, #234)")]
 fn test_stable_lp_rejects_a_constant_product_pool() {
@@ -1513,10 +1514,10 @@ fn test_the_second_stable_lp_leg_is_resolved_one_level_below_the_lp() {
     assert_deepened_stable_leg_exhausts_the_cap(false);
 }
 
-/// A stable LP listed while balanced, as governance lists it, then drained to
-/// one side, as when one coin depegs. At 10^10 : 10^7 tokens it still prices
-/// at D / supply; at 10^15 : 10^3 tokens the solver overflows `U256`, and
-/// `quotes` marks only the LP key `InvalidPrice` instead of reverting.
+/// A stable LP listed while balanced, as governance lists it, then drained to one side,
+/// as when one coin depegs. At 10^10 : 10^7 tokens it still prices at D / supply. At
+/// 10^15 : 10^3 tokens the solver overflows `U256`, and `quotes` marks only the LP key
+/// `InvalidPrice` instead of reverting.
 #[test]
 fn test_a_drained_stable_lp_prices_or_fails_closed_per_key() {
     const TOKEN: u128 = 10_000_000;
