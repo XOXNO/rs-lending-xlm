@@ -103,13 +103,13 @@ fn test_flash_position_fee_on_transfer_collateral_credits_net() {
         .build();
     let receiver = t.deploy_flash_position_receiver();
     let payload = data(&t, request(&t, FlashPositionMode::Success, 4_000.0));
-    // 1% shortfall on 4000 → 3960 delivered.
+    // A 1% shortfall on 4000 delivers 3960.
     let mins = collaterals(&t, &[("USDC", 3_960.0)]);
     let account_id = t
         .try_alice_eth_flash(&receiver, &payload, &mins, &Vec::new(&t.env))
         .expect("net receipt meets the lowered min");
     let supply = t.supply_balance_for(ALICE, account_id, "USDC");
-    // Controller snapshot sees 4000*0.99; the subsequent pool transfer
+    // Controller snapshot sees 4000*0.99. The subsequent pool transfer
     // applies the same shortfall again, so shares track ~4000*0.99².
     assert!(
         (3_919.0..=3_922.0).contains(&supply),

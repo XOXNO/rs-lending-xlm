@@ -1,9 +1,9 @@
-//! Boundary probes for dust and precision: the `MIN_ASSET_DECIMALS` endpoint
-//! (3), and the first depositor into a market drained after its supply index
-//! grew.
+//! Boundary probes for dust and precision. They cover the `MIN_ASSET_DECIMALS`
+//! endpoint (3) and the first depositor into a market drained after its supply
+//! index grew.
 //!
-//! The harness mints on `supply_raw`, so supply legs are measured on the
-//! position book; token balances are only meaningful across an exit.
+//! The test helpers mint on `supply_raw`, so supply legs are measured on the
+//! position book. Token balances are meaningful only across an exit.
 
 use soroban_sdk::Vec;
 use test_harness::presets::{MarketPreset, DEFAULT_ASSET_CONFIG, DEFAULT_MARKET_PARAMS};
@@ -120,7 +120,7 @@ fn first_depositor_after_index_growth_cannot_mint_free_value() {
     let idx = supply_index(&t, "USDC6");
     assert!(grown, "USDC6 supply index never grew to 1.5x RAY: {idx}");
 
-    // Drain: Carol repays everything, Bob withdraws everything.
+    // Drain. Carol repays everything, and Bob withdraws everything.
     let owed = t.borrow_balance_raw(CAROL, "USDC6");
     t.repay_raw(CAROL, "USDC6", owed);
     t.withdraw_all(BOB, "USDC6");
@@ -128,7 +128,7 @@ fn first_depositor_after_index_growth_cannot_mint_free_value() {
     let post_drain_idx = supply_index(&t, "USDC6");
     std::println!("post-drain USDC6 supply index = {post_drain_idx} (grew from RAY)");
 
-    // First depositor into the drained market.
+    // Alice is the first depositor into the drained market.
     let paid = 1_000_000i128; // 1.0 USDC6
     t.supply(ALICE, "LOW3", 10.0); // creates alice's account
     t.supply_raw(ALICE, "USDC6", paid);
@@ -151,7 +151,7 @@ fn first_depositor_after_index_growth_cannot_mint_free_value() {
     );
 }
 
-/// Sweeps the permissionless `clean_bad_debt` gate across the
+/// The test sweeps the permissionless `clean_bad_debt` gate across the
 /// `BAD_DEBT_USD_THRESHOLD` line by price alone.
 ///
 /// The gate is in WAD USD, so an oracle move decides which side an account sits
@@ -161,7 +161,8 @@ fn first_depositor_after_index_growth_cannot_mint_free_value() {
 /// threshold below 100%.
 ///
 /// The Certora rules and `contracts/controller/tests/positions/liquidation_curve.rs`
-/// pin the predicate in isolation; this test drives it through the oracle.
+/// pin the predicate in isolation. This test drives the predicate through the
+/// oracle.
 #[test]
 fn clean_bad_debt_gate_never_opens_before_liquidation_does() {
     let mut t = LendingTest::new()
@@ -179,7 +180,7 @@ fn clean_bad_debt_gate_never_opens_before_liquidation_does() {
     // Walk the USDC6 price down. Each step re-prices Alice's collateral only.
     let mut opened_at: Option<i128> = None;
     for step in 1..=40i128 {
-        let price = usd(1) - (usd(1) * step) / 40; // 1.00 -> 0.025
+        let price = usd(1) - (usd(1) * step) / 40; // 1.00 down to 0.025
         if price <= 0 {
             break;
         }

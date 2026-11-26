@@ -1,6 +1,6 @@
 //! What the host does when code inside a route hop calls
 //! `token.transfer(caller, third_party, x)` below the controller: recording mode
-//! attaches it to the caller's entry; enforcing mode accepts it only if signed.
+//! attaches it to the caller's entry. Enforcing mode accepts it only if signed.
 
 use common::types::HubAssetKey;
 use soroban_sdk::testutils::{
@@ -30,7 +30,7 @@ pub struct RoutedSwap {
     pub token_out: Address,
 }
 
-/// Router double: pays a fair output and calls the hop pool the payload names.
+/// Router double that pays a fair output and calls the hop pool the payload names.
 #[contract]
 pub struct UnlistedPoolRouter;
 
@@ -163,7 +163,7 @@ impl Scene {
         }
     }
 
-    /// Enforcing mode: Alice signs `swap_collateral` with exactly `children` beneath it.
+    /// Enforcing mode. Alice signs `swap_collateral` with exactly `children` beneath it.
     fn try_swap_with_signed_tree(
         &self,
         route: &Bytes,
@@ -230,13 +230,13 @@ fn simulation_records_the_rogue_pool_wallet_transfer_under_the_callers_swap_coll
 fn enforced_auth_moves_the_wallet_token_only_when_the_signed_tree_lists_the_rogue_transfer() {
     let s = Scene::new();
 
-    // Control: a pool that touches nothing passes with the honest root-only tree.
+    // Control case. A pool that touches nothing passes with the honest root-only tree.
     let benign = s.route_through_pool_stealing(0);
     s.try_swap_with_signed_tree(&benign, &[])
         .expect("the honest tree authorizes an honest route");
     assert_eq!(s.wallet(&s.alice), WALLET_BALANCE);
 
-    // Rogue pool, honest tree: the host refuses the transfer and the whole call rolls back.
+    // Rogue pool, honest tree. The host refuses the transfer and the whole call rolls back.
     s.t.env.mock_all_auths_allowing_non_root_auth();
     let rogue = s.route_through_pool_stealing(WALLET_BALANCE);
     let usdc_before = s.t.supply_balance_raw(ALICE, "USDC");
@@ -268,7 +268,7 @@ fn enforced_auth_moves_the_wallet_token_only_when_the_signed_tree_lists_the_rogu
     assert_eq!(s.wallet(&s.attacker), WALLET_BALANCE);
 }
 
-/// Controller stand-in: root-frame `caller.require_auth()`, then route-selected code.
+/// Controller stand-in that runs root-frame `caller.require_auth()`, then route-selected code.
 #[contract]
 pub struct RootAuthEntry;
 
@@ -280,7 +280,7 @@ impl RootAuthEntry {
     }
 }
 
-/// `transfer` with the token-interface auth rule; records the movement.
+/// Implements `transfer` with the token-interface auth rule and records the movement.
 #[contract]
 pub struct RecordingToken;
 

@@ -1,4 +1,4 @@
-//! A borrow, a withdrawal or a strategy restamps the stored LTV of every
+//! A borrow, a withdrawal, or a strategy restamps the stored LTV of every
 //! listed supply leg. Each changed leg is reported as a `ParamUpd` delta in
 //! the same position batch.
 
@@ -220,7 +220,7 @@ fn borrow_the_reported_limit_after_listing(listing: (u32, u32, u32, u32)) -> AtT
 }
 
 /// The stored threshold stays 8_000 and the listed LTV stops 500 BPS below
-/// it: limit 22,500 USD, health factor 24,000 / 22,500.
+/// it. The limit is 22,500 USD and the health factor is 24,000 / 22,500.
 const HELD_AT_THE_STORED_TUPLE: AtTheReportedLimit = AtTheReportedLimit {
     limit_wad: 22_500 * WAD,
     tuple: (7_500, 8_000, 500, 1_200),

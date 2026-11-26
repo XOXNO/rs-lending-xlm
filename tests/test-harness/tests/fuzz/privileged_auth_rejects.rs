@@ -56,7 +56,7 @@ fn owner_only_endpoints_reject_unauthed_before_validation() {
     let t = LendingTest::new().three_asset_usdc_eth_wbtc().build();
     let env = t.env.clone();
     let ctrl = t.ctrl_client();
-    // A hash the host can actually resolve: the builder already uploaded it.
+    // A hash the host can resolve. The builder already uploaded it.
     let real_wasm = t.position_nft_wasm_hash.clone();
     let no_auths: [soroban_sdk::xdr::SorobanAuthorizationEntry; 0] = [];
     let limits = sample_position_limits();

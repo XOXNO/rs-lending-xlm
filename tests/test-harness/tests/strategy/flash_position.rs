@@ -196,7 +196,7 @@ fn test_flash_position_reenter_supply_rejects() {
     let mins = collaterals(&t, &[("USDC", 4_000.0)]);
     let result = t.try_alice_eth_flash(&receiver, &payload, &mins, &Vec::new(&t.env));
     // Nested controller entry from the callback must fail. The host may surface
-    // InvalidAction for same-contract reentry; FLASH_LOAN_ONGOING is pinned by
+    // InvalidAction for same-contract reentry. FLASH_LOAN_ONGOING is pinned by
     // `test_flash_position_rejects_during_flash_loan`.
     assert!(
         result.is_err(),

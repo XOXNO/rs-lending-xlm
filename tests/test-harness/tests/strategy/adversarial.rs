@@ -72,7 +72,7 @@ fn assert_router_reentry_rejects_multiply(mode: ReenterMode) {
     let steps = multiply_steps(&t);
     let result = try_multiply_any(&mut t, &steps);
     // The host refuses the router's call back into the controller with
-    // Error(Context, InvalidAction) before the #400 flash guard is reached;
+    // Error(Context, InvalidAction) before the #400 flash guard is reached.
     // ReenterMode::Panic traps into the same host verdict.
     assert_eq!(
         result.unwrap_err(),

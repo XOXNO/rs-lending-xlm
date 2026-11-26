@@ -36,7 +36,7 @@ fn open_via_multiply() -> (f64, f64, i128) {
 
     let net_in = apply_flash_fee(10_000_000);
     // The mock router pays exactly `min_out`. Scale it by the fee the pool
-    // withholds: `multiply` has only `amount - fee` of ETH to sell.
+    // withholds, because `multiply` has only `amount - fee` of ETH to sell.
     let steps = build_aggregator_swap(&t, "ETH", "USDC", net_in, apply_flash_fee(30_000_000_000));
 
     let revenue_before = t.snapshot_revenue("ETH");
@@ -57,8 +57,8 @@ fn open_via_flash_position() -> (f64, f64, i128) {
     let mut t = setup();
     let receiver = t.deploy_flash_position_receiver();
 
-    // The receiver mints and pushes back 3_000 USDC: the `multiply` router
-    // output for 1.0 ETH with no fee withheld.
+    // The receiver mints and pushes back 3_000 USDC. That equals the `multiply`
+    // router output for 1.0 ETH with no fee withheld.
     let request = FlashPositionRequest {
         mode: FlashPositionMode::Success,
         collateral: t.resolve_asset("USDC"),
@@ -108,7 +108,7 @@ fn flash_position_substitutes_multiply_without_origination_fee() {
     );
 
     // `multiply` books exactly the fee on 1.0 ETH of strategy debt at
-    // `DEFAULT_FLASHLOAN_FEE_BPS`; `flash_position` books nothing.
+    // `DEFAULT_FLASHLOAN_FEE_BPS`. `flash_position` books nothing.
     let strategy_debt_raw = 10_000_000i128;
     let expected_fee = strategy_debt_raw - apply_flash_fee(strategy_debt_raw);
     assert_eq!(

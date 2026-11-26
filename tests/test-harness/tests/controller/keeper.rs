@@ -549,7 +549,7 @@ fn test_update_account_threshold_emits_param_upd_only_for_changed_assets() {
     let account_id = t.resolve_account_id(ALICE);
     let eth_before = supply_risk_fields(&t, account_id, "ETH");
 
-    // Only USDC listing moves; ETH stamps already match listing.
+    // Only the USDC listing moves. The ETH stamps already match the listing.
     t.edit_asset_config("USDC", |c| {
         c.loan_to_value = 5_000;
         c.liquidation_threshold = 6_100;

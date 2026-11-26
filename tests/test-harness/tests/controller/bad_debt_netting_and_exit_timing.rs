@@ -6,7 +6,7 @@
 //! 2. `force_socialize_does_not_net_collateral_against_debt` uses USDC
 //!    collateral against ETH debt, where netting needs a swap. Netting is
 //!    available only for a residual collateral leg in the same market as the
-//!    socialized debt; `same_market_residual_is_not_netted_against_socialized_debt`
+//!    socialized debt. `same_market_residual_is_not_netted_against_socialized_debt`
 //!    covers that case.
 
 use flash_loan_receiver::{FlashLoanMode, FlashLoanRequest};
@@ -16,7 +16,7 @@ use test_harness::{
     DAVE, LIQUIDATOR,
 };
 
-/// ETH has no seeded liquidity: the tests count supply from their own suppliers.
+/// ETH has no seeded liquidity. The tests count supply from their own suppliers.
 fn setup() -> LendingTest {
     LendingTest::new()
         .standard_two_asset()
@@ -121,7 +121,7 @@ fn same_market_residual_is_not_netted_against_socialized_debt() {
     //   no netting  => Bob absorbs the whole debt, so this is ~= 0 and the
     //                  collateral went to revenue instead.
     //
-    // The two bounds above hold in both cases; only this assertion tells them
+    // The two bounds above hold in both cases. Only this assertion tells them
     // apart.
     let offset_taken = alice_debt - bob_loss;
     assert!(
@@ -133,13 +133,13 @@ fn same_market_residual_is_not_netted_against_socialized_debt() {
     );
 }
 
-/// Measures how much of a market a large supplier can withdraw.
+/// The test measures how much of a market a large supplier can withdraw.
 /// `require_utilization_below_max` runs after the burn, so the exit ceiling is
 /// `f <= 1 - u / max_utilization` of total supply (`max_utilization` is 95% in
-/// the preset). Probes each side of the closed form on a fresh fixture.
+/// the preset). The test probes each side of the closed form on a fresh fixture.
 #[test]
 fn withdrawal_ceiling_tracks_one_minus_utilization_over_max() {
-    // 100 ETH of real supply: Bob 80, Carol 20. Dave drives utilization.
+    // 100 ETH of real supply. Bob supplies 80 and Carol supplies 20. Dave drives utilization.
     fn fixture(target_u: u32) -> LendingTest {
         let mut t = setup();
         t.supply(BOB, "ETH", 80.0);
@@ -152,7 +152,7 @@ fn withdrawal_ceiling_tracks_one_minus_utilization_over_max() {
 
     for target_u in [10u32, 50, 80, 90] {
         let u = f64::from(target_u) / 100.0;
-        // Closed form, in ETH of the 100 supplied, clamped to Bob's 80.
+        // The closed form, in ETH of the 100 supplied, is clamped to Bob's 80.
         let predicted = ((1.0 - u / 0.95) * 100.0).clamp(0.0, 80.0);
         let below = (predicted - 0.5).max(0.0);
         let above = predicted + 0.5;
@@ -179,18 +179,18 @@ fn withdrawal_ceiling_tracks_one_minus_utilization_over_max() {
             target_u
         );
         if predicted < 79.9 {
-            // Pins the error: a bare `!is_ok()` also passes on insufficient
-            // collateral or a fixture break.
+            // The assertion pins the error. A bare `!is_ok()` also passes on
+            // insufficient collateral or a fixture break.
             assert_contract_error(res_above, errors::UTILIZATION_ABOVE_MAX);
         }
     }
 }
 
-/// A $12k-debt / $10k-collateral account is above the $5 dust gate of
-/// `clean_bad_debt`, so cleanup refuses it. Partial liquidations still run on
+/// An account with $12k of debt and $10k of collateral is above the $5 dust gate
+/// of `clean_bad_debt`, so cleanup refuses it. Partial liquidations still run on
 /// it and shrink it toward the dust gate.
 ///
-/// The harness mints the liquidator's repayment before each call, so the ETH
+/// The test helpers mint the liquidator's repayment before each call, so the ETH
 /// spend does not show as a wallet delta. Compare the seized USD with the
 /// $1,000 repaid per step.
 #[test]
@@ -198,13 +198,13 @@ fn deep_underwater_account_still_liquidates_to_the_dust_gate() {
     let mut t = setup();
     t.supply(BOB, "ETH", 100.0);
 
-    // Alice: $100k USDC collateral, 6 ETH = $12,000 debt.
+    // Alice supplies $100k of USDC and borrows 6 ETH, which is $12,000 of debt.
     t.supply(ALICE, "USDC", 100_000.0);
     t.borrow(ALICE, "ETH", 6.0);
     let alice_id = t.resolve_account_id(ALICE);
     t.get_or_create_user(LIQUIDATOR);
 
-    // Crash USDC 10x -> collateral $10,000 against $12,000 of debt.
+    // Crash USDC 10x, so collateral is $10,000 against $12,000 of debt.
     t.set_price("USDC", usd_cents(10));
 
     std::println!(
@@ -273,16 +273,16 @@ fn deep_underwater_account_still_liquidates_to_the_dust_gate() {
     );
 }
 
-/// The band where `max_hf_preserving_bonus_bps` returns a cap in
-/// `[0, base_bonus)`, i.e. `hf` in `[threshold, 1.05*threshold)` = [0.80, 0.84)
-/// at the preset. A partial and the full close that follows are both
-/// profitable, so the band is not a stuck state.
+/// The test covers the band where `max_hf_preserving_bonus_bps` returns a cap in
+/// `[0, base_bonus)`. In that band, `hf` is in `[threshold, 1.05*threshold)`,
+/// which is [0.80, 0.84) at the preset. A partial and the full close that follows
+/// are both profitable, so the band is not a stuck state.
 #[test]
 fn band_partial_and_full_close_are_both_profitable_for_the_liquidator() {
     let mut t = setup();
     t.supply(BOB, "ETH", 100.0);
 
-    // collateral = 1.025 * debt  ->  hf = 1.025 * 0.80 = 0.82
+    // collateral = 1.025 * debt, so hf = 1.025 * 0.80 = 0.82
     t.supply(ALICE, "USDC", 123_000.0);
     t.borrow(ALICE, "ETH", 6.0);
     let alice_id = t.resolve_account_id(ALICE);
@@ -336,7 +336,7 @@ fn band_partial_and_full_close_are_both_profitable_for_the_liquidator() {
 
 /// A flash-loan callback cannot reach any controller entrypoint.
 ///
-/// The call stack is controller -> pool -> receiver -> controller. Cross-contract
+/// The call stack is controller, pool, receiver, controller. Cross-contract
 /// calls default to `ContractReentryMode::Prohibited` (soroban-env-host 28.0.2,
 /// `src/host/frame.rs`), and re-entry into a contract already on the context
 /// stack returns `Error(Context, InvalidAction)`.
@@ -398,7 +398,7 @@ fn flash_callback_cannot_reach_any_controller_entrypoint() {
 }
 
 // ---------------------------------------------------------------------------
-// Same-ledger borrow -> repay round trip across a utilization kink
+// Same-ledger borrow then repay round trip across a utilization kink
 // ---------------------------------------------------------------------------
 //
 // `ops::synced_market` accrues before every mutation, at the utilization of the
@@ -407,13 +407,14 @@ fn flash_callback_cannot_reach_any_controller_entrypoint() {
 // at once. No index moves.
 //
 // Each shape also runs with the position held across real time. That control
-// must move the indexes, else the same-ledger equality proves nothing.
+// must move the indexes. Otherwise the same-ledger equality proves nothing.
 
-/// Reads the committed (supply_index, borrow_index, last_timestamp) of `asset`.
+/// The helper reads the committed (supply_index, borrow_index, last_timestamp)
+/// of `asset`.
 ///
 /// `get_market_indexes_detailed` reaches pool `get_bulk_indexes`, which
-/// simulates accrual to now without writing state, so it would hide a leg that
-/// stopped committing. `get_sync_data` returns the stored state. `last_timestamp`
+/// simulates accrual to now without writing state, so that call would hide a leg
+/// that stopped committing. `get_sync_data` returns the stored state. `last_timestamp`
 /// is what `mark_accrued` stamps, so an unchanged value across leg 2 shows
 /// `elapsed_ms() == 0` directly.
 fn committed_state(t: &LendingTest, asset: &str) -> (i128, i128, u64) {
@@ -426,11 +427,11 @@ fn committed_state(t: &LendingTest, asset: &str) -> (i128, i128, u64) {
     )
 }
 
-/// `cross`: borrow across the optimal-utilization kink (30% -> 85%, into
-/// `slope3`). `hold`: leave the position open for a day before repaying.
-/// Returns the committed (supply_index, borrow_index, last_timestamp) plus the
-/// borrow rate before and at the peak, so the test can prove the kink was
-/// exercised.
+/// With `cross`, the helper borrows across the optimal-utilization kink, from 30%
+/// to 85% into `slope3`. With `hold`, it leaves the position open for a day
+/// before repaying. It returns the committed (supply_index, borrow_index,
+/// last_timestamp) plus the borrow rate before and at the peak, so the test can
+/// prove the kink was exercised.
 fn kink_run(cross: bool, hold: bool) -> (i128, i128, u64, f64, f64) {
     let mut t = LendingTest::new()
         .standard_two_asset()
@@ -446,7 +447,7 @@ fn kink_run(cross: bool, hold: bool) -> (i128, i128, u64, f64, f64) {
 
     let mut rate_peak = rate_before;
     if cross {
-        // 30k -> 85k of 100k supplied = 85% utilization, past optimal (80%),
+        // 30k up to 85k of 100k supplied = 85% utilization, past optimal (80%),
         // so the marginal rate is on slope3 (150% RAY).
         t.borrow(BOB, "USDC", 55_000.0);
         rate_peak = t.pool_borrow_rate("USDC");
@@ -469,7 +470,7 @@ fn same_ledger_kink_roundtrip_cannot_move_the_index() {
     let (si_base, bi_base, ts_base, r0, _) = kink_run(false, false);
     let (si_atk, bi_atk, ts_atk, r_before, r_peak) = kink_run(true, false);
 
-    // Positive control: same two shapes, but the position is held for a day.
+    // Positive control. The same two shapes run, but the position is held for a day.
     let (si_hb, bi_hb, _, _, _) = kink_run(false, true);
     let (si_ha, bi_ha, _, _, _) = kink_run(true, true);
 
@@ -502,7 +503,7 @@ fn same_ledger_kink_roundtrip_cannot_move_the_index() {
         bi_ha
     );
 
-    // Guard 1: the 85% leg crosses the kink into `slope3`.
+    // Guard 1. The 85% leg crosses the kink into `slope3`.
     assert!(
         r_peak > r_before * 2.0,
         "the 30% -> 85% leg must cross into slope3: {:.6} -> {:.6}",
@@ -511,7 +512,7 @@ fn same_ledger_kink_roundtrip_cannot_move_the_index() {
     );
     assert!(r0 > 0.0);
 
-    // Guard 2: the measurement is sensitive. If holding 85% for a day did not
+    // Guard 2. The measurement is sensitive. If holding 85% for a day did not
     // move the committed indexes, the equality below would be vacuous.
     assert_ne!(
         (si_ha, bi_ha),

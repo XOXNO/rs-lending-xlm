@@ -1,4 +1,4 @@
-//! A first `Supply(LAST_CREATED)` resolves to `0` and opens an account; the
+//! A first `Supply(LAST_CREATED)` resolves to `0` and opens an account. The
 //! next `LAST_CREATED` leg must act on that account.
 
 use crate::helpers::{supply_op, withdraw_op};

@@ -1,10 +1,10 @@
 //! Model of the Asterizm RWA token gate (`asterizm-rwa-example`) that Liqvid
-//! deal tokens use: while the gate is active, `mint`, `transfer`,
-//! `transfer_from`, `burn` and `burn_from` require every holder they touch
-//! (`from` and `to`, never the spender) to be allowlisted and not frozen,
-//! zero amounts included. `set_metadata` rewrites `decimals` without
-//! rescaling balances. Issuer-only methods skip authorization so tests can
-//! drive them directly.
+//! deal tokens use. While the gate is active, `mint`, `transfer`,
+//! `transfer_from`, `burn` and `burn_from` check every holder they touch.
+//! Each holder (`from` and `to`, never the spender) must be allowlisted and
+//! not frozen, even for a zero amount. `set_metadata` rewrites `decimals`
+//! without rescaling balances. Issuer-only methods skip authorization so
+//! tests can drive them directly.
 
 use soroban_sdk::{
     contract, contracterror, contractimpl, contracttype, panic_with_error, Address, Env, String,

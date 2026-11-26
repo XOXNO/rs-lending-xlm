@@ -2,7 +2,8 @@ use crate::shared::get_indexes;
 use controller::constants::WAD;
 use test_harness::{assert_contract_error, errors, usd_cents, LendingTest, ALICE, BOB};
 
-/// Alice: 10 000 USDC collateral, 3 ETH ($6 000) debt; Bob backs the ETH market.
+/// Alice has 10 000 USDC of collateral and 3 ETH ($6 000) of debt. Bob backs the ETH
+/// market.
 fn alice_with_usdc_at(cents: i128) -> LendingTest {
     let mut t = LendingTest::new().standard_two_asset_dust_disabled();
     t.supply(BOB, "ETH", 100.0);

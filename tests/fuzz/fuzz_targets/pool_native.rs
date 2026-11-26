@@ -82,10 +82,10 @@ struct Curve {
 
 /// Builds a curve from whole-percent breakpoints and per-unit steepness
 /// `k1 <= k2 <= k3` (percent of rate per whole utilization, at most 100). Each
-/// slope is `k * width`, so the steepness ordering is exact; the slopes sum to
+/// slope is `k * width`, so the steepness ordering is exact. The slopes sum to
 /// at most `k3`, and `base` is a share of `slope1`, so the full-utilization
 /// rate stays within 200%. A smaller slope over a narrower segment, equal
-/// steepness and the all-zero curve are all generated.
+/// steepness, and the all-zero curve are all generated.
 fn curve(base_pct: i128, s1_pct: i128, s2_pct: i128, s3_pct: i128, mid_pct: i128, opt_pct: i128) -> Curve {
     let mid_pct = mid_pct % 98 + 1;
     let opt_pct = opt_pct % (99 - mid_pct) + mid_pct + 1;
@@ -150,7 +150,7 @@ fn hub_asset_in(asset: &Address, hub_id: u32) -> HubAssetKey {
     }
 }
 
-/// Returns `hi` when the available range is empty, e.g. a balance below the `lo` floor.
+/// Returns `hi` when the available range is empty, for example a balance below the `lo` floor.
 fn amount_from_raw(raw: u32, lo: i128, hi: i128) -> i128 {
     if hi <= lo {
         return hi;
@@ -417,7 +417,7 @@ fuzz_target!(|i: In| {
     mint_to_pool(&env, &asset, &pool_addr, initial_cash);
     seed_state(&env, &pool_addr, &sibling, |s| s.cash = initial_cash);
 
-    // A pinned market starts at its index caps; bootstrap may legitimately reject there.
+    // A pinned market starts at its index caps. Bootstrap may legitimately reject there.
     let bootstrap_supply = amount_from_raw(i.base_pct as u32, 10_000_000_000, cap);
     mint_to_pool(&env, &asset, &pool_addr, bootstrap_supply);
     let mut supply_scaled = match flatten_contract_result(pool.try_supply(&soroban_sdk::vec![
@@ -719,7 +719,7 @@ fuzz_target!(|i: In| {
                 let recv = flash_receiver
                     .get_or_insert_with(|| {
                         let r = env.register(flash_receiver_wasm(), ());
-                        // Reentry mode needs a plan; it points back at this pool's hub.
+                        // Reentry mode needs a plan. It points back at this pool's hub.
                         FlashLoanTestReceiverClient::new(&env, &r).set_plan(&pool_addr, &1, &0, &0);
                         r
                     })
@@ -868,8 +868,8 @@ fuzz_target!(|i: In| {
                             pool_balance(&env, &asset, &pool_addr),
                             balance_before - refund
                         );
-                        // Without a backing shortfall the pool rightly applies less than the forged
-                        // deficit; hand the rest back so later ops see the real cash.
+                        // Without a backing shortfall the pool applies less than the forged
+                        // deficit. The test hands the rest back so later ops see the real cash.
                         let unapplied = deficit - applied;
                         if unapplied > 0 {
                             seed_state(&env, &pool_addr, &market, |s| s.cash += unapplied);

@@ -2,8 +2,8 @@
 //! (`SeizeMode::Credit`).
 //!
 //! The scaled split arithmetic is unit-tested in
-//! `contracts/controller/tests/positions/liquidation_seize_modes.rs`; everything here needs a
-//! real pool, so it lives against the full harness.
+//! `contracts/controller/tests/positions/liquidation_seize_modes.rs`. Everything here needs a
+//! real pool, so it lives against the full test-harness setup.
 
 use crate::shared::count_topic;
 use common::constants::RAY;
@@ -28,16 +28,16 @@ use test_harness::{
 ///
 /// Transfer floors the seizure to asset units, then ceils the share burn (`resolve_withdrawal`).
 /// Credit floors once in RAY share space. With `v` the seizure value, `K` one asset unit of
-/// value, `c = 1 / index` and `r = v mod K`, transfer burns `ceil((v-r)*c)` and credit
-/// `floor(v*c)`, so `credit - transfer < K*c` and `transfer - credit < 2` raw shares.
+/// value, `c = 1 / index` and `r = v mod K`, transfer burns `ceil((v-r)*c)` and credit burns
+/// `floor(v*c)`. Therefore `credit - transfer < K*c` and `transfer - credit < 2` raw shares.
 ///
 /// The bound follows the live index, so it must not be a constant. Bad-debt socialization
 /// (`apply_bad_debt_to_supply_index`) can lower the index to `SUPPLY_INDEX_FLOOR_RAW`
 /// (`RAY / 1_000`), where one asset unit is 1e23 shares, not 1e20.
 ///
-/// Under-delivery adds a second floor (`scale_seizures_to_received`) and doubles the bound;
-/// use `UNDER_DELIVERY_SLACK_UNITS` there. Returns f64 for messages and ratios only;
-/// `share_gap_under_units` does the exact compare.
+/// Under-delivery adds a second floor (`scale_seizures_to_received`) and doubles the bound.
+/// Use `UNDER_DELIVERY_SLACK_UNITS` there. The function returns f64 for messages and ratios
+/// only. `share_gap_under_units` does the exact compare.
 fn seize_mode_share_slack(supply_index: i128, decimals: u32) -> f64 {
     let shares_per_unit_at_ray = 10f64.powi(27 - decimals as i32);
     shares_per_unit_at_ray * RAY as f64 / supply_index as f64
@@ -125,9 +125,9 @@ fn spoke_supply_usage(t: &LendingTest, asset_name: &str) -> i128 {
 
 // --- scenarios -----------------------------------------------------------
 
-/// USDC market with no seeded free cash, so the only USDC the pool holds is what suppliers put
-/// in and borrowers have not taken out. That is what makes a cash starve reachable at all: the
-/// standard preset pre-mints a million units of unattributed cash.
+/// USDC market with no seeded free cash. The only USDC the pool holds is what suppliers put in
+/// and borrowers have not taken out, so a cash starve is reachable. The standard preset
+/// pre-mints a million units of unattributed cash.
 fn dry_usdc_preset() -> MarketPreset {
     MarketPreset {
         initial_liquidity: 0.0,
@@ -137,9 +137,9 @@ fn dry_usdc_preset() -> MarketPreset {
 
 /// Alice is liquidatable on a USDC market drained of cash by Bob's borrow.
 ///
-/// Alice: 10_000 USDC collateral, 3 ETH debt. Bob: 50 ETH collateral, 9_400 USDC borrowed,
-/// which leaves the USDC market with far less cash than a seizure would need. USDC then halves
-/// in price, which pushes Alice under water and leaves Bob comfortably solvent.
+/// Alice: 10_000 USDC collateral, 3 ETH debt. Bob: 50 ETH collateral, 9_400 USDC borrowed.
+/// Bob's borrow leaves the USDC market with far less cash than a seizure would need. USDC then
+/// halves in price. The price drop puts Alice under water and leaves Bob solvent.
 fn cash_starved_usdc() -> LendingTest {
     let mut t = LendingTest::new()
         .with_market(dry_usdc_preset())
@@ -183,7 +183,7 @@ fn cash_starved_market_blocks_transfer_but_not_credit() {
         "the failed transfer must not have moved cash"
     );
 
-    // Same account, same repayment, same seizure — but the collateral is delivered as supply
+    // Same account, same repayment and same seizure, but the collateral is delivered as supply
     // shares, so the pool never has to find the underlying.
     let receiver = t
         .try_liquidate_with_mode(LIQUIDATOR, ALICE, "ETH", 1.0, SeizeMode::Credit(0))
@@ -284,7 +284,7 @@ fn credit_zero_creates_a_usable_account_owned_by_the_liquidator_in_the_right_spo
     assert_eq!(attrs.spoke_id, alice_spoke, "receiver must share the spoke");
     assert_eq!(attrs.mode, PositionMode::Normal);
 
-    // The returned id is usable: a second credit-mode liquidation can target it directly and
+    // The returned id is usable. A second credit-mode liquidation can target it directly and
     // adds to the position already there.
     let first_credit = scaled_supply(&t, receiver, "USDC");
     let same = t.liquidate_with_mode(LIQUIDATOR, CAROL, "ETH", 1.0, SeizeMode::Credit(receiver));
@@ -391,7 +391,7 @@ fn a_receiver_with_a_position_keeps_its_own_tuple_and_just_grows() {
     let receiver = t.resolve_account_id(LIQUIDATOR);
     let before = position(&t, receiver, "USDC").expect("liquidator holds USDC");
 
-    // Move the listing. An ordinary supply restamps an existing position; a credit does not.
+    // Move the listing. An ordinary supply restamps an existing position. A credit does not.
     t.edit_asset_config("USDC", |c| {
         c.loan_to_value = 4_000;
         c.liquidation_threshold = 5_000;
@@ -428,8 +428,8 @@ fn a_non_collateralizable_asset_can_still_be_credited() {
 #[test]
 fn a_spoke_at_its_supply_cap_can_still_be_credited() {
     let mut t = liquid_usdc();
-    // Drop the supply cap far below current usage. A new supply would be rejected; a
-    // liquidation must not be, or an account in a spoke sitting at its cap becomes
+    // Drop the supply cap far below current usage. A new supply would be rejected. A
+    // liquidation must not be rejected, or an account in a spoke at its cap becomes
     // unliquidatable in credit mode.
     let cfg = t.get_asset_config("USDC");
     let asset = t.resolve_asset("USDC");
@@ -457,7 +457,7 @@ fn a_spoke_at_its_supply_cap_can_still_be_credited() {
 // --- position limits -----------------------------------------------------
 
 /// Governance lowers the supply limit below the liquidated account's two legs.
-/// An existing receiver keeps the limit, in the estimate and at execution; a
+/// An existing receiver keeps the limit, in the estimate and at execution. A
 /// receiver the liquidation creates is exempt and takes both legs.
 #[test]
 fn a_receiver_at_the_supply_position_limit_reverts() {
@@ -612,7 +612,7 @@ fn bad_debt_promotion_still_fires_after_a_credit_mode_liquidation() {
     t.assert_liquidatable(ALICE);
 
     let receiver = t.liquidate_with_mode(LIQUIDATOR, ALICE, "ETH", 0.001, SeizeMode::Credit(0));
-    // Read the ledger's events before any view call: a later invocation replaces the buffer.
+    // Read the ledger's events before any view call. A later invocation replaces the buffer.
     let events = t.env.events().all();
 
     assert_eq!(
@@ -695,7 +695,7 @@ fn no_seize_does_not_block_ordinary_withdrawal() {
     t.supply(ALICE, "USDC", 10_000.0);
     t.set_spoke_asset_flags("USDC", false, false, true);
 
-    // `no_seize` governs the seizure leg only; users keep their exits.
+    // `no_seize` governs the seizure leg only. Users keep their exits.
     t.withdraw(ALICE, "USDC", 1_000.0);
     assert!(t.supply_balance(ALICE, "USDC") < 10_000.0);
 }
@@ -707,8 +707,8 @@ fn no_seize_does_not_block_ordinary_withdrawal() {
 ///
 /// The modes convert the seizure differently, so they cannot match bit for bit:
 ///
-/// - Transfer: value -> asset units (floor) -> shares (ceil), in `resolve_withdrawal`.
-/// - Credit: value -> shares (floor).
+/// - Transfer: value to asset units (floor), then to shares (ceil), in `resolve_withdrawal`.
+/// - Credit: value to shares (floor).
 #[test]
 fn transfer_and_credit_seize_the_same_value_at_the_same_ledger() {
     let mut t = LendingTest::new().standard_two_asset().build();
@@ -828,7 +828,7 @@ fn transfer_and_credit_agree_on_values_that_do_not_divide_evenly() {
     );
 
     // Exact in asset units only because `supply_index == RAY` here. At other indexes the
-    // bound is one unit; see
+    // bound is one unit. See
     // `transfer_and_credit_agree_on_values_that_do_not_divide_evenly_after_accrual`.
     assert_eq!(
         t.supply_balance_raw(ALICE, "USDC"),
@@ -841,9 +841,9 @@ fn transfer_and_credit_agree_on_values_that_do_not_divide_evenly() {
 /// Credit followed by a same-ledger withdraw-all pays the liquidator at most one unit less
 /// than transfer.
 ///
-/// Credit rounds twice (value to shares, then shares to asset units at withdraw); transfer
-/// rounds once. The withdraw uses `i128::MAX` (withdraw all), so no caller amount adds a
-/// rounding step.
+/// Credit rounds twice, once from value to shares and once from shares to asset units at
+/// withdraw. Transfer rounds once. The withdraw uses `i128::MAX` (withdraw all), so no caller
+/// amount adds a rounding step.
 #[test]
 fn withdrawing_the_credit_in_the_same_ledger_matches_the_transfer_payout() {
     let mut t = LendingTest::new().standard_two_asset().build();
@@ -856,7 +856,7 @@ fn withdrawing_the_credit_in_the_same_ledger_matches_the_transfer_payout() {
     t.assert_liquidatable(ALICE);
     t.assert_liquidatable(CAROL);
 
-    // Register the liquidator before reading balances: the harness creates users
+    // Register the liquidator before reading balances. The test harness creates users
     // lazily, and the first read would otherwise precede their existence.
     let liquidator_addr = t.get_or_create_user(LIQUIDATOR);
 
@@ -879,7 +879,7 @@ fn withdrawing_the_credit_in_the_same_ledger_matches_the_transfer_payout() {
         transfer_payout > 0 && credit_payout > 0,
         "both flows must pay the liquidator something"
     );
-    // The ordering holds only above the dust threshold; on a dust leg it inverts
+    // The ordering holds only above the dust threshold. On a dust leg it inverts
     // (`a_dust_leg_inverts_the_payout_ordering_between_the_modes`). The one-unit magnitude
     // holds at every leg size
     // (`the_two_modes_never_differ_by_more_than_one_stroop_at_any_leg_size`).
@@ -997,7 +997,7 @@ fn wbtc_leg_payouts(wbtc_amt: f64) -> (i128, i128) {
 /// the repayment share. Credit ceils the fee in RAY share space (`split_seized_shares`), so it
 /// charges the sub-stroop fee. On the smallest legs nothing whole is realised, so transfer
 /// charges no fee and the two modes pay the same. The difference is at most one stroop of fee
-/// per dust leg; `PositionLimits.max_supply_positions` caps the leg count.
+/// per dust leg. `PositionLimits.max_supply_positions` caps the leg count.
 #[test]
 fn a_dust_leg_inverts_the_payout_ordering_between_the_modes() {
     for (wbtc_amt, credit_premium) in [(0.000001_f64, 0), (0.000005, 0), (0.00001, 1), (0.00002, 1)]
@@ -1018,7 +1018,8 @@ fn a_dust_leg_inverts_the_payout_ordering_between_the_modes() {
 }
 
 /// Above the dust threshold, transfer pays at least as much as credit-then-withdraw and at
-/// most one stroop more. With the dust-leg test above, this brackets the crossover.
+/// most one stroop more. Together with the dust-leg test above, the two tests bracket the
+/// crossover.
 #[test]
 fn above_the_dust_threshold_transfer_pays_at_least_as_much_as_credit() {
     for wbtc_amt in [0.0001_f64, 0.001, 0.01] {
@@ -1038,8 +1039,8 @@ fn above_the_dust_threshold_transfer_pays_at_least_as_much_as_credit() {
 
 /// At every WBTC leg size, the two payouts differ by at most one stroop, in either direction.
 ///
-/// Full delivery only: all three markets use standard SACs. On an under-delivering asset the
-/// bound is two units; see `under_delivery_doubles_the_gap_but_keeps_it_bounded`.
+/// Full delivery only. All three markets use standard SACs. On an under-delivering asset the
+/// bound is two units. See `under_delivery_doubles_the_gap_but_keeps_it_bounded`.
 ///
 /// The sweep stops at 0.01 WBTC ($600). A WBTC leg above $2,500 keeps the account healthy
 /// after the USDC price drop, so no liquidation runs.
@@ -1078,7 +1079,7 @@ fn transfer_and_credit_agree_on_values_that_do_not_divide_evenly_after_accrual()
         t.supply(user, "USDC", 7_333.37);
         t.borrow(user, "ETH", 2.19);
     }
-    // A USDC borrow is necessary: with no USDC borrowed, the supply index stays at RAY.
+    // A USDC borrow is necessary. With no USDC borrowed, the supply index stays at RAY.
     t.supply(BOB, "ETH", 50.0);
     t.borrow(BOB, "USDC", 9_000.0);
     t.advance_and_sync(365 * 24 * 60 * 60);
@@ -1177,7 +1178,7 @@ fn the_two_modes_charge_the_same_protocol_fee_within_one_unit() {
     );
 }
 
-/// Across a sweep of accrual durations, USDC borrows and repay fractions, transfer and credit
+/// Across a sweep of accrual durations, USDC borrows, and repay fractions, transfer and credit
 /// stay within one asset unit at each resulting supply index.
 ///
 /// Each point checks two bounds:
@@ -1185,8 +1186,8 @@ fn the_two_modes_charge_the_same_protocol_fee_within_one_unit() {
 /// 1. Share space: the gap is under one asset unit at that index (`seize_mode_share_slack`).
 /// 2. Asset space: the two accounts end within one unit of each other.
 ///
-/// The supremum is one asset unit: the transfer asset floor can shed almost a whole unit
-/// before the share ceil. Full delivery only (a standard SAC repayment); the under-delivery
+/// The supremum is one asset unit. The transfer asset floor can shed almost a whole unit
+/// before the share ceil. Full delivery only (a standard SAC repayment). The under-delivery
 /// bound is in `under_delivery_doubles_the_gap_but_keeps_it_bounded`.
 #[test]
 fn the_share_gap_stays_under_one_asset_unit_across_a_supply_index_sweep() {
@@ -1287,7 +1288,7 @@ fn the_share_gap_stays_under_one_asset_unit_with_the_supply_index_below_ray() {
             t.supply(DAVE, "ETH", 20.0);
             t.borrow(DAVE, "USDC", wiped_usdc);
 
-            // Dave's collateral collapses; his USDC debt is written off against
+            // Dave's collateral collapses. His USDC debt is written off against
             // the USDC supply index.
             t.set_price("ETH", usd_cents(100));
             t.force_socialize_bad_debt_by_id(t.resolve_account_id(DAVE));
@@ -1452,7 +1453,7 @@ fn under_delivery_doubles_the_gap_but_keeps_it_bounded() {
         ran >= 10,
         "sweep degenerated: only {ran} points liquidated under under-delivery"
     );
-    // At least one point must exceed the single-unit bound; otherwise the token does not
+    // At least one point must exceed the single-unit bound. Otherwise the token does not
     // under-deliver and the test exercises nothing.
     assert!(
         exceeded_single_unit,

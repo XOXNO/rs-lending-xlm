@@ -1,7 +1,7 @@
-//! GH-24, GH-25. Parameter changes that land between two user legs: a lower
-//! LTV gates the next withdraw but leaves the stamped threshold alone; a
-//! swapped router serves the next strategy; a lowered position limit blocks
-//! the next new slot; a pause closes entries and keeps exits.
+//! GH-24, GH-25. Parameter changes that land between two user legs. A lower
+//! LTV gates the next withdraw but leaves the stamped threshold alone. A
+//! swapped router serves the next strategy. A lowered position limit blocks
+//! the next new slot. A pause closes entries and keeps exits.
 
 use controller::types::PositionMode;
 use governance_interface::AdminOperation;
@@ -32,7 +32,7 @@ fn lowering_ltv_between_borrow_and_withdraw_gates_the_withdraw_but_not_the_stamp
         t.try_withdraw(ALICE, "USDC", 1_000.0),
         errors::INSUFFICIENT_COLLATERAL,
     );
-    // The rejected withdraw reverted its restamp; a top-up carries it.
+    // The rejected withdraw reverted its restamp. A top-up carries it.
     t.supply(ALICE, "USDC", 1.0);
     let (supplies, _) = t.ctrl_client().get_account_positions(&account);
     let stamp = supplies.get(hub_asset(t.resolve_asset("USDC"))).unwrap();

@@ -1,5 +1,5 @@
 //! A listing edit or flag relaxation queued before a guardian freeze cannot
-//! clear it when executed; a timely relaxation can; a `Sensitive` operation is
+//! clear it when executed. A timely relaxation can. A `Sensitive` operation is
 //! ready at `max(min_delay, floor)`.
 
 use controller::types::{HubAssetKey, PositionLimits};
@@ -121,7 +121,7 @@ fn stale_edit_executed_by_a_stranger_cannot_clear_a_guardian_freeze() {
         &salt(&t.env, 1),
     );
 
-    // Incident: the guardian freezes the listing through the immediate path.
+    // Incident. The guardian freezes the listing through the immediate path.
     gov.set_spoke_asset_flags(&guardian, &HARNESS_SPOKE, &key, &false, &true, &false);
     assert!(t.ctrl_client().get_spoke_asset(&HARNESS_SPOKE, &key).frozen);
     assert_contract_error(
@@ -298,7 +298,7 @@ fn sensitive_operations_are_not_ready_at_a_min_delay_below_the_floor() {
     let env = &t.env;
     let admin = t.admin();
 
-    // The harness governance runs above the floor; this instance runs below it.
+    // The harness governance runs above the floor. This instance runs below it.
     const LOW_MIN_DELAY: u32 = 3;
     let gov_addr = env.register(governance::Governance, (admin.clone(), LOW_MIN_DELAY));
     governance::GovernanceClient::new(env, &gov_addr).set_controller(&t.controller);
@@ -345,7 +345,7 @@ fn sensitive_operations_are_not_ready_at_a_min_delay_below_the_floor() {
         .enumerate()
         .map(|(i, c)| gov.propose(&admin, &c.op, &salt(env, 10 + i as u8)))
         .collect();
-    // Control: a Standard operation on the same instance uses the bare min delay.
+    // Control case. A Standard operation on the same instance uses the bare min delay.
     let standard = gov.propose(
         &admin,
         &AdminOperation::SetPositionLimits(PositionLimits {
@@ -383,7 +383,7 @@ fn sensitive_operations_are_not_ready_at_a_min_delay_below_the_floor() {
         ))
     };
 
-    // At min_delay, and at the last ledger before the floor: still waiting.
+    // At min_delay, and at the last ledger before the floor, the operation is still waiting.
     for offset in [LOW_MIN_DELAY, SENSITIVE_FLOOR - 1] {
         env.ledger().set_sequence_number(proposed_at + offset);
         assert_eq!(gov.get_operation_state(&standard), OperationState::Ready);

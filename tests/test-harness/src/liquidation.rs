@@ -113,9 +113,10 @@ impl LendingTest {
         .map(|_| ())
     }
 
-    /// `try_liquidate` with an explicit seize mode. On success returns the receiving account
-    /// id (`0` for `SeizeMode::Transfer`); on failure the liquidator's pre-funded balance is
-    /// burned again so the harness's token books stay comparable across attempts.
+    /// `try_liquidate` with an explicit seize mode. On success it returns the receiving
+    /// account id (`0` for `SeizeMode::Transfer`). On failure it burns the liquidator's
+    /// pre-funded balance again so the harness's token books stay comparable across
+    /// attempts.
     pub fn try_liquidate_with_mode(
         &mut self,
         liquidator: &str,

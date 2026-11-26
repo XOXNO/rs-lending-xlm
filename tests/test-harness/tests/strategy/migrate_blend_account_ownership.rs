@@ -35,7 +35,7 @@ fn migrate_into_an_account_the_caller_does_not_own_is_not_authorized() {
         100_000_000_000
     );
 
-    // Control: the same arguments succeed when the caller migrates into a new account.
+    // Control case. The same arguments succeed when the caller migrates into a new account.
     let own = t
         .try_migrate_from_blend(BOB, 0, &["USDC"], &[], &[("ETH", 1.0)])
         .expect("the stranger can migrate into their own new account");

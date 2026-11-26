@@ -1,11 +1,11 @@
-//! Checks that the stale-price, fresh-index asymmetry on the liquidation path
-//! gives a liquidator nothing.
+//! These tests check that the stale-price, fresh-index asymmetry on the
+//! liquidation path gives a liquidator nothing.
 //!
 //! Indexes move during the call while prices stay fixed. `pool::get_bulk_indexes`
 //! runs `simulate_update_indexes`, which uses the same chunking and the same
 //! `accrue_step` that `interest::global_sync` commits. The plan projects the
 //! accrued-to-now index without persisting it. The first mutation of each market
-//! commits the same index; later mutations of that market have zero elapsed time.
+//! commits the same index. Later mutations of that market have zero elapsed time.
 
 use test_harness::{usd_cents, LendingTest, ALICE, BOB, LIQUIDATOR};
 
@@ -17,19 +17,19 @@ fn seed(t: &mut LendingTest) {
 
 /// A liquidator who pre-accrues with the permissionless `update_indexes` keeper
 /// and then liquidates gets bit-identical delivery to one who liquidates
-/// directly at the same ledger time. INV-IDX-04: the index projection and the
-/// committed accrual share one calculation.
+/// directly at the same ledger time. INV-IDX-04 holds because the index
+/// projection and the committed accrual share one calculation.
 #[test]
 fn preaccrual_does_not_change_liquidator_payoff() {
-    // Run A: liquidate directly.
+    // Run A liquidates directly.
     let mut a = LendingTest::new().standard_two_asset_dust_disabled();
     seed(&mut a);
     a.advance_time(30 * 24 * 60 * 60);
     a.set_price("USDC", usd_cents(60));
     a.assert_liquidatable(ALICE);
 
-    // The harness mints the liquidator's repayment inside `liquidate`, so create
-    // the user first and compare the two runs' post-call balances: the minted
+    // The test helpers mint the liquidator's repayment inside `liquidate`, so create
+    // the user first and compare the two runs' post-call balances. The minted
     // amount is identical in both, so any difference is delivery, not funding.
     a.get_or_create_user(LIQUIDATOR);
     let a_eth_before = a.token_balance_raw(LIQUIDATOR, "ETH");
@@ -38,7 +38,7 @@ fn preaccrual_does_not_change_liquidator_payoff() {
     let a_spent = a.token_balance_raw(LIQUIDATOR, "ETH") - a_eth_before;
     let a_seized = a.token_balance_raw(LIQUIDATOR, "USDC") - a_usdc_before;
 
-    // Run B: identical, but the liquidator commits the accrual first.
+    // Run B is identical, but the liquidator commits the accrual first.
     let mut b = LendingTest::new().standard_two_asset_dust_disabled();
     seed(&mut b);
     b.advance_time(30 * 24 * 60 * 60);

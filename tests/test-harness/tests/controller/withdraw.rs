@@ -387,6 +387,7 @@ fn test_withdraw_rejects_a_zero_leg_alone_or_mixed() {
         try_withdraw_payments(&mut t, ALICE, alone),
         errors::AMOUNT_MUST_BE_POSITIVE,
     );
+    // A zero leg is rejected in either order next to a positive leg.
     for (first, second) in [(5_000_000_000i128, 0i128), (0i128, 5_000_000_000i128)] {
         let withdrawals = vec![
             &t.env,

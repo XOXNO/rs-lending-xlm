@@ -245,7 +245,7 @@ fn assert_cash_conservation_and_custody(
     for (asset, seed) in ASSETS.iter().zip(seeds) {
         let cash = raw_pool_state(t, asset).cash;
         let held = pool_token_balance(t, asset);
-        // Custody: the pool holds exactly its accounting cash.
+        // Custody check. The pool holds exactly its accounting cash.
         prop_assert_eq!(
             held,
             cash,

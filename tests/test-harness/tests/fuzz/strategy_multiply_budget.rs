@@ -5,7 +5,7 @@ use proptest::prelude::*;
 use test_harness::{build_aggregator_swap, LendingTest, ALICE};
 
 /// The soroban-env-host 28 default test budget (`DEFAULT_CPU_INSN_LIMIT`,
-/// `DEFAULT_MEM_BYTES_LIMIT`), not the mainnet limit: mainnet allows
+/// `DEFAULT_MEM_BYTES_LIMIT`), not the mainnet limit. Mainnet allows
 /// 400,000,000 CPU instructions per transaction (`tx_max_instructions`, read
 /// 2026-11-02), so this CPU ceiling is four times stricter. Memory matches the
 /// mainnet `tx_memory_limit` of 41,943,040 bytes.

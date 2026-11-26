@@ -227,7 +227,7 @@ fn under_enforcing_auth_the_runner_carries_its_own_token_pulls() {
         repay_op(&t, LAST_CREATED, "ETH", U / 10 + 1),
         withdraw_op(&t, LAST_CREATED, "USDC", i128::MAX, None),
     ];
-    // No mocked auth from here on: only invoker auth and the runner's entries exist.
+    // No mocked auth applies from here on. Only invoker auth and the runner's entries exist.
     t.env.set_auths(&[]);
     let id = t
         .run_script(&runner, &ops)

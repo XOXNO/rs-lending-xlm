@@ -1,7 +1,7 @@
-//! GH-30. An insolvent account holding supply and debt in the same market:
-//! cleanup books the supply as protocol revenue and writes the whole debt off
-//! against that market's suppliers. Pins the exact raw arithmetic of the
-//! ADR-0021 gross-debt cleanup.
+//! GH-30. An insolvent account holds supply and debt in the same market.
+//! Cleanup books the supply as protocol revenue and writes the whole debt off
+//! against that market's suppliers. The test pins the exact raw arithmetic of
+//! the ADR-0021 gross-debt cleanup.
 
 use crate::shared::get_indexes;
 use common::math::fp::Ray;
@@ -58,7 +58,7 @@ fn cleanup_absorbs_same_market_supply_as_revenue_and_socializes_the_full_debt() 
     let bob_after = t.supply_balance_raw(BOB, "USDC");
     let bob_loss = bob_before - bob_after;
     assert!(bob_loss > 0);
-    // Netting first would have written down nothing: 1_000 of supply covers 500 of debt.
+    // Netting first would have written down nothing, because 1_000 of supply covers 500 of debt.
     std::println!(
         "same-market cleanup: suppliers lost {bob_loss} raw, protocol booked {alice_supply_shares} raw shares"
     );

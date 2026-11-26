@@ -60,7 +60,7 @@ fn test_health_factor_changes_with_price() {
 fn test_pool_borrow_rate_increases_with_borrows() {
     let mut t = LendingTest::new().standard_two_asset().build();
 
-    // Supply real ETH first: with only builder-seeded cash, utilization and the
+    // Supply real ETH first. With only builder-seeded cash, utilization and the
     // borrow rate cannot move.
     t.supply(test_harness::BOB, "ETH", 100.0);
     let rate_before = t.pool_borrow_rate("ETH");

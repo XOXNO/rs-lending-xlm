@@ -1,5 +1,5 @@
 //! Provider mocks whose every returned field is set by the fuzz input, including
-//! malformed values, missing data and panics.
+//! malformed values, missing data, and panics.
 
 use common::oracle::providers::chainlink::ChainlinkRound;
 use common::oracle::providers::curve::CurvePoolInfo;
@@ -109,8 +109,8 @@ impl FuzzReflector {
     }
 }
 
-/// Serves both RedStone and Xoxno references: same read interface, plus the
-/// `decimals` and `max_submission_age_seconds` reads Xoxno attestation makes.
+/// Serves both RedStone and Xoxno references. The read interface is the same, plus the
+/// `decimals` and `max_submission_age_seconds` reads that Xoxno attestation makes.
 #[contract]
 pub struct FuzzMultiFeed;
 
@@ -245,7 +245,7 @@ impl FuzzAquarius {
     }
 }
 
-/// Serves the four Curve pool views the LP provider reads; `Shares` holds `total_supply`.
+/// Serves the four Curve pool views the LP provider reads. `Shares` holds `total_supply`.
 #[contract]
 pub struct FuzzCurve;
 

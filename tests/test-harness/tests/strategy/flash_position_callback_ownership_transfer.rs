@@ -1,7 +1,7 @@
 //! GH-13. The receiver is also the caller, so it owns the account the call
 //! opens and may hand the NFT away from inside its own callback. The call
 //! still finalizes under the original id and the new owner holds a solvent
-//! position; no value is created.
+//! position. No value is created.
 
 use common::types::HubAssetKey;
 use controller::constants::WAD;
@@ -50,7 +50,7 @@ fn a_self_owned_receiver_can_hand_the_account_away_mid_callback_and_finalize_sti
     assert!(t.borrow_balance_raw_for(id, "ETH") > 0);
     assert!(t.supply_balance_raw_for(id, "USDC") > 0);
     assert!(t.health_factor_for_raw(ALICE, id) >= WAD);
-    // The old owner lost every owner-gated verb; the new owner can unwind.
+    // The old owner lost every owner-gated verb. The new owner can unwind.
     let eth = hub_asset(t.resolve_asset("ETH"));
     let stale = t
         .ctrl_client()

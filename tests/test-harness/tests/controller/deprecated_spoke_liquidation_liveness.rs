@@ -13,7 +13,7 @@ use test_harness::{
 const SPOKE: u32 = 2;
 
 fn deprecated_spoke_with_an_unhealthy_account() -> (LendingTest, u64) {
-    // Zero seed liquidity: the only USDC cash is what the victim supplies.
+    // Zero seed liquidity, so the only USDC cash is what the victim supplies.
     let mut t = LendingTest::new()
         .with_market(MarketPreset {
             initial_liquidity: 0.0,

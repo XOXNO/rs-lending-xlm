@@ -165,10 +165,10 @@ fn test_partial_chain_no_ratchet_spoke() {
     );
 }
 
-/// $8 100 of USDT (threshold 9500, bonus 200) against $8 000 of ETH: the
+/// $8 100 of USDT (threshold 9500, bonus 200) against $8 000 of ETH. The
 /// HF-preserving cap (125 bps) is below the base bonus. A partial pays the cap,
-/// so it seizes at the account's own coverage and leaves that coverage intact;
-/// a full close still clears the debt.
+/// so it seizes at the account's own coverage and leaves that coverage intact.
+/// A full close still clears the debt.
 #[test]
 fn test_solvent_toxic_partial_pays_the_cap_and_keeps_coverage() {
     use test_harness::usd_cents as cents;
@@ -224,7 +224,7 @@ fn test_solvent_toxic_partial_pays_the_cap_and_keeps_coverage() {
 }
 
 /// Victim scaled-supply remaining after a liquidation. `process_liquidation`
-/// (fees, measured repay, `scale_seizures_to_received`) is live here — not the
+/// (fees, measured repay, `scale_seizures_to_received`) is live here, unlike the
 /// plan-only `liquidate_slice` helper.
 fn scaled_supply(t: &LendingTest, user: &str, asset: &str) -> i128 {
     let Some(account_id) = t.find_account_id(user) else {

@@ -5,7 +5,7 @@ use test_harness::{
     DAVE, LIQUIDATOR,
 };
 
-/// ETH has no seeded liquidity: the tests split bad debt over their own suppliers.
+/// ETH has no seeded liquidity. The tests split bad debt over their own suppliers.
 fn setup() -> LendingTest {
     LendingTest::new()
         .standard_two_asset()
@@ -401,11 +401,11 @@ fn test_force_socialize_leaves_an_untouched_market_bit_identical() {
 /// Bad debt is written down only when a liquidation or cleanup call runs, and
 /// `backing_shortfall` counts the unrecoverable debt at face value until then.
 /// A supplier can exit at the pre-write-down index and leave the loss on the
-/// suppliers who stay. Runs the same crash with Bob passive and with Bob
-/// exiting first, and compares Carol's loss.
+/// suppliers who stay. The test runs the same crash with Bob passive and with
+/// Bob exiting first, and compares Carol's loss.
 #[test]
 fn supplier_can_exit_ahead_of_bad_debt_writedown() {
-    // Scenario A: nobody dodges. Bob 75%, Carol 25% of the ETH supply.
+    // Scenario A. Nobody dodges. Bob holds 75% and Carol holds 25% of the ETH supply.
     let mut a = setup();
     a.supply(BOB, "ETH", 75.0);
     a.supply(CAROL, "ETH", 25.0);
@@ -417,7 +417,7 @@ fn supplier_can_exit_ahead_of_bad_debt_writedown() {
     a.liquidate(LIQUIDATOR, ALICE, "ETH", 0.001);
     let carol_loss_a = carol_before_a - a.supply_balance(CAROL, "ETH");
 
-    // Scenario B: identical state, but Bob withdraws before the write-down.
+    // Scenario B has identical state, but Bob withdraws before the write-down.
     let mut b = setup();
     b.supply(BOB, "ETH", 75.0);
     b.supply(CAROL, "ETH", 25.0);
@@ -433,8 +433,8 @@ fn supplier_can_exit_ahead_of_bad_debt_writedown() {
     b.set_price("USDC", usd_cents(10));
     b.assert_liquidatable(ALICE);
 
-    // Bob exits at the un-written-down index. No gate stops him: the
-    // liquidation buffer only guards borrow draws, and `backing_shortfall`
+    // Bob exits at the un-written-down index. No gate stops him. The
+    // liquidation buffer guards only borrow draws, and `backing_shortfall`
     // still values Alice's uncollateralised debt at face.
     b.withdraw_all(BOB, "ETH");
     let bob_recovered = b.token_balance(BOB, "ETH") - bob_wallet_before;
@@ -480,8 +480,8 @@ fn supplier_can_exit_ahead_of_bad_debt_writedown() {
 /// `force_socialize_bad_debt` writes the full debt down on the debt market's
 /// supply index (`interest::apply_bad_debt_to_supply_index`) and reclassifies the
 /// collateral as revenue in its own market (`Cache::absorb_supply_as_revenue`).
-/// The recovery never offsets the loss: debt-asset suppliers absorb the whole
-/// write-down and the collateral market's revenue keeps the whole recovery. The
+/// The recovery never offsets the loss. Debt-asset suppliers absorb the whole
+/// write-down, and the collateral market's revenue keeps the whole recovery. The
 /// `InsolventOnly` gate has no dust cap, so the un-netted collateral is unbounded.
 #[test]
 fn force_socialize_does_not_net_collateral_against_debt() {
@@ -496,8 +496,8 @@ fn force_socialize_does_not_net_collateral_against_debt() {
     let alice_collateral_before = t.supply_balance(ALICE, "USDC");
     let usdc_rev_before = t.snapshot_revenue("USDC");
 
-    // Crash the collateral so debt > collateral, satisfying the `InsolventOnly` gate.
-    // Alice keeps real collateral: no liquidator has taken it.
+    // Crash the collateral so that debt exceeds collateral and the `InsolventOnly`
+    // gate passes. Alice keeps real collateral because no liquidator has taken it.
     t.set_price("USDC", usd_cents(10));
     t.assert_liquidatable(ALICE);
 
@@ -552,7 +552,8 @@ fn supplied_amount(t: &LendingTest, asset: &str) -> i128 {
 
 /// On one market, the deposit-side absorb runs before the borrow-side write-down
 /// (`execute_bad_debt_cleanup` pushes Deposit entries first). The order conserves
-/// exactly: it neither double-charges outside suppliers nor drops part of the loss.
+/// exactly. The order neither double-charges outside suppliers nor drops part of
+/// the loss.
 ///
 /// `absorb_supply_as_revenue` moves shares into `revenue` and leaves `supplied`
 /// unchanged, and `apply_bad_debt_to_supply_index` reads only `supplied` and
@@ -562,7 +563,7 @@ fn supplied_amount(t: &LendingTest, asset: &str) -> i128 {
 fn test_same_market_absorb_before_writedown_conserves_exactly() {
     let mut t = setup();
 
-    // Outside supplier, who bears only its pro-rata slice.
+    // Bob is an outside supplier and bears only his pro-rata slice.
     t.supply(BOB, "ETH", 100.0);
 
     // The account holds both a supply and a debt position in ETH, the only
@@ -590,7 +591,7 @@ fn test_same_market_absorb_before_writedown_conserves_exactly() {
     let eth_after = market_state(&t, "ETH");
     let bob_after = t.supply_balance_raw(BOB, "ETH");
 
-    // Deposit side: shares are reclassified, never created or destroyed.
+    // Deposit side. The shares are reclassified, never created or destroyed.
     assert_eq!(
         eth_after.supplied, eth_before.supplied,
         "absorb must not change total supply shares"
@@ -605,20 +606,20 @@ fn test_same_market_absorb_before_writedown_conserves_exactly() {
         "seize must never touch the cash book (INV-ACCT-02)"
     );
 
-    // Borrow side: the debt shares are burned in full.
+    // Borrow side. The debt shares are burned in full.
     assert_eq!(
         eth_before.borrowed - eth_after.borrowed,
         alice_debt_scaled,
         "borrowed must fall by exactly the seized scaled debt"
     );
 
-    // The INV-ACCT-09 shape holds after seize: no debt without supply.
+    // The INV-ACCT-09 shape holds after seize. No debt exists without supply.
     assert!(
         !(eth_after.supplied == 0 && eth_after.borrowed != 0),
         "seize left debt with zero supply"
     );
 
-    // Conservation: the loss lands once, spread over every live supply share,
+    // Conservation. The loss lands once, spread over every live supply share,
     // including the slice just reclassified to revenue.
     let bob_loss = bob_before - bob_after;
     let expected_bob_loss = alice_debt_value * bob_before / supplied_value_before;
@@ -679,13 +680,13 @@ fn test_socialization_leaves_the_market_backed_and_open() {
         controller::constants::SUPPLY_INDEX_FLOOR_RAW
     );
 
-    // The INV-ACCT-09 shape holds on the seize path: no debt without supply.
+    // The INV-ACCT-09 shape holds on the seize path. No debt exists without supply.
     assert!(
         !(eth_after.supplied == 0 && eth_after.borrowed != 0),
         "seize left debt with zero supply"
     );
 
-    // INV-ACCT-04: the market is still backed, so it accepts new supply.
+    // INV-ACCT-04 holds because the market is still backed, so it accepts new supply.
     t.supply(DAVE, "ETH", 1.0);
     assert!(
         t.supply_balance(DAVE, "ETH") > 0.0,

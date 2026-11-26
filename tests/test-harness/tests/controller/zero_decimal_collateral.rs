@@ -1,8 +1,9 @@
-//! Experiment: a 0-decimal, collateral-only market (Liqvid-shaped: one raw unit
-//! is one deal share worth $1..$1,000) in its own hub and spoke, borrowing
-//! 7-decimal USDC from the base hub. Requires `MIN_ASSET_DECIMALS = 0`.
+//! Experiment with a 0-decimal, collateral-only market (Liqvid-shaped, where one
+//! raw unit is one deal share worth $1 to $1,000). The market sits in its own hub
+//! and spoke and borrows 7-decimal USDC from the base hub. The tests require
+//! `MIN_ASSET_DECIMALS = 0`.
 //!
-//! Tests prefixed `zdc_`. Tables print with `--nocapture`.
+//! The tests use the prefix `zdc_`. Tables print with `--nocapture`.
 
 use common::types::{HubAssetKey, InterestRateModel, LiquidationEstimate, SeizeMode};
 use common::validation::max_cap_for_decimals;
@@ -366,7 +367,7 @@ fn zdc_one_and_two_unit_positions_round_trip() {
     assert_eq!(z.hub_liq_cash(), 0);
 }
 /// Opens N units at 58% LTV, drops NAV 20% (HF ~0.966), liquidates in
-/// `Transfer` mode with a debt-sized payment and prints the outcome.
+/// `Transfer` mode with a debt-sized payment, and prints the outcome.
 fn sweep(nav_cents: i128, sizes: &[i128]) -> std::vec::Vec<(i128, Option<LiqOutcome>)> {
     let mut rows = std::vec::Vec::new();
     let new_cents = nav_cents * 8 / 10;
@@ -480,7 +481,7 @@ fn zdc_band_full_close_leaves_no_unliquidatable_unit() {
 }
 
 /// On a band quote, an offer below the whole debt still pays for every unit
-/// it receives: only a call that repays all debt rounds a unit up.
+/// it receives. Only a call that repays all debt rounds a unit up.
 #[test]
 fn zdc_band_underpaid_offer_cannot_round_a_unit_up() {
     let mut z = setup(nav(1_000));
@@ -524,7 +525,7 @@ fn zdc_partial_liquidation_charges_only_for_whole_units_seized() {
     );
 }
 
-/// An offer whose seizure is below one whole unit charges nothing: no whole
+/// An offer whose seizure is below one whole unit charges nothing. No whole
 /// unit backs the repayment, so the call reverts.
 #[test]
 fn zdc_sub_unit_liquidation_reverts_without_charging() {
@@ -545,7 +546,7 @@ fn zdc_sub_unit_liquidation_reverts_without_charging() {
 }
 
 /// Small accounts just below HF 1 quote less than one whole unit on the curve.
-/// A debt-sized offer still buys whole units at `NAV / (1 + bonus)`: the debt
+/// A debt-sized offer still buys whole units at `NAV / (1 + bonus)`. The debt
 /// falls and the account's collateral-to-debt ratio does not fall.
 #[test]
 fn zdc_small_accounts_just_below_hf_one_sell_one_whole_unit() {
@@ -594,7 +595,7 @@ fn zdc_small_accounts_just_below_hf_one_sell_one_whole_unit() {
     }
 }
 
-/// A curve quote worth several whole units keeps its size: the one-unit raise
+/// A curve quote worth several whole units keeps its size. The one-unit raise
 /// applies only when the quote seizes less than one unit.
 #[test]
 fn zdc_partial_liquidation_keeps_a_multi_unit_curve_quote() {
@@ -611,7 +612,7 @@ fn zdc_partial_liquidation_keeps_a_multi_unit_curve_quote() {
 }
 
 /// An offer below one whole unit's price still takes nothing on a small
-/// account: the one-unit quote is a ceiling for the kept payment, not a price
+/// account. The one-unit quote is a ceiling for the kept payment, not a price
 /// the protocol rounds a smaller offer up to.
 #[test]
 fn zdc_small_account_underpaid_offer_takes_no_unit() {
@@ -669,7 +670,7 @@ fn zdc_credit_mode_moves_whole_units_only() {
     assert!(!z.exists(id) || z.collateral_scaled(id) == 0);
 }
 
-/// F4: a 10-unit insolvent account. The collateral-backed quote seizes all 10
+/// F4 covers a 10-unit insolvent account. The collateral-backed quote seizes all 10
 /// units and the residual debt is socialized in the same call.
 #[test]
 fn zdc_insolvent_multi_unit_liquidation_seizes_every_unit() {
@@ -687,7 +688,7 @@ fn zdc_insolvent_multi_unit_liquidation_seizes_every_unit() {
 }
 
 /// An offer below the collateral-backed quote does not take the whole
-/// collateral: the seizure floors to whole units and the charge follows it.
+/// collateral. The seizure floors to whole units and the charge follows it.
 #[test]
 fn zdc_insolvent_underpaid_offer_does_not_seize_all() {
     let mut z = setup(nav(1_000));
@@ -832,7 +833,7 @@ fn zdc_whole_unit_leg_is_its_accounts_only_supply_position() {
     assert_eq!(err, limit, "credit cannot add LIQ beside the stable");
 }
 
-/// A fresh credit receiver is held to the same isolation as a supply: seizing
+/// A fresh credit receiver is held to the same isolation as a supply. Seizing
 /// a whole-unit leg together with a second collateral leg is refused.
 #[test]
 fn zdc_fresh_credit_receiver_cannot_take_a_whole_unit_leg_beside_another() {
@@ -898,7 +899,7 @@ fn zdc_fresh_credit_receiver_cannot_take_a_whole_unit_leg_beside_another() {
     );
 }
 
-/// Isolation binds the account holding the whole-unit leg, not its spoke: an
+/// Isolation binds the account holding the whole-unit leg, not its spoke. An
 /// account without one keeps several positions beside it.
 #[test]
 fn zdc_accounts_without_a_whole_unit_leg_keep_several_positions() {
@@ -985,7 +986,7 @@ fn zdc_borrow_needs_two_whole_units_of_collateral() {
 }
 
 /// The two-unit floor holds after any debt-bearing action, so a withdraw
-/// cannot leave one unit behind debt; a debt-free exit is not gated.
+/// cannot leave one unit behind debt. A debt-free exit is not gated.
 #[test]
 fn zdc_withdraw_cannot_leave_one_unit_behind_debt() {
     let mut z = setup(nav(1_000));
@@ -1115,7 +1116,7 @@ fn zdc_liquidator_sized_to_whole_units_keeps_the_bonus() {
 }
 
 /// Closes `units` shares at `C / D = ratio_ppm / 1e6` with an offer of twice
-/// the debt. Returns profit, collateral and debt in WAD USD, the outcome, and
+/// the debt. Returns profit, collateral, and debt in WAD USD, the outcome, and
 /// the drop of the USDC supply index (RAY).
 fn zdc_payoff_at_cover_ratio(units: i128, ratio_ppm: i128) -> (i128, i128, i128, LiqOutcome, i128) {
     let mut z = setup(nav(1_000));

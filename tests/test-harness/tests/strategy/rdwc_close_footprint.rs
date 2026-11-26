@@ -30,7 +30,7 @@ fn rdwc_close_preserves_recipient_footprint_when_accrual_adds_a_close_leg() {
     let rollback = Error::from_contract_error(999);
     let before = token::Client::new(&t.env, &collateral.asset).balance(&caller);
 
-    // Keep recording and enforcing in one test frame: top-level SDK calls would
+    // Keep recording and enforcing in one test frame. Top-level SDK calls would
     // otherwise reset the footprint. A failed nested frame rolls back simulation.
     t.env.as_contract(&frame, || {
         let simulated = t.env.try_as_contract::<_, Error>(&caller, || {
@@ -69,7 +69,7 @@ fn rdwc_close_preserves_recipient_footprint_when_accrual_adds_a_close_leg() {
 }
 
 /// Net settlement remains an exit when an administrator lowers the cap below
-/// current utilization; its zero-share footprint reservation moves no funds.
+/// current utilization. Its zero-share footprint reservation moves no funds.
 #[test]
 fn same_market_close_above_utilization_cap_keeps_net_settlement_reachable() {
     let mut t = LendingTest::new().standard_two_asset().build();

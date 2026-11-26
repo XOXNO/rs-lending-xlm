@@ -92,8 +92,8 @@ impl LendingTest {
         );
     }
 
-    /// Sets the listing's halt flags through the owner-only ratchet entry point, which only
-    /// tightens: clearing a set flag fails.
+    /// Sets the listing's halt flags through the owner-only entry point that only tightens.
+    /// Clearing a set flag fails.
     pub fn set_spoke_asset_flags(
         &self,
         asset_name: &str,

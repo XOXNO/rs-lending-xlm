@@ -199,7 +199,7 @@ fn test_liquidation_sequential_partial_liquidations() {
     );
 
     // At 30c collateral the account stays deeply insolvent after a 0.5 ETH
-    // repay; assert it so the second round can never silently not run.
+    // repay. Assert it so the second round can never silently not run.
     assert!(
         t.can_be_liquidated(ALICE),
         "fixture must remain liquidatable after the first partial round"
@@ -235,10 +235,10 @@ fn test_liquidation_caps_at_actual_debt() {
 
     t.liquidate(LIQUIDATOR, ALICE, "ETH", 100.0);
 
-    // INV-LIQ-02: repayment and seizure stay coupled. Bounding the liquidator's
-    // wallet only from below lets a call that seizes collateral while pulling
-    // zero debt token pass, so pin the debt-token delta to the debt retired.
-    // The harness pre-mints the requested 100 ETH, so the wallet delta is
+    // INV-LIQ-02 requires repayment and seizure to stay coupled. A bound on the
+    // liquidator's wallet only from below lets a call that seizes collateral and
+    // pulls zero debt token pass. Pin the debt-token delta to the debt retired.
+    // The test helpers pre-mint the requested 100 ETH, so the wallet delta is
     // `minted - spent`.
     let minted_raw = 100 * 10i128.pow(t.resolve_market("ETH").decimals);
     let spent_raw = liq_eth_before_raw + minted_raw - t.token_balance_raw(LIQUIDATOR, "ETH");
@@ -267,7 +267,7 @@ fn test_liquidation_caps_at_actual_debt() {
         liq_usdc
     );
 }
-/// $5 000 of collateral against $6 000 of debt at a 5% base bonus: an offer of
+/// $5 000 of collateral against $6 000 of debt at a 5% base bonus. An offer of
 /// the whole debt is cut to `floor(5000 / 1.05)` USD, so the liquidator never
 /// pays more than it seizes, and cleanup socializes the unbacked rest.
 #[test]

@@ -30,7 +30,7 @@ pub struct MockBlendBackstop;
 impl MockBlendBackstop {
     /// Reports a backstop above Blend's threshold with no queued withdrawals.
     ///
-    /// The threshold needs `blnd^4 * usdc >= 100_000^5` in whole tokens;
+    /// The threshold needs `blnd^4 * usdc >= 100_000^5` in whole tokens.
     /// 1e6 of each gives 1e30.
     pub fn pool_data(_env: Env, _pool: Address) -> PoolBackstopData {
         let whole = 1_000_000 * SCALAR_7;

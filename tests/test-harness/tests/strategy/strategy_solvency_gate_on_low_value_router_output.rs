@@ -62,13 +62,13 @@ fn swap_collateral_into_a_lower_value_amount_with_open_debt_is_insufficient_coll
     let usdc_supply = t.supply_balance_raw(ALICE, "USDC");
     let debt = t.borrow_balance_raw(ALICE, "ETH");
 
-    // 50 000 USDC -> 13 ETH ($26 000): collateral $76 000, LTV-weighted $57 000 <
+    // 50 000 USDC swapped for 13 ETH ($26 000): collateral $76 000, LTV-weighted $57 000 <
     // $60 000, health factor 60 800 / 60 000 = 1.013. Only the LTV gate stops it.
     let steps = build_aggregator_swap(&t, "USDC", "ETH", 0, 13 * ONE_ETH);
     let below_ltv = t.try_swap_collateral(ALICE, "USDC", 50_000.0, "ETH", &steps);
     assert_contract_error(below_ltv, errors::INSUFFICIENT_COLLATERAL);
 
-    // 15 ETH is the exact limit ($80 000 * 0.75 = $60 000); one unit less reverts.
+    // 15 ETH is the exact limit ($80 000 * 0.75 = $60 000). One unit less reverts.
     let steps = build_aggregator_swap(&t, "USDC", "ETH", 0, 15 * ONE_ETH - 1);
     let one_unit_short = t.try_swap_collateral(ALICE, "USDC", 50_000.0, "ETH", &steps);
     assert_contract_error(one_unit_short, errors::INSUFFICIENT_COLLATERAL);

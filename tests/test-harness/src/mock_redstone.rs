@@ -75,8 +75,8 @@ impl MockRedStonePriceFeed {
             .unwrap_or(DEFAULT_DECIMALS)
     }
 
-    /// Read cross-contract by the price aggregator when a Xoxno source points
-    /// at this mock. Fixed: no test tunes the submission window.
+    /// The price aggregator reads this value cross-contract when a Xoxno source
+    /// points at this mock. The window is fixed because no test tunes it.
     pub fn max_submission_age_seconds(_env: Env) -> u64 {
         DEFAULT_MAX_SUBMISSION_AGE
     }

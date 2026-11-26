@@ -21,7 +21,7 @@ const REQ_WITHDRAW: u32 = 1;
 const REQ_WITHDRAW_COLLATERAL: u32 = 3;
 const REQ_REPAY: u32 = 5;
 
-/// Blend's b_rate scale (`SCALAR_12`); a reserve with no rate set reads as 1.0.
+/// Blend's b_rate scale (`SCALAR_12`). A reserve with no rate set reads as 1.0.
 const B_RATE_SCALAR: i128 = 1_000_000_000_000;
 
 pub const KIND_COLLATERAL: u32 = 0;
@@ -233,9 +233,9 @@ fn pay_out(
     kind: u32,
     amount: i128,
 ) {
-    // Blend converts the request to b-tokens before clamping it to the
-    // position (`apply_withdraw*` in blend-contracts-v2), so an amount the
-    // conversion cannot represent traps there and must trap here.
+    // Blend converts the request to b-tokens, then clamps it to the position
+    // (`apply_withdraw*` in blend-contracts-v2). An amount the conversion cannot
+    // represent traps there, so it must trap here.
     let b_rate: i128 = env
         .storage()
         .persistent()
@@ -252,7 +252,7 @@ fn pay_out(
 }
 
 /// Traps like Blend's `to_b_token_up` when `ceil(amount * SCALAR_12 / b_rate)`
-/// does not fit in i128. The product is taken in I256, as Blend does.
+/// does not fit in i128. The function takes the product in I256, as Blend does.
 fn assert_b_token_conversion_fits(env: &Env, amount: i128, b_rate: i128) {
     let rate = I256::from_i128(env, b_rate);
     let b_tokens = I256::from_i128(env, amount)

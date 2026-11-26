@@ -134,8 +134,8 @@ fn scaled_config(t: &LendingTest, adapter: &Address, quote: PriceKey) -> AssetOr
 
 // --- Scaled factors: base must name exactly what the quote key prices -------
 //
-// `attest_sources` checks the base of a `Scaled` factor against its quote key:
-// a contract quoting in token X may only be scaled by `Token(X)`. These four
+// `attest_sources` checks the base of a `Scaled` factor against its quote key.
+// A contract quoting in token X may only be scaled by `Token(X)`. These four
 // cases pin the rule. The other `Scaled` tests in this file use a RedStone
 // factor, which has no base to check.
 
@@ -205,7 +205,7 @@ fn reflector_scaled_config(
     }
 }
 
-// The mainnet AQUA/USTRY/CETES shape: the DEX oracle quotes in USDC and is
+// The mainnet AQUA, USTRY, and CETES shape. The DEX oracle quotes in USDC and is
 // scaled by Token(USDC), so the product is USD-denominated.
 #[test]
 fn test_quoted_reflector_accepted_as_scaled_factor_matching_its_base() {
@@ -287,7 +287,7 @@ fn test_scaled_factor_rejected_when_quote_is_a_ref() {
     t.configure_market_oracle(&xlm, &cfg);
 }
 
-// A USD-quoting contract is rejected as a `Scaled` factor: no `Token` key
+// A USD-quoting contract is rejected as a `Scaled` factor. No `Token` key
 // prices USD.
 #[test]
 #[should_panic(expected = "Error(Contract, #220)")]

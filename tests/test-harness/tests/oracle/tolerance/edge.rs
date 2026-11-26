@@ -17,8 +17,8 @@ fn test_tolerance_rejects_one_bp_above_the_upper_boundary() {
     assert_contract_error(result, errors::UNSAFE_PRICE);
 }
 
-/// The lower band edge (reciprocal of 10_500 = 9_524 bps): accepted exactly
-/// at the edge, rejected one bp below it.
+/// The lower band edge (reciprocal of 10_500 = 9_524 bps) is accepted exactly
+/// at the edge and rejected one bp below it.
 #[test]
 fn test_tolerance_lower_boundary_accepts_at_edge_and_rejects_one_bp_below() {
     let mut t = setup();

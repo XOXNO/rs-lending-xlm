@@ -71,8 +71,8 @@ fn old_owner_is_rejected_after_transfer() {
     let account_id = t.account_id(ALICE);
     t.nft_transfer(ALICE, BOB, account_id);
 
-    // ALICE's registered account id still points at the transferred account;
-    // an owner-gated withdraw must now fail NotAuthorized.
+    // ALICE's registered account id still points at the transferred account.
+    // An owner-gated withdraw must now fail NotAuthorized.
     let raw = f64_to_i128(100.0, t.resolve_market("USDC").decimals);
     let result = t.try_withdraw_raw(ALICE, "USDC", raw);
     assert_contract_error(result, errors::NOT_AUTHORIZED);
@@ -87,7 +87,7 @@ fn transfer_revokes_old_owners_delegates() {
 
     t.nft_transfer(ALICE, BOB, account_id);
 
-    // The manager's grant was stamped by ALICE; with BOB as owner it is dead.
+    // The manager's grant was stamped by ALICE. With BOB as owner, it no longer applies.
     let result = t.try_borrow_as_to("MANAGER", account_id, "USDC", 10.0, "MANAGER");
     assert_contract_error(result, errors::NOT_AUTHORIZED);
 }
@@ -133,7 +133,7 @@ fn debt_travels_with_the_token() {
 
 #[test]
 fn unknown_and_unmintable_account_ids_are_account_not_found() {
-    // Calls the controller directly: the harness `supply_to` helpers resolve
+    // Calls the controller directly. The test-harness `supply_to` helpers resolve
     // the spoke through `get_account_attributes`, which fails with
     // `AccountNotInMarket` for an unknown id before `supply` runs.
     let mut t = LendingTest::new().with_market(usdc_preset()).build();
@@ -194,10 +194,10 @@ fn self_liquidation_is_allowed() {
 
 #[test]
 fn underwater_position_transfers_freely_and_stays_liquidatable() {
-    // Same unhealthy-position setup as liquidation.rs; the account is
-    // transferred but never adopted into a harness user's bookkeeping, then
-    // a third party liquidates it keyed directly by account_id -- owner
-    // identity is irrelevant to solvency machinery.
+    // The setup is the same unhealthy position as in liquidation.rs. The account is
+    // transferred but never adopted into a test-harness user's bookkeeping. Then
+    // a third party liquidates it, keyed directly by account_id. Owner
+    // identity is irrelevant to solvency checks.
     let mut t = LendingTest::new().standard_two_asset().build();
 
     t.supply(ALICE, "USDC", 10_000.0);
@@ -237,7 +237,7 @@ fn underwater_position_transfers_freely_and_stays_liquidatable() {
 #[test]
 fn deploy_position_nft_is_set_once() {
     let t = LendingTest::new().with_market(usdc_preset()).build();
-    // The builder already deployed it; a second deploy must reject.
+    // The builder already deployed it. A second deploy must reject.
     let ctrl = t.ctrl_client();
     let result = ctrl.try_deploy_position_nft(
         &t.position_nft_wasm_hash,
@@ -273,7 +273,7 @@ fn renew_account_follows_current_owner() {
 //
 // Every account-deletion path must burn the position NFT, or a live,
 // transferable token survives its account forever (ids are never reused and
-// burn is controller-only). The emptied-account path is pinned above; these
+// burn is controller-only). The emptied-account path is pinned above. These
 // three pin the bad-debt socialization paths.
 
 #[test]
@@ -325,7 +325,7 @@ fn force_socialize_bad_debt_burns_nft() {
     t.borrow(ALICE, "ETH", 0.02);
     let account_id = t.account_id(ALICE);
 
-    // Above the $5 dust gate: clean refuses, only the owner path socializes.
+    // Above the $5 dust gate, clean refuses and only the owner path socializes.
     t.set_price("USDC", usd_cents(30));
     assert_contract_error(
         t.try_clean_bad_debt_by_id(account_id),
@@ -344,9 +344,9 @@ fn force_socialize_bad_debt_burns_nft() {
 // --- upgrade --------------------------------------------------------------
 
 /// The owner-gated upgrade path, end to end:
-/// `Controller::upgrade_position_nft` -> `markets::upgrade_position_nft` ->
-/// `nft_upgrade_call` -> the NFT's own `upgrade`. Live ownership survives the
-/// upgrade: the controller resolves every account owner through `owner_of`.
+/// `Controller::upgrade_position_nft`, then `markets::upgrade_position_nft`, then
+/// `nft_upgrade_call`, then the NFT's own `upgrade`. Live ownership survives the
+/// upgrade. The controller resolves every account owner through `owner_of`.
 #[test]
 fn upgrading_the_position_nft_preserves_live_ownership() {
     let mut t = LendingTest::new().with_market(usdc_preset()).build();
@@ -359,9 +359,9 @@ fn upgrading_the_position_nft_preserves_live_ownership() {
     let bob_owner = t.nft_owner_of(bob_id);
     assert_ne!(alice_id, bob_id);
 
-    // The same bytecode the harness deployed: a no-op upgrade still exercises
-    // the full call chain and the NFT's own upgrade guard, without needing a
-    // second contract to be built.
+    // The same bytecode the test harness deployed. A no-op upgrade still exercises
+    // the full call chain and the NFT's own upgrade guard, and it needs no
+    // second built contract.
     let hash = t.position_nft_wasm_hash.clone();
     t.ctrl_client().upgrade_position_nft(&hash);
 
@@ -379,8 +379,8 @@ fn upgrading_the_position_nft_preserves_live_ownership() {
 }
 
 /// An upgrade to a hash that was never uploaded reverts. Only the NFT can reject
-/// that hash, so the revert proves the controller reaches `nft_upgrade_call`; a
-/// same-hash upgrade cannot prove it.
+/// that hash, so the revert proves the controller reaches `nft_upgrade_call`. A
+/// same-hash upgrade cannot prove that.
 #[test]
 fn upgrading_the_position_nft_to_an_unknown_hash_reverts() {
     let mut t = LendingTest::new().with_market(usdc_preset()).build();

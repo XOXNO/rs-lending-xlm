@@ -5,9 +5,10 @@
 //! budget. The controller and the leaf price feed are native, so their own
 //! instructions are not metered. The figures are a lower bound: SAC coins,
 //! single-source coin oracles and one debt leg.
-//! `curve_lp_liquidation_worst_case_all_wasm` measures the worst case with every
-//! contract on the path as WASM, custom-WASM coins and two-source WASM feeds,
-//! and asserts each figure against the mainnet per-transaction limits.
+//! `curve_lp_liquidation_worst_case_all_wasm` measures the worst case. Every
+//! contract on the path runs as WASM, with custom-WASM coins and two-source
+//! WASM feeds. The test asserts each figure against the mainnet per-transaction
+//! limits.
 
 #[path = "../../../contracts/swap-aggregator/tests/fixtures/curve/factory.rs"]
 mod curve;
@@ -39,10 +40,10 @@ use test_harness::{
     usdc_preset, LendingTest, DEFAULT_MARKET_PARAMS, HARNESS_HUB, HARNESS_SPOKE,
 };
 
-/// 1 000 units of a 7-decimal coin: each holder's balance and each pool seed.
+/// 1 000 units of a 7-decimal coin. Each holder's balance and each pool seed use this amount.
 const COIN: i128 = 10_000_000_000;
 
-/// Reads a WASM that `make build` writes; `var` overrides its path.
+/// Reads a WASM that `make build` writes. `var` overrides its path.
 fn release_wasm(var: &str, name: &str) -> std::vec::Vec<u8> {
     test_harness::wasm::read_wasm_artifact(var, &format!("{name}.wasm"))
 }
@@ -90,14 +91,14 @@ struct StrategyPayload {
 }
 
 /// One opcode-7 (Curve) hop from `token_in` to `token_out` with a floor of one.
-/// One side is the LP token, which is also the pool: an LP output mints, an LP
-/// input burns to one coin.
+/// One side is the LP token, which is also the pool. An LP output mints, and an
+/// LP input burns to one coin.
 fn curve_route(env: &Env, lp: &Address, token_in: &Address, token_out: &Address) -> Bytes {
     let pool = u8::from(token_in != lp);
     StrategyPayload {
         amounts: vec![env, 1],
         assets: vec![env, token_in.clone(), token_out.clone()],
-        // Version 1, assets 0 -> 1, floor amounts[0], referral 0, one op, no weights;
+        // Version 1, assets 0 to 1, floor amounts[0], referral 0, one op, no weights,
         // then opcode 7 in mode All over (pool, token_in, token_out).
         ops: Bytes::from_array(env, &[1, 0, 1, 0, 0, 0, 0, 0, 1, 0, 7, 0, pool, 0, 1]),
     }
@@ -115,7 +116,7 @@ struct Scene {
 
 impl Scene {
     /// USDC market whose oracle now lives on the production price-aggregator WASM.
-    /// Setup runs unmetered; mainnet resource limits stay enforced per invocation.
+    /// Setup runs unmetered. Mainnet resource limits stay enforced per invocation.
     fn new() -> Self {
         let t = LendingTest::new()
             .with_market(usdc_preset())
@@ -291,8 +292,8 @@ impl Scene {
     fn metered<T>(&self, label: &str, call: impl FnOnce() -> T) -> T {
         let mut budget = self.t.env.cost_estimate().budget();
         budget.reset_default();
-        // Only the test env's auth snapshots and diagnostics run in shadow mode,
-        // which a signed transaction does not pay; execution stays bounded.
+        // Only the test env's auth snapshots and diagnostics run in shadow mode. A
+        // signed transaction does not pay for that work, and execution stays bounded.
         self.t
             .env
             .host()
@@ -459,7 +460,7 @@ fn curve_lp_liquidation_at_position_limit_fits_default_budget() {
 }
 
 /// SDK 28 `InvocationResourceLimits::mainnet()`, the same limits the harness
-/// enforces per invocation: (label, limit). Live mainnet settings read on
+/// enforces per invocation. Each entry is (label, limit). Live mainnet settings read on
 /// 2026-11-02 (`stellar network settings`) match: tx_max_instructions,
 /// tx_memory_limit, tx_max_footprint_entries, tx_max_disk_read_entries,
 /// tx_max_write_ledger_entries, tx_max_disk_read_bytes, tx_max_write_bytes,
@@ -476,14 +477,14 @@ const MAINNET_LIMITS: [(&str, u64); 8] = [
 ];
 
 /// CURVE-6 worst case with every contract on the liquidation path running as
-/// WASM: `POSITION_LIMIT_MAX` three-coin Curve LP collateral legs over fifteen
-/// coins and `POSITION_LIMIT_MAX` debt legs. Coins and debt assets are
+/// WASM, with `POSITION_LIMIT_MAX` three-coin Curve LP collateral legs over
+/// fifteen coins and `POSITION_LIMIT_MAX` debt legs. Coins and debt assets are
 /// `production_fixture.wasm` tokens, each priced by a RedStone primary and a
-/// Chainlink anchor on `mock_redstone.wasm`. The book is built natively, then
-/// the controller, pool, position NFT and price aggregator switch to the deploy
-/// WASMs and each liquidation replays from one ledger snapshot with
-/// source-account auth, as in `meta/bench_liquidate_max_positions.rs`. Prints
-/// usage against the mainnet per-transaction limits and asserts each one.
+/// Chainlink anchor on `mock_redstone.wasm`. The test builds the book natively.
+/// Then the controller, pool, position NFT and price aggregator switch to the
+/// deploy WASMs. Each liquidation replays from one ledger snapshot with
+/// source-account auth, as in `meta/bench_liquidate_max_positions.rs`. The test
+/// prints usage against the mainnet per-transaction limits and asserts each one.
 #[test]
 fn curve_lp_liquidation_worst_case_all_wasm() {
     const PAY: i128 = 100 * 10_000_000;

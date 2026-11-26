@@ -5,7 +5,7 @@ use crate::helpers::{f64_to_i128, HARNESS_HUB, HARNESS_SPOKE};
 use crate::mock_blend::{MockBlend, MockBlendClient, KIND_LIABILITY};
 
 impl LendingTest {
-    /// Registers and governance-approves a `MockBlend` pool once; later calls
+    /// Registers and governance-approves a `MockBlend` pool once. Later calls
     /// return the same address.
     pub fn ensure_approved_blend(&mut self) -> Address {
         if let Some(addr) = self.blend_pool.clone() {
@@ -21,7 +21,7 @@ impl LendingTest {
         addr
     }
 
-    /// Overwrites `user`'s mock Blend slot for `asset`/`kind`. Collateral and
+    /// Overwrites `user`'s mock Blend slot for `asset` and `kind`. Collateral and
     /// supply also mint that raw amount onto the mock so a later sweep can pay.
     pub fn seed_blend(&mut self, user: &str, asset: &str, kind: u32, amount: f64) {
         let blend = self.ensure_approved_blend();

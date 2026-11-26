@@ -60,7 +60,7 @@ struct In {
 
     /// Selects the number of chunks, from 2 to `PARTITION_MAX`.
     partition_count: u8,
-    /// Relative chunk widths; only the first `n` entries are used.
+    /// Relative chunk widths. Only the first `n` entries are used.
     partition_weights: [u16; PARTITION_MAX],
 }
 
@@ -76,7 +76,7 @@ const PARTITION_SPAN_MAX_MS: u64 = 2 * MS_PER_YEAR;
 /// steepness per unit of utilization is at least the previous one's
 /// (`k1 <= k2 <= k3`, with `k3` at most half the rate cap), and each slope is
 /// that steepness times the segment width. Because the widths sum to `RAY`,
-/// the slopes sum to at most `k3`; `base` is at most `slope1`, so the
+/// the slopes sum to at most `k3`. The `base` is at most `slope1`, so the
 /// full-utilization rate stays under the cap. A smaller slope over a narrower
 /// segment, and equal steepness across a kink, are both generated.
 fn make_params(env: &Env, i: &In) -> MarketParamsRaw {
@@ -94,7 +94,7 @@ fn make_params(env: &Env, i: &In) -> MarketParamsRaw {
     let slope = |k: i128, w: i128| Ray::from(k).mul_floor(env, Ray::from(w)).raw();
     let s1 = slope(k1, w1);
     // Flooring can leave a later slope a raw unit short of the earlier
-    // steepness; lift it to the exact minimum.
+    // steepness. Lift it to the exact minimum.
     let s2 = slope(k2, w2).max(Ray::from(s1).mul_ratio_ceil(env, w2, w1).raw());
     let s3 = slope(k3, w3).max(Ray::from(s2).mul_ratio_ceil(env, w3, w2).raw());
     let base = s1 * (i.base_pct as i128) / 255;
@@ -283,7 +283,7 @@ fn assert_no_dust_inflation(env: &Env, supplied: Ray, old_index: Ray, rewards: R
 }
 
 /// Everything one accrual run carries forward. `simulate_update_indexes`
-/// returns only the two indexes, so it cannot be composed chunk-by-chunk:
+/// returns only the two indexes, so it cannot be composed chunk-by-chunk.
 /// `supplied` grows as protocol-revenue shares are minted, and the next chunk's
 /// utilization and index growth both depend on it.
 #[derive(Clone, Copy)]
@@ -297,7 +297,7 @@ struct AccrualState {
 /// `common::rates::accrue_step`, so a span can be accrued in pieces.
 ///
 /// `assert_partition_invariants` pins this against the production entry point
-/// on the unpartitioned span before using it, so it cannot silently drift.
+/// on the unpartitioned span before using it, so it cannot drift.
 fn accrue_span(
     env: &Env,
     params: &MarketParams,
@@ -352,7 +352,7 @@ fn max_borrow_index_after(
 }
 
 /// Splits `total_ms` into `n` chunks whose widths follow `weights`. The chunks
-/// sum to exactly `total_ms`; individual chunks may be zero.
+/// sum to exactly `total_ms`. Individual chunks may be zero.
 fn partition(
     total_ms: u64,
     weights: &[u16; PARTITION_MAX],
@@ -473,7 +473,7 @@ fn assert_partition_invariants(
 }
 
 /// Number of `MAX_COMPOUND_DELTA_MS` compounding steps `accrue_span` performs
-/// for a span of `span_ms`. Zero for a zero-length span.
+/// for a span of `span_ms`. It is zero for a zero-length span.
 fn compounding_steps(span_ms: u64) -> i128 {
     span_ms.div_ceil(MAX_COMPOUND_DELTA_MS) as i128
 }
@@ -485,8 +485,8 @@ fn compounding_steps(span_ms: u64) -> i128 {
 /// Per compounding step the accrual can strand at most:
 ///
 /// * under one raw unit of supply index (`update_supply_index` floors), worth
-///   `supplied / RAY` in value; that part is re-booked to the treasury by
-///   `supply_index_reward_shortfall`, so it is normally not stranded at all; and
+///   `supplied / RAY` in value. `supply_index_reward_shortfall` re-books that part to
+///   the treasury, so it is normally not stranded at all, and
 /// * under one raw scaled share of protocol fee (`protocol_fee_shares` floors),
 ///   worth `supply_index / RAY` in value.
 ///
@@ -494,7 +494,7 @@ fn compounding_steps(span_ms: u64) -> i128 {
 /// every step's contribution.
 ///
 /// Both directions scale with `steps`. Measuring both sides with `mul_floor`
-/// does not make the comparison rounding-neutral: production accrues with
+/// does not make the comparison rounding-neutral. Production accrues with
 /// `Ray::mul` (`mul_div_half_up`), so each step's half-up rounding is already
 /// in the indexes. A step can push `credited` one unit past the floor-measured
 /// `charged` without minting interest, so a constant bound fails over enough
