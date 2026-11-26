@@ -141,10 +141,10 @@ flow_swap_aggregator_admin() {
 sa_fee_trade() {
     local agg="$1" referral="$2" mode="$3" amount=10000000 route token tokens
     local payer recipient returned admin_fee referral_fee gross expected_admin expected_ref
-    local owner_before caller_before reserve_before protected=12345
+    local owner_before caller_before reserve_before protected=12345 static_bps=50 ref_cfg protocol_bps ref_bps
     token="$USDC_SAC"; [ "$mode" != output ] || token="$XLM_SAC"
     tokens=$(jq -nc --arg t "$token" '[$t]')
-    inv "sa_${mode}_static_fee" "$ADMIN" "$agg" -- set_static_fee --fee_bps 50 >/dev/null || return 1
+    inv "sa_${mode}_static_fee" "$ADMIN" "$agg" -- set_static_fee --fee_bps "$static_bps" >/dev/null || return 1
     leg_sa_trade() {
         route=$(agg_route_hex "$USDC_SAC" "$XLM_SAC" "$amount") || return 1
         route=$(agg_referral_route_hex "$route" "$referral") || { _assert_fail "sa_${mode}_route" "candidate referral route incompatible"; return 1; }
@@ -159,8 +159,13 @@ sa_fee_trade() {
     admin_fee=$(view "sa_${mode}_admin_fee" "$agg" -- admin_fee_balance --token "$token" | tr -d '"[:space:]') || return 1
     referral_fee=$(view "sa_${mode}_ref_fee" "$agg" -- referral_fee_balance --id "$referral" --token "$token" | tr -d '"[:space:]') || return 1
     gross="$amount"; [ "$mode" != output ] || gross=$(raw_add "$returned" "$admin_fee" "$referral_fee")
-    expected_admin=$(python3 -c 'import sys;print(int(sys.argv[1])*50//10000)' "$gross") || return 1
-    expected_ref=$(python3 -c 'import sys;print(int(sys.argv[1])*40//10000)' "$gross") || return 1
+    # The admin bucket takes the referral's `protocol_fee_bps`. The static fee
+    # applies only when that field is null (`checked_protocol_fee_bps`).
+    ref_cfg=$(view "sa_${mode}_ref_cfg" "$agg" -- referral --id "$referral") || return 1
+    protocol_bps=$(jq -r --argjson s "$static_bps" '.protocol_fee_bps // $s' <<<"$ref_cfg") || return 1
+    ref_bps=$(jq -r '.fee_bps' <<<"$ref_cfg") || return 1
+    expected_admin=$(python3 -c 'import sys;print(int(sys.argv[1])*int(sys.argv[2])//10000)' "$gross" "$protocol_bps") || return 1
+    expected_ref=$(python3 -c 'import sys;print(int(sys.argv[1])*int(sys.argv[2])//10000)' "$gross" "$ref_bps") || return 1
     _uint_ge "$expected_admin" 1 && _uint_ge "$expected_ref" 1 || { _assert_fail "sa_${mode}_nonzero" "fee fixture rounds to zero"; return 1; }
     assert_raw_within "sa_${mode}_admin_exact" "$admin_fee" "$expected_admin" 0 || return 1
     assert_raw_within "sa_${mode}_ref_exact" "$referral_fee" "$expected_ref" 0 || return 1
