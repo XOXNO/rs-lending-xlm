@@ -186,6 +186,41 @@ fn weighted_bps_terms_keep_one_final_rounding_and_wide_products() {
 }
 
 #[test]
+fn weighted_remainder_rounds_half_up_for_odd_and_even_divisors() {
+    let env = Env::default();
+    let base = Bps::from(100);
+    for (divisor, remainder, rounds_up) in [
+        (4, 1, false),
+        (4, 2, true),
+        (4, 3, true),
+        (5, 0, false),
+        (5, 2, false),
+        (5, 3, true),
+        (5, 4, true),
+        (1, 0, false),
+    ] {
+        let want = if rounds_up { Bps::from(101) } else { base };
+        assert_eq!(
+            base.round_weighted_remainder(&env, Wad::from(remainder), Wad::from(divisor)),
+            want,
+            "remainder {remainder} of divisor {divisor}"
+        );
+    }
+}
+
+#[test]
+fn weighted_remainder_rejects_out_of_range_inputs() {
+    let env = Env::default();
+    for (remainder, divisor) in [(-1, 10), (10, 10), (11, 10), (0, 0), (0, -5), (3, -5)] {
+        let code = crate::math::test_support::contract_error_code(|| {
+            let _ =
+                Bps::ZERO.round_weighted_remainder(&env, Wad::from(remainder), Wad::from(divisor));
+        });
+        assert_eq!(code, Some(33), "({remainder}, {divisor}) must overflow");
+    }
+}
+
+#[test]
 fn typed_wad_rescaling_and_integer_flooring_preserve_saturation() {
     let env = Env::default();
     assert_eq!(Wad::from(7).div_by_int_floor(&env, 2), Wad::from(3));
