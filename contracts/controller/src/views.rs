@@ -1,10 +1,10 @@
-use crate::constants::{MAX_VIEW_INPUTS, WAD};
+use crate::constants::MAX_VIEW_INPUTS;
 use crate::context::Context;
 use common::collections::unique_hub_tokens;
 
 use crate::risk;
 use common::errors::GenericError;
-use common::math::fp::Ray;
+use common::math::fp::{Ray, Wad};
 use common::rates::{unscale_borrow, unscale_supply};
 use common::types::{
     Account, AccountAttributes, AccountPositionRaw, DebtPositionRaw, HubAssetKey, HubPayment,
@@ -31,9 +31,13 @@ fn require_view_inputs_bound<T>(env: &Env, values: &Vec<T>) {
 /// Returns the account's health factor in WAD, or `i128::MAX` if it has no
 /// debt. A missing account fails with `AccountNotFound`.
 pub(crate) fn health_factor(env: &Env, account_id: u64) -> i128 {
+    health_factor_wad(env, account_id).raw()
+}
+
+fn health_factor_wad(env: &Env, account_id: u64) -> Wad {
     let account = storage::get_account(env, account_id);
     if account.debt_free() {
-        return i128::MAX;
+        return Wad::from(i128::MAX);
     }
     let mut cache = Context::new_view(env);
     risk::calculate_account_risk_totals(
@@ -43,13 +47,12 @@ pub(crate) fn health_factor(env: &Env, account_id: u64) -> i128 {
         &account.borrow_positions,
     )
     .health_factor
-    .raw()
 }
 
-/// Returns whether the account's health factor is below 1.0 (WAD), making it
-/// eligible for liquidation.
+/// Returns whether the account's health factor is below 1.0 (WAD). Such an account is eligible for
+/// liquidation.
 pub(crate) fn can_be_liquidated(env: &Env, account_id: u64) -> bool {
-    health_factor(env, account_id) < WAD
+    health_factor_wad(env, account_id) < Wad::ONE
 }
 
 /// Returns the account's current supply position amount for `hub_asset` in
@@ -67,7 +70,7 @@ pub(crate) fn collateral_amount_for_hub_asset(
     let market_index = cache.cached_market_index(hub_asset);
     let decimals = cache.cached_pool_sync_data(hub_asset).params.asset_decimals;
 
-    // Half-up: scaled * supply_index → asset units (same as pool supplied_amount).
+    // Round half up. `scaled * supply_index` gives asset units, the same as pool `supplied_amount`.
     unscale_supply(
         env,
         position.scaled_amount,
@@ -91,8 +94,8 @@ pub(crate) fn borrow_amount_for_hub_asset(
     let market_index = cache.cached_market_index(hub_asset);
     let decimals = cache.cached_pool_sync_data(hub_asset).params.asset_decimals;
 
-    // Half-up: scaled * borrow_index → asset units (same as pool borrowed_amount).
-    // Not ceil: view amounts are not liquidation close amounts.
+    // Round half up. `scaled * borrow_index` gives asset units, the same as pool `borrowed_amount`.
+    // The view does not use ceil, because view amounts are not liquidation close amounts.
     unscale_borrow(
         env,
         position.scaled_amount,
@@ -191,18 +194,17 @@ pub(crate) fn get_all_market_indexes_detailed(
     result
 }
 
-/// Simulates liquidating the account with `debt_payments` under `seize_mode` and returns the
-/// resulting seized collateral, protocol fees, refunds, and bonus rate, without persisting any
-/// state changes.
+/// Simulates a liquidation of the account with `debt_payments` under `seize_mode`. Returns the
+/// resulting seized collateral, protocol fees, refunds, and bonus rate. Persists no state changes.
 ///
-/// The reported units follow the mode, so the estimate describes what execution would actually
-/// move: `Transfer` reports asset units (what the pool would pay out and withhold), `Credit`
-/// reports RAY-scaled supply shares (what would leave the liquidated account and what would be
-/// reclassified as revenue). In credit mode the liquidator receives
+/// The reported units follow the mode, so the estimate describes what execution would move.
+/// `Transfer` reports asset units, which are what the pool would pay out and withhold. `Credit`
+/// reports RAY-scaled supply shares, which are what would leave the liquidated account and what
+/// would be reclassified as revenue. In credit mode, the liquidator receives
 /// `seized_collaterals - protocol_fees` shares.
 ///
-/// A `Credit` receiver must pass execution's spoke, mode, position-limit and
-/// whole-unit isolation gates; the owner-or-delegate check needs a caller and is skipped.
+/// A `Credit` receiver must pass the spoke, mode, position-limit, and whole-unit isolation gates of
+/// execution. The estimate skips the owner-or-delegate check, because that check needs a caller.
 pub(crate) fn liquidation_estimations_detailed(
     env: &Env,
     account_id: u64,
@@ -215,8 +217,8 @@ pub(crate) fn liquidation_estimations_detailed(
 
     let result = build_liquidation_plan(env, &account, debt_payments, &mut cache).into_result();
     if let SeizeMode::Credit(requested) = seize_mode {
-        // `Credit(0)` would create an empty receiver; only its supply slots are
-        // read by the credit-position checks, so model those without minting.
+        // `Credit(0)` would create an empty receiver. Only its supply slots are read by the
+        // credit-position checks, so model those without minting.
         let receiver = if requested == 0 {
             Account {
                 supply_positions: Map::new(env),

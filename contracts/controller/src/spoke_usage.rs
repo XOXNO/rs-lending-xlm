@@ -6,7 +6,7 @@ use common::errors::{GenericError, SpokeError};
 use common::math::fp::Ray;
 use common::rates::calculate_scaled_cap;
 use common::types::{HubAssetKey, MarketIndexRaw, SpokeAssetConfig, SpokeUsageRaw};
-use soroban_sdk::{assert_with_error, panic_with_error, Env, Map};
+use soroban_sdk::{assert_with_error, Env, Map};
 
 use crate::storage;
 
@@ -58,7 +58,7 @@ impl UsageSide {
     }
 }
 
-/// Buffered supply and debt usage for one spoke; persistence is explicit.
+/// Buffered supply and debt usage for one spoke. Persistence is explicit.
 pub(crate) struct SpokeUsageContext {
     env: Env,
     spoke_id: u32,
@@ -75,7 +75,7 @@ impl SpokeUsageContext {
         }
     }
 
-    /// Writes every cached usage row; retains the cache.
+    /// Writes every cached usage row. Retains the cache.
     pub(crate) fn persist(&self) {
         for (hub_asset, usage) in self.usage.iter() {
             storage::set_spoke_usage(&self.env, self.spoke_id, &hub_asset, &usage);
@@ -87,7 +87,7 @@ impl SpokeUsageContext {
         self.spoke_id
     }
 
-    /// Returns cached usage or loads it from storage; absent rows remain uncached.
+    /// Returns cached usage or loads it from storage. Absent rows remain uncached.
     fn load_usage_row(&mut self, hub_asset: &HubAssetKey) -> Option<SpokeUsageRaw> {
         if let Some(usage) = self.usage.get(hub_asset.clone()) {
             return Some(usage);
@@ -114,8 +114,8 @@ impl SpokeUsageContext {
         self.usage.set(hub_asset.clone(), usage);
     }
 
-    /// Buffers a scaled decrease. Zero deltas and missing rows are no-ops;
-    /// overflow or negative resulting usage fails.
+    /// Buffers a scaled decrease. Zero deltas and missing rows are no-ops. Overflow or negative
+    /// resulting usage fails.
     pub(crate) fn apply_exit(
         &mut self,
         side: UsageSide,
@@ -128,13 +128,14 @@ impl SpokeUsageContext {
         let Some(mut usage) = self.load_usage_row(hub_asset) else {
             return;
         };
-        let next = side
-            .scaled(&usage)
-            .checked_sub(delta_scaled.raw())
-            .unwrap_or_else(|| panic_with_error!(&self.env, GenericError::MathOverflow));
-
-        assert_with_error!(&self.env, next >= 0, GenericError::InternalError);
-        side.set_scaled(&mut usage, next);
+        let current = Ray::from(side.scaled(&usage));
+        assert_with_error!(
+            &self.env,
+            current >= delta_scaled,
+            GenericError::InternalError
+        );
+        let next = current.checked_sub(&self.env, delta_scaled);
+        side.set_scaled(&mut usage, next.raw());
         self.usage.set(hub_asset.clone(), usage);
     }
 }

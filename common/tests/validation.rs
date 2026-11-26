@@ -25,6 +25,13 @@ fn risk_bounds_accepts_exact_seizure_headroom() {
 }
 
 #[test]
+fn risk_bounds_accepts_bonus_over_bps_at_low_threshold() {
+    let env = Env::default();
+
+    validate_risk_bounds(&env, 999, 1_000, 90_000);
+}
+
+#[test]
 #[should_panic(expected = "#113")]
 fn risk_bounds_rejects_one_bp_past_seizure_headroom() {
     let env = Env::default();
@@ -344,11 +351,11 @@ fn cap_domain_rejects_i128_max_at_max_listable_decimals() {
     require_cap_within_asset_domain(&env, i128::MAX, 18);
 }
 
-/// The cap ceiling is the pool's entry ceiling in asset units: the largest
+/// The cap ceiling is the pool's entry ceiling in asset units. It is the largest
 /// amount whose RAY form is at most `MAX_MARKET_ENTRY_RAY`, so a market
 /// supplied at the admitted cap keeps `MARKET_ENTRY_HEADROOM` of room for
 /// interest below `MAX_MARKET_VALUE_RAY`.
-/// See `docs/reference/formulas.md#numeric-limits`
+/// See `docs/reference/formulas.md#numeric-limits`.
 #[test]
 fn cap_ceiling_is_exactly_the_market_entry_ceiling() {
     let env = Env::default();
@@ -537,7 +544,7 @@ fn require_non_empty_payments_rejects_an_empty_batch() {
     require_non_empty_payments(&env, &payments);
 }
 
-/// The widest deployed LP bands span a 10x range in LP fair value; the cap admits them.
+/// The widest deployed LP bands span a 10x range in LP fair value. The cap admits them.
 #[test]
 fn lp_sanity_band_admits_a_tenfold_fair_value_range() {
     let env = Env::default();

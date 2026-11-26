@@ -108,10 +108,8 @@ theorem sz_body_spec (env : Env) (tc opb tsu : math.fp.Wad) (rad sa : Bool)
   step with sz_wad_div_val env L pr.price_wad (by rw [hL']; exact hok.L0) (by rw [← gp]; exact hok.p0)
     (by rw [hL']; have := hok.QB; unfold SzLeg.Q at this; rw [gp] at this; omega) as ⟨q, hq⟩
   have hq' : q.val = g.Q := by rw [hq, hL', ← gp]; rfl
-  simp only [math.fp.Wad.raw, bind_ok]
-  step with sz_ray_div_wad as ⟨i1, hi1⟩
-  step with sz_sat_mul_val q i1 (by rw [hi1, hq']; have := hok.Q0; positivity) as ⟨S0, hS0⟩
-  have hS0' : S0.val = g.S0 := by rw [hS0, hi1, hq']; rfl
+  step with sz_wad_to_ray_saturating_val env q (by rw [hq']; exact hok.Q0) as ⟨S0, hS0⟩
+  have hS0' : S0.val = g.S0 := by rw [hS0, hq']; rfl
   have hWU : g.WU ↔ (sa = false ∧ pr.asset_decimals.val < 3 ∧ S0.val < A.val) := by
     unfold SzLeg.WU; rw [gsa, gd, hS0', hAv]
   have hS00 := hok.S00
@@ -223,8 +221,8 @@ theorem sz_body_spec (env : Env) (tc opb tsu : math.fp.Wad) (rad sa : Bool)
   have hbaseB : a1.val * 10^18 / opb.val ≤ a1.val := by
     rw [ha1, ← go]; exact sz_div_le_of _ _ _ (by omega) (by nlinarith)
   step with sz_wad_div_floor_val env a1 opb (by rw [← go]; omega) ⟨by omega, by omega⟩ as ⟨i3, hi3⟩
-  step with sz_sat_mul_val i3 i1 (by rw [hi3, hi1]; positivity) as ⟨i4, hi4⟩
-  have hbase : i4.val = g.Base := by rw [hi4, hi3, hi1, ha1, ← go]; rfl
+  step with sz_wad_to_ray_saturating_val env i3 (by rw [hi3]; exact hbase0) as ⟨i4, hi4⟩
+  have hbase : i4.val = g.Base := by rw [hi4, hi3, ha1, ← go]; rfl
   have hbase0' := hok.Base0
   refine WP.spec_bind (Pₘ := fun b => b.val = g.Bonus) ?_ ?_
   · by_cases hc : i4.val < cap.val

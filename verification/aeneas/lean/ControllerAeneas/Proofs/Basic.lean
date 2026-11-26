@@ -69,6 +69,24 @@ namespace ControllerAeneas.Proofs
   · simp [compare_lt_iff_lt.mpr h]; intro h'; omega
   · simp [compare_lt_iff_lt, h]
 
+theorem wad_max_if (a b : math.fp.Wad) :
+    core.cmp.Ord.max.trait_default math.fp.Wad.Insts.CoreCmpOrd a b
+      = ok (if b.val < a.val then a else b) := by
+  simp only [core.cmp.Ord.max.trait_default, core.cmp.Ord.max.default, core.cmp.Ord.max_body,
+    math.fp.Wad.Insts.CoreCmpOrd, math.fp.Wad.Insts.CoreCmpPartialOrdWad,
+    core.cmp.PartialOrd.lt.default, core.cmp.PartialOrd.lt_body,
+    math.fp.Wad.Insts.CoreCmpPartialOrdWad.partial_cmp, math.fp.Wad.Insts.CoreCmpOrd.cmp,
+    core.cmp.impls.OrdI128.cmp, bind_ok, Option.some.injEq]
+  by_cases h : b.val < a.val
+  · simp [compare_lt_iff_lt.mpr h]; intro h'; omega
+  · simp [compare_lt_iff_lt, h]
+
+@[simp] theorem wad_max (a b : math.fp.Wad) :
+    core.cmp.Ord.max.trait_default math.fp.Wad.Insts.CoreCmpOrd a b
+      = ok (core.cmp.impls.OrdI128.max a b) := by
+  rw [wad_max_if]
+  congr 1
+
 /-! ## Comparisons on `Ray` -/
 
 @[simp] theorem ray_lt (a b : math.fp.Ray) :
@@ -91,6 +109,48 @@ namespace ControllerAeneas.Proofs
   simp [core.cmp.PartialEq.ne.trait_default, core.cmp.PartialEq.ne.default,
     math.fp.Ray.Insts.CoreCmpPartialEqRay.eq]
   exact ⟨fun h => by rw [h], fun h => IScalar.eq_of_val_eq h⟩
+
+/-! ## Comparisons on `Bps` -/
+
+@[simp] theorem bps_lt (a b : math.fp.Bps) :
+    core.cmp.PartialOrd.lt.trait_default math.fp.Bps.Insts.CoreCmpPartialOrdBps a b
+      = ok (decide (a.val < b.val)) := by
+  simp [core.cmp.PartialOrd.lt.trait_default, core.cmp.PartialOrd.lt.default,
+    core.cmp.PartialOrd.lt_body, math.fp.Bps.Insts.CoreCmpPartialOrdBps.partial_cmp,
+    math.fp.Bps.Insts.CoreCmpOrd.cmp, compare_lt_iff_lt]
+
+@[simp] theorem bps_le (a b : math.fp.Bps) :
+    core.cmp.PartialOrd.le.trait_default math.fp.Bps.Insts.CoreCmpPartialOrdBps a b
+      = ok (decide (a.val ≤ b.val)) := by
+  simp only [core.cmp.PartialOrd.le.trait_default, core.cmp.PartialOrd.le.default,
+    core.cmp.PartialOrd.le_body, math.fp.Bps.Insts.CoreCmpPartialOrdBps,
+    math.fp.Bps.Insts.CoreCmpPartialOrdBps.partial_cmp,
+    math.fp.Bps.Insts.CoreCmpOrd.cmp, core.cmp.impls.OrdI128.cmp, bind_ok, Option.some.injEq]
+  congr 1
+  rcases lt_trichotomy a.val b.val with h | h | h
+  · simp [compare_lt_iff_lt.mpr h, h.le]
+  · simp [compare_eq_iff_eq.mpr h, h.le]
+  · simp [compare_gt_iff_gt.mpr h, not_le.mpr h]
+
+@[simp] theorem bps_gt (a b : math.fp.Bps) :
+    core.cmp.PartialOrd.gt.trait_default math.fp.Bps.Insts.CoreCmpPartialOrdBps a b
+      = ok (decide (b.val < a.val)) := by
+  simp [core.cmp.PartialOrd.gt.trait_default, core.cmp.PartialOrd.gt.default,
+    core.cmp.PartialOrd.gt_body, math.fp.Bps.Insts.CoreCmpPartialOrdBps.partial_cmp,
+    math.fp.Bps.Insts.CoreCmpOrd.cmp, compare_gt_iff_gt]
+
+@[simp] theorem bps_ge (a b : math.fp.Bps) :
+    core.cmp.PartialOrd.ge.trait_default math.fp.Bps.Insts.CoreCmpPartialOrdBps a b
+      = ok (decide (b.val ≤ a.val)) := by
+  simp only [core.cmp.PartialOrd.ge.trait_default, core.cmp.PartialOrd.ge.default,
+    core.cmp.PartialOrd.ge_body, math.fp.Bps.Insts.CoreCmpPartialOrdBps,
+    math.fp.Bps.Insts.CoreCmpPartialOrdBps.partial_cmp,
+    math.fp.Bps.Insts.CoreCmpOrd.cmp, core.cmp.impls.OrdI128.cmp, bind_ok, Option.some.injEq]
+  congr 1
+  rcases lt_trichotomy a.val b.val with h | h | h
+  · simp [compare_lt_iff_lt.mpr h, not_le.mpr h]
+  · simp [compare_eq_iff_eq.mpr h, h.ge]
+  · simp [compare_gt_iff_gt.mpr h, h.le]
 
 /-! ## Conversions -/
 

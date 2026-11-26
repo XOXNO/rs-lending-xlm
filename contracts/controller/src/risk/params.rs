@@ -23,9 +23,8 @@ pub(crate) enum RiskRefreshScope {
     FullTuple,
 }
 
-/// Refreshes LTV; `FullTuple` first applies gated liquidation parameters.
-/// The LTV is clamped under the threshold the position ends with.
-/// Returns whether the in-memory position changed.
+/// Refreshes LTV. `FullTuple` first applies gated liquidation parameters. The LTV is clamped under
+/// the threshold the position ends with. Returns whether the in-memory position changed.
 pub(crate) fn refresh_supply_risk_params(
     env: &Env,
     cache: &mut Context,
@@ -62,10 +61,9 @@ fn ltv_under_stored_threshold(env: &Env, stored_threshold: Bps, config: &AssetCo
     listed_ltv.checked_sub(env, shortfall)
 }
 
-/// Refreshes stored LTV snapshots in memory for listed supply assets, skipping
-/// unlisted assets, and buffers a `ParamUpd` delta for each changed leg.
-/// A liquidation tuple that does not favor liquidators refreshes with the LTV.
-/// Otherwise the LTV is clamped under the stored threshold.
+/// Refreshes stored LTV snapshots in memory for listed supply assets. Skips unlisted assets.
+/// Buffers a `ParamUpd` delta for each changed leg. A liquidation tuple that does not favor
+/// liquidators refreshes with the LTV. Otherwise the LTV is clamped under the stored threshold.
 /// Returns whether any position changed.
 pub(crate) fn restamp_listed_supply_ltv(cache: &mut Context, account: &mut Account) -> bool {
     let mut changed = false;
@@ -108,8 +106,8 @@ pub(crate) fn restamp_listed_supply_ltv(cache: &mut Context, account: &mut Accou
     changed
 }
 
-/// Refreshes the liquidation threshold, bonus, and fees together. With debt,
-/// changes favoring liquidators require hypothetical health factor >= 1.05.
+/// Refreshes the liquidation threshold, bonus, and fees together. With debt, changes that favor
+/// liquidators require a hypothetical health factor of at least 1.05.
 pub(crate) fn apply_gated_liquidation_params(
     env: &Env,
     cache: &mut Context,
@@ -144,12 +142,13 @@ fn set_liquidation_params(position: &mut AccountPosition, config: &AssetConfig) 
 
 /// Detects a lower threshold or fee, or a higher bonus, than the stored tuple.
 fn favors_liquidator(position: &AccountPosition, effective_config: &AssetConfig) -> bool {
-    effective_config.liquidation_threshold.raw() < position.liquidation_threshold.raw()
-        || effective_config.liquidation_bonus.raw() > position.liquidation_bonus.raw()
-        || effective_config.liquidation_fees.raw() < position.liquidation_fees.raw()
+    effective_config.liquidation_threshold < position.liquidation_threshold
+        || effective_config.liquidation_bonus > position.liquidation_bonus
+        || effective_config.liquidation_fees < position.liquidation_fees
 }
 
-/// Checks health factor >= 1.05 with this position's threshold replaced by `new_lt`.
+/// Checks that the health factor is at least 1.05 when `new_lt` replaces the threshold of this
+/// position.
 fn clears_min_hf(
     env: &Env,
     cache: &mut Context,
@@ -201,10 +200,9 @@ pub(crate) fn update_account_threshold(
     }
 }
 
-/// Refreshes listed supply parameters to `scope`. Skips missing metadata,
-/// empty supply, or unresolved NFT ownership. Only `FullTuple` loads debt and
-/// rejects a refresh that leaves health factor below both 1.05 and its prior
-/// value; writes only supply positions.
+/// Refreshes listed supply parameters to `scope`. Skips missing metadata, empty supply, or
+/// unresolved NFT ownership. Only `FullTuple` loads debt and rejects a refresh that leaves health
+/// factor below both 1.05 and its prior value. It writes only supply positions.
 fn sync_account_thresholds(
     env: &Env,
     account_id: u64,
@@ -220,7 +218,7 @@ fn sync_account_thresholds(
         return;
     }
 
-    // Fail closed: never update an account whose NFT owner cannot be resolved.
+    // Fail closed. Never update an account whose NFT owner cannot be resolved.
     let Some(owner) = storage::try_account_owner(env, account_id) else {
         return;
     };

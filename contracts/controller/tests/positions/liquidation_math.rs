@@ -5,10 +5,10 @@ use crate::constants::{
     MAX_REASONABLE_PRICE_WAD, POSITION_LIMIT_MAX, WAD,
 };
 use crate::positions::liquidation::curve::{
-    calculate_linear_bonus_with_target, max_hf_preserving_bonus_bps,
+    calculate_linear_bonus_with_target, max_hf_preserving_bonus_bps, HfPreservingBonusCap,
 };
 use crate::Controller;
-use common::constants::RAY;
+use common::constants::{BPS, RAY};
 use common::types::SpokeConfig;
 use common::types::{
     AccountPositionRaw, DebtPositionRaw, MarketIndexRaw, PositionLimits, PositionMode, PriceFeedRaw,
@@ -23,6 +23,10 @@ fn default_spoke_config() -> SpokeConfig {
         hf_for_max_bonus_wad: DEFAULT_HF_FOR_MAX_BONUS_WAD,
         liquidation_bonus_factor_bps: DEFAULT_LIQUIDATION_BONUS_FACTOR_BPS,
     }
+}
+
+fn clamped_hf_preserving_bonus_bps(env: &Env, snap: &LiquidationSnapshot) -> Option<Bps> {
+    max_hf_preserving_bonus_bps(env, snap).map(HfPreservingBonusCap::clamped)
 }
 
 fn feed_raw() -> PriceFeedRaw {
@@ -68,7 +72,7 @@ fn seize_entry(env: &Env, amount: i128, protocol_fee: i128) -> SeizeEntry {
         hub_asset: hub_key(env),
         amount,
         protocol_fee,
-        // Credit-mode fields; these fixtures exercise the asset-unit pair.
+        // Credit-mode fields. These fixtures exercise the asset-unit pair.
         scaled_amount: amount,
         bonus_scaled: 0,
         liquidation_fees: 0,
@@ -618,9 +622,9 @@ fn exactly_held_fractional_low_decimal_shares_are_a_full_close() {
     assert_eq!(entry.amount, 3);
 }
 
-/// One raw unit at about 1e-11 USD per token against a $5 whole-debt quote:
-/// the requested token amount upscales past i128, so the seizure saturates to
-/// the held balance with no bonus instead of overflowing.
+/// With one raw unit at about 1e-11 USD per token and a $5 whole-debt quote, the requested
+/// token amount upscales past i128. The seizure then saturates to the held balance with no
+/// bonus and does not overflow.
 #[test]
 fn a_dust_priced_leg_saturates_the_seizure_to_the_held_balance() {
     let env = Env::default();
@@ -930,8 +934,8 @@ fn partial_seizure_floors_amount_and_zero_fee_stays_zero() {
     assert_eq!(entry.protocol_fee, 0);
 }
 
-/// Ten stroops repaid at a 50% bonus seize 15: five stroops are realised above
-/// the repayment, and the 10% fee on them, half a stroop, becomes one stroop.
+/// Ten stroops repaid at a 50% bonus seize 15. Five stroops are realised above
+/// the repayment. The 10% fee on them is half a stroop, and it rounds up to one stroop.
 #[test]
 fn dust_protocol_fee_rounds_up_to_one_unit() {
     let env = Env::default();
@@ -1163,7 +1167,10 @@ fn a_band_partial_is_accepted_at_the_hf_preserving_cap() {
             9 * WAD / 10,
             936 * WAD / 1000,
         );
-        assert_eq!(max_hf_preserving_bonus_bps(&s), Some(400));
+        assert_eq!(
+            clamped_hf_preserving_bonus_bps(&env, &s),
+            Some(Bps::from(400))
+        );
         let bounds = BonusBounds {
             base: Bps::from(500i128),
             max: max_bonus_for_threshold(&env, s.proportion_seized),
@@ -1236,8 +1243,8 @@ fn normalize_accepts_partial_when_cap_equals_base() {
             84 * WAD / 100,
         );
         assert_eq!(
-            max_hf_preserving_bonus_bps(&s),
-            Some(500),
+            clamped_hf_preserving_bonus_bps(&env, &s),
+            Some(Bps::from(500)),
             "cap must equal the base bonus for this boundary"
         );
         let bounds = BonusBounds {
@@ -1297,7 +1304,7 @@ fn partial_liquidation_of_insolvent_account_is_permitted() {
     });
 }
 
-/// Three liquidators each offer $40,000 against the same $100,000 collateral /
+/// Three liquidators each offer $40,000 against the same $100,000 collateral and
 /// $120,000 debt book. Each one is capped at what the remaining collateral backs,
 /// so the last one is cut to `floor(16_000 / 1.05)` instead of paying $40,000
 /// for $16,000.
@@ -1342,7 +1349,7 @@ fn racing_insolvent_liquidations_never_repay_more_than_the_collateral_backs() {
     );
 }
 
-/// Two 3-decimal legs at $1 per unit, each owing 100 400.4 units: the ceilings
+/// Two 3-decimal legs at $1 per unit, each owing 100 400.4 units. The ceilings
 /// (100 401 each) exceed the debt by 1.2 units. The full-close plan keeps both
 /// legs at their ceilings and refunds only the offer above them, but credits
 /// only the debt the legs clear.
@@ -1389,7 +1396,10 @@ fn a_full_close_plan_keeps_every_legs_ceiling_without_a_trim_refund() {
             8 * WAD / 10,
             8_164 * WAD / 10_000,
         );
-        assert_eq!(max_hf_preserving_bonus_bps(&s), Some(205));
+        assert_eq!(
+            clamped_hf_preserving_bonus_bps(&env, &s),
+            Some(Bps::from(205))
+        );
         let bounds = BonusBounds {
             base: Bps::from(500i128),
             max: max_bonus_for_threshold(&env, s.proportion_seized),
@@ -1591,8 +1601,8 @@ fn an_insolvent_trim_keeps_no_more_than_the_backed_quote_after_unit_rounding() {
     assert_eq!(plan.refunds.get_unchecked(0).amount, 19);
 }
 
-/// $10 of collateral backs $9.52, less than one $10 unit: the leg keeps
-/// nothing, its whole offer is refunded and no repayment leg remains.
+/// $10 of collateral backs $9.52, which is less than one $10 unit. The leg keeps
+/// nothing, its whole offer is refunded, and no repayment leg remains.
 #[test]
 fn an_insolvent_trim_drops_a_leg_whose_smallest_unit_exceeds_the_backed_quote() {
     let env = Env::default();
@@ -1606,9 +1616,9 @@ fn an_insolvent_trim_drops_a_leg_whose_smallest_unit_exceeds_the_backed_quote() 
     assert_eq!(refund.amount, 2, "the whole offer is refunded");
 }
 
-/// A $1-per-token leg offering $5 and a $10-per-unit leg offering $20 against a
-/// $9.52 backed quote: the trim starts from the last leg, drops the $10-per-unit
-/// leg whole and keeps the $5 leg.
+/// With a $1-per-token leg offering $5, a $10-per-unit leg offering $20, and a $9.52
+/// backed quote, the trim starts from the last leg. It drops the $10-per-unit leg
+/// whole and keeps the $5 leg.
 #[test]
 fn an_insolvent_trim_keeps_only_the_legs_that_fit_the_backed_quote() {
     let env = Env::default();
@@ -1646,7 +1656,9 @@ fn a_band_plan_is_a_full_close_plan_even_for_a_partial_payment() {
             8 * WAD / 10,
             816 * WAD / 1000,
         );
-        let cap = max_hf_preserving_bonus_bps(&s).expect("cap exists");
+        let cap = clamped_hf_preserving_bonus_bps(&env, &s)
+            .expect("cap exists")
+            .raw();
         assert!(
             (0..500).contains(&cap),
             "fixture must sit in the solvent 0 <= cap < base band, got {cap}"
@@ -1677,7 +1689,7 @@ fn a_band_plan_is_a_full_close_plan_even_for_a_partial_payment() {
     });
 }
 
-/// Three equal legs at 500, 500 and 501 bps average to 500.33 bps. Rounding
+/// Three equal legs at 500, 500, and 501 bps average to 500.33 bps. Rounding
 /// each leg's weighted share first would give 167 + 167 + 167 = 501.
 #[test]
 fn account_bonus_params_weights_bonus_by_collateral_share() {
@@ -1716,6 +1728,104 @@ fn account_bonus_params_weights_bonus_by_collateral_share() {
 
         assert_eq!(bounds.max.raw(), 10_000);
         assert_eq!(bounds.base.raw(), 500);
+    });
+}
+
+/// The collateral value and bonus are individually valid, but their raw
+/// product exceeds i128. Liquidation must use the representable weighted
+/// average instead of trapping on the intermediate multiplication.
+#[test]
+fn account_bonus_params_handles_wide_intermediate_product() {
+    let env = Env::default();
+    let contract = env.register(Controller, (Address::generate(&env),));
+    let key = hub_key(&env);
+    let price_wad = 100_000_000 * WAD;
+    let total_collateral = 2_000_000_000 * price_wad;
+
+    let mut prices = Map::new(&env);
+    prices.set(
+        key.asset.clone(),
+        PriceFeedRaw {
+            price_wad,
+            asset_decimals: 7,
+            timestamp: 0,
+        },
+    );
+    let mut supply_positions = Map::new(&env);
+    supply_positions.set(
+        key.clone(),
+        AccountPositionRaw {
+            scaled_amount: Ray::from_asset(&env, stroops(2_000_000_000), 7).raw(),
+            liquidation_threshold: 8_000,
+            liquidation_bonus: 1_000,
+            loan_to_value: 7_500,
+            liquidation_fees: 0,
+        },
+    );
+
+    env.as_contract(&contract, || {
+        let mut cache = Context::new_view(&env);
+        cache.set_prices(prices);
+        cache.put_market_index(&key, &index_raw());
+
+        let bounds = get_account_bonus_params(
+            &env,
+            &mut cache,
+            &supply_positions,
+            Wad::from(total_collateral),
+            Wad::from(WAD / 2),
+        );
+
+        assert_eq!(bounds.base.raw(), 1_000);
+    });
+}
+
+/// A low liquidation threshold permits a bonus above 10,000 BPS. The
+/// weighted bonus still fits even when applying that rate to the collateral
+/// value as a WAD would overflow.
+#[test]
+fn account_bonus_params_handles_bonus_above_one_hundred_percent() {
+    let env = Env::default();
+    let contract = env.register(Controller, (Address::generate(&env),));
+    let key = hub_key(&env);
+    let price_wad = 100_000_000 * WAD;
+    let total_collateral = 2_000_000_000 * price_wad;
+
+    let mut prices = Map::new(&env);
+    prices.set(
+        key.asset.clone(),
+        PriceFeedRaw {
+            price_wad,
+            asset_decimals: 7,
+            timestamp: 0,
+        },
+    );
+    let mut supply_positions = Map::new(&env);
+    supply_positions.set(
+        key.clone(),
+        AccountPositionRaw {
+            scaled_amount: Ray::from_asset(&env, stroops(2_000_000_000), 7).raw(),
+            liquidation_threshold: 1_000,
+            liquidation_bonus: 90_000,
+            loan_to_value: 999,
+            liquidation_fees: 0,
+        },
+    );
+
+    env.as_contract(&contract, || {
+        let mut cache = Context::new_view(&env);
+        cache.set_prices(prices);
+        cache.put_market_index(&key, &index_raw());
+
+        let bounds = get_account_bonus_params(
+            &env,
+            &mut cache,
+            &supply_positions,
+            Wad::from(total_collateral),
+            Wad::from(WAD / 10),
+        );
+
+        assert_eq!(bounds.base.raw(), 90_000);
     });
 }
 
@@ -1901,7 +2011,7 @@ fn normalize_conserves_value_when_offer_exceeds_ideal() {
 //
 // The plan sizes collateral from the repayment value it intends to collect.
 // When a debt token delivers less than was sent, the seizure shrinks by the
-// same ratio, so the liquidator gets no collateral it did not pay for.
+// same ratio. The liquidator therefore gets no collateral that it did not pay for.
 
 fn seize(asset: &Address, amount: i128, protocol_fee: i128) -> SeizeEntry {
     SeizeEntry {
@@ -1949,7 +2059,7 @@ fn seizure_shrinks_in_proportion_to_value_actually_received() {
 fn scaling_rounds_down_so_the_residue_stays_with_the_liquidated_account() {
     let env = Env::default();
     let asset = Address::generate(&env);
-    // 7 * 1 / 3 == 2.333..; the liquidator must get 2, not 3.
+    // 7 * 1 / 3 is 2.333.., so the liquidator must get 2, not 3.
     let seized = vec![&env, seize(&asset, 7, 7)];
 
     let out = scale_seizures_to_received(&env, &seized, Wad::from(1), Wad::from(3));
@@ -1959,8 +2069,8 @@ fn scaling_rounds_down_so_the_residue_stays_with_the_liquidated_account() {
 }
 
 /// A full close requests the half-up amount, 19 units for 18.549999 held. At a
-/// 95% receipt the ratio alone gives 18, but the scaled shares back only
-/// 17.62..., so the liquidator gets 17 and the residue stays with the account.
+/// 95% receipt the ratio alone gives 18. The scaled shares back only
+/// 17.62..., so the liquidator gets 17, and the residue stays with the account.
 #[test]
 fn scaling_caps_a_full_close_amount_at_the_scaled_shares() {
     let env = Env::default();
@@ -2055,13 +2165,13 @@ fn seize_fixture_with_collateral(
 /// A full close in the solvent-toxic band pays the liquidator a positive net.
 ///
 /// The seizure clamps to the collateral that exists, so the bonus is not fully
-/// realised; the fee follows the realised excess and so stays below it.
+/// realised. The fee follows the realised excess and so stays below it.
 #[test]
 fn full_close_in_the_solvent_toxic_band_pays_the_liquidator_a_positive_net() {
     let env = Env::default();
 
-    // Collateral $1005 against debt $1000: solvent, but short of the $1090 a
-    // full 9% bonus would need.
+    // Collateral of $1005 against debt of $1000 is solvent but short of the $1090
+    // that a full 9% bonus would need.
     let collateral_tokens = 1_005i128;
     let repaid_usd = 1_000 * WAD;
 
@@ -2122,8 +2232,8 @@ fn seize_at(env: &Env, collateral_tokens: i128, repaid_usd: i128) -> SeizeEntry 
     seized.get_unchecked(0)
 }
 
-/// Collateral short of the debt itself: there is no excess to take a cut of, and
-/// deriving a bonus from the clamped seizure would invent one.
+/// Collateral falls short of the debt itself. There is no excess to take a cut of, and
+/// a bonus derived from the clamped seizure would invent one.
 #[test]
 fn bad_debt_seizure_charges_no_fee_and_does_not_trap() {
     let env = Env::default();
@@ -2148,7 +2258,7 @@ fn bad_debt_seizure_charges_no_fee_and_does_not_trap() {
 fn unclamped_seizure_still_charges_the_full_bonus_fee() {
     let env = Env::default();
 
-    // $2000 collateral against $1000 repaid: the 9% bonus fits with room spare.
+    // $2000 collateral against $1000 repaid. The 9% bonus fits with room to spare.
     let entry = seize_at(&env, 2_000, 1_000 * WAD);
 
     assert_eq!(
@@ -2284,8 +2394,8 @@ fn single_leg(env: &Env, leg: LegSpec, repay_usd_raw: i128, bonus_bps: i128) -> 
     seized
 }
 
-/// Collateral worth exactly the debt: the liquidator gets every stroop back and
-/// not one more, so there is no excess for the protocol to take a cut of.
+/// When the collateral is worth exactly the debt, the liquidator gets every stroop back and
+/// not one more. The protocol then has no excess to take a cut of.
 #[test]
 fn seizure_at_exactly_the_debt_value_charges_no_protocol_fee() {
     let env = Env::default();
@@ -2304,7 +2414,8 @@ fn seizure_at_exactly_the_debt_value_charges_no_protocol_fee() {
 
 /// One stroop of collateral above the debt is one stroop of realised excess.
 /// The fee is bumped off zero to a whole stroop, so it consumes the entire
-/// excess, but it must never exceed it, or the liquidator's net goes negative.
+/// excess. It must never exceed the excess. Otherwise the net of the liquidator goes
+/// negative.
 #[test]
 fn a_one_stroop_excess_is_charged_at_most_one_stroop_of_fee() {
     let env = Env::default();
@@ -2372,7 +2483,7 @@ fn each_leg_charges_its_own_fee_rate_on_its_own_realised_bonus() {
         MAINNET_XLM_BONUS_BPS,
     );
 
-    // $4000 of collateral against a $1090 seizure: neither leg clamps, and the
+    // $4000 of collateral against a $1090 seizure. Neither leg clamps, and the
     // seizure splits 1:3 by value.
     let cheap = leg_entry(&seized, &assets.get_unchecked(0));
     assert_eq!(cheap.amount, stroops(272) + 5_000_000);
@@ -2393,7 +2504,7 @@ fn each_leg_charges_its_own_fee_rate_on_its_own_realised_bonus() {
 
 /// Every leg's seizure is `repayment * (1 + bonus) * leg_value / total_value`,
 /// so the clamp condition `seizure > position` reduces to
-/// `repayment * (1 + bonus) > total_value` -- identical for every leg. A bad
+/// `repayment * (1 + bonus) > total_value`, identical for every leg. A bad
 /// debt close therefore clamps all legs at once and charges no fee anywhere,
 /// whatever each leg's fee rate is.
 #[test]
@@ -2418,15 +2529,15 @@ fn a_bad_debt_close_clamps_every_leg_and_charges_no_fee_on_any_of_them() {
     assert_eq!(second.protocol_fee, 0, "no realised excess on a bad debt");
 }
 
-/// Because the clamp condition is leg-independent, a mixed clamp only exists
-/// inside the rounding noise at the exact boundary. Sitting there, two legs land
-/// on their whole position and the third lands one stroop short of it, and each
+/// Because the clamp condition is leg-independent, a mixed clamp exists only
+/// inside the rounding noise at the exact boundary. At that boundary, two legs land
+/// on their whole position and the third lands one stroop short of it. Each leg
 /// still charges its own rate on its own excess.
 #[test]
 fn at_the_clamp_boundary_legs_split_by_rounding_yet_keep_their_own_fee_rates() {
     let env = Env::default();
 
-    // $1090 of collateral against a $1000 repayment at a 9% bonus: the seizure
+    // $1090 of collateral against a $1000 repayment at a 9% bonus. The seizure
     // is worth exactly the collateral, and the shares do not divide evenly.
     let (assets, seized) = seize_legs(
         &env,
@@ -2477,7 +2588,7 @@ fn at_the_clamp_boundary_legs_split_by_rounding_yet_keep_their_own_fee_rates() {
 }
 
 /// With no bonus the repayment share is the seizure, so there is never an excess
-/// and never a fee -- whether or not the seizure clamps.
+/// and never a fee, whether or not the seizure clamps.
 #[test]
 fn a_zero_bonus_never_charges_a_protocol_fee() {
     let env = Env::default();
@@ -2505,7 +2616,7 @@ fn at_the_derived_max_bonus_the_fee_follows_the_realised_excess() {
     let max = max_bonus_for_threshold(&env, Wad::from(7_800 * WAD / 10_000));
     assert_eq!(max.raw(), 2_820, "ceiling derived from the 78% threshold");
 
-    // $1200 of collateral: the 28.2% bonus asks for $1282 and clamps.
+    // With $1200 of collateral, the 28.2% bonus asks for $1282 and clamps.
     let mut leg = LegSpec::mainnet_xlm(stroops(1_200));
     leg.bonus_bps = max.raw() as u32;
     let entry = single_leg(&env, leg, 1_000 * WAD, max.raw()).get_unchecked(0);
@@ -2532,7 +2643,7 @@ fn at_the_derived_max_bonus_the_fee_follows_the_realised_excess() {
 fn the_dust_fee_bump_never_exceeds_the_realised_excess() {
     let env = Env::default();
 
-    // One stroop of repayment against ample collateral: seizure is 1.09 stroops.
+    // With one stroop of repayment against ample collateral, the seizure is 1.09 stroops.
     let repay_stroops = 1i128;
     let entry = single_leg(
         &env,
@@ -2551,7 +2662,7 @@ fn the_dust_fee_bump_never_exceeds_the_realised_excess() {
 
 /// A fee rate just below 100% floors to a whole unit on its own, without the
 /// bump. An 11.9-stroop repayment share seizes 12.971 stroops, which floors to
-/// 12: less than one whole stroop is realised above the share, so the cap takes
+/// 12. Less than one whole stroop is realised above the share, so the cap takes
 /// the fee to zero.
 #[test]
 fn a_fee_rate_near_one_is_capped_at_the_realised_excess() {
@@ -2616,9 +2727,9 @@ fn an_eighteen_decimal_asset_at_a_non_unit_price_charges_within_the_realised_exc
     );
 }
 
-/// A repayment so small against so expensive an asset that the seizure rounds to
-/// zero: the leg is skipped outright rather than emitted with a zero amount,
-/// which `LiquidationPlan::validate` would reject.
+/// A repayment can be so small against so expensive an asset that the seizure rounds to
+/// zero. The plan skips the leg outright and does not emit it with a zero amount,
+/// because `LiquidationPlan::validate` would reject a zero amount.
 #[test]
 fn a_leg_whose_seizure_rounds_to_zero_is_skipped_entirely() {
     let env = Env::default();
@@ -2668,8 +2779,8 @@ fn a_sub_unit_leg_is_dropped_while_its_siblings_are_still_seized() {
 
 // --- the band and insolvent arm boundary ----------------------------------
 
-/// A cap of exactly zero is the solvent edge of the band: a partial is taken
-/// whole at a zero bonus, which leaves the collateral coverage unchanged.
+/// A cap of exactly zero is the solvent edge of the band. A partial is taken
+/// whole at a zero bonus, and the collateral coverage stays unchanged.
 #[test]
 fn a_zero_hf_preserving_cap_admits_a_partial_at_zero_bonus() {
     let env = Env::default();
@@ -2681,8 +2792,8 @@ fn a_zero_hf_preserving_cap_admits_a_partial_at_zero_bonus() {
 
         let s = snap(500 * WAD, 500 * WAD, 400 * WAD, 8 * WAD / 10, 8 * WAD / 10);
         assert_eq!(
-            max_hf_preserving_bonus_bps(&s),
-            Some(0),
+            max_hf_preserving_bonus_bps(&env, &s),
+            Some(HfPreservingBonusCap::NonNegative(Bps::ZERO)),
             "fixture must sit exactly on the cap == 0 boundary"
         );
         let bounds = BonusBounds {
@@ -2701,8 +2812,8 @@ fn a_zero_hf_preserving_cap_admits_a_partial_at_zero_bonus() {
     });
 }
 
-/// One basis point below cover the account is insolvent: the base bonus is
-/// paid and the quote is the collateral backing.
+/// One basis point below cover, the account is insolvent. The base bonus is
+/// paid, and the quote is the collateral backing.
 #[test]
 fn a_one_bp_negative_cap_takes_the_insolvent_arm_at_the_base_bonus() {
     let env = Env::default();
@@ -2716,8 +2827,8 @@ fn a_one_bp_negative_cap_takes_the_insolvent_arm_at_the_base_bonus() {
         let debt = Wad::from(400 * WAD).div(&env, Wad::from(hf)).raw();
         let s = snap(debt, 500 * WAD, 400 * WAD, 8 * WAD / 10, hf);
         assert_eq!(
-            max_hf_preserving_bonus_bps(&s),
-            Some(-1),
+            max_hf_preserving_bonus_bps(&env, &s),
+            Some(HfPreservingBonusCap::BelowZero),
             "fixture must sit one bp below the cap == 0 boundary"
         );
         let bounds = BonusBounds {
@@ -2737,7 +2848,7 @@ fn a_one_bp_negative_cap_takes_the_insolvent_arm_at_the_base_bonus() {
 }
 
 /// Insolvency is `C < D`. At `C == D` the floored health factor sits one WAD
-/// unit below the half-up seizure proportion, so the cap rounds to `-1`; the
+/// unit below the half-up seizure proportion, so the cap rounds to `-1`. The
 /// covered account still takes the band quote with the cap clamped to zero, so
 /// a full close seizes exactly the collateral and leaves no debt to socialize.
 /// One raw WAD unit below cover the account takes the insolvent quote.
@@ -2768,8 +2879,14 @@ fn an_exactly_covered_account_quotes_the_full_debt_at_zero_bonus_not_the_insolve
             let covered = snap_at(collateral);
             let below_cover = snap_at(collateral + 1);
             assert_eq!(covered.proportion_seized.raw(), covered.hf.raw() + 1);
-            assert_eq!(max_hf_preserving_bonus_bps(&covered), Some(-1));
-            assert_eq!(max_hf_preserving_bonus_bps(&below_cover), Some(-1));
+            assert_eq!(
+                max_hf_preserving_bonus_bps(&env, &covered),
+                Some(HfPreservingBonusCap::BelowZero)
+            );
+            assert_eq!(
+                max_hf_preserving_bonus_bps(&env, &below_cover),
+                Some(HfPreservingBonusCap::BelowZero)
+            );
             let bounds_for = |s: &LiquidationSnapshot| BonusBounds {
                 base: Bps::from(500i128),
                 max: max_bonus_for_threshold(&env, s.proportion_seized),
@@ -2815,7 +2932,10 @@ fn an_exact_cover_with_zero_stamped_bonus_still_quotes_the_full_debt() {
             max: max_bonus_for_threshold(&env, s.proportion_seized),
         };
 
-        assert_eq!(max_hf_preserving_bonus_bps(&s), Some(0));
+        assert_eq!(
+            max_hf_preserving_bonus_bps(&env, &s),
+            Some(HfPreservingBonusCap::NonNegative(Bps::ZERO))
+        );
         assert_eq!(
             estimate_liquidation_amount(&env, &s, bounds, &curve),
             (Wad::from(collateral), Bps::from(0i128)),
@@ -2834,16 +2954,17 @@ fn an_exact_cover_with_zero_stamped_bonus_still_quotes_the_full_debt() {
 // it clears, so the liquidator absorbs under one debt unit per such leg. On the
 // collateral leg, per seized position:
 //
-//   1. `capped_ray.to_asset_floor(&env, decimals)` on a partial seizure  -> <= 1 unit
-//   2. the dust fee bump, `protocol_fee_ray > 0 && fee_asset == 0` -> <= 1 unit
+//   1. `capped_ray.to_asset_floor(&env, decimals)` on a partial seizure loses at most 1 unit
+//   2. the dust fee bump, `protocol_fee_ray > 0 && fee_asset == 0` adds at most 1 unit
 //
 // So `L_round = 2 units of collateral` per leg, plus one debt unit per leg
-// paid at its ceiling, is a worst-case bound, not a guaranteed loss. Seizure is pro-rata across every collateral the account holds,
-// so `L_round` scales with the leg count.
+// paid at its ceiling, is a worst-case bound and not a guaranteed loss. Seizure is
+// pro-rata across every collateral the account holds, so `L_round` scales with the
+// leg count.
 //
 // See `docs/reference/formulas.md#liquidation-sizing-and-fees`
 
-/// The debt-leg half of that claim: a full close pays `ceil(debt)` asset units,
+/// The debt-leg half of that claim. A full close pays `ceil(debt)` asset units,
 /// but `RepayEntry::usd_wad` is the floor value of the debt cleared, so the
 /// rounded-up fraction buys no collateral. A later sub-unit trim keeps the
 /// amount at the ceiling and the credit at that floor value.
@@ -2857,8 +2978,8 @@ fn the_debt_legs_asset_unit_ceiling_is_not_credited() {
         asset: asset.clone(),
     };
 
-    // A zero-decimal debt worth exactly 1.5 tokens: the exact value is 1.5 WAD,
-    // the closeable amount is 2 units.
+    // The debt has zero decimals and is worth exactly 1.5 tokens. The exact value is
+    // 1.5 WAD, and the closeable amount is 2 units.
     let mut borrow_positions = Map::new(&env);
     borrow_positions.set(
         hub_asset.clone(),
@@ -2924,7 +3045,7 @@ fn the_debt_legs_asset_unit_ceiling_is_not_credited() {
 
 /// A collateral fixture with the decimals, bonus, fee and `max_sanity_price_wad`
 /// of one `configs/mainnet` listing, and a selected USD price. The fixtures are
-/// a sample of the listings, not all of them; the selected price is not a live
+/// a sample of the listings, not all of them. The selected price is not a live
 /// quote.
 #[derive(Clone, Copy)]
 struct ListedCollateral {
@@ -3003,12 +3124,12 @@ fn unit_value_usd_wad(c: &ListedCollateral) -> i128 {
     c.price_wad / 10i128.pow(c.decimals)
 }
 
-/// `L_round` for one seized leg: the seizure floor plus the dust fee bump.
+/// `L_round` for one seized leg. It is the seizure floor plus the dust fee bump.
 fn rounding_loss_usd_wad(c: &ListedCollateral) -> i128 {
     2 * unit_value_usd_wad(c)
 }
 
-/// `V* = L_round / (b * (1 - f))` in WAD USD: the repayment below which the
+/// `V* = L_round / (b * (1 - f))` in WAD USD. It is the repayment below which the
 /// bonus cannot cover the rounding, for `legs` seized collateral positions.
 fn unprofitable_below_usd_wad(c: &ListedCollateral, legs: i128) -> i128 {
     let numerator = rounding_loss_usd_wad(c) * legs * BPS_DENOM * BPS_DENOM;
@@ -3017,10 +3138,10 @@ fn unprofitable_below_usd_wad(c: &ListedCollateral, legs: i128) -> i128 {
 }
 
 /// The closed form, evaluated against the configured floor rather than a
-/// liquidation, at each fixture's `max_sanity_price_wad`: the unit value, and so
-/// the threshold, is largest there. `MinBorrowCollateralUsd` gates every borrow,
-/// and `BAD_DEBT_USD_THRESHOLD` promotes anything smaller to a full close or to
-/// permissionless socialization, so the floor is the smallest position a
+/// liquidation, at each fixture's `max_sanity_price_wad`. The unit value, and so
+/// the threshold, is largest there. `MinBorrowCollateralUsd` gates every borrow.
+/// `BAD_DEBT_USD_THRESHOLD` promotes anything smaller to a full close or to
+/// permissionless socialization. The floor is therefore the smallest position that a
 /// liquidator is ever asked to clear at a profit.
 #[test]
 fn the_min_borrow_collateral_floor_clears_the_unprofitability_threshold_at_each_max_price() {
@@ -3048,7 +3169,7 @@ fn the_min_borrow_collateral_floor_clears_the_unprofitability_threshold_at_each_
             threshold,
             floor,
         );
-        // At least a 10x margin: the tightest fixture, SolvBTC at 8 decimals
+        // At least a 10x margin. The tightest fixture, SolvBTC at 8 decimals
         // and $300k, leaves about 13x.
         assert!(
             threshold * 10 < floor,
@@ -3081,8 +3202,8 @@ fn a_floor_sized_liquidation_pays_the_liquidator_for_each_collateral_fixture() {
     });
     for c in priced {
         let c = &c;
-        // Ample collateral: the seizure must not clamp, or the floor site and
-        // the fee bump never fire.
+        // Collateral is ample. The seizure must not clamp. Otherwise the floor site
+        // and the fee bump never fire.
         let collateral_units = Wad::from(10_000 * WAD)
             .div(&env, Wad::from(c.price_wad))
             .to_token(&env, c.decimals);
@@ -3179,12 +3300,12 @@ fn floor_sized_liquidation_profits_match_the_documented_table() {
 /// Nothing bounds an asset's *unit* value. `MIN_BORROWABLE_ASSET_DECIMALS` is
 /// 3 and `validate_sanity_bounds` accepts a price up to
 /// `MAX_REASONABLE_PRICE_WAD` ($1e9 per whole token), so one base unit may be
-/// worth $1,000,000: two hundred thousand times the entire borrow floor. At that
+/// worth $1,000,000. That is two hundred thousand times the entire borrow floor. At that
 /// granularity a floor-sized liquidation seizes *nothing*. The whole seizure
 /// floors to zero units and the leg is dropped, while the repayment still
 /// settles and the debt is still burned.
 ///
-/// This is a listing-admission constraint, not a code defect: no asset in
+/// This is a listing-admission constraint and not a code defect. No asset in
 /// `configs/mainnet` is within four orders of magnitude of it. The condition
 /// governance must check before listing a collateral is
 /// `unit_value <= MinBorrowCollateralUsd * b * (1 - f) / (2 * legs)`.
@@ -3289,8 +3410,8 @@ fn the_profitability_boundary_at_three_decimals_sits_between_198_and_496_dollars
 // unchanged, so the next slice is not paid more.
 //
 // The chain below runs the production plan path in `build_liquidation_plan`'s
-// own order -- risk totals, seizure proportions, `normalize_repayment_plan`,
-// `calculate_seized_collateral` -- and feeds each step's seizure and repayment
+// own order: risk totals, seizure proportions, `normalize_repayment_plan` and
+// `calculate_seized_collateral`. It feeds each step's seizure and repayment
 // back into the book before the next step.
 
 /// Liquidation threshold of the single collateral leg. Because the account
@@ -3298,8 +3419,8 @@ fn the_profitability_boundary_at_three_decimals_sits_between_198_and_496_dollars
 const SPLIT_LT_BPS: u32 = 8_000;
 /// The leg's configured liquidation bonus, so `BonusBounds::base` is this.
 const SPLIT_BONUS_BPS: u32 = 500;
-/// Collateral in the splitting book: $1,125 against $1,000 of debt puts the
-/// health factor at 0.9 and keeps it there under an HF-preserving seizure.
+/// The collateral in the splitting book is $1,125. Against $1,000 of debt, it puts the
+/// health factor at 0.9 and keeps it there under a health-factor-preserving seizure.
 const SPLIT_COLLATERAL_TOKENS: i128 = 1_125;
 /// Debt in the splitting book.
 const SPLIT_DEBT_TOKENS: i128 = 1_000;
@@ -3436,7 +3557,9 @@ fn the_splitting_book_is_where_the_curve_out_asks_the_hf_preserving_cap() {
         WAD * i128::from(SPLIT_LT_BPS) / 10_000,
         9 * WAD / 10,
     );
-    let cap = max_hf_preserving_bonus_bps(&s).expect("cap exists below one WAD");
+    let cap = clamped_hf_preserving_bonus_bps(&env, &s)
+        .expect("cap exists below one WAD")
+        .raw();
     let max = max_bonus_for_threshold(&env, s.proportion_seized);
     let curve = LiquidationCurve::from_config(&default_spoke_config());
     let curve_bonus = calculate_linear_bonus_with_target(
@@ -3499,7 +3622,7 @@ fn a_chain_of_partial_liquidations_never_out_extracts_one_summed_close() {
         "the single close must take the same repayment as the chain"
     );
 
-    // One unit of floor-rounding slack per step, nothing more.
+    // Allow one unit of floor-rounding slack per step and no more.
     let tolerance = SLICES;
     assert!(
         chain_seized <= single.seized + tolerance,
@@ -3516,9 +3639,9 @@ fn a_chain_of_partial_liquidations_never_out_extracts_one_summed_close() {
     );
 }
 
-/// The never-recovering path: the account stays liquidatable for the whole
-/// chain, and the clamp holds its health factor flat instead of letting each
-/// slice ratchet it down. Eight slices, so the ratchet has room to compound.
+/// This test covers the never-recovering path. The account stays liquidatable for the
+/// whole chain, and the clamp holds its health factor flat. Without the clamp, each
+/// slice would lower the health factor. Eight slices give the decline room to compound.
 #[test]
 fn a_never_recovering_position_holds_its_health_factor_across_a_long_chain() {
     let env = Env::default();
@@ -3572,9 +3695,9 @@ fn a_never_recovering_position_holds_its_health_factor_across_a_long_chain() {
     );
 }
 
-/// Partials inside the band `D <= C < D * (1 + base)` pay the HF-preserving
-/// cap, so each slice seizes `repaid * C / D` rounded in the protocol's favour:
-/// the collateral coverage never falls and drifts up by less than one bps.
+/// Partials inside the band `D <= C < D * (1 + base)` pay the health-factor-preserving
+/// cap, so each slice seizes `repaid * C / D` rounded in the protocol's favour.
+/// The collateral coverage never falls and drifts up by less than one bps.
 #[test]
 fn band_partials_never_lower_the_collateral_coverage() {
     let env = Env::default();

@@ -1,5 +1,5 @@
-//! Raw `i128` arithmetic primitives behind the fixed-point newtypes in
-//! [`super::fp`]: overflow-safe `x * y / d` with half-up, floor and ceiling
+//! Raw `i128` arithmetic functions behind the fixed-point newtypes in
+//! [`super::fp`]: overflow-safe `x * y / d` with half-up, floor, and ceiling
 //! rounding, plus rescaling between decimal precisions.
 //!
 //! Every multiply-divide first attempts the whole computation in `i128` and
@@ -21,8 +21,8 @@ pub(super) fn to_i256_operands(env: &Env, x: i128, y: i128, d: i128) -> (I256, I
 }
 
 /// Panics with `GenericError::DivisionByZero` if `d` is zero. Every panicking
-/// multiply-divide calls this first so a zero denominator surfaces as a
-/// protocol error rather than as an untyped host arithmetic trap.
+/// multiply-divide calls this first so a zero denominator panics with a
+/// protocol error rather than an untyped host arithmetic trap.
 fn require_nonzero_divisor(env: &Env, d: i128) {
     if d == 0 {
         panic_with_error!(env, GenericError::DivisionByZero);
@@ -101,13 +101,13 @@ pub(super) fn quotient_is_nonnegative(x: i128, y: i128, d: i128) -> bool {
     !quotient_is_negative(x, y, d)
 }
 
-/// Computes `x * y / d` rounded half up. Requires `x >= 0`, `y >= 0`, and `d > 0`; a
-/// `debug_assert` checks this in debug builds. Panics with `GenericError::DivisionByZero` if
-/// `d == 0`, and with `GenericError::MathOverflow` if any other precondition is violated or if
-/// the result does not fit in `i128`.
+/// Computes `x * y / d` rounded half up. Requires `x >= 0`, `y >= 0`, and `d > 0`. A
+/// `debug_assert` checks these conditions in debug builds. Panics with
+/// `GenericError::DivisionByZero` if `d == 0`, and with `GenericError::MathOverflow` if any
+/// other precondition is violated or if the result does not fit in `i128`.
 pub fn mul_div_half_up(env: &Env, x: i128, y: i128, d: i128) -> i128 {
     // The zero check runs first so debug and release builds agree on a zero
-    // divisor: both surface `DivisionByZero` rather than tripping the assert.
+    // divisor. Both panic with `DivisionByZero` rather than tripping the assert.
     require_nonzero_divisor(env, d);
     debug_assert!(
         x >= 0 && y >= 0 && d > 0,
@@ -125,7 +125,7 @@ pub fn try_mul_div_half_up(env: &Env, x: i128, y: i128, d: i128) -> Option<i128>
     }
     let half = d / 2;
 
-    // Fast path: the biased product fits `i128`, so the whole computation is
+    // On this fast path the biased product fits `i128`, so the whole computation is
     // native. `x * y + half` is non-negative here, so `/` is the floor the
     // widened path would produce.
     if let Some(biased) = x
@@ -156,6 +156,42 @@ pub fn mul_div_floor(env: &Env, x: i128, y: i128, d: i128) -> i128 {
     let (x256, y256, d256) = to_i256_operands(env, x, y, d);
     let nonneg = quotient_is_nonnegative(x, y, d);
     to_i128(env, &div_floor_i256(env, &x256.mul(&y256), &d256, nonneg))
+}
+
+/// Computes `(x * y + carry) / d` and its remainder for non-negative inputs.
+///
+/// The quotient and remainder are exact even when the multiply-add requires a
+/// widened intermediate. The remainder is always in `[0, d)`. Panics with
+/// `GenericError::DivisionByZero` when `d == 0`, or with
+/// `GenericError::MathOverflow` when an input is negative, `d < 0`, or the
+/// quotient cannot be represented as `i128`.
+pub(crate) fn mul_add_div_rem_nonnegative(
+    env: &Env,
+    x: i128,
+    y: i128,
+    carry: i128,
+    d: i128,
+) -> (i128, i128) {
+    require_nonzero_divisor(env, d);
+    if x < 0 || y < 0 || carry < 0 || d < 0 {
+        panic_with_error!(env, GenericError::MathOverflow);
+    }
+
+    if let Some(numerator) = x
+        .checked_mul(y)
+        .and_then(|product| product.checked_add(carry))
+    {
+        return (numerator / d, numerator % d);
+    }
+
+    let numerator = I256::from_i128(env, x)
+        .mul(&I256::from_i128(env, y))
+        .add(&I256::from_i128(env, carry));
+    let divisor = I256::from_i128(env, d);
+    (
+        to_i128(env, &numerator.div(&divisor)),
+        to_i128(env, &numerator.rem_euclid(&divisor)),
+    )
 }
 
 /// Computes `ceil(x * y / d)`, rounding toward positive infinity for a positive quotient and
@@ -202,7 +238,7 @@ pub fn mul_div_floor_saturating(env: &Env, x: i128, y: i128, d: i128) -> i128 {
 
 /// Rescales `a` from `from_decimals` to `to_decimals`. Upscaling multiplies by the exact
 /// power-of-ten factor. Downscaling returns `round_down(a, factor)`, where `factor` is `None`
-/// when the power of ten overflows `i128`; every `|a|` is then below that power. Returns `a`
+/// when the power of ten overflows `i128`. Every `|a|` is then below that power. Returns `a`
 /// unchanged when the decimal counts are equal. Panics with `GenericError::MathOverflow` if the
 /// upscaling factor or the upscaled value overflows `i128`.
 fn rescale(
@@ -227,7 +263,7 @@ fn rescale(
 }
 
 /// Rescales `a` from `from_decimals` to `to_decimals`. Upscaling multiplies by the exact
-/// power-of-ten factor; downscaling rounds to the nearest representable value, with exact
+/// power-of-ten factor. Downscaling rounds to the nearest representable value, with exact
 /// halves rounding away from zero. Returns `a` unchanged when the decimal counts are equal.
 /// Downscaling supports every `i128` input. Panics with `GenericError::MathOverflow` if the
 /// upscaling factor or the upscaled value overflows `i128`.
@@ -240,7 +276,7 @@ pub fn rescale_half_up(env: &Env, a: i128, from_decimals: u32, to_decimals: u32)
 }
 
 /// Rescales `a` from `from_decimals` to `to_decimals`. Upscaling multiplies by the exact
-/// power-of-ten factor; downscaling truncates the quotient toward zero. Returns `a` unchanged
+/// power-of-ten factor. Downscaling truncates the quotient toward zero. Returns `a` unchanged
 /// when the decimal counts are equal. Panics with `GenericError::MathOverflow` if the upscaling
 /// factor or the upscaled value overflows `i128`.
 pub(crate) fn rescale_floor(env: &Env, a: i128, from_decimals: u32, to_decimals: u32) -> i128 {
@@ -253,13 +289,13 @@ pub(crate) fn rescale_floor(env: &Env, a: i128, from_decimals: u32, to_decimals:
 
 /// Rescales `a` from `from_decimals` to `to_decimals`. Upscaling multiplies by the exact
 /// power-of-ten factor. Downscaling truncates the quotient toward zero and, for a non-negative
-/// `a` with a nonzero remainder, adds 1 to round up; a negative `a` is truncated toward zero
+/// `a` with a nonzero remainder, adds 1 to round up. A negative `a` is truncated toward zero
 /// without rounding up. Returns `a` unchanged when the decimal counts are equal. Panics with
 /// `GenericError::MathOverflow` if the upscaling factor or the upscaled value overflows `i128`.
 pub(crate) fn rescale_ceil(env: &Env, a: i128, from_decimals: u32, to_decimals: u32) -> i128 {
     rescale(env, a, from_decimals, to_decimals, |a, factor| {
-        // `|a|` is below any factor that overflows `i128`: a positive `a` rounds
-        // up to 1, anything else truncates to 0.
+        // `|a|` is below any factor that overflows `i128`. A positive `a` rounds
+        // up to 1, and anything else truncates to 0.
         let Some(factor) = factor else {
             return i128::from(a > 0);
         };

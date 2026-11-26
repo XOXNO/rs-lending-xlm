@@ -33,6 +33,10 @@ fn snap(
     }
 }
 
+fn clamped_hf_preserving_bonus_bps(env: &Env, snap: &LiquidationSnapshot) -> Option<Bps> {
+    max_hf_preserving_bonus_bps(env, snap).map(HfPreservingBonusCap::clamped)
+}
+
 #[test]
 fn bad_debt_threshold_is_five_usd_wad() {
     assert_eq!(BAD_DEBT_USD_THRESHOLD, 5_000_000_000_000_000_000);
@@ -280,14 +284,18 @@ fn max_bonus_for_threshold_is_exact_at_half() {
 
 #[test]
 fn max_hf_preserving_bonus_none_on_each_no_cap_condition() {
+    let env = Env::default();
     let healthy = snap(50 * WAD, 200 * WAD, 100 * WAD, WAD / 2, 2 * WAD);
-    assert_eq!(max_hf_preserving_bonus_bps(&healthy), None);
+    assert_eq!(max_hf_preserving_bonus_bps(&env, &healthy), None);
 
     let no_seizable = snap(90 * WAD, 100 * WAD, 0, 0, WAD / 2);
-    assert_eq!(max_hf_preserving_bonus_bps(&no_seizable), None);
+    assert_eq!(max_hf_preserving_bonus_bps(&env, &no_seizable), None);
 
     let toxic = snap(90 * WAD, 100 * WAD, 45 * WAD, 45 * WAD / 100, WAD / 2);
-    assert_eq!(max_hf_preserving_bonus_bps(&toxic), Some(1_111));
+    assert_eq!(
+        clamped_hf_preserving_bonus_bps(&env, &toxic),
+        Some(Bps::from(1_111))
+    );
 }
 
 #[test]
@@ -324,7 +332,10 @@ fn estimate_band_quotes_the_full_debt_at_the_hf_preserving_cap() {
         90 * WAD / 100,
         927 * WAD / 1000,
     );
-    assert_eq!(max_hf_preserving_bonus_bps(&s), Some(300));
+    assert_eq!(
+        clamped_hf_preserving_bonus_bps(&env, &s),
+        Some(Bps::from(300))
+    );
     let bounds = BonusBounds {
         base: Bps::from(500i128),
         max: max_bonus_for_threshold(&env, s.proportion_seized),
@@ -350,7 +361,10 @@ fn cap_equal_to_base_bonus_keeps_a_solvent_quote_collateral_backed() {
         9 * WAD / 10,
         945 * WAD / 1000,
     );
-    assert_eq!(max_hf_preserving_bonus_bps(&s), Some(500));
+    assert_eq!(
+        clamped_hf_preserving_bonus_bps(&env, &s),
+        Some(Bps::from(500i128))
+    );
     let bounds = BonusBounds {
         base: Bps::from(500i128),
         max: max_bonus_for_threshold(&env, s.proportion_seized),
@@ -711,6 +725,7 @@ fn grid_snap(collateral: i128, p_pct: i128, hf_pct: i128) -> Option<LiquidationS
 
 #[test]
 fn hf_preserving_cap_equals_collateral_over_debt_ratio() {
+    let env = Env::default();
     let collateral = 100 * WAD;
     let mut checked = 0;
 
@@ -719,22 +734,24 @@ fn hf_preserving_cap_equals_collateral_over_debt_ratio() {
             let Some(s) = grid_snap(collateral, p_pct, hf_pct) else {
                 continue;
             };
-            let Some(cap) = max_hf_preserving_bonus_bps(&s) else {
+            let Some(cap) = max_hf_preserving_bonus_bps(&env, &s) else {
                 continue;
             };
 
             let want = 10_000i128 * s.total_collateral.raw() / s.total_debt.raw() - 10_000;
-            assert!(
-                (cap - want).abs() <= 1,
-                "cap {cap} != BPS*(V/D-1) {want} at p={p_pct}% hf={hf_pct}%"
-            );
-
-            let insolvent = s.total_collateral.raw() < s.total_debt.raw();
+            let insolvent = s.total_collateral < s.total_debt;
             assert_eq!(
-                cap < 0,
+                matches!(cap, HfPreservingBonusCap::BelowZero),
                 insolvent,
-                "cap sign disagrees with solvency at p={p_pct}% hf={hf_pct}% (cap={cap})"
+                "BelowZero must hold exactly when the account is insolvent at p={p_pct}% hf={hf_pct}%"
             );
+            if let HfPreservingBonusCap::NonNegative(bps) = cap {
+                assert!(
+                    (bps.raw() - want).abs() <= 1,
+                    "cap {} != BPS*(V/D-1) {want} at p={p_pct}% hf={hf_pct}%",
+                    bps.raw()
+                );
+            }
             checked += 1;
         }
     }
@@ -776,8 +793,9 @@ fn returned_bonus_never_exceeds_the_hf_preserving_cap_on_a_solvent_account() {
                 max: max_bonus_for_threshold(&env, s.proportion_seized),
             };
             let (ideal, bonus) = estimate_liquidation_amount(&env, &s, bounds, &curve);
-            let cap = max_hf_preserving_bonus_bps(&s)
-                .expect("hf < 1 and p > 0 on this grid, so a cap must exist");
+            let cap = clamped_hf_preserving_bonus_bps(&env, &s)
+                .expect("hf < 1 and p > 0 on this grid, so a cap must exist")
+                .raw();
             if s.total_collateral < s.total_debt {
                 continue;
             }
@@ -816,7 +834,9 @@ fn below_base_caps_quote_the_full_debt_when_solvent_and_the_backed_repayment_whe
                 max: max_bonus_for_threshold(&env, s.proportion_seized),
             };
             let (ideal, bonus) = estimate_liquidation_amount(&env, &s, bounds, &curve);
-            let cap = max_hf_preserving_bonus_bps(&s).expect("cap exists on this grid");
+            let cap = clamped_hf_preserving_bonus_bps(&env, &s)
+                .expect("cap exists on this grid")
+                .raw();
 
             if s.total_collateral < s.total_debt {
                 insolvent += 1;
@@ -866,7 +886,9 @@ fn no_solvent_liquidation_reduces_health_factor() {
                 base: Bps::from(500i128),
                 max: max_bonus_for_threshold(&env, s.proportion_seized),
             };
-            let cap = max_hf_preserving_bonus_bps(&s).expect("cap exists on this grid");
+            let cap = clamped_hf_preserving_bonus_bps(&env, &s)
+                .expect("cap exists on this grid")
+                .raw();
             if s.total_collateral < s.total_debt {
                 continue;
             }
@@ -961,7 +983,9 @@ fn full_close_escalation_causes() {
             if ideal.raw() < s.total_debt.raw() {
                 continue;
             }
-            let cap = max_hf_preserving_bonus_bps(&s).expect("cap exists on this grid");
+            let cap = clamped_hf_preserving_bonus_bps(&env, &s)
+                .expect("cap exists on this grid")
+                .raw();
 
             if cap < base.raw() {
                 cap_below_base += 1;
@@ -1140,7 +1164,9 @@ fn hf_neutral_bonus_leaves_health_factor_invariant() {
                 max: max_bonus_for_threshold(&env, s.proportion_seized),
             };
             let (_ideal, bonus) = estimate_liquidation_amount(&env, &s, bounds, &curve);
-            let cap = max_hf_preserving_bonus_bps(&s).expect("cap exists on this grid");
+            let cap = clamped_hf_preserving_bonus_bps(&env, &s)
+                .expect("cap exists on this grid")
+                .raw();
 
             let scaled = calculate_linear_bonus_with_target(
                 &env,
@@ -1167,8 +1193,8 @@ fn hf_neutral_bonus_leaves_health_factor_invariant() {
                 }
                 let post = calculate_post_liquidation_hf(&env, &s, repay, bonus);
 
-                // Exactly one raw WAD unit of slack: the post-liquidation health
-                // factor rounds down.
+                // The slack is exactly one raw WAD unit, because the post-liquidation
+                // health factor rounds down.
                 assert!(
                     post.raw() + 1 >= s.hf.raw(),
                     "hf fell at the neutral rate: p={p_pct}% hf={hf_pct}% repay={}: {} -> {}",
@@ -1195,7 +1221,7 @@ fn hf_neutral_bonus_leaves_health_factor_invariant() {
     assert!(checked > 0, "grid never reached the neutral-rate arm");
 }
 
-/// Pins the arithmetic of the neutral rate only; this is not anti-splitting coverage.
+/// Pins the arithmetic of the neutral rate only. This test is not anti-splitting coverage.
 ///
 /// The test drives a local arithmetic model from `max_hf_preserving_bonus_bps`. It never
 /// calls `estimate_liquidation_amount`, so it passes without the runtime bonus clamp.
@@ -1212,7 +1238,9 @@ fn neutral_rate_slicing_arithmetic_is_additive_model_only_not_the_clamp() {
         800_000_000_000_000_000,
         888_888_888_888_888_888,
     );
-    let cap = max_hf_preserving_bonus_bps(&start).expect("cap exists");
+    let cap = clamped_hf_preserving_bonus_bps(&env, &start)
+        .expect("cap exists")
+        .raw();
     assert!(
         cap > 0,
         "fixture must be solvent so the neutral rate is positive"
@@ -1227,7 +1255,9 @@ fn neutral_rate_slicing_arithmetic_is_additive_model_only_not_the_clamp() {
         let per_slice = start.total_debt.raw() / slices;
 
         for _ in 0..slices {
-            let step_cap = max_hf_preserving_bonus_bps(&s).expect("cap exists mid-slice");
+            let step_cap = clamped_hf_preserving_bonus_bps(&env, &s)
+                .expect("cap exists mid-slice")
+                .raw();
             assert!(
                 (step_cap - cap).abs() <= 2,
                 "neutral rate drifted across slices: {cap} -> {step_cap}"
@@ -1249,8 +1279,8 @@ fn neutral_rate_slicing_arithmetic_is_additive_model_only_not_the_clamp() {
 
 // --- zero liquidation threshold ------------------------------------------
 //
-// Guards the failure shape where a threshold set to zero makes positions unliquidatable
-// because seizure requires a non-zero factor. Seizure here is pro-rata over the whole
+// Guards against one failure. A threshold set to zero would make positions unliquidatable
+// if seizure required a non-zero factor. Seizure here is pro-rata over the whole
 // collateral set and reads no per-asset factor, so a zeroed threshold reaches the curve
 // only as `proportion_seized == 0` and `weighted_collateral == 0`. The tests below pin that
 // the curve prices that account at a zero bonus and stays solvable: no division by zero,
@@ -1324,7 +1354,7 @@ fn zero_liquidation_threshold_keeps_the_target_solver_solvable() {
 fn zero_liquidation_threshold_takes_neither_below_base_arm() {
     for (debt, collateral) in [(90 * WAD, 100 * WAD), (200 * WAD, 100 * WAD), (1, 1)] {
         assert_eq!(
-            max_hf_preserving_bonus_bps(&zero_threshold_snap(debt, collateral)),
+            max_hf_preserving_bonus_bps(&Env::default(), &zero_threshold_snap(debt, collateral)),
             None,
             "a zero seized proportion must yield no cap at debt={debt}"
         );
@@ -1408,7 +1438,10 @@ fn bonus_above_the_neutral_rate_ratchets_coverage_down() {
         800_000_000_000_000_000,
         833_333_333_333_333_333,
     );
-    let cap = max_hf_preserving_bonus_bps(&s).expect("cap exists");
+    let env = Env::default();
+    let cap = clamped_hf_preserving_bonus_bps(&env, &s)
+        .expect("cap exists")
+        .raw();
     let base = 500i128;
     assert!(
         (0..base).contains(&cap),
@@ -1428,8 +1461,8 @@ fn bonus_above_the_neutral_rate_ratchets_coverage_down() {
 }
 
 /// Pins the residual-debt promotion in `estimate_liquidation_amount` at
-/// `BAD_DEBT_USD_THRESHOLD - 1`, `BAD_DEBT_USD_THRESHOLD` and
-/// `BAD_DEBT_USD_THRESHOLD + 1`: only a residual below the threshold becomes a
+/// `BAD_DEBT_USD_THRESHOLD - 1`, `BAD_DEBT_USD_THRESHOLD`, and
+/// `BAD_DEBT_USD_THRESHOLD + 1`. Only a residual below the threshold becomes a
 /// full close.
 ///
 /// At a zero seized proportion the plan closes `min(collateral, debt)`, so

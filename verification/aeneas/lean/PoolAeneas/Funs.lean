@@ -486,13 +486,13 @@ def math.fp.Ray.div
   ok i
 
 /-- [pool_aeneas::math::fp_core::to_i128::{impl core::ops::function::FnOnce<(), i128> for pool_aeneas::math::fp_core::to_i128::{closure}<'_0, '_1>}::call_once]:
-    Source: 'src/../../../../common/src/math/fp_core.rs', lines 302:24-302:77 -/
+    Source: 'src/../../../../common/src/math/fp_core.rs', lines 338:24-338:77 -/
 def math.fp_core.to_i128.closure.Insts.CoreOpsFunctionFnOnceTupleI128.call_once
   (c : math.fp_core.to_i128.closure) (_ : Unit) : Result Std.I128 := do
   fail panic
 
 /-- Trait implementation: [pool_aeneas::math::fp_core::to_i128::{impl core::ops::function::FnOnce<(), i128> for pool_aeneas::math::fp_core::to_i128::{closure}<'_0, '_1>}]
-    Source: 'src/../../../../common/src/math/fp_core.rs', lines 302:24-302:77 -/
+    Source: 'src/../../../../common/src/math/fp_core.rs', lines 338:24-338:77 -/
 @[reducible]
 def math.fp_core.to_i128.closure.Insts.CoreOpsFunctionFnOnceTupleI128 :
   core.ops.function.FnOnce math.fp_core.to_i128.closure Unit Std.I128 := {
@@ -501,7 +501,7 @@ def math.fp_core.to_i128.closure.Insts.CoreOpsFunctionFnOnceTupleI128 :
 }
 
 /-- [pool_aeneas::math::fp_core::to_i128]:
-    Source: 'src/../../../../common/src/math/fp_core.rs', lines 300:0-303:1 -/
+    Source: 'src/../../../../common/src/math/fp_core.rs', lines 336:0-339:1 -/
 def math.fp_core.to_i128
   (env : aeneas_pool_shim.Env) (val : aeneas_pool_shim.I256) :
   Result Std.I128
@@ -631,7 +631,7 @@ def math.fp.Ray.div_floor
   ok i
 
 /-- [pool_aeneas::math::fp_core::mul_div_floor_saturating::{impl core::ops::function::FnOnce<(i128,), core::option::Option<i128>> for pool_aeneas::math::fp_core::mul_div_floor_saturating::{closure}<'_0>}::call_once]:
-    Source: 'src/../../../../common/src/math/fp_core.rs', lines 184:18-184:54 -/
+    Source: 'src/../../../../common/src/math/fp_core.rs', lines 220:18-220:54 -/
 def
   math.fp_core.mul_div_floor_saturating.closure.Insts.CoreOpsFunctionFnOnceTupleI128OptionI128.call_once
   (c : math.fp_core.mul_div_floor_saturating.closure) (tupled_args : Std.I128)
@@ -641,7 +641,7 @@ def
   math.fp_core.div_floor_i128 tupled_args c
 
 /-- Trait implementation: [pool_aeneas::math::fp_core::mul_div_floor_saturating::{impl core::ops::function::FnOnce<(i128,), core::option::Option<i128>> for pool_aeneas::math::fp_core::mul_div_floor_saturating::{closure}<'_0>}]
-    Source: 'src/../../../../common/src/math/fp_core.rs', lines 184:18-184:54 -/
+    Source: 'src/../../../../common/src/math/fp_core.rs', lines 220:18-220:54 -/
 @[reducible]
 def
   math.fp_core.mul_div_floor_saturating.closure.Insts.CoreOpsFunctionFnOnceTupleI128OptionI128
@@ -652,7 +652,7 @@ def
 }
 
 /-- [pool_aeneas::math::fp_core::mul_div_floor_saturating]:
-    Source: 'src/../../../../common/src/math/fp_core.rs', lines 180:0-201:1
+    Source: 'src/../../../../common/src/math/fp_core.rs', lines 216:0-237:1
     Visibility: public -/
 def math.fp_core.mul_div_floor_saturating
   (env : aeneas_pool_shim.Env) (x : Std.I128) (y : Std.I128) (d : Std.I128) :
@@ -748,7 +748,7 @@ def math.fp_core.div_ceil_i128
       Std.I128 residual
 
 /-- [pool_aeneas::math::fp_core::mul_div_ceil::{impl core::ops::function::FnOnce<(i128,), core::option::Option<i128>> for pool_aeneas::math::fp_core::mul_div_ceil::{closure}<'_0>}::call_once]:
-    Source: 'src/../../../../common/src/math/fp_core.rs', lines 168:18-168:53 -/
+    Source: 'src/../../../../common/src/math/fp_core.rs', lines 204:18-204:53 -/
 def
   math.fp_core.mul_div_ceil.closure.Insts.CoreOpsFunctionFnOnceTupleI128OptionI128.call_once
   (c : math.fp_core.mul_div_ceil.closure) (tupled_args : Std.I128) :
@@ -757,7 +757,7 @@ def
   math.fp_core.div_ceil_i128 tupled_args c
 
 /-- Trait implementation: [pool_aeneas::math::fp_core::mul_div_ceil::{impl core::ops::function::FnOnce<(i128,), core::option::Option<i128>> for pool_aeneas::math::fp_core::mul_div_ceil::{closure}<'_0>}]
-    Source: 'src/../../../../common/src/math/fp_core.rs', lines 168:18-168:53 -/
+    Source: 'src/../../../../common/src/math/fp_core.rs', lines 204:18-204:53 -/
 @[reducible]
 def
   math.fp_core.mul_div_ceil.closure.Insts.CoreOpsFunctionFnOnceTupleI128OptionI128
@@ -802,7 +802,7 @@ def math.fp_core.div_ceil_i256
   else ok quotient
 
 /-- [pool_aeneas::math::fp_core::mul_div_ceil]:
-    Source: 'src/../../../../common/src/math/fp_core.rs', lines 164:0-175:1
+    Source: 'src/../../../../common/src/math/fp_core.rs', lines 200:0-211:1
     Visibility: public -/
 def math.fp_core.mul_div_ceil
   (env : aeneas_pool_shim.Env) (x : Std.I128) (y : Std.I128) (d : Std.I128) :
@@ -834,7 +834,7 @@ def math.fp.Ray.div_ceil
   ok i
 
 /-- [pool_aeneas::math::fp_core::div_by_int_half_up]:
-    Source: 'src/../../../../common/src/math/fp_core.rs', lines 279:0-296:1
+    Source: 'src/../../../../common/src/math/fp_core.rs', lines 315:0-332:1
     Visibility: public -/
 def math.fp_core.div_by_int_half_up
   (env : aeneas_pool_shim.Env) (a : Std.I128) (b : Std.I128) :
@@ -897,7 +897,7 @@ def math.fp.Ray.mul_ratio_ceil
   ok i
 
 /-- [pool_aeneas::math::fp_core::rescale_half_up::{impl core::ops::function::Fn<(i128, core::option::Option<i128>), i128> for pool_aeneas::math::fp_core::rescale_half_up::{closure}<'_0>}::call]:
-    Source: 'src/../../../../common/src/math/fp_core.rs', lines 235:48-239:5 -/
+    Source: 'src/../../../../common/src/math/fp_core.rs', lines 271:48-275:5 -/
 def
   math.fp_core.rescale_half_up.closure.Insts.CoreOpsFunctionFnPairI128OptionI128I128.call
   (c : math.fp_core.rescale_half_up.closure)
@@ -910,7 +910,7 @@ def
   | some factor1 => math.fp_core.div_by_int_half_up c a factor1
 
 /-- [pool_aeneas::math::fp_core::rescale_half_up::{impl core::ops::function::FnMut<(i128, core::option::Option<i128>), i128> for pool_aeneas::math::fp_core::rescale_half_up::{closure}<'_0>}::call_mut]:
-    Source: 'src/../../../../common/src/math/fp_core.rs', lines 235:48-239:5 -/
+    Source: 'src/../../../../common/src/math/fp_core.rs', lines 271:48-275:5 -/
 def
   math.fp_core.rescale_half_up.closure.Insts.CoreOpsFunctionFnMutPairI128OptionI128I128.call_mut
   (state : math.fp_core.rescale_half_up.closure)
@@ -923,7 +923,7 @@ def
   ok (i, state)
 
 /-- [pool_aeneas::math::fp_core::rescale_half_up::{impl core::ops::function::FnOnce<(i128, core::option::Option<i128>), i128> for pool_aeneas::math::fp_core::rescale_half_up::{closure}<'_0>}::call_once]:
-    Source: 'src/../../../../common/src/math/fp_core.rs', lines 235:48-239:5 -/
+    Source: 'src/../../../../common/src/math/fp_core.rs', lines 271:48-275:5 -/
 def
   math.fp_core.rescale_half_up.closure.Insts.CoreOpsFunctionFnOncePairI128OptionI128I128.call_once
   (c : math.fp_core.rescale_half_up.closure)
@@ -936,7 +936,7 @@ def
   ok i
 
 /-- Trait implementation: [pool_aeneas::math::fp_core::rescale_half_up::{impl core::ops::function::FnOnce<(i128, core::option::Option<i128>), i128> for pool_aeneas::math::fp_core::rescale_half_up::{closure}<'_0>}]
-    Source: 'src/../../../../common/src/math/fp_core.rs', lines 235:48-239:5 -/
+    Source: 'src/../../../../common/src/math/fp_core.rs', lines 271:48-275:5 -/
 @[reducible]
 def
   math.fp_core.rescale_half_up.closure.Insts.CoreOpsFunctionFnOncePairI128OptionI128I128
@@ -947,7 +947,7 @@ def
 }
 
 /-- Trait implementation: [pool_aeneas::math::fp_core::rescale_half_up::{impl core::ops::function::FnMut<(i128, core::option::Option<i128>), i128> for pool_aeneas::math::fp_core::rescale_half_up::{closure}<'_0>}]
-    Source: 'src/../../../../common/src/math/fp_core.rs', lines 235:48-239:5 -/
+    Source: 'src/../../../../common/src/math/fp_core.rs', lines 271:48-275:5 -/
 @[reducible]
 def
   math.fp_core.rescale_half_up.closure.Insts.CoreOpsFunctionFnMutPairI128OptionI128I128
@@ -960,7 +960,7 @@ def
 }
 
 /-- Trait implementation: [pool_aeneas::math::fp_core::rescale_half_up::{impl core::ops::function::Fn<(i128, core::option::Option<i128>), i128> for pool_aeneas::math::fp_core::rescale_half_up::{closure}<'_0>}]
-    Source: 'src/../../../../common/src/math/fp_core.rs', lines 235:48-239:5 -/
+    Source: 'src/../../../../common/src/math/fp_core.rs', lines 271:48-275:5 -/
 @[reducible]
 def
   math.fp_core.rescale_half_up.closure.Insts.CoreOpsFunctionFnPairI128OptionI128I128
@@ -973,7 +973,7 @@ def
 }
 
 /-- [pool_aeneas::math::fp_core::rescale::{impl core::ops::function::FnOnce<(), i128> for pool_aeneas::math::fp_core::rescale::{closure#1}<'_0, '_1, T0>}::call_once]:
-    Source: 'src/../../../../common/src/math/fp_core.rs', lines 223:28-223:81 -/
+    Source: 'src/../../../../common/src/math/fp_core.rs', lines 259:28-259:81 -/
 def
   math.fp_core.rescale.closure_1.Insts.CoreOpsFunctionFnOnceTupleI128.call_once
   {T0 : Type _} (coreopsfunctionFnT0PairI128OptionI128I128Inst :
@@ -984,7 +984,7 @@ def
   fail panic
 
 /-- Trait implementation: [pool_aeneas::math::fp_core::rescale::{impl core::ops::function::FnOnce<(), i128> for pool_aeneas::math::fp_core::rescale::{closure#1}<'_0, '_1, T0>}]
-    Source: 'src/../../../../common/src/math/fp_core.rs', lines 223:28-223:81 -/
+    Source: 'src/../../../../common/src/math/fp_core.rs', lines 259:28-259:81 -/
 @[reducible]
 def math.fp_core.rescale.closure_1.Insts.CoreOpsFunctionFnOnceTupleI128 {T0 :
   Type _} (coreopsfunctionFnT0PairI128OptionI128I128Inst : core.ops.function.Fn
@@ -996,7 +996,7 @@ def math.fp_core.rescale.closure_1.Insts.CoreOpsFunctionFnOnceTupleI128 {T0 :
 }
 
 /-- [pool_aeneas::math::fp_core::rescale::{impl core::ops::function::FnOnce<(i128,), core::option::Option<i128>> for pool_aeneas::math::fp_core::rescale::{closure}<'_0, T0>}::call_once]:
-    Source: 'src/../../../../common/src/math/fp_core.rs', lines 222:22-222:52 -/
+    Source: 'src/../../../../common/src/math/fp_core.rs', lines 258:22-258:52 -/
 def
   math.fp_core.rescale.closure.Insts.CoreOpsFunctionFnOnceTupleI128OptionI128.call_once
   {T0 : Type _} (coreopsfunctionFnT0PairI128OptionI128I128Inst :
@@ -1007,7 +1007,7 @@ def
   ok (I128.checked_mul c tupled_args)
 
 /-- Trait implementation: [pool_aeneas::math::fp_core::rescale::{impl core::ops::function::FnOnce<(i128,), core::option::Option<i128>> for pool_aeneas::math::fp_core::rescale::{closure}<'_0, T0>}]
-    Source: 'src/../../../../common/src/math/fp_core.rs', lines 222:22-222:52 -/
+    Source: 'src/../../../../common/src/math/fp_core.rs', lines 258:22-258:52 -/
 @[reducible]
 def math.fp_core.rescale.closure.Insts.CoreOpsFunctionFnOnceTupleI128OptionI128
   {T0 : Type _} (coreopsfunctionFnT0PairI128OptionI128I128Inst :
@@ -1020,7 +1020,7 @@ def math.fp_core.rescale.closure.Insts.CoreOpsFunctionFnOnceTupleI128OptionI128
 }
 
 /-- [pool_aeneas::math::fp_core::rescale]:
-    Source: 'src/../../../../common/src/math/fp_core.rs', lines 208:0-227:1 -/
+    Source: 'src/../../../../common/src/math/fp_core.rs', lines 244:0-263:1 -/
 def math.fp_core.rescale
   {T0 : Type _} (coreopsfunctionFnT0PairI128OptionI128I128Inst :
   core.ops.function.Fn T0 (Std.I128 × (Option Std.I128)) Std.I128)
@@ -1046,7 +1046,7 @@ def math.fp_core.rescale
       coreopsfunctionFnT0PairI128OptionI128I128Inst.call round_down (a, factor)
 
 /-- [pool_aeneas::math::fp_core::rescale_half_up]:
-    Source: 'src/../../../../common/src/math/fp_core.rs', lines 234:0-240:1
+    Source: 'src/../../../../common/src/math/fp_core.rs', lines 270:0-276:1
     Visibility: public -/
 def math.fp_core.rescale_half_up
   (env : aeneas_pool_shim.Env) (a : Std.I128) (from_decimals : Std.U32)
@@ -1069,7 +1069,7 @@ def math.fp.Ray.to_asset
     asset_decimals
 
 /-- [pool_aeneas::math::fp_core::rescale_floor::{impl core::ops::function::Fn<(i128, core::option::Option<i128>), i128> for pool_aeneas::math::fp_core::rescale_floor::{closure}}::call]:
-    Source: 'src/../../../../common/src/math/fp_core.rs', lines 247:48-251:5 -/
+    Source: 'src/../../../../common/src/math/fp_core.rs', lines 283:48-287:5 -/
 def
   math.fp_core.rescale_floor.closure.Insts.CoreOpsFunctionFnPairI128OptionI128I128.call
   (c : math.fp_core.rescale_floor.closure)
@@ -1082,7 +1082,7 @@ def
   | some factor1 => a / factor1
 
 /-- [pool_aeneas::math::fp_core::rescale_floor::{impl core::ops::function::FnMut<(i128, core::option::Option<i128>), i128> for pool_aeneas::math::fp_core::rescale_floor::{closure}}::call_mut]:
-    Source: 'src/../../../../common/src/math/fp_core.rs', lines 247:48-251:5 -/
+    Source: 'src/../../../../common/src/math/fp_core.rs', lines 283:48-287:5 -/
 def
   math.fp_core.rescale_floor.closure.Insts.CoreOpsFunctionFnMutPairI128OptionI128I128.call_mut
   (state : math.fp_core.rescale_floor.closure)
@@ -1095,7 +1095,7 @@ def
   ok (i, state)
 
 /-- [pool_aeneas::math::fp_core::rescale_floor::{impl core::ops::function::FnOnce<(i128, core::option::Option<i128>), i128> for pool_aeneas::math::fp_core::rescale_floor::{closure}}::call_once]:
-    Source: 'src/../../../../common/src/math/fp_core.rs', lines 247:48-251:5 -/
+    Source: 'src/../../../../common/src/math/fp_core.rs', lines 283:48-287:5 -/
 def
   math.fp_core.rescale_floor.closure.Insts.CoreOpsFunctionFnOncePairI128OptionI128I128.call_once
   (c : math.fp_core.rescale_floor.closure)
@@ -1108,7 +1108,7 @@ def
   ok i
 
 /-- Trait implementation: [pool_aeneas::math::fp_core::rescale_floor::{impl core::ops::function::FnOnce<(i128, core::option::Option<i128>), i128> for pool_aeneas::math::fp_core::rescale_floor::{closure}}]
-    Source: 'src/../../../../common/src/math/fp_core.rs', lines 247:48-251:5 -/
+    Source: 'src/../../../../common/src/math/fp_core.rs', lines 283:48-287:5 -/
 @[reducible]
 def
   math.fp_core.rescale_floor.closure.Insts.CoreOpsFunctionFnOncePairI128OptionI128I128
@@ -1119,7 +1119,7 @@ def
 }
 
 /-- Trait implementation: [pool_aeneas::math::fp_core::rescale_floor::{impl core::ops::function::FnMut<(i128, core::option::Option<i128>), i128> for pool_aeneas::math::fp_core::rescale_floor::{closure}}]
-    Source: 'src/../../../../common/src/math/fp_core.rs', lines 247:48-251:5 -/
+    Source: 'src/../../../../common/src/math/fp_core.rs', lines 283:48-287:5 -/
 @[reducible]
 def
   math.fp_core.rescale_floor.closure.Insts.CoreOpsFunctionFnMutPairI128OptionI128I128
@@ -1132,7 +1132,7 @@ def
 }
 
 /-- Trait implementation: [pool_aeneas::math::fp_core::rescale_floor::{impl core::ops::function::Fn<(i128, core::option::Option<i128>), i128> for pool_aeneas::math::fp_core::rescale_floor::{closure}}]
-    Source: 'src/../../../../common/src/math/fp_core.rs', lines 247:48-251:5 -/
+    Source: 'src/../../../../common/src/math/fp_core.rs', lines 283:48-287:5 -/
 @[reducible]
 def
   math.fp_core.rescale_floor.closure.Insts.CoreOpsFunctionFnPairI128OptionI128I128
@@ -1145,7 +1145,7 @@ def
 }
 
 /-- [pool_aeneas::math::fp_core::rescale_floor]:
-    Source: 'src/../../../../common/src/math/fp_core.rs', lines 246:0-252:1 -/
+    Source: 'src/../../../../common/src/math/fp_core.rs', lines 282:0-288:1 -/
 def math.fp_core.rescale_floor
   (env : aeneas_pool_shim.Env) (a : Std.I128) (from_decimals : Std.U32)
   (to_decimals : Std.U32) :
@@ -1167,7 +1167,7 @@ def math.fp.Ray.to_asset_floor
     asset_decimals
 
 /-- [pool_aeneas::math::fp_core::rescale_ceil::{impl core::ops::function::Fn<(i128, core::option::Option<i128>), i128> for pool_aeneas::math::fp_core::rescale_ceil::{closure}}::call]:
-    Source: 'src/../../../../common/src/math/fp_core.rs', lines 260:48-272:5 -/
+    Source: 'src/../../../../common/src/math/fp_core.rs', lines 296:48-308:5 -/
 def
   math.fp_core.rescale_ceil.closure.Insts.CoreOpsFunctionFnPairI128OptionI128I128.call
   (c : math.fp_core.rescale_ceil.closure)
@@ -1188,7 +1188,7 @@ def
     else ok quotient
 
 /-- [pool_aeneas::math::fp_core::rescale_ceil::{impl core::ops::function::FnMut<(i128, core::option::Option<i128>), i128> for pool_aeneas::math::fp_core::rescale_ceil::{closure}}::call_mut]:
-    Source: 'src/../../../../common/src/math/fp_core.rs', lines 260:48-272:5 -/
+    Source: 'src/../../../../common/src/math/fp_core.rs', lines 296:48-308:5 -/
 def
   math.fp_core.rescale_ceil.closure.Insts.CoreOpsFunctionFnMutPairI128OptionI128I128.call_mut
   (state : math.fp_core.rescale_ceil.closure)
@@ -1201,7 +1201,7 @@ def
   ok (i, state)
 
 /-- [pool_aeneas::math::fp_core::rescale_ceil::{impl core::ops::function::FnOnce<(i128, core::option::Option<i128>), i128> for pool_aeneas::math::fp_core::rescale_ceil::{closure}}::call_once]:
-    Source: 'src/../../../../common/src/math/fp_core.rs', lines 260:48-272:5 -/
+    Source: 'src/../../../../common/src/math/fp_core.rs', lines 296:48-308:5 -/
 def
   math.fp_core.rescale_ceil.closure.Insts.CoreOpsFunctionFnOncePairI128OptionI128I128.call_once
   (c : math.fp_core.rescale_ceil.closure) (p : (Std.I128 × (Option Std.I128)))
@@ -1214,7 +1214,7 @@ def
   ok i
 
 /-- Trait implementation: [pool_aeneas::math::fp_core::rescale_ceil::{impl core::ops::function::FnOnce<(i128, core::option::Option<i128>), i128> for pool_aeneas::math::fp_core::rescale_ceil::{closure}}]
-    Source: 'src/../../../../common/src/math/fp_core.rs', lines 260:48-272:5 -/
+    Source: 'src/../../../../common/src/math/fp_core.rs', lines 296:48-308:5 -/
 @[reducible]
 def
   math.fp_core.rescale_ceil.closure.Insts.CoreOpsFunctionFnOncePairI128OptionI128I128
@@ -1225,7 +1225,7 @@ def
 }
 
 /-- Trait implementation: [pool_aeneas::math::fp_core::rescale_ceil::{impl core::ops::function::FnMut<(i128, core::option::Option<i128>), i128> for pool_aeneas::math::fp_core::rescale_ceil::{closure}}]
-    Source: 'src/../../../../common/src/math/fp_core.rs', lines 260:48-272:5 -/
+    Source: 'src/../../../../common/src/math/fp_core.rs', lines 296:48-308:5 -/
 @[reducible]
 def
   math.fp_core.rescale_ceil.closure.Insts.CoreOpsFunctionFnMutPairI128OptionI128I128
@@ -1238,7 +1238,7 @@ def
 }
 
 /-- Trait implementation: [pool_aeneas::math::fp_core::rescale_ceil::{impl core::ops::function::Fn<(i128, core::option::Option<i128>), i128> for pool_aeneas::math::fp_core::rescale_ceil::{closure}}]
-    Source: 'src/../../../../common/src/math/fp_core.rs', lines 260:48-272:5 -/
+    Source: 'src/../../../../common/src/math/fp_core.rs', lines 296:48-308:5 -/
 @[reducible]
 def
   math.fp_core.rescale_ceil.closure.Insts.CoreOpsFunctionFnPairI128OptionI128I128
@@ -1251,7 +1251,7 @@ def
 }
 
 /-- [pool_aeneas::math::fp_core::rescale_ceil]:
-    Source: 'src/../../../../common/src/math/fp_core.rs', lines 259:0-273:1 -/
+    Source: 'src/../../../../common/src/math/fp_core.rs', lines 295:0-309:1 -/
 def math.fp_core.rescale_ceil
   (env : aeneas_pool_shim.Env) (a : Std.I128) (from_decimals : Std.U32)
   (to_decimals : Std.U32) :
@@ -1305,7 +1305,7 @@ def math.fp.Ray.checked_add
   ok i
 
 /-- [pool_aeneas::math::fp::{pool_aeneas::math::fp::Bps}::from]:
-    Source: 'src/../../../../common/src/math/fp.rs', lines 374:4-376:5
+    Source: 'src/../../../../common/src/math/fp.rs', lines 386:4-388:5
     Visibility: public -/
 def math.fp.Bps.from
   {T0 : Type _} (coreconvertIntoT0I128Inst : core.convert.Into T0 Std.I128)
@@ -1316,13 +1316,13 @@ def math.fp.Bps.from
   ok i
 
 /-- [pool_aeneas::math::fp::{pool_aeneas::math::fp::Bps}::raw]:
-    Source: 'src/../../../../common/src/math/fp.rs', lines 380:4-382:5
+    Source: 'src/../../../../common/src/math/fp.rs', lines 392:4-394:5
     Visibility: public -/
 def math.fp.Bps.raw (self : math.fp.Bps) : Result Std.I128 := do
   ok self
 
 /-- [pool_aeneas::math::fp::{pool_aeneas::math::fp::Bps}::apply_to]:
-    Source: 'src/../../../../common/src/math/fp.rs', lines 415:4-417:5
+    Source: 'src/../../../../common/src/math/fp.rs', lines 476:4-478:5
     Visibility: public -/
 def math.fp.Bps.apply_to
   (self : math.fp.Bps) (env : aeneas_pool_shim.Env) (amount : Std.I128) :
@@ -1331,7 +1331,7 @@ def math.fp.Bps.apply_to
   math.fp_core.mul_div_half_up env amount self constants.shared.BPS
 
 /-- [pool_aeneas::math::fp::{pool_aeneas::math::fp::Bps}::apply_to_ceil]:
-    Source: 'src/../../../../common/src/math/fp.rs', lines 420:4-422:5
+    Source: 'src/../../../../common/src/math/fp.rs', lines 481:4-483:5
     Visibility: public -/
 def math.fp.Bps.apply_to_ceil
   (self : math.fp.Bps) (env : aeneas_pool_shim.Env) (amount : Std.I128) :
@@ -1340,7 +1340,7 @@ def math.fp.Bps.apply_to_ceil
   math.fp_core.mul_div_ceil env amount self constants.shared.BPS
 
 /-- [pool_aeneas::math::fp::{pool_aeneas::math::fp::Bps}::flash_loan_fee_on]:
-    Source: 'src/../../../../common/src/math/fp.rs', lines 431:4-438:5
+    Source: 'src/../../../../common/src/math/fp.rs', lines 492:4-499:5
     Visibility: public -/
 def math.fp.Bps.flash_loan_fee_on
   (self : math.fp.Bps) (env : aeneas_pool_shim.Env) (amount : Std.I128) :
@@ -1355,7 +1355,7 @@ def math.fp.Bps.flash_loan_fee_on
   else ok fee_amount
 
 /-- [pool_aeneas::math::fp::{pool_aeneas::math::fp::Bps}::apply_to_ray]:
-    Source: 'src/../../../../common/src/math/fp.rs', lines 455:4-457:5
+    Source: 'src/../../../../common/src/math/fp.rs', lines 516:4-518:5
     Visibility: public -/
 def math.fp.Bps.apply_to_ray
   (self : math.fp.Bps) (env : aeneas_pool_shim.Env) (value : math.fp.Ray) :

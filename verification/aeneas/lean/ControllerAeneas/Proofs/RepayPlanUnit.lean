@@ -425,12 +425,26 @@ theorem whole_unit_repayment_spec (env : Env) (acc : types.Account)
   rw [hequ] at huu
   have hu0 : 0 ≤ uu.val := by rw [huu]; exact unitUsd_nonneg _ _ hp0
   have hule : uu.val ≤ 10^36 := by rw [huu]; exact le_trans (unitUsd_le _ _ hp0) hpmax
-  simp only [math.fp.Wad.raw, bind_ok]
-  step as ⟨i2, hi2⟩
-  rw [Int.tdiv_eq_ediv_of_nonneg hu0] at hi2
-  simp only [lift, bind_ok, wad_from_same]
+  have hmargin_floor : IsFloor uu.val (10^6) (uu.val / 10^6) := by
+    have h := tdiv_isFloor_of_nonneg uu.val (10^6) (by norm_num) hu0
+    rwa [Int.tdiv_eq_ediv_of_nonneg hu0] at h
+  have hmargin_floor' : IsFloor (uu.val * 1) 1000000 (uu.val / 10^6) := by
+    simpa using hmargin_floor
+  have hmargin0 : 0 ≤ uu.val / 10^6 := Int.ediv_nonneg hu0 (by norm_num)
+  have hmargin_fit : uu.val / 10^6 < 2^127 := by
+    have := Int.ediv_le_self uu.val hu0
+    omega
+  unfold math.fp.Wad.div_by_int_floor
+  step with mul_div_floor_spec env uu 1#i128 1000000#i128 (by norm_num)
+      ⟨uu.val / 10^6, hmargin_floor', by omega, hmargin_fit⟩ as ⟨i2, hi2⟩
+  have hi2' : i2.val = uu.val / 10^6 := by
+    apply IsFloor.unique (by norm_num) hi2
+    exact hmargin_floor'
+  have hfrom_one : core.convert.num.FromI128I32.from 1#i32 = (1#i128 : Std.I128) := rfl
+  simp only [math.fp.Wad.from, core.convert.IntoFrom.into, hfrom_one, bind_ok]
+  simp only [wad_max, bind_ok]
   have hmx : (core.cmp.impls.OrdI128.max i2 1#i128).val = max (uu.val / 10^6) 1 := by
-    rw [core.cmp.impls.OrdI128.max_val, hi2]; simp
+    rw [core.cmp.impls.OrdI128.max_val, hi2']; simp
   have hdiv0 : 0 ≤ uu.val / 10^6 := Int.ediv_nonneg hu0 (by norm_num)
   have hdivle : uu.val / 10^6 ≤ uu.val := Int.ediv_le_self _ hu0
   step with checked_add_raw_spec env uu (core.cmp.impls.OrdI128.max i2 1#i128)

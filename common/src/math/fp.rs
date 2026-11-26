@@ -1,9 +1,9 @@
 //! Fixed-point newtypes (`Ray`, `Wad`, `Bps`) built on the raw arithmetic in
 //! private `fp_core`. Each type wraps an `i128` at a fixed decimal scale (27, 18,
 //! and 4 decimals respectively) and exposes scale-safe multiplication,
-//! division, rescaling between types, and checked addition/subtraction.
+//! division, rescaling between types, and checked addition and subtraction.
 //!
-//! Raw primitives are not part of the public API:
+//! Raw arithmetic functions are not part of the public API:
 //! ```compile_fail
 //! use common::math::fp_core::mul_div_floor;
 //! ```
@@ -56,7 +56,7 @@ impl Ray {
         Ray(fp_core::mul_div_half_up(env, self.0, other.0, RAY))
     }
 
-    /// Multiplies half up, returning `None` for a negative operand or overflow.
+    /// Multiplies half up. Returns `None` for a negative operand or overflow.
     pub fn try_mul(self, env: &Env, other: Ray) -> Option<Ray> {
         fp_core::try_mul_div_half_up(env, self.0, other.0, RAY).map(Ray)
     }
@@ -66,7 +66,7 @@ impl Ray {
         Ray(fp_core::mul_div_half_up(env, self.0, RAY, other.0))
     }
 
-    /// Divides half up, returning `None` for invalid signs, zero divisor or overflow.
+    /// Divides half up. Returns `None` for invalid signs, a zero divisor, or overflow.
     pub fn try_div(self, env: &Env, other: Ray) -> Option<Ray> {
         fp_core::try_mul_div_half_up(env, self.0, RAY, other.0).map(Ray)
     }
@@ -76,7 +76,7 @@ impl Ray {
         Ray(fp_core::mul_div_floor(env, self.0, RAY, other.0))
     }
 
-    /// Divides down, saturating on overflow; a zero divisor still panics.
+    /// Divides down and saturates on overflow. A zero divisor still panics.
     pub fn div_floor_saturating(self, env: &Env, other: Ray) -> Ray {
         Ray(fp_core::mul_div_floor_saturating(env, self.0, RAY, other.0))
     }
@@ -99,8 +99,8 @@ impl Ray {
         ))
     }
 
-    /// Applies a RAY ratio with one floor rounding, saturating instead of
-    /// overflowing; a zero denominator still panics.
+    /// Applies a RAY ratio with one floor rounding. The result saturates instead of
+    /// overflowing. A zero denominator still panics.
     pub fn mul_ray_ratio_floor_saturating(
         self,
         env: &Env,
@@ -271,7 +271,7 @@ impl Wad {
         Wad(fp_core::mul_div_ceil(env, self.0, WAD, other.0))
     }
 
-    /// Divides this value by `other`, rounding down (floor) and saturating to
+    /// Divides this value by `other`, rounding down (floor). The result saturates to
     /// `i128::MAX` instead of overflowing.
     pub fn div_floor_saturating(self, env: &Env, other: Wad) -> Wad {
         Wad(fp_core::mul_div_floor_saturating(env, self.0, WAD, other.0))
@@ -282,7 +282,7 @@ impl Wad {
         Wad(fp_core::mul_div_floor(env, self.0, other.0, WAD))
     }
 
-    /// Multiplies down, saturating at the signed i128 bounds on overflow.
+    /// Multiplies down and saturates at the signed i128 bounds on overflow.
     pub fn mul_floor_saturating(self, env: &Env, other: Wad) -> Wad {
         Wad(fp_core::mul_div_floor_saturating(env, self.0, other.0, WAD))
     }
@@ -292,19 +292,24 @@ impl Wad {
         Wad(fp_core::mul_div_floor(env, self.0, numerator, denominator))
     }
 
+    /// Divides this value by a plain integer, rounding down (floor).
+    pub fn div_by_int_floor(self, env: &Env, divisor: i128) -> Wad {
+        Wad(fp_core::mul_div_floor(env, self.0, 1, divisor))
+    }
+
     /// Scales a token amount by `self / denominator`, rounding down only once.
     pub fn apply_ratio_to_amount_floor(self, env: &Env, denominator: Wad, amount: i128) -> i128 {
         fp_core::mul_div_floor(env, amount, self.0, denominator.0)
     }
 
     /// Values tokens at this WAD price, half up, without first normalizing the amount.
-    /// Returns `None` for invalid signs, an unrepresentable decimal factor or overflow.
+    /// Returns `None` for invalid signs, an unrepresentable decimal factor, or overflow.
     pub fn try_value_of_token(self, env: &Env, amount: i128, decimals: u32) -> Option<Wad> {
         let unit = 10i128.checked_pow(decimals)?;
         fp_core::try_mul_div_half_up(env, amount, self.0, unit).map(Wad)
     }
 
-    /// Exactly upscales nonnegative tokens to WAD; rejects decimals above 18 and overflow.
+    /// Exactly upscales nonnegative tokens to WAD. Rejects decimals above 18 and overflow.
     pub fn try_from_token_upscale(amount: i128, decimals: u32) -> Option<Wad> {
         if amount < 0 {
             return None;
@@ -348,6 +353,12 @@ impl Wad {
         ))
     }
 
+    /// Exactly upscales this value to RAY. The result saturates at `i128::MAX`.
+    /// Fixed-point values are non-negative, so only the upper bound can be hit.
+    pub fn to_ray_saturating(self, env: &Env) -> Ray {
+        Ray(fp_core::mul_div_floor_saturating(env, self.0, RAY, WAD))
+    }
+
     /// Adds `rhs` to this value. Panics on overflow.
     pub fn checked_add(self, env: &Env, rhs: Wad) -> Wad {
         Wad(checked_add_raw(env, self.0, rhs.0))
@@ -367,6 +378,7 @@ pub struct Bps(i128);
 
 impl Bps {
     pub const ONE: Bps = Bps(BPS);
+    pub const ZERO: Bps = Bps(0);
 
     /// Wraps a raw basis-point integer without validation. The caller keeps the
     /// value non-negative.
@@ -386,6 +398,21 @@ impl Bps {
         Bps(fp_core::mul_div_half_up(env, self.0, BPS, other.0))
     }
 
+    /// Divides two BPS ratios, rounding down (floor).
+    pub fn div_floor(self, env: &Env, other: Bps) -> Bps {
+        Bps(fp_core::mul_div_floor(env, self.0, BPS, other.0))
+    }
+
+    /// Multiplies two BPS ratios, rounding half up.
+    pub fn mul(self, env: &Env, other: Bps) -> Bps {
+        Bps(fp_core::mul_div_half_up(env, self.0, other.0, BPS))
+    }
+
+    /// Scales this BPS value by a WAD ratio, rounding half up.
+    pub fn mul_wad(self, env: &Env, factor: Wad) -> Bps {
+        Bps(fp_core::mul_div_half_up(env, self.0, factor.0, WAD))
+    }
+
     /// Forms a BPS ratio of WAD values, rounding down.
     pub fn from_fraction_floor(env: &Env, numerator: Wad, denominator: Wad) -> Bps {
         Bps(fp_core::mul_div_floor(env, numerator.0, BPS, denominator.0))
@@ -396,7 +423,7 @@ impl Bps {
         Bps(fp_core::mul_div_ceil(env, numerator.0, BPS, denominator.0))
     }
 
-    /// Forms a BPS ratio half up; returns `None` for invalid signs, zero divisor or overflow.
+    /// Forms a BPS ratio half up. Returns `None` for invalid signs, a zero divisor, or overflow.
     pub fn try_from_fraction(env: &Env, numerator: Wad, denominator: Wad) -> Option<Bps> {
         fp_core::try_mul_div_half_up(env, numerator.0, BPS, denominator.0).map(Bps)
     }
@@ -404,6 +431,40 @@ impl Bps {
     /// Divides a previously checked weighted BPS sum by its WAD weight, rounding half up.
     pub fn from_weighted_sum(env: &Env, weighted_sum: i128, weight: Wad) -> Bps {
         Bps(fp_core::div_by_int_half_up(env, weighted_sum, weight.0))
+    }
+
+    /// Adds one `rate * weight / total_weight` term without rounding away its
+    /// remainder. Chaining this method and passing the returned remainder into
+    /// the next call preserves the exact sum for one final rounding.
+    pub fn add_weighted_term(
+        self,
+        env: &Env,
+        rate: Bps,
+        weight: Wad,
+        total_weight: Wad,
+        remainder: Wad,
+    ) -> (Bps, Wad) {
+        let (quotient, remainder) = fp_core::mul_add_div_rem_nonnegative(
+            env,
+            rate.0,
+            weight.0,
+            remainder.0,
+            total_weight.0,
+        );
+        (self.checked_add(env, Bps(quotient)), Wad(remainder))
+    }
+
+    /// Rounds a floor quotient and its non-negative division remainder half
+    /// up. `remainder` must be less than `divisor`.
+    pub fn round_weighted_remainder(self, env: &Env, remainder: Wad, divisor: Wad) -> Bps {
+        if remainder.0 < 0 || divisor.0 <= 0 || remainder.0 >= divisor.0 {
+            panic_with_error!(env, GenericError::MathOverflow);
+        }
+        if remainder.0 >= divisor.0 / 2 + divisor.0 % 2 {
+            self.checked_add(env, Bps(1))
+        } else {
+            self
+        }
     }
 
     /// Converts to a `Wad` ratio (basis points divided by 10,000), rounding half up.

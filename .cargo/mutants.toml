@@ -47,6 +47,10 @@ exclude_re = [
     # excludes `p == 0`, and after `div`, which traps on `d == 0`.
     "fp_core.rs:[0-9]+:(39|54): replace < with <= in div_floor_i256$",
     "fp_core.rs:[0-9]+:(37|52): replace < with <= in div_ceil_i256$",
+    # `mul_add_div_rem_nonnegative` rejects `d == 0` with `DivisionByZero` in
+    # `require_nonzero_divisor` before the sign check, so `d < 0` and `d <= 0`
+    # reject the same divisors.
+    "fp_core.rs:[0-9]+:41: replace < with <= in mul_add_div_rem_nonnegative$",
     # `div_by_int_half_up` panics with `DivisionByZero` before the sign check,
     # so `b < 0` and `b <= 0` reject the same divisors.
     "fp_core.rs:[0-9]+:10: replace < with <= in div_by_int_half_up$",

@@ -138,9 +138,6 @@ theorem pl_body_rets (env : Env) (tc opb tsu : math.fp.Wad) (rad sa : Bool)
   refine Rets.bind_any fun L => ?_
   refine Rets.bind_any fun q => ?_
   refine Rets.bind_any fun i => ?_
-  refine Rets.bind_any fun i1 => ?_
-  refine Rets.bind_any fun i2 => ?_
-  refine Rets.bind_any fun sr => ?_
   -- the whole-unit block returns the same iterator
   refine Rets.bind (fun t => t.2.2.1 = rest) ?_ ?_
   · rets_all (exact Rets.ok rfl)
@@ -162,8 +159,6 @@ theorem pl_body_rets (env : Env) (tc opb tsu : math.fp.Wad) (rad sa : Bool)
   refine Rets.bind_any fun i4 => ?_
   refine Rets.bind_any fun base => ?_
   refine Rets.bind_any fun b4 => ?_
-  refine Rets.bind_any fun bonus => ?_
-  refine Rets.bind_any fun pfee => ?_
   -- `seized_scaled ≤ position.scaled_amount`
   refine Rets.bind (fun ss : math.fp.Ray => ss.val ≤ pos.scaled_amount.val) ?_ ?_
   · refine Rets.ite (fun _ => Rets.ok le_rfl) (fun hne => ?_)

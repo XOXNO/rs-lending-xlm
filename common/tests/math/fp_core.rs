@@ -992,3 +992,40 @@ fn exact_reference_quotients_match_their_predicates_and_native_division() {
     assert_eq!(floor_of(i128::MIN, 1, 1), Some(i128::MIN));
     assert_eq!(ceil_of(i128::MIN, 1, 1), Some(i128::MIN));
 }
+
+#[test]
+fn mul_add_div_rem_nonnegative_is_exact_on_both_paths() {
+    let env = Env::default();
+    assert_eq!(mul_add_div_rem_nonnegative(&env, 6, 7, 5, 4), (11, 3));
+    assert_eq!(mul_add_div_rem_nonnegative(&env, 0, 9, 7, 3), (2, 1));
+    assert_eq!(mul_add_div_rem_nonnegative(&env, 9, 0, 7, 3), (2, 1));
+    assert_eq!(mul_add_div_rem_nonnegative(&env, 0, 0, 0, 1), (0, 0));
+    assert_eq!(mul_add_div_rem_nonnegative(&env, 1, 1, 0, 1), (1, 0));
+
+    // The product fits in `i128`; adding the carry overflows it.
+    let (quotient, remainder) = mul_add_div_rem_nonnegative(&env, i128::MAX, 1, 5, i128::MAX);
+    assert_eq!((quotient, remainder), (1, 5));
+
+    // The product overflows `i128`; the widened path keeps the remainder.
+    let (quotient, remainder) = mul_add_div_rem_nonnegative(&env, i128::MAX, 4, 3, 8);
+    assert_eq!(quotient, i128::MAX / 2);
+    assert_eq!(remainder, ((i128::MAX % 8) * 4 + 3) % 8);
+}
+
+#[test]
+fn mul_add_div_rem_nonnegative_rejects_each_negative_operand() {
+    for (x, y, carry, d) in [(-1, 1, 0, 1), (1, -1, 0, 1), (1, 1, -1, 1), (1, 1, 0, -1)] {
+        let env = Env::default();
+        let code = contract_error_code(|| {
+            let _ = mul_add_div_rem_nonnegative(&env, x, y, carry, d);
+        });
+        assert_eq!(code, Some(33), "({x}, {y}, {carry}, {d}) must overflow");
+    }
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #55)")]
+fn mul_add_div_rem_nonnegative_zero_divisor_is_typed_division_by_zero() {
+    let env = Env::default();
+    let _ = mul_add_div_rem_nonnegative(&env, 1, 1, 0, 0);
+}

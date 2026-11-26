@@ -670,13 +670,13 @@ def math.fp.Ray.try_div
     (math.fp.Ray.constructor)
 
 /-- [rates_aeneas::math::fp_core::to_i128::{impl core::ops::function::FnOnce<(), i128> for rates_aeneas::math::fp_core::to_i128::{closure}<'_0, '_1>}::call_once]:
-    Source: 'src/../../../common/src/math/fp_core.rs', lines 302:24-302:77 -/
+    Source: 'src/../../../common/src/math/fp_core.rs', lines 338:24-338:77 -/
 def math.fp_core.to_i128.closure.Insts.CoreOpsFunctionFnOnceTupleI128.call_once
   (c : math.fp_core.to_i128.closure) (_ : Unit) : Result Std.I128 := do
   fail panic
 
 /-- Trait implementation: [rates_aeneas::math::fp_core::to_i128::{impl core::ops::function::FnOnce<(), i128> for rates_aeneas::math::fp_core::to_i128::{closure}<'_0, '_1>}]
-    Source: 'src/../../../common/src/math/fp_core.rs', lines 302:24-302:77 -/
+    Source: 'src/../../../common/src/math/fp_core.rs', lines 338:24-338:77 -/
 @[reducible]
 def math.fp_core.to_i128.closure.Insts.CoreOpsFunctionFnOnceTupleI128 :
   core.ops.function.FnOnce math.fp_core.to_i128.closure Unit Std.I128 := {
@@ -685,7 +685,7 @@ def math.fp_core.to_i128.closure.Insts.CoreOpsFunctionFnOnceTupleI128 :
 }
 
 /-- [rates_aeneas::math::fp_core::to_i128]:
-    Source: 'src/../../../common/src/math/fp_core.rs', lines 300:0-303:1 -/
+    Source: 'src/../../../common/src/math/fp_core.rs', lines 336:0-339:1 -/
 def math.fp_core.to_i128
   (env : aeneas_soroban_shim.Env) (val : aeneas_soroban_shim.I256) :
   Result Std.I128
@@ -817,7 +817,7 @@ def math.fp.Ray.div_floor
   ok i
 
 /-- [rates_aeneas::math::fp_core::mul_div_floor_saturating::{impl core::ops::function::FnOnce<(i128,), core::option::Option<i128>> for rates_aeneas::math::fp_core::mul_div_floor_saturating::{closure}<'_0>}::call_once]:
-    Source: 'src/../../../common/src/math/fp_core.rs', lines 184:18-184:54 -/
+    Source: 'src/../../../common/src/math/fp_core.rs', lines 220:18-220:54 -/
 def
   math.fp_core.mul_div_floor_saturating.closure.Insts.CoreOpsFunctionFnOnceTupleI128OptionI128.call_once
   (c : math.fp_core.mul_div_floor_saturating.closure) (tupled_args : Std.I128)
@@ -827,7 +827,7 @@ def
   math.fp_core.div_floor_i128 tupled_args c
 
 /-- Trait implementation: [rates_aeneas::math::fp_core::mul_div_floor_saturating::{impl core::ops::function::FnOnce<(i128,), core::option::Option<i128>> for rates_aeneas::math::fp_core::mul_div_floor_saturating::{closure}<'_0>}]
-    Source: 'src/../../../common/src/math/fp_core.rs', lines 184:18-184:54 -/
+    Source: 'src/../../../common/src/math/fp_core.rs', lines 220:18-220:54 -/
 @[reducible]
 def
   math.fp_core.mul_div_floor_saturating.closure.Insts.CoreOpsFunctionFnOnceTupleI128OptionI128
@@ -838,7 +838,7 @@ def
 }
 
 /-- [rates_aeneas::math::fp_core::mul_div_floor_saturating]:
-    Source: 'src/../../../common/src/math/fp_core.rs', lines 180:0-201:1
+    Source: 'src/../../../common/src/math/fp_core.rs', lines 216:0-237:1
     Visibility: public -/
 def math.fp_core.mul_div_floor_saturating
   (env : aeneas_soroban_shim.Env) (x : Std.I128) (y : Std.I128) (d : Std.I128)
@@ -960,7 +960,7 @@ def math.fp_core.div_ceil_i128
       Std.I128 residual
 
 /-- [rates_aeneas::math::fp_core::mul_div_ceil::{impl core::ops::function::FnOnce<(i128,), core::option::Option<i128>> for rates_aeneas::math::fp_core::mul_div_ceil::{closure}<'_0>}::call_once]:
-    Source: 'src/../../../common/src/math/fp_core.rs', lines 168:18-168:53 -/
+    Source: 'src/../../../common/src/math/fp_core.rs', lines 204:18-204:53 -/
 def
   math.fp_core.mul_div_ceil.closure.Insts.CoreOpsFunctionFnOnceTupleI128OptionI128.call_once
   (c : math.fp_core.mul_div_ceil.closure) (tupled_args : Std.I128) :
@@ -969,7 +969,7 @@ def
   math.fp_core.div_ceil_i128 tupled_args c
 
 /-- Trait implementation: [rates_aeneas::math::fp_core::mul_div_ceil::{impl core::ops::function::FnOnce<(i128,), core::option::Option<i128>> for rates_aeneas::math::fp_core::mul_div_ceil::{closure}<'_0>}]
-    Source: 'src/../../../common/src/math/fp_core.rs', lines 168:18-168:53 -/
+    Source: 'src/../../../common/src/math/fp_core.rs', lines 204:18-204:53 -/
 @[reducible]
 def
   math.fp_core.mul_div_ceil.closure.Insts.CoreOpsFunctionFnOnceTupleI128OptionI128
@@ -1014,7 +1014,7 @@ def math.fp_core.div_ceil_i256
   else ok quotient
 
 /-- [rates_aeneas::math::fp_core::mul_div_ceil]:
-    Source: 'src/../../../common/src/math/fp_core.rs', lines 164:0-175:1
+    Source: 'src/../../../common/src/math/fp_core.rs', lines 200:0-211:1
     Visibility: public -/
 def math.fp_core.mul_div_ceil
   (env : aeneas_soroban_shim.Env) (x : Std.I128) (y : Std.I128) (d : Std.I128)
@@ -1048,7 +1048,7 @@ def math.fp.Ray.div_ceil
   ok i
 
 /-- [rates_aeneas::math::fp_core::div_by_int_half_up]:
-    Source: 'src/../../../common/src/math/fp_core.rs', lines 279:0-296:1
+    Source: 'src/../../../common/src/math/fp_core.rs', lines 315:0-332:1
     Visibility: public -/
 def math.fp_core.div_by_int_half_up
   (env : aeneas_soroban_shim.Env) (a : Std.I128) (b : Std.I128) :
@@ -1113,7 +1113,7 @@ def math.fp.Ray.mul_ratio_ceil
   ok i
 
 /-- [rates_aeneas::math::fp_core::rescale_half_up::{impl core::ops::function::Fn<(i128, core::option::Option<i128>), i128> for rates_aeneas::math::fp_core::rescale_half_up::{closure}<'_0>}::call]:
-    Source: 'src/../../../common/src/math/fp_core.rs', lines 235:48-239:5 -/
+    Source: 'src/../../../common/src/math/fp_core.rs', lines 271:48-275:5 -/
 def
   math.fp_core.rescale_half_up.closure.Insts.CoreOpsFunctionFnPairI128OptionI128I128.call
   (c : math.fp_core.rescale_half_up.closure)
@@ -1126,7 +1126,7 @@ def
   | some factor1 => math.fp_core.div_by_int_half_up c a factor1
 
 /-- [rates_aeneas::math::fp_core::rescale_half_up::{impl core::ops::function::FnMut<(i128, core::option::Option<i128>), i128> for rates_aeneas::math::fp_core::rescale_half_up::{closure}<'_0>}::call_mut]:
-    Source: 'src/../../../common/src/math/fp_core.rs', lines 235:48-239:5 -/
+    Source: 'src/../../../common/src/math/fp_core.rs', lines 271:48-275:5 -/
 def
   math.fp_core.rescale_half_up.closure.Insts.CoreOpsFunctionFnMutPairI128OptionI128I128.call_mut
   (state : math.fp_core.rescale_half_up.closure)
@@ -1139,7 +1139,7 @@ def
   ok (i, state)
 
 /-- [rates_aeneas::math::fp_core::rescale_half_up::{impl core::ops::function::FnOnce<(i128, core::option::Option<i128>), i128> for rates_aeneas::math::fp_core::rescale_half_up::{closure}<'_0>}::call_once]:
-    Source: 'src/../../../common/src/math/fp_core.rs', lines 235:48-239:5 -/
+    Source: 'src/../../../common/src/math/fp_core.rs', lines 271:48-275:5 -/
 def
   math.fp_core.rescale_half_up.closure.Insts.CoreOpsFunctionFnOncePairI128OptionI128I128.call_once
   (c : math.fp_core.rescale_half_up.closure)
@@ -1152,7 +1152,7 @@ def
   ok i
 
 /-- Trait implementation: [rates_aeneas::math::fp_core::rescale_half_up::{impl core::ops::function::FnOnce<(i128, core::option::Option<i128>), i128> for rates_aeneas::math::fp_core::rescale_half_up::{closure}<'_0>}]
-    Source: 'src/../../../common/src/math/fp_core.rs', lines 235:48-239:5 -/
+    Source: 'src/../../../common/src/math/fp_core.rs', lines 271:48-275:5 -/
 @[reducible]
 def
   math.fp_core.rescale_half_up.closure.Insts.CoreOpsFunctionFnOncePairI128OptionI128I128
@@ -1163,7 +1163,7 @@ def
 }
 
 /-- Trait implementation: [rates_aeneas::math::fp_core::rescale_half_up::{impl core::ops::function::FnMut<(i128, core::option::Option<i128>), i128> for rates_aeneas::math::fp_core::rescale_half_up::{closure}<'_0>}]
-    Source: 'src/../../../common/src/math/fp_core.rs', lines 235:48-239:5 -/
+    Source: 'src/../../../common/src/math/fp_core.rs', lines 271:48-275:5 -/
 @[reducible]
 def
   math.fp_core.rescale_half_up.closure.Insts.CoreOpsFunctionFnMutPairI128OptionI128I128
@@ -1176,7 +1176,7 @@ def
 }
 
 /-- Trait implementation: [rates_aeneas::math::fp_core::rescale_half_up::{impl core::ops::function::Fn<(i128, core::option::Option<i128>), i128> for rates_aeneas::math::fp_core::rescale_half_up::{closure}<'_0>}]
-    Source: 'src/../../../common/src/math/fp_core.rs', lines 235:48-239:5 -/
+    Source: 'src/../../../common/src/math/fp_core.rs', lines 271:48-275:5 -/
 @[reducible]
 def
   math.fp_core.rescale_half_up.closure.Insts.CoreOpsFunctionFnPairI128OptionI128I128
@@ -1189,7 +1189,7 @@ def
 }
 
 /-- [rates_aeneas::math::fp_core::rescale::{impl core::ops::function::FnOnce<(), i128> for rates_aeneas::math::fp_core::rescale::{closure#1}<'_0, '_1, T0>}::call_once]:
-    Source: 'src/../../../common/src/math/fp_core.rs', lines 223:28-223:81 -/
+    Source: 'src/../../../common/src/math/fp_core.rs', lines 259:28-259:81 -/
 def
   math.fp_core.rescale.closure_1.Insts.CoreOpsFunctionFnOnceTupleI128.call_once
   {T0 : Type _} (coreopsfunctionFnT0PairI128OptionI128I128Inst :
@@ -1200,7 +1200,7 @@ def
   fail panic
 
 /-- Trait implementation: [rates_aeneas::math::fp_core::rescale::{impl core::ops::function::FnOnce<(), i128> for rates_aeneas::math::fp_core::rescale::{closure#1}<'_0, '_1, T0>}]
-    Source: 'src/../../../common/src/math/fp_core.rs', lines 223:28-223:81 -/
+    Source: 'src/../../../common/src/math/fp_core.rs', lines 259:28-259:81 -/
 @[reducible]
 def math.fp_core.rescale.closure_1.Insts.CoreOpsFunctionFnOnceTupleI128 {T0 :
   Type _} (coreopsfunctionFnT0PairI128OptionI128I128Inst : core.ops.function.Fn
@@ -1212,7 +1212,7 @@ def math.fp_core.rescale.closure_1.Insts.CoreOpsFunctionFnOnceTupleI128 {T0 :
 }
 
 /-- [rates_aeneas::math::fp_core::rescale::{impl core::ops::function::FnOnce<(i128,), core::option::Option<i128>> for rates_aeneas::math::fp_core::rescale::{closure}<'_0, T0>}::call_once]:
-    Source: 'src/../../../common/src/math/fp_core.rs', lines 222:22-222:52 -/
+    Source: 'src/../../../common/src/math/fp_core.rs', lines 258:22-258:52 -/
 def
   math.fp_core.rescale.closure.Insts.CoreOpsFunctionFnOnceTupleI128OptionI128.call_once
   {T0 : Type _} (coreopsfunctionFnT0PairI128OptionI128I128Inst :
@@ -1223,7 +1223,7 @@ def
   ok (I128.checked_mul c tupled_args)
 
 /-- Trait implementation: [rates_aeneas::math::fp_core::rescale::{impl core::ops::function::FnOnce<(i128,), core::option::Option<i128>> for rates_aeneas::math::fp_core::rescale::{closure}<'_0, T0>}]
-    Source: 'src/../../../common/src/math/fp_core.rs', lines 222:22-222:52 -/
+    Source: 'src/../../../common/src/math/fp_core.rs', lines 258:22-258:52 -/
 @[reducible]
 def math.fp_core.rescale.closure.Insts.CoreOpsFunctionFnOnceTupleI128OptionI128
   {T0 : Type _} (coreopsfunctionFnT0PairI128OptionI128I128Inst :
@@ -1236,7 +1236,7 @@ def math.fp_core.rescale.closure.Insts.CoreOpsFunctionFnOnceTupleI128OptionI128
 }
 
 /-- [rates_aeneas::math::fp_core::rescale]:
-    Source: 'src/../../../common/src/math/fp_core.rs', lines 208:0-227:1 -/
+    Source: 'src/../../../common/src/math/fp_core.rs', lines 244:0-263:1 -/
 def math.fp_core.rescale
   {T0 : Type _} (coreopsfunctionFnT0PairI128OptionI128I128Inst :
   core.ops.function.Fn T0 (Std.I128 × (Option Std.I128)) Std.I128)
@@ -1262,7 +1262,7 @@ def math.fp_core.rescale
       coreopsfunctionFnT0PairI128OptionI128I128Inst.call round_down (a, factor)
 
 /-- [rates_aeneas::math::fp_core::rescale_half_up]:
-    Source: 'src/../../../common/src/math/fp_core.rs', lines 234:0-240:1
+    Source: 'src/../../../common/src/math/fp_core.rs', lines 270:0-276:1
     Visibility: public -/
 def math.fp_core.rescale_half_up
   (env : aeneas_soroban_shim.Env) (a : Std.I128) (from_decimals : Std.U32)
@@ -1287,7 +1287,7 @@ def math.fp.Ray.to_wad
   ok i
 
 /-- [rates_aeneas::math::fp_core::rescale_floor::{impl core::ops::function::Fn<(i128, core::option::Option<i128>), i128> for rates_aeneas::math::fp_core::rescale_floor::{closure}}::call]:
-    Source: 'src/../../../common/src/math/fp_core.rs', lines 247:48-251:5 -/
+    Source: 'src/../../../common/src/math/fp_core.rs', lines 283:48-287:5 -/
 def
   math.fp_core.rescale_floor.closure.Insts.CoreOpsFunctionFnPairI128OptionI128I128.call
   (c : math.fp_core.rescale_floor.closure)
@@ -1300,7 +1300,7 @@ def
   | some factor1 => a / factor1
 
 /-- [rates_aeneas::math::fp_core::rescale_floor::{impl core::ops::function::FnMut<(i128, core::option::Option<i128>), i128> for rates_aeneas::math::fp_core::rescale_floor::{closure}}::call_mut]:
-    Source: 'src/../../../common/src/math/fp_core.rs', lines 247:48-251:5 -/
+    Source: 'src/../../../common/src/math/fp_core.rs', lines 283:48-287:5 -/
 def
   math.fp_core.rescale_floor.closure.Insts.CoreOpsFunctionFnMutPairI128OptionI128I128.call_mut
   (state : math.fp_core.rescale_floor.closure)
@@ -1313,7 +1313,7 @@ def
   ok (i, state)
 
 /-- [rates_aeneas::math::fp_core::rescale_floor::{impl core::ops::function::FnOnce<(i128, core::option::Option<i128>), i128> for rates_aeneas::math::fp_core::rescale_floor::{closure}}::call_once]:
-    Source: 'src/../../../common/src/math/fp_core.rs', lines 247:48-251:5 -/
+    Source: 'src/../../../common/src/math/fp_core.rs', lines 283:48-287:5 -/
 def
   math.fp_core.rescale_floor.closure.Insts.CoreOpsFunctionFnOncePairI128OptionI128I128.call_once
   (c : math.fp_core.rescale_floor.closure)
@@ -1326,7 +1326,7 @@ def
   ok i
 
 /-- Trait implementation: [rates_aeneas::math::fp_core::rescale_floor::{impl core::ops::function::FnOnce<(i128, core::option::Option<i128>), i128> for rates_aeneas::math::fp_core::rescale_floor::{closure}}]
-    Source: 'src/../../../common/src/math/fp_core.rs', lines 247:48-251:5 -/
+    Source: 'src/../../../common/src/math/fp_core.rs', lines 283:48-287:5 -/
 @[reducible]
 def
   math.fp_core.rescale_floor.closure.Insts.CoreOpsFunctionFnOncePairI128OptionI128I128
@@ -1337,7 +1337,7 @@ def
 }
 
 /-- Trait implementation: [rates_aeneas::math::fp_core::rescale_floor::{impl core::ops::function::FnMut<(i128, core::option::Option<i128>), i128> for rates_aeneas::math::fp_core::rescale_floor::{closure}}]
-    Source: 'src/../../../common/src/math/fp_core.rs', lines 247:48-251:5 -/
+    Source: 'src/../../../common/src/math/fp_core.rs', lines 283:48-287:5 -/
 @[reducible]
 def
   math.fp_core.rescale_floor.closure.Insts.CoreOpsFunctionFnMutPairI128OptionI128I128
@@ -1350,7 +1350,7 @@ def
 }
 
 /-- Trait implementation: [rates_aeneas::math::fp_core::rescale_floor::{impl core::ops::function::Fn<(i128, core::option::Option<i128>), i128> for rates_aeneas::math::fp_core::rescale_floor::{closure}}]
-    Source: 'src/../../../common/src/math/fp_core.rs', lines 247:48-251:5 -/
+    Source: 'src/../../../common/src/math/fp_core.rs', lines 283:48-287:5 -/
 @[reducible]
 def
   math.fp_core.rescale_floor.closure.Insts.CoreOpsFunctionFnPairI128OptionI128I128
@@ -1363,7 +1363,7 @@ def
 }
 
 /-- [rates_aeneas::math::fp_core::rescale_floor]:
-    Source: 'src/../../../common/src/math/fp_core.rs', lines 246:0-252:1 -/
+    Source: 'src/../../../common/src/math/fp_core.rs', lines 282:0-288:1 -/
 def math.fp_core.rescale_floor
   (env : aeneas_soroban_shim.Env) (a : Std.I128) (from_decimals : Std.U32)
   (to_decimals : Std.U32) :
@@ -1386,7 +1386,7 @@ def math.fp.Ray.to_wad_floor
   ok i
 
 /-- [rates_aeneas::math::fp_core::rescale_ceil::{impl core::ops::function::Fn<(i128, core::option::Option<i128>), i128> for rates_aeneas::math::fp_core::rescale_ceil::{closure}}::call]:
-    Source: 'src/../../../common/src/math/fp_core.rs', lines 260:48-272:5 -/
+    Source: 'src/../../../common/src/math/fp_core.rs', lines 296:48-308:5 -/
 def
   math.fp_core.rescale_ceil.closure.Insts.CoreOpsFunctionFnPairI128OptionI128I128.call
   (c : math.fp_core.rescale_ceil.closure)
@@ -1407,7 +1407,7 @@ def
     else ok quotient
 
 /-- [rates_aeneas::math::fp_core::rescale_ceil::{impl core::ops::function::FnMut<(i128, core::option::Option<i128>), i128> for rates_aeneas::math::fp_core::rescale_ceil::{closure}}::call_mut]:
-    Source: 'src/../../../common/src/math/fp_core.rs', lines 260:48-272:5 -/
+    Source: 'src/../../../common/src/math/fp_core.rs', lines 296:48-308:5 -/
 def
   math.fp_core.rescale_ceil.closure.Insts.CoreOpsFunctionFnMutPairI128OptionI128I128.call_mut
   (state : math.fp_core.rescale_ceil.closure)
@@ -1420,7 +1420,7 @@ def
   ok (i, state)
 
 /-- [rates_aeneas::math::fp_core::rescale_ceil::{impl core::ops::function::FnOnce<(i128, core::option::Option<i128>), i128> for rates_aeneas::math::fp_core::rescale_ceil::{closure}}::call_once]:
-    Source: 'src/../../../common/src/math/fp_core.rs', lines 260:48-272:5 -/
+    Source: 'src/../../../common/src/math/fp_core.rs', lines 296:48-308:5 -/
 def
   math.fp_core.rescale_ceil.closure.Insts.CoreOpsFunctionFnOncePairI128OptionI128I128.call_once
   (c : math.fp_core.rescale_ceil.closure) (p : (Std.I128 × (Option Std.I128)))
@@ -1433,7 +1433,7 @@ def
   ok i
 
 /-- Trait implementation: [rates_aeneas::math::fp_core::rescale_ceil::{impl core::ops::function::FnOnce<(i128, core::option::Option<i128>), i128> for rates_aeneas::math::fp_core::rescale_ceil::{closure}}]
-    Source: 'src/../../../common/src/math/fp_core.rs', lines 260:48-272:5 -/
+    Source: 'src/../../../common/src/math/fp_core.rs', lines 296:48-308:5 -/
 @[reducible]
 def
   math.fp_core.rescale_ceil.closure.Insts.CoreOpsFunctionFnOncePairI128OptionI128I128
@@ -1444,7 +1444,7 @@ def
 }
 
 /-- Trait implementation: [rates_aeneas::math::fp_core::rescale_ceil::{impl core::ops::function::FnMut<(i128, core::option::Option<i128>), i128> for rates_aeneas::math::fp_core::rescale_ceil::{closure}}]
-    Source: 'src/../../../common/src/math/fp_core.rs', lines 260:48-272:5 -/
+    Source: 'src/../../../common/src/math/fp_core.rs', lines 296:48-308:5 -/
 @[reducible]
 def
   math.fp_core.rescale_ceil.closure.Insts.CoreOpsFunctionFnMutPairI128OptionI128I128
@@ -1457,7 +1457,7 @@ def
 }
 
 /-- Trait implementation: [rates_aeneas::math::fp_core::rescale_ceil::{impl core::ops::function::Fn<(i128, core::option::Option<i128>), i128> for rates_aeneas::math::fp_core::rescale_ceil::{closure}}]
-    Source: 'src/../../../common/src/math/fp_core.rs', lines 260:48-272:5 -/
+    Source: 'src/../../../common/src/math/fp_core.rs', lines 296:48-308:5 -/
 @[reducible]
 def
   math.fp_core.rescale_ceil.closure.Insts.CoreOpsFunctionFnPairI128OptionI128I128
@@ -1470,7 +1470,7 @@ def
 }
 
 /-- [rates_aeneas::math::fp_core::rescale_ceil]:
-    Source: 'src/../../../common/src/math/fp_core.rs', lines 259:0-273:1 -/
+    Source: 'src/../../../common/src/math/fp_core.rs', lines 295:0-309:1 -/
 def math.fp_core.rescale_ceil
   (env : aeneas_soroban_shim.Env) (a : Std.I128) (from_decimals : Std.U32)
   (to_decimals : Std.U32) :
@@ -1840,8 +1840,18 @@ def math.fp.Wad.mul_ratio_floor
   let i ← math.fp_core.mul_div_floor env self numerator denominator
   ok i
 
-/-- [rates_aeneas::math::fp::{rates_aeneas::math::fp::Wad}::apply_ratio_to_amount_floor]:
+/-- [rates_aeneas::math::fp::{rates_aeneas::math::fp::Wad}::div_by_int_floor]:
     Source: 'src/../../../common/src/math/fp.rs', lines 296:4-298:5
+    Visibility: public -/
+def math.fp.Wad.div_by_int_floor
+  (self : math.fp.Wad) (env : aeneas_soroban_shim.Env) (divisor : Std.I128) :
+  Result math.fp.Wad
+  := do
+  let i ← math.fp_core.mul_div_floor env self 1#i128 divisor
+  ok i
+
+/-- [rates_aeneas::math::fp::{rates_aeneas::math::fp::Wad}::apply_ratio_to_amount_floor]:
+    Source: 'src/../../../common/src/math/fp.rs', lines 301:4-303:5
     Visibility: public -/
 def math.fp.Wad.apply_ratio_to_amount_floor
   (self : math.fp.Wad) (env : aeneas_soroban_shim.Env)
@@ -1851,7 +1861,7 @@ def math.fp.Wad.apply_ratio_to_amount_floor
   math.fp_core.mul_div_floor env amount self denominator
 
 /-- [rates_aeneas::math::fp::{rates_aeneas::math::fp::Wad}::try_value_of_token]:
-    Source: 'src/../../../common/src/math/fp.rs', lines 302:4-305:5
+    Source: 'src/../../../common/src/math/fp.rs', lines 307:4-310:5
     Visibility: public -/
 def math.fp.Wad.try_value_of_token
   (self : math.fp.Wad) (env : aeneas_soroban_shim.Env) (amount : Std.I128)
@@ -1870,7 +1880,7 @@ def math.fp.Wad.try_value_of_token
       math.fp.Wad residual
 
 /-- [rates_aeneas::math::fp::{rates_aeneas::math::fp::Wad}::try_from_token_upscale]:
-    Source: 'src/../../../common/src/math/fp.rs', lines 308:4-314:5
+    Source: 'src/../../../common/src/math/fp.rs', lines 313:4-319:5
     Visibility: public -/
 def math.fp.Wad.try_from_token_upscale
   (amount : Std.I128) (decimals : Std.U32) : Result (Option math.fp.Wad) := do
@@ -1897,7 +1907,7 @@ def math.fp.Wad.try_from_token_upscale
         math.fp.Wad residual
 
 /-- [rates_aeneas::math::fp::{rates_aeneas::math::fp::Wad}::mul_ceil]:
-    Source: 'src/../../../common/src/math/fp.rs', lines 317:4-319:5
+    Source: 'src/../../../common/src/math/fp.rs', lines 322:4-324:5
     Visibility: public -/
 def math.fp.Wad.mul_ceil
   (self : math.fp.Wad) (env : aeneas_soroban_shim.Env) (other : math.fp.Wad) :
@@ -1908,7 +1918,7 @@ def math.fp.Wad.mul_ceil
   ok i
 
 /-- [rates_aeneas::math::fp::{rates_aeneas::math::fp::Wad}::from_token]:
-    Source: 'src/../../../common/src/math/fp.rs', lines 322:4-329:5
+    Source: 'src/../../../common/src/math/fp.rs', lines 327:4-334:5
     Visibility: public -/
 def math.fp.Wad.from_token
   (env : aeneas_soroban_shim.Env) (amount : Std.I128) (decimals : Std.U32) :
@@ -1920,7 +1930,7 @@ def math.fp.Wad.from_token
   ok i
 
 /-- [rates_aeneas::math::fp::{rates_aeneas::math::fp::Wad}::to_token]:
-    Source: 'src/../../../common/src/math/fp.rs', lines 332:4-334:5
+    Source: 'src/../../../common/src/math/fp.rs', lines 337:4-339:5
     Visibility: public -/
 def math.fp.Wad.to_token
   (self : math.fp.Wad) (env : aeneas_soroban_shim.Env) (decimals : Std.U32) :
@@ -1930,7 +1940,7 @@ def math.fp.Wad.to_token
     constants.production.shared.WAD_DECIMALS decimals
 
 /-- [rates_aeneas::math::fp::{rates_aeneas::math::fp::Wad}::to_token_floor]:
-    Source: 'src/../../../common/src/math/fp.rs', lines 337:4-339:5
+    Source: 'src/../../../common/src/math/fp.rs', lines 342:4-344:5
     Visibility: public -/
 def math.fp.Wad.to_token_floor
   (self : math.fp.Wad) (env : aeneas_soroban_shim.Env) (decimals : Std.U32) :
@@ -1940,7 +1950,7 @@ def math.fp.Wad.to_token_floor
     decimals
 
 /-- [rates_aeneas::math::fp::{rates_aeneas::math::fp::Wad}::to_ray]:
-    Source: 'src/../../../common/src/math/fp.rs', lines 342:4-349:5
+    Source: 'src/../../../common/src/math/fp.rs', lines 347:4-354:5
     Visibility: public -/
 def math.fp.Wad.to_ray
   (self : math.fp.Wad) (env : aeneas_soroban_shim.Env) :
@@ -1952,8 +1962,20 @@ def math.fp.Wad.to_ray
       constants.production.shared.RAY_DECIMALS
   ok i
 
+/-- [rates_aeneas::math::fp::{rates_aeneas::math::fp::Wad}::to_ray_saturating]:
+    Source: 'src/../../../common/src/math/fp.rs', lines 358:4-360:5
+    Visibility: public -/
+def math.fp.Wad.to_ray_saturating
+  (self : math.fp.Wad) (env : aeneas_soroban_shim.Env) :
+  Result math.fp.Ray
+  := do
+  let i ←
+    math.fp_core.mul_div_floor_saturating env self
+      constants.production.shared.RAY constants.production.shared.WAD
+  ok i
+
 /-- [rates_aeneas::math::fp::{rates_aeneas::math::fp::Wad}::checked_add]:
-    Source: 'src/../../../common/src/math/fp.rs', lines 352:4-354:5
+    Source: 'src/../../../common/src/math/fp.rs', lines 363:4-365:5
     Visibility: public -/
 def math.fp.Wad.checked_add
   (self : math.fp.Wad) (env : aeneas_soroban_shim.Env) (rhs : math.fp.Wad) :
@@ -1963,7 +1985,7 @@ def math.fp.Wad.checked_add
   ok i
 
 /-- [rates_aeneas::math::fp::{rates_aeneas::math::fp::Wad}::checked_sub]:
-    Source: 'src/../../../common/src/math/fp.rs', lines 358:4-360:5
+    Source: 'src/../../../common/src/math/fp.rs', lines 369:4-371:5
     Visibility: public -/
 def math.fp.Wad.checked_sub
   (self : math.fp.Wad) (env : aeneas_soroban_shim.Env) (rhs : math.fp.Wad) :
@@ -1973,28 +1995,28 @@ def math.fp.Wad.checked_sub
   ok i
 
 /-- [rates_aeneas::math::fp::{impl core::clone::Clone for rates_aeneas::math::fp::Bps}::clone]:
-    Source: 'src/../../../common/src/math/fp.rs', lines 365:9-365:14
+    Source: 'src/../../../common/src/math/fp.rs', lines 376:9-376:14
     Visibility: public -/
 def math.fp.Bps.Insts.CoreCloneClone.clone
   (self : math.fp.Bps) : Result math.fp.Bps := do
   ok self
 
 /-- Trait implementation: [rates_aeneas::math::fp::{impl core::clone::Clone for rates_aeneas::math::fp::Bps}]
-    Source: 'src/../../../common/src/math/fp.rs', lines 365:9-365:14 -/
+    Source: 'src/../../../common/src/math/fp.rs', lines 376:9-376:14 -/
 @[reducible]
 def math.fp.Bps.Insts.CoreCloneClone : core.clone.Clone math.fp.Bps := {
   clone := math.fp.Bps.Insts.CoreCloneClone.clone
 }
 
 /-- Trait implementation: [rates_aeneas::math::fp::{impl core::marker::Copy for rates_aeneas::math::fp::Bps}]
-    Source: 'src/../../../common/src/math/fp.rs', lines 365:16-365:20 -/
+    Source: 'src/../../../common/src/math/fp.rs', lines 376:16-376:20 -/
 @[reducible]
 def math.fp.Bps.Insts.CoreMarkerCopy : core.marker.Copy math.fp.Bps := {
   cloneInst := math.fp.Bps.Insts.CoreCloneClone
 }
 
 /-- [rates_aeneas::math::fp::{impl core::fmt::Debug for rates_aeneas::math::fp::Bps}::fmt]:
-    Source: 'src/../../../common/src/math/fp.rs', lines 365:22-365:27
+    Source: 'src/../../../common/src/math/fp.rs', lines 376:22-376:27
     Visibility: public -/
 def math.fp.Bps.Insts.CoreFmtDebug.fmt
   (self : math.fp.Bps) (f : core.fmt.Formatter) :
@@ -2004,28 +2026,28 @@ def math.fp.Bps.Insts.CoreFmtDebug.fmt
   core.fmt.Formatter.debug_tuple_field1_finish f (toStr "Bps") dyn
 
 /-- Trait implementation: [rates_aeneas::math::fp::{impl core::fmt::Debug for rates_aeneas::math::fp::Bps}]
-    Source: 'src/../../../common/src/math/fp.rs', lines 365:22-365:27 -/
+    Source: 'src/../../../common/src/math/fp.rs', lines 376:22-376:27 -/
 @[reducible]
 def math.fp.Bps.Insts.CoreFmtDebug : core.fmt.Debug math.fp.Bps := {
   fmt := math.fp.Bps.Insts.CoreFmtDebug.fmt
 }
 
 /-- Trait implementation: [rates_aeneas::math::fp::{impl core::marker::StructuralPartialEq for rates_aeneas::math::fp::Bps}]
-    Source: 'src/../../../common/src/math/fp.rs', lines 365:29-365:38 -/
+    Source: 'src/../../../common/src/math/fp.rs', lines 376:29-376:38 -/
 @[reducible]
 def math.fp.Bps.Insts.CoreMarkerStructuralPartialEq :
   core.marker.StructuralPartialEq math.fp.Bps := {
 }
 
 /-- [rates_aeneas::math::fp::{impl core::cmp::PartialEq<rates_aeneas::math::fp::Bps> for rates_aeneas::math::fp::Bps}::eq]:
-    Source: 'src/../../../common/src/math/fp.rs', lines 365:29-365:38
+    Source: 'src/../../../common/src/math/fp.rs', lines 376:29-376:38
     Visibility: public -/
 def math.fp.Bps.Insts.CoreCmpPartialEqBps.eq
   (self : math.fp.Bps) (other : math.fp.Bps) : Result Bool := do
   ok (self = other)
 
 /-- Trait implementation: [rates_aeneas::math::fp::{impl core::cmp::PartialEq<rates_aeneas::math::fp::Bps> for rates_aeneas::math::fp::Bps}]
-    Source: 'src/../../../common/src/math/fp.rs', lines 365:29-365:38 -/
+    Source: 'src/../../../common/src/math/fp.rs', lines 376:29-376:38 -/
 @[reducible]
 impl_def math.fp.Bps.Insts.CoreCmpPartialEqBps : core.cmp.PartialEq math.fp.Bps
   math.fp.Bps := {
@@ -2035,14 +2057,14 @@ impl_def math.fp.Bps.Insts.CoreCmpPartialEqBps : core.cmp.PartialEq math.fp.Bps
 }
 
 /-- [rates_aeneas::math::fp::{impl core::cmp::Eq for rates_aeneas::math::fp::Bps}::assert_fields_are_eq]:
-    Source: 'src/../../../common/src/math/fp.rs', lines 365:40-365:42
+    Source: 'src/../../../common/src/math/fp.rs', lines 376:40-376:42
     Visibility: public -/
 def math.fp.Bps.Insts.CoreCmpEq.assert_fields_are_eq
   (self : math.fp.Bps) : Result Unit := do
   ok ()
 
 /-- Trait implementation: [rates_aeneas::math::fp::{impl core::cmp::Eq for rates_aeneas::math::fp::Bps}]
-    Source: 'src/../../../common/src/math/fp.rs', lines 365:40-365:42 -/
+    Source: 'src/../../../common/src/math/fp.rs', lines 376:40-376:42 -/
 @[reducible]
 def math.fp.Bps.Insts.CoreCmpEq : core.cmp.Eq math.fp.Bps := {
   partialEqInst := math.fp.Bps.Insts.CoreCmpPartialEqBps
@@ -2050,14 +2072,14 @@ def math.fp.Bps.Insts.CoreCmpEq : core.cmp.Eq math.fp.Bps := {
 }
 
 /-- [rates_aeneas::math::fp::{impl core::cmp::Ord for rates_aeneas::math::fp::Bps}::cmp]:
-    Source: 'src/../../../common/src/math/fp.rs', lines 365:56-365:59
+    Source: 'src/../../../common/src/math/fp.rs', lines 376:56-376:59
     Visibility: public -/
 def math.fp.Bps.Insts.CoreCmpOrd.cmp
   (self : math.fp.Bps) (other : math.fp.Bps) : Result Ordering := do
   ok (core.cmp.impls.OrdI128.cmp self other)
 
 /-- [rates_aeneas::math::fp::{impl core::cmp::PartialOrd<rates_aeneas::math::fp::Bps> for rates_aeneas::math::fp::Bps}::partial_cmp]:
-    Source: 'src/../../../common/src/math/fp.rs', lines 365:44-365:54
+    Source: 'src/../../../common/src/math/fp.rs', lines 376:44-376:54
     Visibility: public -/
 def math.fp.Bps.Insts.CoreCmpPartialOrdBps.partial_cmp
   (self : math.fp.Bps) (other : math.fp.Bps) : Result (Option Ordering) := do
@@ -2065,7 +2087,7 @@ def math.fp.Bps.Insts.CoreCmpPartialOrdBps.partial_cmp
   ok (some o)
 
 /-- Trait implementation: [rates_aeneas::math::fp::{impl core::cmp::PartialOrd<rates_aeneas::math::fp::Bps> for rates_aeneas::math::fp::Bps}]
-    Source: 'src/../../../common/src/math/fp.rs', lines 365:44-365:54 -/
+    Source: 'src/../../../common/src/math/fp.rs', lines 376:44-376:54 -/
 @[reducible]
 impl_def math.fp.Bps.Insts.CoreCmpPartialOrdBps : core.cmp.PartialOrd
   math.fp.Bps math.fp.Bps := {
@@ -2080,7 +2102,7 @@ impl_def math.fp.Bps.Insts.CoreCmpPartialOrdBps : core.cmp.PartialOrd
 }
 
 /-- Trait implementation: [rates_aeneas::math::fp::{impl core::cmp::Ord for rates_aeneas::math::fp::Bps}]
-    Source: 'src/../../../common/src/math/fp.rs', lines 365:56-365:59 -/
+    Source: 'src/../../../common/src/math/fp.rs', lines 376:56-376:59 -/
 @[reducible]
 impl_def math.fp.Bps.Insts.CoreCmpOrd : core.cmp.Ord math.fp.Bps := {
   eqInst := math.fp.Bps.Insts.CoreCmpEq
@@ -2091,12 +2113,12 @@ impl_def math.fp.Bps.Insts.CoreCmpOrd : core.cmp.Ord math.fp.Bps := {
 }
 
 /-- [rates_aeneas::math::fp::Bps]:
-    Source: 'src/../../../common/src/math/fp.rs', lines 366:0-366:21 -/
+    Source: 'src/../../../common/src/math/fp.rs', lines 377:0-377:21 -/
 def math.fp.Bps.constructor (i : Std.I128) : Result math.fp.Bps := do
   ok i
 
 /-- [rates_aeneas::math::fp::{impl core::ops::function::FnOnce<(i128,), rates_aeneas::math::fp::Bps> for rates_aeneas::math::fp::Bps}::call_once]:
-    Source: 'src/../../../common/src/math/fp.rs', lines 366:0-366:21 -/
+    Source: 'src/../../../common/src/math/fp.rs', lines 377:0-377:21 -/
 def P.Insts.CoreOpsFunctionFnOnceTupleI128Bps.call_once
   (state : Std.I128 → Result math.fp.Bps) (args : Std.I128) :
   Result math.fp.Bps
@@ -2104,7 +2126,7 @@ def P.Insts.CoreOpsFunctionFnOnceTupleI128Bps.call_once
   math.fp.Bps.constructor args
 
 /-- Trait implementation: [rates_aeneas::math::fp::{impl core::ops::function::FnOnce<(i128,), rates_aeneas::math::fp::Bps> for rates_aeneas::math::fp::Bps}]
-    Source: 'src/../../../common/src/math/fp.rs', lines 366:0-366:21 -/
+    Source: 'src/../../../common/src/math/fp.rs', lines 377:0-377:21 -/
 @[reducible]
 def P.Insts.CoreOpsFunctionFnOnceTupleI128Bps : core.ops.function.FnOnce
   (Std.I128 → Result math.fp.Bps) Std.I128 math.fp.Bps := {
@@ -2112,13 +2134,18 @@ def P.Insts.CoreOpsFunctionFnOnceTupleI128Bps : core.ops.function.FnOnce
 }
 
 /-- [rates_aeneas::math::fp::{rates_aeneas::math::fp::Bps}::ONE]
-    Source: 'src/../../../common/src/math/fp.rs', lines 369:4-369:34
+    Source: 'src/../../../common/src/math/fp.rs', lines 380:4-380:34
     Visibility: public -/
 @[global_simps, irreducible]
 def math.fp.Bps.ONE : math.fp.Bps := constants.production.shared.BPS
 
+/-- [rates_aeneas::math::fp::{rates_aeneas::math::fp::Bps}::ZERO]
+    Source: 'src/../../../common/src/math/fp.rs', lines 381:4-381:33
+    Visibility: public -/
+@[global_simps, irreducible] def math.fp.Bps.ZERO : math.fp.Bps := 0#i128
+
 /-- [rates_aeneas::math::fp::{rates_aeneas::math::fp::Bps}::from]:
-    Source: 'src/../../../common/src/math/fp.rs', lines 374:4-376:5
+    Source: 'src/../../../common/src/math/fp.rs', lines 386:4-388:5
     Visibility: public -/
 def math.fp.Bps.from
   {T0 : Type _} (coreconvertIntoT0I128Inst : core.convert.Into T0 Std.I128)
@@ -2129,13 +2156,13 @@ def math.fp.Bps.from
   ok i
 
 /-- [rates_aeneas::math::fp::{rates_aeneas::math::fp::Bps}::raw]:
-    Source: 'src/../../../common/src/math/fp.rs', lines 380:4-382:5
+    Source: 'src/../../../common/src/math/fp.rs', lines 392:4-394:5
     Visibility: public -/
 def math.fp.Bps.raw (self : math.fp.Bps) : Result Std.I128 := do
   ok self
 
 /-- [rates_aeneas::math::fp::{rates_aeneas::math::fp::Bps}::div]:
-    Source: 'src/../../../common/src/math/fp.rs', lines 385:4-387:5
+    Source: 'src/../../../common/src/math/fp.rs', lines 397:4-399:5
     Visibility: public -/
 def math.fp.Bps.div
   (self : math.fp.Bps) (env : aeneas_soroban_shim.Env) (other : math.fp.Bps) :
@@ -2145,8 +2172,42 @@ def math.fp.Bps.div
     math.fp_core.mul_div_half_up env self constants.production.shared.BPS other
   ok i
 
+/-- [rates_aeneas::math::fp::{rates_aeneas::math::fp::Bps}::div_floor]:
+    Source: 'src/../../../common/src/math/fp.rs', lines 402:4-404:5
+    Visibility: public -/
+def math.fp.Bps.div_floor
+  (self : math.fp.Bps) (env : aeneas_soroban_shim.Env) (other : math.fp.Bps) :
+  Result math.fp.Bps
+  := do
+  let i ←
+    math.fp_core.mul_div_floor env self constants.production.shared.BPS other
+  ok i
+
+/-- [rates_aeneas::math::fp::{rates_aeneas::math::fp::Bps}::mul]:
+    Source: 'src/../../../common/src/math/fp.rs', lines 407:4-409:5
+    Visibility: public -/
+def math.fp.Bps.mul
+  (self : math.fp.Bps) (env : aeneas_soroban_shim.Env) (other : math.fp.Bps) :
+  Result math.fp.Bps
+  := do
+  let i ←
+    math.fp_core.mul_div_half_up env self other constants.production.shared.BPS
+  ok i
+
+/-- [rates_aeneas::math::fp::{rates_aeneas::math::fp::Bps}::mul_wad]:
+    Source: 'src/../../../common/src/math/fp.rs', lines 412:4-414:5
+    Visibility: public -/
+def math.fp.Bps.mul_wad
+  (self : math.fp.Bps) (env : aeneas_soroban_shim.Env) (factor : math.fp.Wad) :
+  Result math.fp.Bps
+  := do
+  let i ←
+    math.fp_core.mul_div_half_up env self factor
+      constants.production.shared.WAD
+  ok i
+
 /-- [rates_aeneas::math::fp::{rates_aeneas::math::fp::Bps}::from_fraction_floor]:
-    Source: 'src/../../../common/src/math/fp.rs', lines 390:4-392:5
+    Source: 'src/../../../common/src/math/fp.rs', lines 417:4-419:5
     Visibility: public -/
 def math.fp.Bps.from_fraction_floor
   (env : aeneas_soroban_shim.Env) (numerator : math.fp.Wad)
@@ -2159,7 +2220,7 @@ def math.fp.Bps.from_fraction_floor
   ok i
 
 /-- [rates_aeneas::math::fp::{rates_aeneas::math::fp::Bps}::from_fraction_ceil]:
-    Source: 'src/../../../common/src/math/fp.rs', lines 395:4-397:5
+    Source: 'src/../../../common/src/math/fp.rs', lines 422:4-424:5
     Visibility: public -/
 def math.fp.Bps.from_fraction_ceil
   (env : aeneas_soroban_shim.Env) (numerator : math.fp.Wad)
@@ -2172,7 +2233,7 @@ def math.fp.Bps.from_fraction_ceil
   ok i
 
 /-- [rates_aeneas::math::fp::{rates_aeneas::math::fp::Bps}::try_from_fraction]:
-    Source: 'src/../../../common/src/math/fp.rs', lines 400:4-402:5
+    Source: 'src/../../../common/src/math/fp.rs', lines 427:4-429:5
     Visibility: public -/
 def math.fp.Bps.try_from_fraction
   (env : aeneas_soroban_shim.Env) (numerator : math.fp.Wad)
@@ -2186,7 +2247,7 @@ def math.fp.Bps.try_from_fraction
     (math.fp.Bps.constructor)
 
 /-- [rates_aeneas::math::fp::{rates_aeneas::math::fp::Bps}::from_weighted_sum]:
-    Source: 'src/../../../common/src/math/fp.rs', lines 405:4-407:5
+    Source: 'src/../../../common/src/math/fp.rs', lines 432:4-434:5
     Visibility: public -/
 def math.fp.Bps.from_weighted_sum
   (env : aeneas_soroban_shim.Env) (weighted_sum : Std.I128)
@@ -2196,8 +2257,107 @@ def math.fp.Bps.from_weighted_sum
   let i ← math.fp_core.div_by_int_half_up env weighted_sum weight
   ok i
 
+/-- [rates_aeneas::math::fp_core::mul_add_div_rem_nonnegative::{impl core::ops::function::FnOnce<(i128,), core::option::Option<i128>> for rates_aeneas::math::fp_core::mul_add_div_rem_nonnegative::{closure}<'_0>}::call_once]:
+    Source: 'src/../../../common/src/math/fp_core.rs', lines 182:18-182:54 -/
+def
+  math.fp_core.mul_add_div_rem_nonnegative.closure.Insts.CoreOpsFunctionFnOnceTupleI128OptionI128.call_once
+  (c : math.fp_core.mul_add_div_rem_nonnegative.closure)
+  (tupled_args : Std.I128) :
+  Result (Option Std.I128)
+  := do
+  ok (I128.checked_add tupled_args c)
+
+/-- Trait implementation: [rates_aeneas::math::fp_core::mul_add_div_rem_nonnegative::{impl core::ops::function::FnOnce<(i128,), core::option::Option<i128>> for rates_aeneas::math::fp_core::mul_add_div_rem_nonnegative::{closure}<'_0>}]
+    Source: 'src/../../../common/src/math/fp_core.rs', lines 182:18-182:54 -/
+@[reducible]
+def
+  math.fp_core.mul_add_div_rem_nonnegative.closure.Insts.CoreOpsFunctionFnOnceTupleI128OptionI128
+  : core.ops.function.FnOnce math.fp_core.mul_add_div_rem_nonnegative.closure
+  Std.I128 (Option Std.I128) := {
+  call_once :=
+    math.fp_core.mul_add_div_rem_nonnegative.closure.Insts.CoreOpsFunctionFnOnceTupleI128OptionI128.call_once
+}
+
+/-- [rates_aeneas::math::fp_core::mul_add_div_rem_nonnegative]:
+    Source: 'src/../../../common/src/math/fp_core.rs', lines 168:0-195:1 -/
+def math.fp_core.mul_add_div_rem_nonnegative
+  (env : aeneas_soroban_shim.Env) (x : Std.I128) (y : Std.I128)
+  (carry : Std.I128) (d : Std.I128) :
+  Result (Std.I128 × Std.I128)
+  := do
+  math.fp_core.require_nonzero_divisor env d
+  massert (¬ (x < 0#i128))
+  massert (¬ (y < 0#i128))
+  massert (¬ (carry < 0#i128))
+  massert (¬ (d < 0#i128))
+  let o ← lift (I128.checked_mul x y)
+  let o1 ←
+    core.option.Option.and_then
+      math.fp_core.mul_add_div_rem_nonnegative.closure.Insts.CoreOpsFunctionFnOnceTupleI128OptionI128
+      o carry
+  match o1 with
+  | none =>
+    let i ← aeneas_soroban_shim.I256.from_i128 env x
+    let i1 ← aeneas_soroban_shim.I256.from_i128 env y
+    let i2 ← aeneas_soroban_shim.I256.mul i i1
+    let i3 ← aeneas_soroban_shim.I256.from_i128 env carry
+    let numerator ← aeneas_soroban_shim.I256.add i2 i3
+    let divisor ← aeneas_soroban_shim.I256.from_i128 env d
+    let i4 ← aeneas_soroban_shim.I256.div numerator divisor
+    let i5 ← math.fp_core.to_i128 env i4
+    let i6 ← aeneas_soroban_shim.I256.rem_euclid numerator divisor
+    let i7 ← math.fp_core.to_i128 env i6
+    ok (i5, i7)
+  | some numerator =>
+    let i ← numerator / d
+    let i1 ← numerator % d
+    ok (i, i1)
+
+/-- [rates_aeneas::math::fp::{rates_aeneas::math::fp::Bps}::checked_add]:
+    Source: 'src/../../../common/src/math/fp.rs', lines 521:4-523:5
+    Visibility: public -/
+def math.fp.Bps.checked_add
+  (self : math.fp.Bps) (env : aeneas_soroban_shim.Env) (rhs : math.fp.Bps) :
+  Result math.fp.Bps
+  := do
+  let i ← math.fp.checked_add_raw env self rhs
+  ok i
+
+/-- [rates_aeneas::math::fp::{rates_aeneas::math::fp::Bps}::add_weighted_term]:
+    Source: 'src/../../../common/src/math/fp.rs', lines 439:4-455:5
+    Visibility: public -/
+def math.fp.Bps.add_weighted_term
+  (self : math.fp.Bps) (env : aeneas_soroban_shim.Env) (rate : math.fp.Bps)
+  (weight : math.fp.Wad) (total_weight : math.fp.Wad) (remainder : math.fp.Wad)
+  :
+  Result (math.fp.Bps × math.fp.Wad)
+  := do
+  let (quotient, remainder1) ←
+    math.fp_core.mul_add_div_rem_nonnegative env rate weight remainder
+      total_weight
+  let b ← math.fp.Bps.checked_add self env quotient
+  ok (b, remainder1)
+
+/-- [rates_aeneas::math::fp::{rates_aeneas::math::fp::Bps}::round_weighted_remainder]:
+    Source: 'src/../../../common/src/math/fp.rs', lines 459:4-468:5
+    Visibility: public -/
+def math.fp.Bps.round_weighted_remainder
+  (self : math.fp.Bps) (env : aeneas_soroban_shim.Env)
+  (remainder : math.fp.Wad) (divisor : math.fp.Wad) :
+  Result math.fp.Bps
+  := do
+  massert (¬ (remainder < 0#i128))
+  massert (¬ (divisor <= 0#i128))
+  massert (¬ (remainder >= divisor))
+  let i ← divisor / 2#i128
+  let i1 ← divisor % 2#i128
+  let i2 ← i + i1
+  if remainder >= i2
+  then math.fp.Bps.checked_add self env 1#i128
+  else ok self
+
 /-- [rates_aeneas::math::fp::{rates_aeneas::math::fp::Bps}::to_wad]:
-    Source: 'src/../../../common/src/math/fp.rs', lines 410:4-412:5
+    Source: 'src/../../../common/src/math/fp.rs', lines 471:4-473:5
     Visibility: public -/
 def math.fp.Bps.to_wad
   (self : math.fp.Bps) (env : aeneas_soroban_shim.Env) :
@@ -2209,7 +2369,7 @@ def math.fp.Bps.to_wad
   ok i
 
 /-- [rates_aeneas::math::fp::{rates_aeneas::math::fp::Bps}::apply_to]:
-    Source: 'src/../../../common/src/math/fp.rs', lines 415:4-417:5
+    Source: 'src/../../../common/src/math/fp.rs', lines 476:4-478:5
     Visibility: public -/
 def math.fp.Bps.apply_to
   (self : math.fp.Bps) (env : aeneas_soroban_shim.Env) (amount : Std.I128) :
@@ -2218,7 +2378,7 @@ def math.fp.Bps.apply_to
   math.fp_core.mul_div_half_up env amount self constants.production.shared.BPS
 
 /-- [rates_aeneas::math::fp::{rates_aeneas::math::fp::Bps}::apply_to_ceil]:
-    Source: 'src/../../../common/src/math/fp.rs', lines 420:4-422:5
+    Source: 'src/../../../common/src/math/fp.rs', lines 481:4-483:5
     Visibility: public -/
 def math.fp.Bps.apply_to_ceil
   (self : math.fp.Bps) (env : aeneas_soroban_shim.Env) (amount : Std.I128) :
@@ -2227,7 +2387,7 @@ def math.fp.Bps.apply_to_ceil
   math.fp_core.mul_div_ceil env amount self constants.production.shared.BPS
 
 /-- [rates_aeneas::math::fp::{rates_aeneas::math::fp::Bps}::apply_to_ray_ceil]:
-    Source: 'src/../../../common/src/math/fp.rs', lines 425:4-427:5
+    Source: 'src/../../../common/src/math/fp.rs', lines 486:4-488:5
     Visibility: public -/
 def math.fp.Bps.apply_to_ray_ceil
   (self : math.fp.Bps) (env : aeneas_soroban_shim.Env) (value : math.fp.Ray) :
@@ -2238,7 +2398,7 @@ def math.fp.Bps.apply_to_ray_ceil
   ok i
 
 /-- [rates_aeneas::math::fp::{rates_aeneas::math::fp::Bps}::flash_loan_fee_on]:
-    Source: 'src/../../../common/src/math/fp.rs', lines 431:4-438:5
+    Source: 'src/../../../common/src/math/fp.rs', lines 492:4-499:5
     Visibility: public -/
 def math.fp.Bps.flash_loan_fee_on
   (self : math.fp.Bps) (env : aeneas_soroban_shim.Env) (amount : Std.I128) :
@@ -2253,7 +2413,7 @@ def math.fp.Bps.flash_loan_fee_on
   else ok fee_amount
 
 /-- [rates_aeneas::math::fp::{rates_aeneas::math::fp::Bps}::apply_to_wad]:
-    Source: 'src/../../../common/src/math/fp.rs', lines 441:4-445:5
+    Source: 'src/../../../common/src/math/fp.rs', lines 502:4-506:5
     Visibility: public -/
 def math.fp.Bps.apply_to_wad
   (self : math.fp.Bps) (env : aeneas_soroban_shim.Env) (value : math.fp.Wad) :
@@ -2263,7 +2423,7 @@ def math.fp.Bps.apply_to_wad
   math.fp.Wad.mul value env ratio
 
 /-- [rates_aeneas::math::fp::{rates_aeneas::math::fp::Bps}::apply_to_wad_floor]:
-    Source: 'src/../../../common/src/math/fp.rs', lines 448:4-452:5
+    Source: 'src/../../../common/src/math/fp.rs', lines 509:4-513:5
     Visibility: public -/
 def math.fp.Bps.apply_to_wad_floor
   (self : math.fp.Bps) (env : aeneas_soroban_shim.Env) (value : math.fp.Wad) :
@@ -2273,7 +2433,7 @@ def math.fp.Bps.apply_to_wad_floor
   math.fp.Wad.mul_floor value env ratio
 
 /-- [rates_aeneas::math::fp::{rates_aeneas::math::fp::Bps}::apply_to_ray]:
-    Source: 'src/../../../common/src/math/fp.rs', lines 455:4-457:5
+    Source: 'src/../../../common/src/math/fp.rs', lines 516:4-518:5
     Visibility: public -/
 def math.fp.Bps.apply_to_ray
   (self : math.fp.Bps) (env : aeneas_soroban_shim.Env) (value : math.fp.Ray) :
@@ -2284,18 +2444,8 @@ def math.fp.Bps.apply_to_ray
     math.fp_core.mul_div_half_up env i self constants.production.shared.BPS
   ok i1
 
-/-- [rates_aeneas::math::fp::{rates_aeneas::math::fp::Bps}::checked_add]:
-    Source: 'src/../../../common/src/math/fp.rs', lines 460:4-462:5
-    Visibility: public -/
-def math.fp.Bps.checked_add
-  (self : math.fp.Bps) (env : aeneas_soroban_shim.Env) (rhs : math.fp.Bps) :
-  Result math.fp.Bps
-  := do
-  let i ← math.fp.checked_add_raw env self rhs
-  ok i
-
 /-- [rates_aeneas::math::fp::{rates_aeneas::math::fp::Bps}::checked_sub]:
-    Source: 'src/../../../common/src/math/fp.rs', lines 466:4-468:5
+    Source: 'src/../../../common/src/math/fp.rs', lines 527:4-529:5
     Visibility: public -/
 def math.fp.Bps.checked_sub
   (self : math.fp.Bps) (env : aeneas_soroban_shim.Env) (rhs : math.fp.Bps) :

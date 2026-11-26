@@ -52,8 +52,8 @@ pub(crate) fn require_post_pool_risk_gates(env: &Env, cache: &mut Context, accou
         CollateralError::InsufficientCollateral
     );
 
-    let floor = storage::get_min_borrow_collateral_usd_wad(env);
-    if floor != 0 && totals.ltv_collateral.raw() < floor {
+    let floor = Wad::from(storage::get_min_borrow_collateral_usd_wad(env));
+    if floor != Wad::ZERO && totals.ltv_collateral < floor {
         panic_with_error!(env, CollateralError::MinBorrowCollateralNotMet);
     }
 
@@ -112,9 +112,9 @@ pub(crate) fn validate_bulk_position_limits(
 }
 
 /// Rejects a new supply slot that would leave a collateral leg below
-/// `MIN_BORROWABLE_ASSET_DECIMALS` beside any other supply position. An account
-/// already holding two positions holds no such leg, so only the new assets and
-/// a sole existing one are read.
+/// `MIN_BORROWABLE_ASSET_DECIMALS` beside any other supply position. An account that already holds
+/// two positions holds no such leg, so the function reads only the new assets and a sole existing
+/// position.
 pub(crate) fn require_whole_unit_isolation(
     env: &Env,
     cache: &mut Context,

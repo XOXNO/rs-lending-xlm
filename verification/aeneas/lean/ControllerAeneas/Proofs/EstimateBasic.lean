@@ -72,49 +72,60 @@ theorem one_plus_bonus_spec (env : Env) (b : math.fp.Bps) (hb0 : 0 ≤ b.val)
 /-- **`max_hf_preserving_bonus_bps` exact result.** For a non-negative health
 factor `hf` and any proportion `p`:
 * `p ≤ 0` or `hf ≥ 1 WAD` → `None`;
-* otherwise `Some cap` with `cap + BPS = ⌊hf·BPS/p⌋`.
+* if `q = ⌊hf·BPS/p⌋ < BPS`, the result is `Some BelowZero`;
+* otherwise it is `Some (NonNegative cap)` with `cap = q - BPS`.
 
-It never aborts on this domain (the comment in the code: `hf < 10^18` keeps
-`hf·BPS` below `10^22`). -/
-theorem max_hf_preserving_bonus_bps_spec (snap : positions.liquidation.curve.LiquidationSnapshot)
-    (hhf : 0 ≤ snap.hf.val) :
-    positions.liquidation.curve.max_hf_preserving_bonus_bps snap ⦃ o =>
+It never aborts on this domain: `hf < 10^18` keeps the floor below `10^22`,
+well inside `i128`. -/
+theorem max_hf_preserving_bonus_bps_spec (env : Env)
+    (snap : positions.liquidation.curve.LiquidationSnapshot) (hhf : 0 ≤ snap.hf.val) :
+    positions.liquidation.curve.max_hf_preserving_bonus_bps env snap ⦃ o =>
       ((snap.proportion_seized.val ≤ 0 ∨ 10^18 ≤ snap.hf.val) → o = none) ∧
       ((0 < snap.proportion_seized.val ∧ snap.hf.val < 10^18) →
-        ∃ cap : Std.I128, o = some cap ∧
-          IsFloor (snap.hf.val * 10^4) snap.proportion_seized.val (cap.val + 10^4)) ⦄ := by
+        ∃ q : Int, IsFloor (snap.hf.val * 10^4) snap.proportion_seized.val q ∧
+          ((q < 10^4 ∧
+              o = some positions.liquidation.curve.HfPreservingBonusCap.BelowZero) ∨
+            (10^4 ≤ q ∧ ∃ cap : math.fp.Bps,
+              o = some (positions.liquidation.curve.HfPreservingBonusCap.NonNegative cap) ∧
+              cap.val = q - 10^4))) ⦄ := by
   unfold positions.liquidation.curve.max_hf_preserving_bonus_bps
-  simp only [math.fp.Wad.raw, bind_ok]
+  simp only [wad_le, est_WAD_ZERO_val, bind_ok]
   by_cases hp : snap.proportion_seized.val ≤ 0
-  · have : snap.proportion_seized ≤ 0#i128 := by simp [IScalar.le_equiv]; omega
-    simp only [this, ↓reduceIte, WP.spec_ok]
+  · simp only [hp, decide_true, ↓reduceIte, WP.spec_ok]
     exact ⟨fun _ => trivial, fun h => absurd h.1 (by omega)⟩
-  · have : ¬ (snap.proportion_seized ≤ 0#i128) := by simp [IScalar.le_equiv]; omega
-    simp only [this, ↓reduceIte]
+  · simp only [hp, decide_false, Bool.false_eq_true, ↓reduceIte, wad_ge,
+      est_WAD_ONE_val, bind_ok]
     by_cases hh : 10^18 ≤ snap.hf.val
-    · have : snap.hf ≥ constants.production.shared.WAD := by
-        simp [IScalar.le_equiv, WAD_val]; omega
-      simp only [this, ↓reduceIte, WP.spec_ok]
+    · simp only [hh, decide_true, ↓reduceIte, WP.spec_ok]
       exact ⟨fun _ => trivial, fun h => absurd h.2 (by omega)⟩
-    · have : ¬ (snap.hf ≥ constants.production.shared.WAD) := by
-        simp [IScalar.le_equiv, WAD_val]; omega
-      simp only [this, ↓reduceIte]
-      have hW := snap.hf.hBounds
-      have hP := snap.proportion_seized.hBounds
-      simp only [IScalarTy.numBits] at hW hP
-      step as ⟨i1, hi1⟩
-      · simp only [I128.min, I128.max, I128.numBits, IScalarTy.numBits, BPS_val]; omega
-      · simp only [I128.min, I128.max, I128.numBits, IScalarTy.numBits, BPS_val]; omega
-      step as ⟨i2, hi2⟩
-      have hn : 0 ≤ i1.val := by rw [hi1, BPS_val]; omega
-      have hi2n : 0 ≤ i2.val := by rw [hi2]; exact Int.tdiv_nonneg hn (by omega)
-      have hi2b := i2.hBounds
-      simp only [IScalarTy.numBits] at hi2b
-      step as ⟨i3, hi3⟩
-      all_goals try (simp only [I128.min, I128.max, I128.numBits, IScalarTy.numBits, BPS_val]; omega)
-      refine ⟨fun h => by omega, fun _ _ => ⟨i3, rfl, ?_⟩⟩
-      rw [hi3, BPS_val, show i2.val - 10^4 + 10^4 = i2.val by ring, hi2, hi1, BPS_val]
-      exact tdiv_isFloor_of_nonneg _ _ (by omega) (by omega)
+    · simp only [hh, decide_false, Bool.false_eq_true, ↓reduceIte]
+      have hp0 : 0 < snap.proportion_seized.val := by omega
+      obtain ⟨q, hq⟩ := isFloor_exists (snap.hf.val * 10^4)
+        snap.proportion_seized.val hp0
+      have hq' := (isFloor_pos hp0).mp hq
+      have hq0 : 0 ≤ q := IsFloor.nonneg_of hp0 hq (by positivity)
+      have hqmax : q ≤ 10^22 := IsFloor.le_of hp0 hq (by nlinarith)
+      unfold math.fp.Bps.from_fraction_floor
+      step with mul_div_floor_spec env snap.hf constants.production.shared.BPS
+        snap.proportion_seized (by omega)
+        ⟨q, by rw [BPS_val]; exact hq, by omega, by norm_num at hqmax ⊢; omega⟩ as ⟨ratio, hratio⟩
+      rw [BPS_val] at hratio
+      have hrq : ratio.val = q := IsFloor.unique (by omega) hratio hq
+      have hB : (math.fp.Bps.ONE : Std.I128).val = 10^4 := by
+        unfold math.fp.Bps.ONE
+        exact BPS_val
+      simp only [bps_lt, hB, bind_ok]
+      by_cases hsmall : q < 10000
+      · have hd : decide (ratio.val < 10^4) = true := by simp [hrq, hsmall]
+        simp only [hd, ↓reduceIte, WP.spec_ok]
+        exact ⟨by simp, fun _ _ => ⟨q, hq, Or.inl ⟨by omega, by simp⟩⟩⟩
+      · have hd : decide (ratio.val < 10^4) = false := by simp [hrq, hsmall]
+        simp only [hd, Bool.false_eq_true, ↓reduceIte]
+        unfold math.fp.Bps.checked_sub
+        step with checked_sub_nonneg_spec env ratio math.fp.Bps.ONE
+          (by rw [hB]; norm_num) (by rw [hrq, hB]; omega) as ⟨cap, hcap⟩
+        refine ⟨by simp, fun _ _ => ⟨q, hq, Or.inr ⟨by omega, cap, by simp, ?_⟩⟩⟩
+        rw [hcap, hrq, hB]
 
 /-- **The cap is the largest HF-preserving bonus.** When
 `max_hf_preserving_bonus_bps` returns `Some cap`:

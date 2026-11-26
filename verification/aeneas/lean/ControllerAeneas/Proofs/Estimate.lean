@@ -79,6 +79,18 @@ def EstimateSpec (C D Wc p hf T base sb r b : Int) : Prop :=
     (D ≤ C → base ≤ cap → b = min sb cap ∧
       ∃ ideal, LiqAtTarget C D Wc p T b ideal ∧ DustAdj D ideal r))
 
+@[simp] theorem est_bps_min (a b : math.fp.Bps) :
+    core.cmp.Ord.min.trait_default math.fp.Bps.Insts.CoreCmpOrd a b
+      = ok (if b.val < a.val then b else a) := by
+  simp only [core.cmp.Ord.min.trait_default, core.cmp.Ord.min.default, core.cmp.Ord.min_body,
+    math.fp.Bps.Insts.CoreCmpOrd, math.fp.Bps.Insts.CoreCmpPartialOrdBps,
+    core.cmp.PartialOrd.lt.default, core.cmp.PartialOrd.lt_body,
+    math.fp.Bps.Insts.CoreCmpPartialOrdBps.partial_cmp, math.fp.Bps.Insts.CoreCmpOrd.cmp,
+    core.cmp.impls.OrdI128.cmp, bind_ok, Option.some.injEq]
+  by_cases h : b.val < a.val
+  · simp [compare_lt_iff_lt.mpr h]; intro h'; omega
+  · simp [compare_lt_iff_lt, h]
+
 /-- The dust check at the end of `estimate_liquidation_amount`. -/
 theorem dust_tail_spec (env : Env) (D ideal : math.fp.Wad) (b : math.fp.Bps)
     (h0 : 0 ≤ ideal.val) (hD : ideal.val ≤ D.val) :
@@ -135,12 +147,13 @@ theorem estimate_liquidation_amount_spec (env : Env)
     curve.target_hf hm0 hmt tmax fac0 fac hf0 base0 basemax
   obtain ⟨sb, hsbeq, -, -, sblo, sbhi⟩ := spec_imp_eq_ok hsb
   rw [hsbeq, bind_ok]
-  step with max_hf_preserving_bonus_bps_spec snap hf0 as ⟨o, hnone, hsome⟩
+  step with max_hf_preserving_bonus_bps_spec env snap hf0 as ⟨o, hnone, hsome⟩
   cases o with
   | none =>
     have hc : snap.proportion_seized.val ≤ 0 ∨ 10^18 ≤ snap.hf.val := by
       by_contra hn
-      obtain ⟨cap, hcap, -⟩ := hsome (by omega) (by omega); cases hcap
+      obtain ⟨q, -, hcap⟩ := hsome (by omega) (by omega)
+      rcases hcap with ⟨-, hbad⟩ | ⟨-, cap, hbad, -⟩ <;> cases hbad
     simp only
     -- the rate-cap witness
     have hw : ∃ h, 0 ≤ h ∧ h < curve.target_hf.val ∧
@@ -166,14 +179,16 @@ theorem estimate_liquidation_amount_spec (env : Env)
     simp only at hb hdust
     refine ⟨sblo, sbhi, fun _ => ⟨by rw [hb], ideal.val, hlat, hdust⟩, fun h' => ?_⟩
     rcases hc with hc | hc <;> omega
-  | some cap =>
+  | some hpbc =>
     have hc : 0 < snap.proportion_seized.val ∧ snap.hf.val < 10^18 := by
       by_contra hn
       have : snap.proportion_seized.val ≤ 0 ∨ 10^18 ≤ snap.hf.val := by omega
       cases hnone this
-    obtain ⟨cap', hcap', hfl⟩ := hsome hc.1 hc.2
-    cases hcap'
-    have ⟨hcb1, hcb2⟩ := max_hf_cap_bounds hc.1 hfl
+    obtain ⟨q, hfl, hcap⟩ := hsome hc.1 hc.2
+    let capZ := q - 10^4
+    have hflZ : IsFloor (snap.hf.val * 10^4) snap.proportion_seized.val (capZ + 10^4) := by
+      convert hfl using 1 <;> dsimp [capZ] <;> omega
+    have ⟨hcb1, hcb2⟩ := max_hf_cap_bounds hc.1 hflZ
     rw [wad_lt]; simp only [bind_ok]
     by_cases cCD : snap.total_collateral.val < snap.total_debt.val
     · simp only [cCD, decide_true, ↓reduceIte]
@@ -194,38 +209,61 @@ theorem estimate_liquidation_amount_spec (env : Env)
       rw [WAD_val] at hbk
       have hbke : bk.val = f := IsFloor.unique (by omega) hbk hf
       simp only [wad_min, bind_ok, WP.spec_ok]
-      refine ⟨sblo, sbhi, fun h' => by omega, fun _ => ⟨cap, hfl, fun _ => ⟨rfl, f,
+      refine ⟨sblo, sbhi, fun h' => by omega, fun _ => ⟨capZ, hflZ, fun _ => ⟨rfl, f,
         by rw [← hopb]; exact hf, ?_⟩, fun h' => absurd h' (by omega),
         fun h' => absurd h' (by omega)⟩⟩
       rw [est_wad_min_val, hbke]
-    · simp only [cCD, decide_false, Bool.false_eq_true, ↓reduceIte, math.fp.Bps.raw, bind_ok]
-      by_cases ccap : cap.val < bounds.base.val
-      · have : cap < bounds.base := by simp [IScalar.lt_equiv]; omega
-        simp only [this, ↓reduceIte]
-        step as ⟨i1, hi1⟩
-        simp only [bps_from_same, bind_ok, WP.spec_ok]
-        refine ⟨sblo, sbhi, fun h' => by omega, fun _ => ⟨cap, hfl,
-          fun h' => absurd h' cCD, fun _ _ => ⟨rfl, ?_⟩, fun _ h' => absurd h' (by omega)⟩⟩
-        rw [hi1]; simp
-      · have : ¬ (cap < bounds.base) := by simp [IScalar.lt_equiv]; omega
-        simp only [this, ↓reduceIte]
-        step as ⟨bn, hbn⟩
-        simp only [bps_from_same, bind_ok]
-        have hbnv : bn.val = min sb.val cap.val := by rw [hbn]; simp
-        have hrate : (10^4 + bn.val) * snap.proportion_seized.val ≤ snap.hf.val * 10^4 := by
-          have : (10^4 + bn.val) * snap.proportion_seized.val ≤
-              (10^4 + cap.val) * snap.proportion_seized.val :=
-            mul_le_mul_of_nonneg_right (by omega) p0
-          linarith
-        step with liquidation_at_target_spec env snap bn curve.target_hf snap.hf.val
-          (by omega) (by omega) C0 D0 Dmax Wc0 p0 (by omega) tmax hf0 (by omega) hrate cons
-          as ⟨ideal, hlat, hi0, hiD, _⟩
-        apply WP.spec_mono (dust_tail_spec env snap.total_debt ideal bn hi0 hiD)
-        rintro ⟨r, b⟩ ⟨hb, hdust⟩
-        simp only at hb hdust
-        refine ⟨sblo, sbhi, fun h' => by omega, fun _ => ⟨cap, hfl,
-          fun h' => absurd h' cCD, fun _ h' => absurd h' ccap,
-          fun _ _ => ⟨by rw [hb, hbnv], ideal.val, by rw [hb]; exact hlat, hdust⟩⟩⟩
+    · simp only [cCD, decide_false, Bool.false_eq_true, ↓reduceIte, bind_ok]
+      cases hpbc with
+      | BelowZero =>
+        have hneg : capZ < 0 := by
+          rcases hcap with ⟨hq, -⟩ | ⟨-, cap, hbad, -⟩
+          · dsimp [capZ]; omega
+          · cases hbad
+        simp only [WP.spec_ok]
+        refine ⟨sblo, sbhi, fun h' => by omega, fun _ => ⟨capZ, hflZ,
+          fun h' => absurd h' cCD, fun _ _ => ⟨rfl, ?_⟩,
+          fun _ h' => absurd h' (by omega)⟩⟩
+        rw [max_eq_right (by omega)]
+        norm_num [math.fp.Bps.ZERO]
+      | NonNegative cap =>
+        have hcapv : cap.val = capZ := by
+          rcases hcap with ⟨-, hbad⟩ | ⟨-, cap', heq, hv⟩
+          · cases hbad
+          · cases heq
+            exact hv
+        have hcap0 : 0 ≤ capZ := by
+          rcases hcap with ⟨hq, hbad⟩ | ⟨hq, -, -, -⟩
+          · cases hbad
+          · dsimp [capZ]; omega
+        by_cases ccap : cap.val < bounds.base.val
+        · simp only [bps_lt, bind_ok, ccap, decide_true, ↓reduceIte, WP.spec_ok]
+          refine ⟨sblo, sbhi, fun h' => by omega, fun _ => ⟨capZ, hflZ,
+            fun h' => absurd h' cCD, fun _ _ => ⟨rfl, ?_⟩,
+            fun _ h' => absurd h' (by omega)⟩⟩
+          rw [hcapv, max_eq_left hcap0]
+        · simp only [bps_lt, bind_ok, ccap, decide_false, Bool.false_eq_true, ↓reduceIte]
+          let bn := if cap.val < sb.val then cap else sb
+          have hbn : core.cmp.Ord.min.trait_default math.fp.Bps.Insts.CoreCmpOrd sb cap = ok bn := by
+            rw [est_bps_min]
+          rw [hbn, bind_ok]
+          have hbnv : bn.val = min sb.val capZ := by
+            dsimp [bn]
+            split <;> omega
+          have hrate : (10^4 + bn.val) * snap.proportion_seized.val ≤ snap.hf.val * 10^4 := by
+            have : (10^4 + bn.val) * snap.proportion_seized.val ≤
+                (10^4 + capZ) * snap.proportion_seized.val :=
+              mul_le_mul_of_nonneg_right (by omega) p0
+            linarith
+          step with liquidation_at_target_spec env snap bn curve.target_hf snap.hf.val
+            (by omega) (by omega) C0 D0 Dmax Wc0 p0 (by omega) tmax hf0 (by omega) hrate cons
+            as ⟨ideal, hlat, hi0, hiD, _⟩
+          apply WP.spec_mono (dust_tail_spec env snap.total_debt ideal bn hi0 hiD)
+          rintro ⟨r, b⟩ ⟨hb, hdust⟩
+          simp only at hb hdust
+          refine ⟨sblo, sbhi, fun h' => by omega, fun _ => ⟨capZ, hflZ,
+            fun h' => absurd h' cCD, fun _ h' => absurd h' (by omega),
+            fun _ _ => ⟨by rw [hb, hbnv], ideal.val, by rw [hb]; exact hlat, hdust⟩⟩⟩
 
 /-- A `liquidation_at_target` value is a repayment in `[0, D]`. -/
 theorem LiqAtTarget.bounds {C D Wc p T b r : Int} (hC : 0 ≤ C) (hD : 0 ≤ D) (hb : 0 ≤ b)

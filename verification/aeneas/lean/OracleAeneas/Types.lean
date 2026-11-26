@@ -66,7 +66,7 @@ def math.fp_core.try_mul_div_half_up.closure := Std.I128
 def math.fp_core.mul_div_half_up.closure := aeneas_oracle_shim.Env
 
 /-- [oracle_aeneas::math::fp_core::to_i128::{closure}]
-    Source: 'src/../../../../common/src/math/fp_core.rs', lines 302:24-302:77 -/
+    Source: 'src/../../../../common/src/math/fp_core.rs', lines 338:24-338:77 -/
 @[reducible]
 def math.fp_core.to_i128.closure := aeneas_oracle_shim.Env
 
@@ -76,7 +76,7 @@ def math.fp_core.to_i128.closure := aeneas_oracle_shim.Env
 def math.fp_core.mul_div_floor.closure := Std.I128
 
 /-- [oracle_aeneas::math::fp_core::mul_div_floor_saturating::{closure}]
-    Source: 'src/../../../../common/src/math/fp_core.rs', lines 184:18-184:54 -/
+    Source: 'src/../../../../common/src/math/fp_core.rs', lines 220:18-220:54 -/
 @[reducible]
 def math.fp_core.mul_div_floor_saturating.closure := Std.I128
 
@@ -92,40 +92,45 @@ def math.fp.Ray.mul_int.closure := aeneas_oracle_shim.Env
 def math.fp.Wad := Std.I128
 
 /-- [oracle_aeneas::math::fp_core::mul_div_ceil::{closure}]
-    Source: 'src/../../../../common/src/math/fp_core.rs', lines 168:18-168:53 -/
+    Source: 'src/../../../../common/src/math/fp_core.rs', lines 204:18-204:53 -/
 @[reducible]
 def math.fp_core.mul_div_ceil.closure := Std.I128
 
 /-- [oracle_aeneas::math::fp_core::rescale_half_up::{closure}]
-    Source: 'src/../../../../common/src/math/fp_core.rs', lines 235:48-239:5 -/
+    Source: 'src/../../../../common/src/math/fp_core.rs', lines 271:48-275:5 -/
 @[reducible]
 def math.fp_core.rescale_half_up.closure := aeneas_oracle_shim.Env
 
 /-- [oracle_aeneas::math::fp_core::rescale::{closure#1}]
-    Source: 'src/../../../../common/src/math/fp_core.rs', lines 223:28-223:81 -/
+    Source: 'src/../../../../common/src/math/fp_core.rs', lines 259:28-259:81 -/
 @[reducible]
 def math.fp_core.rescale.closure_1 (T0 : Type _) := aeneas_oracle_shim.Env
 
 /-- [oracle_aeneas::math::fp_core::rescale::{closure}]
-    Source: 'src/../../../../common/src/math/fp_core.rs', lines 222:22-222:52 -/
+    Source: 'src/../../../../common/src/math/fp_core.rs', lines 258:22-258:52 -/
 @[reducible]
 def math.fp_core.rescale.closure (T0 : Type _) := Std.I128
 
 /-- [oracle_aeneas::math::fp_core::rescale_floor::{closure}]
-    Source: 'src/../../../../common/src/math/fp_core.rs', lines 247:48-251:5 -/
+    Source: 'src/../../../../common/src/math/fp_core.rs', lines 283:48-287:5 -/
 @[reducible]
 def math.fp_core.rescale_floor.closure := Unit
 
 /-- [oracle_aeneas::math::fp_core::rescale_ceil::{closure}]
-    Source: 'src/../../../../common/src/math/fp_core.rs', lines 260:48-272:5 -/
+    Source: 'src/../../../../common/src/math/fp_core.rs', lines 296:48-308:5 -/
 @[reducible]
 def math.fp_core.rescale_ceil.closure := Unit
 
 /-- [oracle_aeneas::math::fp::Bps]
-    Source: 'src/../../../../common/src/math/fp.rs', lines 366:0-366:21
+    Source: 'src/../../../../common/src/math/fp.rs', lines 377:0-377:21
     Visibility: public -/
 @[reducible]
 def math.fp.Bps := Std.I128
+
+/-- [oracle_aeneas::math::fp_core::mul_add_div_rem_nonnegative::{closure}]
+    Source: 'src/../../../../common/src/math/fp_core.rs', lines 182:18-182:54 -/
+@[reducible]
+def math.fp_core.mul_add_div_rem_nonnegative.closure := Std.I128
 
 /-- [oracle_aeneas::oracle::lp::LpLeg]
     Source: 'src/../../../../common/src/oracle/lp.rs', lines 35:0-39:1

@@ -52,15 +52,20 @@ theorem split_seized_shares_spec (env : Env) (S b : math.fp.Ray) (f : Std.U32)
       r.1.val + r.2.val = S.val ∧
       0 ≤ r.1.val ∧ r.1.val ≤ b.val ∧ 0 ≤ r.2.val ∧ r.2.val ≤ S.val ⦄ := by
   unfold positions.liquidation.math.split_seized_shares
+  simp only [math.fp.Bps.from, core.convert.IntoFrom.into]
   step with i128_from_u32_spec f as ⟨fees, hfees⟩
   have hz : (math.fp.Ray.ZERO : Std.I128).val = 0 := by unfold math.fp.Ray.ZERO; rfl
-  simp only [ray_lt, ray_gt, hz, bind_ok]
+  have hone : (math.fp.Bps.ONE : Std.I128).val = 10^4 := by
+    unfold math.fp.Bps.ONE
+    exact BPS_val
+  simp only [ray_lt, ray_gt, bps_ge, hz, bind_ok]
   have hS0 : 0 ≤ S.val := by omega
   have c1 : ¬ (decide (S.val < 0) = true) := by simp; omega
   have c2 : ¬ (decide (b.val < 0) = true) := by simp; omega
   have c3 : ¬ (decide (S.val < b.val) = true) := by simp; omega
-  have c4 : ¬ (fees >= constants.production.shared.BPS) := by
-    simp only [ge_iff_le, IScalar.le_equiv, BPS_val, hfees]; omega
+  have c4 : ¬ (decide (math.fp.Bps.ONE.val ≤ fees.val) = true) := by
+    simp only [hone, hfees, decide_eq_true_eq]
+    omega
   simp only [massert, c1, c2, c3, c4, not_false_eq_true, ↓reduceIte, bind_ok]
   simp only [Bool.false_eq_true, not_false_eq_true, ↓reduceIte, bind_ok, decide_eq_true_eq]
   have hf0 : 0 ≤ (f.val : Int) := by omega
