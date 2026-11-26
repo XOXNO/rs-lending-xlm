@@ -6,7 +6,7 @@ use common::*;
 
 use std::panic::{catch_unwind, AssertUnwindSafe};
 
-use xoxno_oracle::Error;
+use xoxno_oracle::{Error, XoxnoOracleClient};
 
 use soroban_sdk::testutils::{Address as _, MockAuth, MockAuthInvoke};
 use soroban_sdk::{vec, Address, Env, IntoVal, String};
@@ -15,6 +15,16 @@ const HONEST_PRICE: i128 = 1_000_000;
 
 fn now_ms(env: &Env) -> u64 {
     env.ledger().timestamp() * 1_000
+}
+
+/// Returns the stored aggregate price of `feed`, or `None` if the feed has no
+/// aggregate.
+fn stored_price(client: &XoxnoOracleClient<'static>, feed: &String) -> Option<u128> {
+    match client.try_read_price_data_for_feed(feed) {
+        Ok(Ok(data)) => data.price.to_u128(),
+        Err(Ok(Error::NoDataForFeed)) => None,
+        other => panic!("unexpected read result: {other:?}"),
+    }
 }
 
 #[test]
@@ -178,7 +188,7 @@ fn full_cluster_with_one_outlier_uses_the_plain_median() {
 }
 
 #[test]
-fn three_of_four_cluster_uses_the_plain_median() {
+fn three_of_four_cluster_with_an_outlier_is_a_quorum_miss() {
     let env = Env::default();
     env.mock_all_auths();
     let (client, _admin, signers) = setup(&env, 4, 3);
@@ -186,14 +196,241 @@ fn three_of_four_cluster_uses_the_plain_median() {
     advance_ledger_seconds(&env, 10_000);
     let ts = now_ms(&env);
 
+    // 2 * 3 - 1 = 5 is above the signer count: every cluster is spread-checked.
     client.submit_price(&signers[0], &feed, &1i128, &ts);
     client.submit_price(&signers[1], &feed, &HONEST_PRICE, &ts);
     client.submit_price(&signers[2], &feed, &1_010_000i128, &ts);
+    assert_eq!(stored_price(&client, &feed), None);
 
-    assert_eq!(
-        client.read_price_data_for_feed(&feed).price.to_u128(),
-        Some(HONEST_PRICE as u128)
-    );
+    client.submit_price(&signers[3], &feed, &HONEST_PRICE, &ts);
+    assert_eq!(stored_price(&client, &feed), None);
+}
+
+#[test]
+fn three_of_four_cluster_inside_the_spread_takes_the_lower_median() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _admin, signers) = setup(&env, 4, 3);
+    let feed = feed_id(&env);
+    advance_ledger_seconds(&env, 10_000);
+    let ts = now_ms(&env);
+
+    client.submit_price(&signers[0], &feed, &HONEST_PRICE, &ts);
+    client.submit_price(&signers[1], &feed, &1_020_000i128, &ts);
+    client.submit_price(&signers[2], &feed, &1_010_000i128, &ts);
+    assert_eq!(stored_price(&client, &feed), Some(1_010_000));
+}
+
+#[test]
+fn two_of_five_cluster_with_two_low_entries_is_a_quorum_miss() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _admin, signers) = setup(&env, 5, 2);
+    let feed = feed_id(&env);
+    advance_ledger_seconds(&env, 10_000);
+    let ts = now_ms(&env);
+
+    // 2 * (5 - 2) + 1 = 7 is above the signer count: every cluster is
+    // spread-checked, and the first two entries stay the stored aggregate.
+    client.submit_price(&signers[0], &feed, &HONEST_PRICE, &ts);
+    client.submit_price(&signers[1], &feed, &HONEST_PRICE, &ts);
+    assert_eq!(stored_price(&client, &feed), Some(HONEST_PRICE as u128));
+
+    client.submit_price(&signers[2], &feed, &1i128, &ts);
+    client.submit_price(&signers[3], &feed, &1i128, &ts);
+    assert_eq!(stored_price(&client, &feed), Some(HONEST_PRICE as u128));
+
+    client.recompute_feeds(&vec![&env, feed.clone()]);
+    assert_eq!(stored_price(&client, &feed), None);
+}
+
+#[test]
+fn three_of_five_full_cluster_ignores_two_outliers() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _admin, signers) = setup(&env, 5, 3);
+    let feed = feed_id(&env);
+    advance_ledger_seconds(&env, 10_000);
+    let ts = now_ms(&env);
+
+    // Four entries are below max(2 * (5 - 3) + 1, 2 * 3 - 1) = 5.
+    client.submit_price(&signers[0], &feed, &1i128, &ts);
+    client.submit_price(&signers[1], &feed, &(HONEST_PRICE * 10), &ts);
+    client.submit_price(&signers[2], &feed, &HONEST_PRICE, &ts);
+    client.submit_price(&signers[3], &feed, &HONEST_PRICE, &ts);
+    assert_eq!(stored_price(&client, &feed), None);
+
+    // The full signer set reaches it: two signers cannot hold the lower median.
+    client.submit_price(&signers[4], &feed, &HONEST_PRICE, &ts);
+    assert_eq!(stored_price(&client, &feed), Some(HONEST_PRICE as u128));
+}
+
+#[test]
+fn every_agreeing_quorum_prices_the_feed() {
+    for signer_count in 1..=7u32 {
+        for threshold in 1..=signer_count {
+            let env = Env::default();
+            env.mock_all_auths();
+            let (client, _admin, signers) = setup(&env, signer_count, threshold);
+            let feed = feed_id(&env);
+            advance_ledger_seconds(&env, 10_000);
+            let ts = now_ms(&env);
+
+            for (submitted, signer) in (1u32..).zip(signers.iter()) {
+                client.submit_price(signer, &feed, &HONEST_PRICE, &ts);
+                let expected = (submitted >= threshold).then_some(HONEST_PRICE as u128);
+                assert_eq!(
+                    stored_price(&client, &feed),
+                    expected,
+                    "{signer_count} signers, threshold {threshold}, {submitted} submitted"
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn raising_the_threshold_does_not_free_a_split_cluster() {
+    // Five signers, one absent, two honest and two colluders at half the price.
+    let round = [
+        HONEST_PRICE,
+        HONEST_PRICE,
+        HONEST_PRICE / 2,
+        HONEST_PRICE / 2,
+    ];
+    for threshold in [3u32, 4, 5] {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (client, _admin, signers) = setup(&env, 5, threshold);
+        let feed = feed_id(&env);
+        advance_ledger_seconds(&env, 10_000);
+        let ts = now_ms(&env);
+
+        for (signer, price) in signers.iter().zip(round) {
+            client.submit_price(signer, &feed, &price, &ts);
+        }
+        assert_eq!(stored_price(&client, &feed), None, "threshold {threshold}");
+    }
+}
+
+#[test]
+fn two_of_two_cluster_past_the_spread_is_a_quorum_miss() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _admin, signers) = setup(&env, 2, 2);
+    let feed = feed_id(&env);
+    advance_ledger_seconds(&env, 10_000);
+    let ts = now_ms(&env);
+
+    client.submit_price(&signers[0], &feed, &HONEST_PRICE, &ts);
+    client.submit_price(&signers[1], &feed, &1i128, &ts);
+    assert_eq!(stored_price(&client, &feed), None);
+}
+
+#[test]
+fn remove_signer_clears_an_aggregate_outside_the_spread_of_the_smaller_set() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _admin, signers) = setup(&env, 3, 2);
+    let feed = feed_id(&env);
+    advance_ledger_seconds(&env, 10_000);
+    let ts = now_ms(&env);
+
+    client.submit_price(&signers[0], &feed, &HONEST_PRICE, &ts);
+    client.submit_price(&signers[1], &feed, &(HONEST_PRICE * 2), &ts);
+    assert_eq!(stored_price(&client, &feed), None);
+    client.submit_price(&signers[2], &feed, &(HONEST_PRICE * 3), &ts);
+    assert_eq!(stored_price(&client, &feed), Some(HONEST_PRICE as u128 * 2));
+
+    // Two signers with threshold 2: the two entries left are below 2 * 2 - 1 = 3.
+    client.remove_signer(&signers[2]);
+    assert_eq!(stored_price(&client, &feed), None);
+}
+
+/// Submits the colluder price for `colluders` signers and the honest price for
+/// `honest` signers at one package timestamp. `colluders_first` sets the order.
+/// Panics if any stored aggregate, after any submission, is the colluder price.
+fn assert_colluders_never_set_the_price(
+    signer_count: u32,
+    threshold: u32,
+    colluders: u32,
+    honest: u32,
+    colluder_price: i128,
+    colluders_first: bool,
+) {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _admin, signers) = setup(&env, signer_count, threshold);
+    let feed = feed_id(&env);
+    advance_ledger_seconds(&env, 10_000);
+    let ts = now_ms(&env);
+
+    let colluder_round = core::iter::repeat_n(colluder_price, colluders as usize);
+    let honest_round = core::iter::repeat_n(HONEST_PRICE, honest as usize);
+    let round: std::vec::Vec<i128> = if colluders_first {
+        colluder_round.chain(honest_round).collect()
+    } else {
+        honest_round.chain(colluder_round).collect()
+    };
+
+    for (signer, price) in signers.iter().zip(round) {
+        client.submit_price(signer, &feed, &price, &ts);
+        let stored = stored_price(&client, &feed);
+        assert!(
+            stored.is_none() || stored == Some(HONEST_PRICE as u128),
+            "{signer_count} signers, threshold {threshold}: {colluders} colluders with \
+             {honest} honest stored {stored:?}"
+        );
+    }
+}
+
+#[test]
+fn fewer_colluders_than_the_threshold_never_set_the_price() {
+    for signer_count in 1..=7u32 {
+        for threshold in 1..=signer_count {
+            for colluders in 1..threshold {
+                for honest in 1..=signer_count - colluders {
+                    for colluder_price in [1i128, HONEST_PRICE * 10] {
+                        for colluders_first in [true, false] {
+                            assert_colluders_never_set_the_price(
+                                signer_count,
+                                threshold,
+                                colluders,
+                                honest,
+                                colluder_price,
+                                colluders_first,
+                            );
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn colluders_within_the_absent_bound_never_outvote_a_clustered_honest_entry() {
+    // `signers - threshold` colluders can reach the threshold alone. They do
+    // not set the price while an honest entry is in the cluster first.
+    for signer_count in 2..=7u32 {
+        for threshold in 1..signer_count {
+            let absent_bound = signer_count - threshold;
+            for colluders in threshold..=absent_bound {
+                for honest in 1..=signer_count - colluders {
+                    for colluder_price in [1i128, HONEST_PRICE * 10] {
+                        assert_colluders_never_set_the_price(
+                            signer_count,
+                            threshold,
+                            colluders,
+                            honest,
+                            colluder_price,
+                            false,
+                        );
+                    }
+                }
+            }
+        }
+    }
 }
 
 #[test]

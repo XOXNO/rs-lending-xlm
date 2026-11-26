@@ -84,3 +84,51 @@ fn bucket_start_seconds_never_exceeds_the_write_time_at_the_domain_edges() {
     assert_eq!(start % u64::from(u32::MAX), 0);
     assert!(max_seconds - start < u64::from(u32::MAX));
 }
+
+#[test]
+fn spread_free_cluster_size_is_the_larger_of_the_two_bounds() {
+    // (signers, threshold, size)
+    let cases = [
+        (1, 1, 1),
+        (2, 1, 3),
+        (2, 2, 3),
+        (3, 1, 5),
+        (3, 2, 3),
+        (3, 3, 5),
+        (4, 2, 5),
+        (4, 3, 5),
+        (4, 4, 7),
+        (5, 2, 7),
+        (5, 3, 5),
+        (5, 4, 7),
+        (5, 5, 9),
+        (7, 4, 7),
+    ];
+    for (signers, threshold, size) in cases {
+        assert_eq!(
+            spread_free_cluster_size(signers, threshold),
+            size,
+            "{signers} signers, threshold {threshold}"
+        );
+    }
+}
+
+#[test]
+fn spread_free_cluster_size_fits_the_signer_set_only_at_the_middle_threshold() {
+    for signers in 1..=64u32 {
+        for threshold in 1..=signers {
+            let size = spread_free_cluster_size(signers, threshold);
+            assert!(size >= 2 * threshold - 1 && size > 2 * (signers - threshold));
+            assert_eq!(size <= signers, signers == 2 * threshold - 1);
+        }
+    }
+}
+
+#[test]
+fn spread_free_cluster_size_saturates_at_the_domain_edges() {
+    assert_eq!(spread_free_cluster_size(0, 0), 1);
+    assert_eq!(spread_free_cluster_size(5, 0), 11);
+    assert_eq!(spread_free_cluster_size(u32::MAX, 1), u32::MAX);
+    assert_eq!(spread_free_cluster_size(u32::MAX, u32::MAX), u32::MAX - 1);
+    assert_eq!(spread_free_cluster_size(1, 5), 9);
+}

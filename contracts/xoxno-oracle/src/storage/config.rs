@@ -55,7 +55,7 @@ pub(crate) fn store_max_relative_skew(env: &Env, seconds: u64) {
 }
 
 /// Overwrites the maximum price spread, in basis points, of a cluster smaller
-/// than `2 * (signers - threshold) + 1` entries.
+/// than `max(2 * (signers - threshold) + 1, 2 * threshold - 1)` entries.
 pub(crate) fn store_max_cluster_spread_bps(env: &Env, bps: u32) {
     env.storage()
         .instance()
@@ -108,8 +108,8 @@ pub(crate) fn load_max_relative_skew(env: &Env) -> u64 {
 }
 
 /// Loads the maximum price spread, in basis points, of a cluster smaller than
-/// `2 * (signers - threshold) + 1` entries. Falls back to
-/// `DEFAULT_MAX_CLUSTER_SPREAD_BPS` if unset.
+/// `max(2 * (signers - threshold) + 1, 2 * threshold - 1)` entries. Falls back
+/// to `DEFAULT_MAX_CLUSTER_SPREAD_BPS` if unset.
 pub(crate) fn load_max_cluster_spread_bps(env: &Env) -> u32 {
     env.storage()
         .instance()

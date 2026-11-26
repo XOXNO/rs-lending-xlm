@@ -70,8 +70,9 @@ fn one_future_dated_signer_cannot_evict_the_honest_pair() {
 }
 
 /// Control: the skew filter still evicts old submissions that are not future-dated.
-/// Threshold is the full signer set: without eviction the three submissions form
-/// an aggregate, so `NoDataForFeed` proves the eviction.
+/// Threshold is the full signer set and the three prices fit inside the spread:
+/// without eviction the three submissions form an aggregate, so `NoDataForFeed`
+/// proves the eviction.
 #[test]
 fn stale_submission_outside_the_skew_window_is_still_evicted() {
     let env = soroban_sdk::Env::default();
@@ -91,10 +92,10 @@ fn stale_submission_outside_the_skew_window_is_still_evicted() {
 
     advance_ledger_seconds(&env, 200);
 
-    // One fresh signer publishes 100 at now. The anchor clamps to now; the two
+    // One fresh signer publishes 505 at now. The anchor clamps to now; the two
     // stale 500s are >61s older and evicted, leaving one submission < threshold.
     let fresh_ms = env.ledger().timestamp() * 1_000;
-    client.submit_price(&signers[2], &feed, &100i128, &fresh_ms);
+    client.submit_price(&signers[2], &feed, &505i128, &fresh_ms);
 
     assert_eq!(
         client.try_read_price_data_for_feed(&feed),
