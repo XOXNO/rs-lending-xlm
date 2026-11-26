@@ -5,10 +5,12 @@ mod auth;
 pub(crate) mod comet;
 mod curve;
 pub(crate) mod phoenix;
+mod reverse;
 pub(crate) mod soroswap;
 pub(crate) mod sushi;
 
 pub(crate) use auth::{authorize_token_approve, authorize_token_transfer};
+pub(crate) use reverse::{receive_output, reverse_input};
 
 use soroban_sdk::{panic_with_error, token, Address, Env, Map, Vec};
 
@@ -51,6 +53,18 @@ pub(crate) fn find_index(env: &Env, tokens: &Vec<Address>, target: &Address) -> 
         .unwrap_or_else(|| panic_with_error!(env, Error::BrokenTokenChain))
 }
 
+/// Runs `swap` and returns the router's `(spent, received)` balance deltas for the hop. A
+/// delta is `None` on arithmetic overflow. Callers validate its sign and amount.
+fn measure(ctx: &HopContext, swap: impl FnOnce()) -> (Option<i128>, Option<i128>) {
+    let before_in = ctx.input_balance();
+    let before_out = ctx.output_balance();
+    swap();
+    (
+        before_in.checked_sub(ctx.input_balance()),
+        ctx.output_balance().checked_sub(before_out),
+    )
+}
+
 /// Dispatches the hop to its venue-specific swap function and returns the measured increase in
 /// the router's `token_out` balance. Panics with `Error::ZeroOutput` if the output balance does
 /// not strictly increase, and with `Error::InvalidAmount` if the router's `token_in` balance does
@@ -65,34 +79,20 @@ pub(crate) fn dispatch_hop(
     tokens_cache: &mut Map<Address, Vec<Address>>,
 ) -> i128 {
     let ctx = HopContext::new(env, router, hop, amount_in);
-    let before_in = ctx.input_balance();
-    let before_out = ctx.output_balance();
-
-    match hop.venue {
+    let (spent, received) = measure(&ctx, || match hop.venue {
         SwapVenue::Soroswap => soroswap::swap(&ctx),
         SwapVenue::Aquarius => aquarius::swap(&ctx, tokens_cache),
         SwapVenue::Phoenix => phoenix::swap(&ctx),
         SwapVenue::Sushi => sushi::swap(&ctx),
         SwapVenue::CometDex => comet::swap(&ctx),
         SwapVenue::Curve => curve::swap(&ctx, tokens_cache),
-    };
-
-    let received = ctx
-        .output_balance()
-        .checked_sub(before_out)
+    });
+    let received = received
+        .filter(|received| *received > 0)
         .unwrap_or_else(|| panic_with_error!(env, Error::ZeroOutput));
-    if received <= 0 {
-        panic_with_error!(env, Error::ZeroOutput);
-    }
-
-    let after_in = ctx.input_balance();
-    let spent = before_in
-        .checked_sub(after_in)
-        .unwrap_or_else(|| panic_with_error!(env, Error::InvalidAmount));
-    if spent != amount_in {
+    if spent != Some(amount_in) {
         panic_with_error!(env, Error::InvalidAmount);
     }
-
     received
 }
 

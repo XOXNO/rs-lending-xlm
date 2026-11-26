@@ -187,6 +187,74 @@ impl Swap<'_> {
 }
 
 #[test]
+fn admin_claim_opens_only_the_trustline_for_the_funded_bucket() {
+    let env = Env::default();
+    let s = setup(&env);
+    let recipient = classic_account(&env, 13, FUNDED);
+    s.a.admin.mint(&s.router.address, &7);
+    env.as_contract(&s.router.address, || {
+        crate::storage::accumulate_swap_fees(&env, &s.a.address, 0, 7, 0);
+    });
+
+    env.mock_all_auths_allowing_non_root_auth();
+    let tokens = soroban_sdk::vec![&env, s.a.address.clone(), s.b.address.clone()];
+    s.router.claim_admin_fees(&recipient, &tokens);
+    assert!(env.auths().iter().any(|(signer, _)| signer == &recipient));
+    assert!(has_trustline(&env, &account_id(13), &s.a));
+    assert!(!has_trustline(&env, &account_id(13), &s.b));
+    assert_eq!(
+        token::Client::new(&env, &s.a.address).balance(&recipient),
+        7
+    );
+}
+
+#[test]
+fn referral_claim_opens_missing_trustline_once_and_rolls_back_unsigned_batch() {
+    let env = Env::default();
+    let s = setup(&env);
+    let recipient = classic_account(&env, 12, FUNDED);
+    let id = s.router.add_referral(&recipient, &25, &None);
+    s.a.admin.trust(&recipient);
+    let tokens = soroban_sdk::vec![&env, s.a.address.clone(), s.b.address.clone()];
+    for asset in [&s.a, &s.b] {
+        asset.admin.mint(&s.router.address, &10);
+        env.as_contract(&s.router.address, || {
+            crate::storage::accumulate_swap_fees(&env, &asset.address, id, 0, 5);
+        });
+    }
+
+    env.set_auths(&[]);
+    assert!(s.router.try_claim_referral_fees(&id, &tokens).is_err());
+    assert_eq!(
+        token::Client::new(&env, &s.a.address).balance(&recipient),
+        0
+    );
+    for asset in [&s.a, &s.b] {
+        assert_eq!(s.router.referral_fee_balance(&id, &asset.address), 5);
+    }
+
+    env.mock_all_auths_allowing_non_root_auth();
+    s.router.claim_referral_fees(&id, &tokens);
+    assert!(authorized_call(&env, "trust"));
+    assert!(has_trustline(&env, &account_id(12), &s.b));
+
+    for asset in [&s.a, &s.b] {
+        env.as_contract(&s.router.address, || {
+            crate::storage::accumulate_swap_fees(&env, &asset.address, id, 0, 5);
+        });
+    }
+    env.set_auths(&[]);
+    s.router.claim_referral_fees(&id, &tokens);
+    for asset in [&s.a, &s.b] {
+        assert_eq!(
+            token::Client::new(&env, &asset.address).balance(&recipient),
+            10
+        );
+        assert_eq!(s.router.referral_fee_balance(&id, &asset.address), 0);
+    }
+}
+
+#[test]
 fn swap_opens_missing_output_trustline_for_classic_sender() {
     let env = Env::default();
     let s = setup(&env);
@@ -272,7 +340,7 @@ fn swap_publishes_event_with_amounts_and_fees() {
     let sender = Address::generate(&env);
     s.a.admin.mint(&sender, &500);
     s.router.set_static_fee(&100);
-    let referral = s.router.add_referral(&Address::generate(&env), &50);
+    let referral = s.router.add_referral(&Address::generate(&env), &50, &None);
 
     // Fee on input: static 1% = 5, referral 0.5% = 2.
     let out = s

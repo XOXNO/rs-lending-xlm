@@ -124,6 +124,21 @@ pub mod aquarius_mock {
             vec![&env, token_a, token_b]
         }
 
+        pub fn estimate_swap_strict_receive(_env: Env, _i: u32, _j: u32, out: u128) -> u128 {
+            out
+        }
+
+        pub fn swap_strict_receive(
+            env: Env,
+            user: Address,
+            i: u32,
+            j: u32,
+            out: u128,
+            max: u128,
+        ) -> u128 {
+            assert!(out <= max);
+            Self::swap(env, user, i, j, out, out)
+        }
         pub fn swap(
             env: Env,
             user: Address,
@@ -459,6 +474,24 @@ pub mod sushi_mock {
             env.storage().instance().get(&SushiKey::Token1).unwrap()
         }
 
+        pub fn quote_exact_output(
+            env: Env,
+            zero_for_one: bool,
+            amount_out: i128,
+            _sqrt_price_limit_x96: U256,
+        ) -> soroban_sdk::Map<Symbol, i128> {
+            let delta = if zero_for_one {
+                amount_out
+            } else {
+                -amount_out
+            };
+            soroban_sdk::map![
+                &env,
+                (Symbol::new(&env, "amount0"), delta),
+                (Symbol::new(&env, "amount1"), -delta)
+            ]
+        }
+
         pub fn get_oracle_hints(env: Env) -> Vec<i128> {
             vec![&env]
         }
@@ -481,6 +514,7 @@ pub mod sushi_mock {
                 token1.clone()
             };
             let token_out = if zero_for_one { token1 } else { token0 };
+            let amount_specified = amount_specified.checked_abs().unwrap();
             let pool = env.current_contract_address();
             token::Client::new(&env, &token_in).transfer(&sender, &pool, &amount_specified);
             token::Client::new(&env, &token_out).transfer(&pool, &recipient, &amount_specified);
@@ -501,6 +535,27 @@ pub mod comet_mock {
 
     #[contractimpl]
     impl CometPool {
+        pub fn swap_exact_amount_out(
+            env: Env,
+            token_in: Address,
+            max_amount_in: i128,
+            token_out: Address,
+            amount_out: i128,
+            _max_price: i128,
+            user: Address,
+        ) -> (i128, i128) {
+            user.require_auth();
+            let spent = 2 * amount_out;
+            assert!(spent <= max_amount_in);
+            let pool = env.current_contract_address();
+            let input = token::Client::new(&env, &token_in);
+            let expiration = (env.ledger().sequence() / 100_000 + 1) * 100_000;
+            input.approve(&user, &pool, &max_amount_in, &expiration);
+            input.transfer_from(&pool, &user, &pool, &spent);
+            token::Client::new(&env, &token_out).transfer(&pool, &user, &amount_out);
+            (spent, 0)
+        }
+
         pub fn swap_exact_amount_in(
             env: Env,
             token_in: Address,
@@ -538,6 +593,21 @@ pub mod comet_mock {
             token::Client::new(&env, &token_out).transfer(&pool, &user, &amount_in);
             (amount_in, 0)
         }
+
+        /// Delivers `amount_out` and pulls no input.
+        pub fn swap_exact_amount_out(
+            env: Env,
+            _token_in: Address,
+            _max_amount_in: i128,
+            token_out: Address,
+            amount_out: i128,
+            _max_price: i128,
+            user: Address,
+        ) -> (i128, i128) {
+            let pool = env.current_contract_address();
+            token::Client::new(&env, &token_out).transfer(&pool, &user, &amount_out);
+            (0, 0)
+        }
     }
 }
 
@@ -556,6 +626,25 @@ pub mod phoenix_mock {
         pub fn init(env: Env, token_a: Address, token_b: Address) {
             env.storage().instance().set(&PhKey::TokenA, &token_a);
             env.storage().instance().set(&PhKey::TokenB, &token_b);
+        }
+
+        pub fn simulate_reverse_swap(
+            env: Env,
+            _ask_asset: Address,
+            ask_amount: i128,
+        ) -> soroban_sdk::Map<Symbol, i128> {
+            soroban_sdk::map![&env, (Symbol::new(&env, "offer_amount"), ask_amount + 20)]
+        }
+
+        pub fn simulate_swap(
+            env: Env,
+            _offer_asset: Address,
+            offer_amount: i128,
+        ) -> soroban_sdk::Map<Symbol, i128> {
+            soroban_sdk::map![
+                &env,
+                (Symbol::new(&env, "ask_amount"), offer_amount / 2 * 2)
+            ]
         }
 
         #[allow(clippy::too_many_arguments)]
@@ -578,8 +667,9 @@ pub mod phoenix_mock {
             };
             let pool = env.current_contract_address();
             token::Client::new(&env, &offer_asset).transfer(&sender, &pool, &offer_amount);
-            token::Client::new(&env, &token_out).transfer(&pool, &sender, &offer_amount);
-            offer_amount
+            let received = offer_amount / 2 * 2;
+            token::Client::new(&env, &token_out).transfer(&pool, &sender, &received);
+            received
         }
     }
 }
@@ -841,6 +931,260 @@ pub mod trust_spy_token_mock {
                 .instance()
                 .get(&SpyKey::TrustCalls)
                 .unwrap_or(0)
+        }
+    }
+}
+
+/// Aquarius pool with a fixed `estimate_swap_strict_receive` answer. Its
+/// `swap_strict_receive` pulls `max`, returns `max - out`, and delivers `out + bonus`.
+pub mod tunable_aquarius_mock {
+    use super::*;
+
+    #[contract]
+    pub struct TunableAqPool;
+
+    #[contracttype]
+    enum TunableAqKey {
+        Tokens,
+        Estimate,
+        Bonus,
+    }
+
+    #[contractimpl]
+    impl TunableAqPool {
+        pub fn init(env: Env, token_a: Address, token_b: Address, estimate: u128, bonus: i128) {
+            let store = env.storage().instance();
+            store.set(&TunableAqKey::Tokens, &vec![&env, token_a, token_b]);
+            store.set(&TunableAqKey::Estimate, &estimate);
+            store.set(&TunableAqKey::Bonus, &bonus);
+        }
+
+        pub fn get_tokens(env: Env) -> Vec<Address> {
+            env.storage().instance().get(&TunableAqKey::Tokens).unwrap()
+        }
+
+        pub fn estimate_swap_strict_receive(env: Env, _i: u32, _j: u32, _out: u128) -> u128 {
+            env.storage()
+                .instance()
+                .get(&TunableAqKey::Estimate)
+                .unwrap()
+        }
+
+        pub fn swap_strict_receive(
+            env: Env,
+            user: Address,
+            i: u32,
+            j: u32,
+            out: u128,
+            max: u128,
+        ) -> u128 {
+            user.require_auth();
+            assert!(out <= max);
+            let tokens = Self::get_tokens(env.clone());
+            let bonus: i128 = env.storage().instance().get(&TunableAqKey::Bonus).unwrap();
+            let pool = env.current_contract_address();
+            let (out, max) = (out as i128, max as i128);
+            let input = token::Client::new(&env, &tokens.get_unchecked(i));
+            input.transfer(&user, &pool, &max);
+            if max > out {
+                input.transfer(&pool, &user, &(max - out));
+            }
+            token::Client::new(&env, &tokens.get_unchecked(j)).transfer(
+                &pool,
+                &user,
+                &(out + bonus),
+            );
+            out as u128
+        }
+    }
+}
+
+/// Phoenix pool that prices a constant-product curve over fixed virtual
+/// reserves. `simulate_reverse_swap` returns a fixed `estimate`, and `swap`
+/// delivers the quoted amount plus `bias`.
+pub mod tunable_phoenix_mock {
+    use super::*;
+
+    #[contract]
+    pub struct TunablePhoenix;
+
+    #[contracttype]
+    enum TunablePhKey {
+        Tokens,
+        Curve,
+    }
+
+    fn quote(env: &Env, offer: i128) -> i128 {
+        let (reserve_in, reserve_out, _, _): (i128, i128, i128, i128) =
+            env.storage().instance().get(&TunablePhKey::Curve).unwrap();
+        reserve_out * offer / (reserve_in + offer)
+    }
+
+    #[contractimpl]
+    impl TunablePhoenix {
+        pub fn init(
+            env: Env,
+            token_a: Address,
+            token_b: Address,
+            reserve_in: i128,
+            reserve_out: i128,
+            estimate: i128,
+            bias: i128,
+        ) {
+            let store = env.storage().instance();
+            store.set(&TunablePhKey::Tokens, &(token_a, token_b));
+            store.set(
+                &TunablePhKey::Curve,
+                &(reserve_in, reserve_out, estimate, bias),
+            );
+        }
+
+        pub fn simulate_reverse_swap(
+            env: Env,
+            _ask_asset: Address,
+            _ask_amount: i128,
+        ) -> soroban_sdk::Map<Symbol, i128> {
+            let (_, _, estimate, _): (i128, i128, i128, i128) =
+                env.storage().instance().get(&TunablePhKey::Curve).unwrap();
+            soroban_sdk::map![&env, (Symbol::new(&env, "offer_amount"), estimate)]
+        }
+
+        pub fn simulate_swap(
+            env: Env,
+            _offer_asset: Address,
+            offer_amount: i128,
+        ) -> soroban_sdk::Map<Symbol, i128> {
+            soroban_sdk::map![
+                &env,
+                (Symbol::new(&env, "ask_amount"), quote(&env, offer_amount))
+            ]
+        }
+
+        #[allow(clippy::too_many_arguments)]
+        pub fn swap(
+            env: Env,
+            sender: Address,
+            offer_asset: Address,
+            offer_amount: i128,
+            _ask_min: Option<i128>,
+            _belief_price: Option<i64>,
+            _max_spread: Option<u64>,
+            _deadline: Option<i64>,
+        ) -> i128 {
+            sender.require_auth();
+            let (token_a, token_b): (Address, Address) =
+                env.storage().instance().get(&TunablePhKey::Tokens).unwrap();
+            let (_, _, _, bias): (i128, i128, i128, i128) =
+                env.storage().instance().get(&TunablePhKey::Curve).unwrap();
+            let token_out = if offer_asset == token_a {
+                token_b
+            } else {
+                token_a
+            };
+            let pool = env.current_contract_address();
+            token::Client::new(&env, &offer_asset).transfer(&sender, &pool, &offer_amount);
+            let received = quote(&env, offer_amount) + bias;
+            token::Client::new(&env, &token_out).transfer(&pool, &sender, &received);
+            received
+        }
+    }
+}
+
+/// Sushi-style pool at a fixed price of two input units per output unit. A
+/// negative `amount_specified` buys exactly that output; a positive one sells
+/// exactly that input.
+pub mod signed_sushi_mock {
+    use super::*;
+
+    #[contract]
+    pub struct SignedSushiPool;
+
+    #[contracttype]
+    enum SignedSushiKey {
+        Tokens,
+    }
+
+    #[contractimpl]
+    impl SignedSushiPool {
+        pub fn init(env: Env, token0: Address, token1: Address) {
+            env.storage()
+                .instance()
+                .set(&SignedSushiKey::Tokens, &(token0, token1));
+        }
+
+        pub fn token0(env: Env) -> Address {
+            let (token0, _): (Address, Address) = env
+                .storage()
+                .instance()
+                .get(&SignedSushiKey::Tokens)
+                .unwrap();
+            token0
+        }
+
+        pub fn token1(env: Env) -> Address {
+            let (_, token1): (Address, Address) = env
+                .storage()
+                .instance()
+                .get(&SignedSushiKey::Tokens)
+                .unwrap();
+            token1
+        }
+
+        pub fn quote_exact_output(
+            env: Env,
+            zero_for_one: bool,
+            amount_out: i128,
+            _sqrt_price_limit_x96: U256,
+        ) -> soroban_sdk::Map<Symbol, i128> {
+            let (amount0, amount1) = if zero_for_one {
+                (2 * amount_out, -amount_out)
+            } else {
+                (-amount_out, 2 * amount_out)
+            };
+            soroban_sdk::map![
+                &env,
+                (Symbol::new(&env, "amount0"), amount0),
+                (Symbol::new(&env, "amount1"), amount1)
+            ]
+        }
+
+        pub fn get_oracle_hints(env: Env) -> Vec<i128> {
+            vec![&env]
+        }
+
+        pub fn swap(
+            env: Env,
+            sender: Address,
+            recipient: Address,
+            zero_for_one: bool,
+            amount_specified: i128,
+            _sqrt_price_limit_x96: U256,
+            _hints: Val,
+        ) -> (i128, i128) {
+            sender.require_auth();
+            let (token0, token1): (Address, Address) = env
+                .storage()
+                .instance()
+                .get(&SignedSushiKey::Tokens)
+                .unwrap();
+            let (token_in, token_out) = if zero_for_one {
+                (token0, token1)
+            } else {
+                (token1, token0)
+            };
+            let (spent, received) = if amount_specified < 0 {
+                (-2 * amount_specified, -amount_specified)
+            } else {
+                (amount_specified, amount_specified / 2)
+            };
+            let pool = env.current_contract_address();
+            token::Client::new(&env, &token_in).transfer(&sender, &pool, &spent);
+            token::Client::new(&env, &token_out).transfer(&pool, &recipient, &received);
+            if zero_for_one {
+                (spent, -received)
+            } else {
+                (-received, spent)
+            }
         }
     }
 }

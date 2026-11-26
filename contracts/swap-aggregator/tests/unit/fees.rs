@@ -1,4 +1,5 @@
 use crate::errors::Error;
+use crate::fees::fee_amounts;
 use crate::types::SwapVenue;
 use crate::{Router, RouterClient};
 use soroban_sdk::testutils::Address as _;
@@ -58,7 +59,7 @@ fn referral_inactive_and_zero_combined_bps_noop() {
         sac_a.mint(&sender, &500);
         sac_b.mint(&pool, &500);
         router.set_static_fee(&100);
-        let id = router.add_referral(&Address::generate(&env), &100);
+        let id = router.add_referral(&Address::generate(&env), &100, &None);
         router.set_referral_active(&id, &false);
         let xdr = strategy_xdr_with_referral(
             &env,
@@ -92,7 +93,7 @@ fn referral_inactive_and_zero_combined_bps_noop() {
         aquarius_mock::AqPoolClient::new(&env, &pool).init(&token_a, &token_b);
         sac_a.mint(&sender, &500);
         sac_b.mint(&pool, &500);
-        let id = router.add_referral(&Address::generate(&env), &0);
+        let id = router.add_referral(&Address::generate(&env), &0, &None);
         let xdr = strategy_xdr_with_referral(
             &env,
             token_a.clone(),
@@ -126,7 +127,7 @@ fn referral_inactive_and_zero_combined_bps_noop() {
         sac_a.mint(&sender, &1);
         sac_b.mint(&pool, &1);
         router.set_static_fee(&100);
-        let id = router.add_referral(&Address::generate(&env), &0);
+        let id = router.add_referral(&Address::generate(&env), &0, &None);
         let xdr = strategy_xdr_with_referral(
             &env,
             token_a.clone(),
@@ -164,7 +165,7 @@ fn zero_fee_side_creates_no_bucket_entry() {
         aquarius_mock::AqPoolClient::new(&env, &pool).init(&token_a, &token_b);
         sac_a.mint(&sender, &1_000);
         sac_b.mint(&pool, &1_000);
-        let id = router.add_referral(&Address::generate(&env), &100);
+        let id = router.add_referral(&Address::generate(&env), &100, &None);
         let xdr = strategy_xdr_with_referral(
             &env,
             token_a.clone(),
@@ -205,7 +206,7 @@ fn zero_fee_side_creates_no_bucket_entry() {
         sac_a.mint(&sender, &1_000);
         sac_b.mint(&pool, &1_000);
         router.set_static_fee(&100);
-        let id = router.add_referral(&Address::generate(&env), &0);
+        let id = router.add_referral(&Address::generate(&env), &0, &None);
         let xdr = strategy_xdr_with_referral(
             &env,
             token_a.clone(),
@@ -246,7 +247,7 @@ fn claim_skips_transfer_when_bucket_is_empty() {
     let token = env.register(no_transfer_token_mock::NoTransferToken, ());
 
     router.claim_admin_fees(&admin, &vec![&env, token.clone()]);
-    let id = router.add_referral(&Address::generate(&env), &100);
+    let id = router.add_referral(&Address::generate(&env), &100, &None);
     router.claim_referral_fees(&id, &vec![&env, token.clone()]);
 
     assert_eq!(router.admin_fee_balance(&token), 0);
@@ -261,8 +262,8 @@ fn combined_static_and_referral_fee_cannot_exceed_the_cap() {
     let router_addr = env.register(Router, (admin.clone(),));
     let router = RouterClient::new(&env, &router_addr);
 
+    let id = router.add_referral(&Address::generate(&env), &600, &None);
     router.set_static_fee(&600);
-    let id = router.add_referral(&Address::generate(&env), &600);
 
     let sender = Address::generate(&env);
     let (token_a, sac_a) = new_asset(&env, &admin);
@@ -300,7 +301,7 @@ fn combined_static_and_referral_fee_cannot_exceed_the_cap() {
 /// A combined fee of exactly `FEE_CAP` (1_000 bps) is charged, not rejected with
 /// `FeeTooHigh`.
 ///
-/// Pins the strict `combined_bps > FEE_CAP` check in `fees::apply_fees_on_token`.
+/// Exercises the cap at execution on the input token.
 #[test]
 fn combined_fee_exactly_at_the_cap_is_charged_not_rejected() {
     let env = Env::default();
@@ -310,17 +311,17 @@ fn combined_fee_exactly_at_the_cap_is_charged_not_rejected() {
     let router = RouterClient::new(&env, &router_addr);
 
     // 500 + 500 == FEE_CAP (1000 bps).
-    router.set_static_fee(&500);
+    router.set_static_fee(&5);
     let referral_owner = Address::generate(&env);
-    let id = router.add_referral(&referral_owner, &500);
+    let id = router.add_referral(&referral_owner, &500, &Some(500));
 
     let sender = Address::generate(&env);
     let (token_a, sac_a) = new_asset(&env, &admin);
     let (token_b, sac_b) = new_asset(&env, &admin);
     let pool = env.register(aquarius_mock::AqPool, ());
     aquarius_mock::AqPoolClient::new(&env, &pool).init(&token_a, &token_b);
-    sac_a.mint(&sender, &1_000);
-    sac_b.mint(&pool, &1_000);
+    sac_a.mint(&sender, &3_000);
+    sac_b.mint(&pool, &3_000);
 
     let xdr = strategy_xdr_with_referral(
         &env,
@@ -345,4 +346,29 @@ fn combined_fee_exactly_at_the_cap_is_charged_not_rejected() {
     assert_eq!(out, 900);
     assert_eq!(router.admin_fee_balance(&token_a), 50);
     assert_eq!(router.referral_fee_balance(&id, &token_a), 50);
+
+    router.set_static_fee(&100);
+    router.set_referral_fee(&id, &500, &Some(0));
+    assert_eq!(router.execute_strategy(&sender, &1_000, &xdr), 950);
+    assert_eq!(router.admin_fee_balance(&token_a), 50);
+    router.set_referral_fee(&id, &500, &None);
+    assert_eq!(router.execute_strategy(&sender, &1_000, &xdr), 940);
+    assert_eq!(router.admin_fee_balance(&token_a), 60);
+    assert_eq!(router.referral_fee_balance(&id, &token_a), 150);
+}
+
+/// A zero amount owes no fee, so it returns before the referral rates are read.
+/// The referral here exceeds the cap once the static fee rises after it was added.
+#[test]
+fn fee_amounts_on_a_zero_amount_owe_nothing() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let router_addr = env.register(Router, (Address::generate(&env),));
+    let router = RouterClient::new(&env, &router_addr);
+    let id = router.add_referral(&Address::generate(&env), &600, &None);
+    router.set_static_fee(&600);
+
+    env.as_contract(&router_addr, || {
+        assert_eq!(fee_amounts(&env, 0, id), (0, 0));
+    });
 }

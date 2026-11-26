@@ -53,7 +53,6 @@ use stellar_access::ownable::{self, Ownable};
 use stellar_macros::only_owner;
 use swap_aggregator_interface::SwapAggregatorInterface;
 
-use crate::constants::FEE_CAP;
 use crate::errors::Error;
 use crate::fees::FeeBucket;
 use crate::types::{ReferralConfig, StrategyPayload};
@@ -118,13 +117,12 @@ impl SwapAggregatorInterface for Router {
 
     /// Creates an active referral and returns its id. Owner only.
     ///
-    /// Panics with `Error::FeeTooHigh` if `fee_bps > FEE_CAP`.
+    /// `None` inherits the global protocol fee. Panics with `FeeTooHigh` if `fee_bps` plus the
+    /// resolved protocol rate exceeds `FEE_CAP`.
     #[only_owner]
-    fn add_referral(env: Env, owner: Address, fee_bps: u32) -> u64 {
+    fn add_referral(env: Env, owner: Address, fee_bps: u32, protocol_fee_bps: Option<u32>) -> u64 {
         renew_instance(&env);
-        if fee_bps > FEE_CAP {
-            panic_with_error!(&env, Error::FeeTooHigh);
-        }
+        fees::checked_protocol_fee_bps(&env, fee_bps, protocol_fee_bps);
         let counter = storage::referral_counter(&env);
         let id = counter
             .checked_add(1)
@@ -137,20 +135,20 @@ impl SwapAggregatorInterface for Router {
                 owner,
                 fee_bps,
                 active: true,
+                protocol_fee_bps,
             },
         );
         id
     }
 
-    /// Sets referral `id`'s fee in BPS (`<= FEE_CAP`). Owner only.
+    /// Replaces both fee rates. Owner only. Panics with `FeeTooHigh` as `add_referral` does.
     #[only_owner]
-    fn set_referral_fee(env: Env, id: u64, fee_bps: u32) {
+    fn set_referral_fee(env: Env, id: u64, fee_bps: u32, protocol_fee_bps: Option<u32>) {
         renew_instance(&env);
-        if fee_bps > FEE_CAP {
-            panic_with_error!(&env, Error::FeeTooHigh);
-        }
+        fees::checked_protocol_fee_bps(&env, fee_bps, protocol_fee_bps);
         let mut cfg = storage::load_referral(&env, id);
         cfg.fee_bps = fee_bps;
+        cfg.protocol_fee_bps = protocol_fee_bps;
         storage::set_referral(&env, id, &cfg);
     }
 

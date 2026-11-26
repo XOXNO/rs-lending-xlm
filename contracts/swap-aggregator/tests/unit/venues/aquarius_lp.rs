@@ -1062,7 +1062,7 @@ fn referral_zap(env: &Env) -> ReferralZap {
         lp_pool(env, &asset_admin, 1_000_000_000);
 
     router.set_static_fee(&100);
-    let referral_id = router.add_referral(&referral_owner, &100);
+    let referral_id = router.add_referral(&referral_owner, &100, &None);
     sac_a.mint(&sender, &ZAP_INPUT);
 
     ReferralZap {

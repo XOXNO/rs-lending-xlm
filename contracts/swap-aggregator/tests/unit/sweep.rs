@@ -54,7 +54,7 @@ fn a_referral_with_no_accrual_withholds_nothing_from_a_sweep() {
     let asset_admin = Address::generate(&env);
     let (stray_token, sac_stray) = new_asset(&env, &asset_admin);
 
-    let id = router.add_referral(&referral_owner, &100);
+    let id = router.add_referral(&referral_owner, &100, &None);
     assert_eq!(router.referral_fee_balance(&id, &stray_token), 0);
 
     sac_stray.mint(&router_addr, &777);
@@ -137,7 +137,7 @@ fn reserved_fee_balance_does_not_walk_the_referral_space() {
         let (stray_token, sac_stray) = new_asset(&env, &asset_admin);
 
         for _ in 0..referral_count {
-            router.add_referral(&referral_owner, &10);
+            router.add_referral(&referral_owner, &10, &None);
         }
         assert_eq!(router.referral_counter(), referral_count as u64);
         sac_stray.mint(&router_addr, &500);
@@ -185,7 +185,7 @@ fn sweep_balance_keeps_fee_backing_claimable() {
 
     aquarius_mock::AqPoolClient::new(&env, &pool).init(&token_a, &token_b);
     router.set_static_fee(&100);
-    let referral_id = router.add_referral(&referral_owner, &100);
+    let referral_id = router.add_referral(&referral_owner, &100, &None);
 
     sac_a.mint(&sender, &1_000);
     sac_b.mint(&pool, &1_000);
@@ -247,7 +247,7 @@ fn reserved_total_matches_bucket_sum() {
 
     router.set_static_fee(&100);
     let referrals: alloc::vec::Vec<u64> = (0..3)
-        .map(|_| router.add_referral(&Address::generate(&env), &100))
+        .map(|_| router.add_referral(&Address::generate(&env), &100, &None))
         .collect();
 
     // Three 1_000-unit swaps each way: 2% combined fee off the input side, the

@@ -1,12 +1,73 @@
 use crate::errors::Error;
-use crate::types::SwapVenue;
+use crate::types::{StrategyPayload, SwapVenue};
 use crate::{Router, RouterClient};
 use soroban_sdk::testutils::{Address as _, Ledger as _, MockAuth, MockAuthInvoke};
-use soroban_sdk::{token, Address, Env, IntoVal};
+use soroban_sdk::{token, vec, xdr::ToXdr, Address, Bytes, Env, IntoVal};
 
 use super::super::support::{
     comet_mock, comet_zero_mock, new_asset, one_hop_path, sticky_allowance_token_mock, strategy_xdr,
 };
+
+fn authorize_input(
+    env: &Env,
+    router: &Address,
+    sender: &Address,
+    input: &Address,
+    cap: i128,
+    xdr: &Bytes,
+) {
+    env.set_auths(&[]);
+    env.mock_auths(&[MockAuth {
+        address: sender,
+        invoke: &MockAuthInvoke {
+            contract: router,
+            fn_name: "execute_strategy",
+            args: (sender.clone(), cap, xdr.clone()).into_val(env),
+            sub_invokes: &[MockAuthInvoke {
+                contract: input,
+                fn_name: "transfer",
+                args: (sender.clone(), router.clone(), cap).into_val(env),
+                sub_invokes: &[],
+            }],
+        },
+    }]);
+}
+
+#[test]
+fn comet_reverse_refunds_unspent_input_and_clears_allowance() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let admin = Address::generate(&env);
+    let sender = Address::generate(&env);
+    let router = env.register(Router, (admin.clone(),));
+    let pool = env.register(comet_mock::CometPool, ());
+    let (input, input_admin) = new_asset(&env, &admin);
+    let (output, output_admin) = new_asset(&env, &admin);
+    let cap = 250_i128;
+    let payout = 100_i128;
+    input_admin.mint(&sender, &cap);
+    output_admin.mint(&pool, &payout);
+
+    let xdr = StrategyPayload {
+        amounts: vec![&env, payout, 1],
+        assets: vec![&env, input.clone(), output.clone(), pool.clone()],
+        // One v2 Comet swap from asset 0 to 1, using the weight at amounts[1].
+        ops: Bytes::from_slice(&env, &[2, 0, 1, 0, 0, 0, 0, 0, 1, 0, 4, 3, 2, 0, 1]),
+    }
+    .to_xdr(&env);
+    authorize_input(&env, &router, &sender, &input, cap, &xdr);
+    assert_eq!(
+        RouterClient::new(&env, &router).execute_strategy(&sender, &cap, &xdr),
+        payout
+    );
+
+    let input = token::Client::new(&env, &input);
+    assert_eq!(input.balance(&sender), 50);
+    assert_eq!(input.balance(&pool), 200);
+    assert_eq!(input.balance(&router), 0);
+    assert_eq!(input.allowance(&router, &pool), 0);
+    assert_eq!(token::Client::new(&env, &output).balance(&sender), payout);
+}
 
 #[test]
 fn comet_single_hop_happy_path() {
@@ -237,22 +298,7 @@ fn comet_swap_relies_on_router_invoker_auth_not_mocked_auth() {
         ),],
     );
 
-    // From here on only the sender's own tree is mocked.
-    env.set_auths(&[]);
-    env.mock_auths(&[MockAuth {
-        address: &sender,
-        invoke: &MockAuthInvoke {
-            contract: &router_addr,
-            fn_name: "execute_strategy",
-            args: (sender.clone(), 250_i128, xdr.clone()).into_val(&env),
-            sub_invokes: &[MockAuthInvoke {
-                contract: &token_a,
-                fn_name: "transfer",
-                args: (sender.clone(), router_addr.clone(), 250_i128).into_val(&env),
-                sub_invokes: &[],
-            }],
-        },
-    }]);
+    authorize_input(&env, &router_addr, &sender, &token_a, 250, &xdr);
 
     let out = RouterClient::new(&env, &router_addr).execute_strategy(&sender, &250, &xdr);
     assert_eq!(out, 250);

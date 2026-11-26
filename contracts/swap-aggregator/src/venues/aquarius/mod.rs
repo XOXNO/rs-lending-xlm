@@ -2,7 +2,7 @@
 
 mod burn;
 mod mint;
-mod pool;
+pub(super) mod pool;
 mod swap;
 
 pub(crate) use burn::remove_liquidity;

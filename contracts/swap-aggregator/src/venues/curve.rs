@@ -11,7 +11,7 @@ use crate::venues::{find_index, pool_tokens, HopContext};
 /// Reads `coins` from the pool's `pool_info` map. The map is decoded leniently so that new
 /// fields in the pool ABI do not break routing. Panics with `BrokenTokenChain` if `coins` is
 /// missing or is not an address list.
-fn coins(env: &Env, pool: &Address) -> Vec<Address> {
+pub(super) fn coins(env: &Env, pool: &Address) -> Vec<Address> {
     let info: Map<Symbol, Val> = env.invoke_contract(pool, &symbol_short!("pool_info"), vec![env]);
     let coins = info
         .get(symbol_short!("coins"))

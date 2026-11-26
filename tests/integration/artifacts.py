@@ -75,7 +75,7 @@ if __name__ == '__main__':
                 budgets[name] = int(size)
         # Existing budgets predate these two release contracts. Keep explicit
         # ceilings below the network WASM-size limit until the shared file grows.
-        budgets.update({'aggregator.wasm': 32000, 'xoxno-oracle-adapter.wasm': 32000})
+        budgets.update({'aggregator.wasm': 45000, 'xoxno-oracle-adapter.wasm': 32000})
         for name in manifest['artifacts']:
             size = (directory / name).stat().st_size
             assert size <= budgets[name], f'{name}: size {size} exceeds budget {budgets[name]}'

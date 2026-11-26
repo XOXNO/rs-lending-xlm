@@ -1,4 +1,4 @@
-//! Comet DEX hop: approve → `swap_exact_amount_in` → clear allowance.
+//! Comet DEX hop: approve → `swap_exact_amount_in` or `_out` → clear allowance.
 
 use soroban_sdk::{token, vec, Env, IntoVal, Symbol, Val, Vec};
 
@@ -7,8 +7,16 @@ use crate::venues::{authorize_token_approve, HopContext};
 /// Executes an exact-in swap against a Comet pool: approves the router's input-token allowance to
 /// the pool, invokes `swap_exact_amount_in` with invoker auth for the pool's nested `approve`,
 /// then clears the allowance. [`crate::venues::dispatch_hop`] measures the fill and checks
-/// that it is positive.
+/// that it is positive. [`exact_output`] does the same with `swap_exact_amount_out`.
 pub(crate) fn swap(ctx: &HopContext<'_>) {
+    execute(ctx, "swap_exact_amount_in", 0);
+}
+
+pub(super) fn exact_output(ctx: &HopContext, target: i128) {
+    execute(ctx, "swap_exact_amount_out", target);
+}
+
+fn execute(ctx: &HopContext, function: &str, output: i128) {
     let approval_ledger = comet_approval_ledger(ctx.env);
     token::Client::new(ctx.env, &ctx.hop.token_in).approve(
         ctx.router,
@@ -17,7 +25,7 @@ pub(crate) fn swap(ctx: &HopContext<'_>) {
         &approval_ledger,
     );
 
-    let args = swap_args(ctx);
+    let args = swap_args(ctx, output);
     // Comet repeats the approval inside the swap. Soroban matches the token call directly.
     authorize_token_approve(
         ctx.env,
@@ -27,11 +35,9 @@ pub(crate) fn swap(ctx: &HopContext<'_>) {
         ctx.amount_in,
         approval_ledger,
     );
-    let _: (i128, i128) = ctx.env.invoke_contract(
-        &ctx.hop.pool,
-        &Symbol::new(ctx.env, "swap_exact_amount_in"),
-        args,
-    );
+    let _: (i128, i128) =
+        ctx.env
+            .invoke_contract(&ctx.hop.pool, &Symbol::new(ctx.env, function), args);
     clear_comet_approval(ctx);
 }
 
@@ -42,16 +48,16 @@ fn comet_approval_ledger(env: &Env) -> u32 {
     (seq / 100_000 + 1) * 100_000
 }
 
-/// Builds the argument vector for the pool's `swap_exact_amount_in` call: input token, input
-/// amount, output token, a zero minimum output amount, an unbounded maximum price, and the router
-/// as `user` (payer and recipient).
-fn swap_args(ctx: &HopContext<'_>) -> Vec<Val> {
+/// Builds the argument vector for `swap_exact_amount_in` or `_out`: input token, `amount_in`
+/// (exact or maximum input), output token, `output` (zero minimum or exact output), an unbounded
+/// maximum price, and the router as `user` (payer and recipient).
+fn swap_args(ctx: &HopContext<'_>, output: i128) -> Vec<Val> {
     vec![
         ctx.env,
         ctx.hop.token_in.into_val(ctx.env),
         ctx.amount_in.into_val(ctx.env),
         ctx.hop.token_out.into_val(ctx.env),
-        0_i128.into_val(ctx.env),
+        output.into_val(ctx.env),
         i128::MAX.into_val(ctx.env),
         ctx.router.into_val(ctx.env),
     ]

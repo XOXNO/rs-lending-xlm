@@ -6,6 +6,22 @@ use crate::math::test_support::{
 use soroban_sdk::Env;
 
 #[test]
+fn token_ratio_rounding_preserves_raw_units_and_handles_wide_products() {
+    use crate::math::RatioRounding::{Ceil, Floor};
+    let env = Env::default();
+    let max = i128::MAX;
+    let floor = 2 * (max / 3);
+    assert_eq!(Floor.checked_scale(&env, max, 2, 3), Some(floor));
+    assert_eq!(Ceil.checked_scale(&env, max, 2, 3), Some(floor + 1));
+    for mode in [Floor, Ceil] {
+        assert_eq!(mode.checked_scale(&env, max, max, max), Some(max));
+        assert_eq!(mode.checked_scale(&env, 0, 7, 3), Some(0));
+        assert_eq!(mode.checked_scale(&env, max, 2, 1), None);
+        assert_eq!(mode.checked_scale(&env, 1, 1, 0), None);
+    }
+}
+
+#[test]
 fn typed_divisions_preserve_rounding_and_overflow_policy() {
     let env = Env::default();
     for (value, divisor) in [(1, 3), (i128::MAX, 1), (i128::MAX, RAY), (-3, 2)] {

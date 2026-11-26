@@ -28,7 +28,7 @@ execute_strategy(sender, total_in, swap_xdr) -> amount_out
   5-byte record per instruction, then u24 split weights. Instructions index the
   registries by `u8`; layout in `src/program.rs`.
 
-Steps:
+Settlement overview:
 
 1. Authorize `sender` and pull `total_in`.
 2. Take the fee: input token before the hops, or output token after.
@@ -41,14 +41,18 @@ Steps:
    signature and 0.5 XLM reserve. For a `C...` sender or an existing trustline
    it does nothing. A failed call is ignored; step 6 then reverts.
 6. Send `token_out` to `sender`.
-7. Move leftovers to the admin bucket; `ExcessiveResidual` if one exceeds its
-   allowance.
+7. Move remaining dust to the admin bucket. A residual above its allowance
+   raises `ExcessiveResidual`.
 8. Publish `SwapEvent`.
 
-Version 1 sends all net output. Version 2 sends exactly `total_min_out`.
-For version 2, the router measures the sender's credit and reverts if it
-differs from the target. The admin fee bucket receives any net output above
-the target.
+Version 1 sends all net output. Version 2 is reverse-only. The sender authorizes
+`total_in` as a maximum. The router sizes each hop backwards from the requested
+payout plus its output fees, executes the hops forwards, and refunds unspent
+source tokens to the sender before settling fees. The event reports actual
+input spent. Phoenix and Curve may yield extra atomic units; final output dust
+joins the protocol fee and intermediate dust is subject to the residual limit.
+Comet can supply a source hop. A missing venue quote or insufficient input
+cap reverts the entire swap.
 
 ## Fees
 
@@ -63,14 +67,26 @@ admin bucket on every swap.
 For a 0.50% router fee: `make mainnet setAggregatorFee 5` and
 `make mainnet addAggregatorReferral OWNER 45` with the admin signer
 (`SIGNER=ledger` for the mainnet owner); pass the returned ID as `referral_id`
-in quote requests. DEX pool and network fees are extra.
+in quote requests. To create a referral with 25 bps each for the partner
+and protocol in one call, use `make testnet addAggregatorReferral OWNER 25 25`.
+Edit both rates with `make testnet setAggregatorReferralFee ID 25 25`.
+Omitting the protocol rate or passing `null` selects the global rate.
+Passing `0` waives the protocol fee. Creation, edits, and swaps require the
+referral rate plus the effective protocol rate to be at most 1,000 bps.
+Direct contract callers pass the third
+argument to both `add_referral` and `set_referral_fee` after upgrade.
+DEX pool and network fees are extra.
 `make mainnet addAggregatorWhitelist TOKEN` picks the preferred fee token; it
 does not restrict tradable tokens.
 
-Claim with `make mainnet claimAggregatorReferralFees ID TOKEN... SIGNER=KEY`
-from any funded signer; payment goes to the stored referral owner. A `G...`
-owner must exist on-chain with authorized, sufficient trustlines for each
-issued token. Query a balance:
+Use `make <network> claimAggregatorReferralFees ID TOKEN... SIGNER=KEY` for
+both first and monthly claims. Payment goes to the stored referral owner. If a
+trustline is missing, use the owner's key so they can authorize opening it in
+the same transaction. Once the trustlines are open, any funded signer can run
+the same command. For both admin and referral claims, a `G...` recipient must
+exist on-chain and have enough XLM reserve for each new trustline.
+Issuer restrictions and trustline limits still apply.
+If any payout fails, the entire claim reverts. Query a balance:
 
 ```sh
 make view-id NETWORK=mainnet CONTRACT_ID=ROUTER \

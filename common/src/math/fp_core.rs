@@ -12,7 +12,7 @@ use soroban_sdk::{panic_with_error, Env, I256};
 use crate::errors::GenericError;
 
 /// Widens `x`, `y`, and `d` to `I256` for overflow-safe intermediate arithmetic.
-fn to_i256_operands(env: &Env, x: i128, y: i128, d: i128) -> (I256, I256, I256) {
+pub(super) fn to_i256_operands(env: &Env, x: i128, y: i128, d: i128) -> (I256, I256, I256) {
     (
         I256::from_i128(env, x),
         I256::from_i128(env, y),
@@ -39,7 +39,7 @@ fn quotient_is_negative(x: i128, y: i128, d: i128) -> bool {
 
 /// Computes `floor(p / d)` in `i128`. Returns `None` only when `d` is zero or
 /// the quotient overflows (`i128::MIN / -1`).
-fn div_floor_i128(p: i128, d: i128) -> Option<i128> {
+pub(super) fn div_floor_i128(p: i128, d: i128) -> Option<i128> {
     let quotient = p.checked_div(d)?;
     if p % d != 0 && ((p < 0) != (d < 0)) {
         quotient.checked_sub(1)
@@ -50,7 +50,7 @@ fn div_floor_i128(p: i128, d: i128) -> Option<i128> {
 
 /// Computes `ceil(p / d)` in `i128`. Returns `None` only when `d` is zero or
 /// the quotient overflows (`i128::MIN / -1`).
-fn div_ceil_i128(p: i128, d: i128) -> Option<i128> {
+pub(super) fn div_ceil_i128(p: i128, d: i128) -> Option<i128> {
     let quotient = p.checked_div(d)?;
     if p % d != 0 && ((p < 0) == (d < 0)) {
         quotient.checked_add(1)
@@ -66,7 +66,7 @@ fn div_ceil_i128(p: i128, d: i128) -> Option<i128> {
 /// `nonneg` means the caller proved the quotient is not negative, so truncation
 /// is the floor and the host `rem_euclid` call is skipped. `Ray` products
 /// (1e27 x 1e27) always take this widened path.
-fn div_floor_i256(env: &Env, p: &I256, d: &I256, nonneg: bool) -> I256 {
+pub(super) fn div_floor_i256(env: &Env, p: &I256, d: &I256, nonneg: bool) -> I256 {
     if nonneg {
         return p.div(d);
     }
@@ -80,7 +80,7 @@ fn div_floor_i256(env: &Env, p: &I256, d: &I256, nonneg: bool) -> I256 {
 }
 
 /// Computes `ceil(p / d)` in `I256`. See [`div_floor_i256`] for `nonneg`.
-fn div_ceil_i256(env: &Env, p: &I256, d: &I256, nonneg: bool) -> I256 {
+pub(super) fn div_ceil_i256(env: &Env, p: &I256, d: &I256, nonneg: bool) -> I256 {
     let zero = I256::from_i128(env, 0);
     let quotient = p.div(d);
     let remainder_is_nonzero = p.rem_euclid(d) != zero;
@@ -97,7 +97,7 @@ fn div_ceil_i256(env: &Env, p: &I256, d: &I256, nonneg: bool) -> I256 {
 }
 
 /// Returns true when the exact rational `x * y / d` cannot be negative.
-fn quotient_is_nonnegative(x: i128, y: i128, d: i128) -> bool {
+pub(super) fn quotient_is_nonnegative(x: i128, y: i128, d: i128) -> bool {
     !quotient_is_negative(x, y, d)
 }
 

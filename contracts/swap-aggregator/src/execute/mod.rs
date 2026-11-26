@@ -5,6 +5,7 @@
 //! payout → residual accrual → swap event.
 
 mod residual;
+mod reverse;
 
 use soroban_sdk::token::StellarAssetClient;
 use soroban_sdk::{panic_with_error, token, Address, Env, Executable, Map, Vec};
@@ -16,10 +17,10 @@ use crate::constants::PPM_DENOMINATOR;
 use crate::errors::Error;
 use crate::events::SwapEvent;
 use crate::fees;
-use crate::math::checked_mul;
+use crate::math::{checked_add, checked_mul};
 use crate::program::{Mode, Op, Opcode, Program};
 use crate::storage;
-use crate::types::{StrategyPayload, SwapHop};
+use crate::types::{StrategyPayload, SwapHop, SwapVenue};
 use crate::vault::Vault;
 use crate::venues;
 
@@ -117,23 +118,53 @@ pub(crate) fn run(env: Env, sender: Address, total_in: i128, payload: StrategyPa
         amounts: &amounts,
         program: &program,
     };
-    let mut prev: PrevOutput = None;
-    for i in 0..program.len() {
-        prev = execute_op(
-            &ctx,
+    let refund = if fixed_out {
+        if credited_in != total_in {
+            panic_with_error!(&env, Error::InvalidAmount);
+        }
+        let (protocol, referral) = fees::fee_amounts(&env, total_min_out, referral_id);
+        let gross = checked_add(&env, checked_add(&env, total_min_out, protocol), referral);
+        reverse::execute(&ctx, &mut vault, gross, &mut tokens_cache);
+        let refund = vault.balance_of(&input_token);
+        if refund > 0 {
+            vault.withdraw(&input_token, refund);
+            if transfer_amount_measured(
+                &env,
+                &input_token,
+                &router,
+                &sender,
+                refund,
+                GenericError::AmountMustBePositive,
+            ) != refund
+            {
+                panic_with_error!(&env, Error::InvalidAmount);
+            }
+        }
+        fees_charged = fees::accrue_fixed_output_fees(
+            &env,
             &mut vault,
-            program.op(&env, i),
-            prev,
-            &mut tokens_cache,
+            fee_token,
+            referral_id,
+            total_min_out,
+            (protocol, referral),
         );
-    }
-
-    if fixed_out {
-        fees_charged =
-            fees::accrue_fixed_output_fees(&env, &mut vault, fee_token, referral_id, total_min_out);
-    } else if !fee_on_input {
-        fees_charged = fees::apply_fees_on_token(&env, &mut vault, fee_token, referral_id);
-    }
+        refund
+    } else {
+        let mut prev: PrevOutput = None;
+        for i in 0..program.len() {
+            prev = execute_op(
+                &ctx,
+                &mut vault,
+                program.op(&env, i),
+                prev,
+                &mut tokens_cache,
+            );
+        }
+        if !fee_on_input {
+            fees_charged = fees::apply_fees_on_token(&env, &mut vault, fee_token, referral_id);
+        }
+        0
+    };
 
     let payout = settle_output(
         &env,
@@ -152,7 +183,7 @@ pub(crate) fn run(env: Env, sender: Address, total_in: i128, payload: StrategyPa
         sender,
         token_in: input_token.clone(),
         token_out: output_token.clone(),
-        amount_in: credited_in,
+        amount_in: credited_in - refund,
         amount_out: payout,
         referral_id,
         static_fee: fees_charged.0,
@@ -200,12 +231,22 @@ fn settle_output(
     received
 }
 
+/// Builds the swap hop of `op` from its registry indices.
+fn swap_hop(ctx: &Ctx<'_>, op: &Op, venue: SwapVenue) -> SwapHop {
+    SwapHop {
+        pool: ctx.assets.get_unchecked(op.idx_a),
+        token_in: ctx.assets.get_unchecked(op.idx_b),
+        token_out: ctx.assets.get_unchecked(op.idx_c),
+        venue,
+    }
+}
+
 /// Opens `receiver`'s missing trustline via the SAC `trust` call (CAP-73).
 ///
 /// Skips non-SAC tokens, so custom token code never runs here. The SAC is a no-auth no-op for
 /// a contract receiver or an existing trustline. Failures are ignored: the payout transfer
-/// reverts the swap if the trustline is still missing.
-fn ensure_trustline(env: &Env, token: &Address, receiver: &Address) {
+/// reverts if the trustline is still missing.
+pub(super) fn ensure_trustline(env: &Env, token: &Address, receiver: &Address) {
     if token.executable() != Some(Executable::StellarAsset) {
         return;
     }
@@ -227,12 +268,7 @@ fn execute_op(
 ) -> PrevOutput {
     match op.opcode {
         Opcode::Swap(venue) => {
-            let hop = SwapHop {
-                pool: ctx.assets.get_unchecked(op.idx_a),
-                token_in: ctx.assets.get_unchecked(op.idx_b),
-                token_out: ctx.assets.get_unchecked(op.idx_c),
-                venue,
-            };
+            let hop = swap_hop(ctx, &op, venue);
             let amount_in = resolve_amount(ctx, vault, op.mode, &hop.token_in, prev);
             if amount_in <= 0 {
                 panic_with_error!(ctx.env, Error::InvalidAmount);

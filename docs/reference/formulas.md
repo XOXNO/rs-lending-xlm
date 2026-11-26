@@ -635,8 +635,10 @@ referral_fee  = floor(payout * fee_bps / 10_000)
 admin_revenue = gross_output - payout - referral_fee
 ```
 
-`fee_bps` is the referral rate. Rates summing above `FEE_CAP` (1000 BPS) fail
-with `FeeTooHigh` (21). Splits take parts per million of the balance available
+`fee_bps` is the referral rate. `static_fee_bps` is its protocol fee override
+or, when absent, the current global rate. Rates summing above `FEE_CAP` (1000 BPS) fail
+with `FeeTooHigh` (21). Version 2 splits each token’s output demand across its
+producers using their relative weights. Version 1 ppm splits take parts per million of the balance available
 when the instruction runs:
 
 ```rust
