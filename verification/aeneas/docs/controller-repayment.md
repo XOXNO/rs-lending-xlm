@@ -1,13 +1,13 @@
 # Controller liquidation repayment plan (Aeneas + Lean)
 
-Lean 4 proofs, against the generated `lean/ControllerAeneas/Funs.lean`,
-about a liquidation's repayment side in
-`contracts/controller/src/positions/liquidation/math.rs`, composed into
+These Lean 4 proofs cover a liquidation's repayment side in
+`contracts/controller/src/positions/liquidation/math.rs`. They are stated
+against the generated `lean/ControllerAeneas/Funs.lean` and composed into
 `repayment_plan_spec`. They build on `calculate_repayment_amounts_spec` and
-`sum_repaid_usd_nonneg` ([controller.md](controller.md)); curve quote
-(`estimate_liquidation_amount_contract`):
-[controller-estimate.md](controller-estimate.md); Map/Context model:
-[extraction.md](extraction.md#controller).
+`sum_repaid_usd_nonneg` ([controller.md](controller.md)).
+[controller-estimate.md](controller-estimate.md) covers the curve quote
+(`estimate_liquidation_amount_contract`). [extraction.md](extraction.md#controller)
+covers the Map and Context model.
 
 ## Scope
 
@@ -21,19 +21,21 @@ about a liquidation's repayment side in
 | pipeline | `repayment_plan_spec`: per leg `repaid ≤ debt` and `≤ offered`, exact refunds, `repay_usd = Σ usd_wad` |
 | `repays_every_debt_leg` | opaque ([Aeneas issue 5](extraction.md#controller-aeneas-issues)): its flag is arbitrary in the model |
 
-Files (plain, non-`module` Lean files under `lean/ControllerAeneas/Proofs/`):
+The files are plain, non-`module` Lean files under
+`lean/ControllerAeneas/Proofs/`:
 
 * `RepayPlanArith.lean`: exact specs of `Wad::{div_floor, div_ceil, mul_floor, mul, to_token_floor}`.
 * `RepayPlanExcess.lean`: `process_excess_payment` (fates, shape, invariant, consequences).
 * `RepayPlanUnit.lean`: `one_unit_per_*`, `whole_unit_repayment`.
 * `RepayPlan.lean`: `release_unbacked_repayment`, `normalize_repayment_plan`, `repayment_plan_spec`, `whole_unit_returns`.
 
-Build: `lake build ControllerAeneas.Proofs.RepayPlan` (imports the other three).
+To build them, run `lake build ControllerAeneas.Proofs.RepayPlan`, which
+imports the other three.
 
 ## Notation
 
 `W = 10^18`. A repayment leg (`RepayEntry`) has `amount`, recorded value
-`usd` (`usd_wad`), feed price `p` (`price_wad`) and decimals `dec`;
+`usd` (`usd_wad`), feed price `p` (`price_wad`) and decimals `dec`, with
 `S = 10^(18−dec)`. `hu(n/d)` is rounding to nearest, halves up (`huD`).
 `tokUsd(a) = hu(a·S·p/W)` (the value `PriceFeed::usd_value_wad` records),
 `unitUsd(dec, p) = hu(S·p/W)` (one native unit), `opb = W + bonus·10^14`
@@ -48,30 +50,30 @@ Build: `lake build ControllerAeneas.Proofs.RepayPlan` (imports the other three).
 The loop walks the legs last to first, holding the remaining excess `rem`
 (initially `E`). At index `k` (next leg `L[k−1]`):
 
-1. **Shape** (`ExcessShape`): the first `k` legs are the input's; each leg
+1. **Shape** (`ExcessShape`): The first `k` legs are the input's. Each leg
    from `k` on was visited and has a *fate* (`LegFate`):
-   * *kept*: unchanged, no refund (amount `≤ 0` or value `0` is skipped);
+   * *kept*: unchanged, no refund (amount `≤ 0` or value `0` is skipped).
    * *trimmed*: amount lowered to `a ∈ (0, amount]`, value to `u ∈ [0, usd]`,
-     hub asset, feed and index snapshot unchanged; one refund of exactly
-     `amount − a` of the leg's asset;
+     hub asset, feed and index snapshot unchanged. One refund of exactly
+     `amount − a` of the leg's asset.
    * *removed*: one refund of exactly its (positive) amount.
 
    The current list is the untouched prefix, then the visited legs' remains
-   in original order; refunds are the initial ones, then the visited legs',
-   last leg first.
-2. `rem ≥ 0`; the recorded total never grew: `usdSum(cur) ≤ usdSum(L)`.
+   in original order. The refunds are the initial ones, then the visited
+   legs', last leg first.
+2. `rem ≥ 0`. The recorded total never grew: `usdSum(cur) ≤ usdSum(L)`.
 3. Without `keep_within_quote`: value removed so far `≤ E − rem`
-   (`usdSum L − E + rem ≤ usdSum cur`). A removal takes its value off `rem`;
-   a trim keeps the *ceiling* of the backed tokens, so kept value
-   `≥ usd − rem`, then `rem = 0`.
+   (`usdSum L − E + rem ≤ usdSum cur`). A removal takes its value off `rem`.
+   A trim keeps the *ceiling* of the backed tokens, so the kept value is
+   `≥ usd − rem`, and then `rem = 0`.
 4. With `keep_within_quote`: value removed so far `≥ E − rem`
-   (`usdSum cur ≤ usdSum L − E + rem`); a trim keeps the *floor*, so kept
-   value `≤ usd − rem`.
+   (`usdSum cur ≤ usdSum L − E + rem`). A trim keeps the *floor*, so the kept
+   value is `≤ usd − rem`.
 5. While `rem > 0`, every visited leg still present was skipped
    (non-positive amount or zero value).
 
-The loop stops at `rem = 0` or `k = 0`; `excess_done` turns the invariant
-into `ExcessPost`.
+The loop stops at `rem = 0` or `k = 0`. Then `excess_done` turns the
+invariant into `ExcessPost`.
 
 ## Theorems
 
@@ -87,35 +89,36 @@ All support INV-LIQ-02 except the `RepayPlanArith` specs.
 
 ### `RepayPlanExcess.lean`
 
-All about `math.rs::process_excess_payment`.
+All of them concern `math.rs::process_excess_payment`.
 
 | Lean name | Rust function | Claim | Hypotheses |
 |---|---|---|---|
 | `keep_amount_spec`, `keep_amount_arith` | kept amount, `keep_within_quote` | `a = min(⌊⌊kept·W/p⌋/S⌋, amount) ∈ [0, amount]`, `a·S·p ≤ kept·W` (floor of the kept value) | `0 ≤ rem < usd`, `p > 0`, `dec ≤ 18`, `usd·W ≤ (2^127−1)·p` |
 | `ceil_amount_spec`, `ceil_covered_arith`, `ceil_uncovered_arith` | kept amount, otherwise | `a ∈ [1, amount]`, `a = amount ∨ kept·W ≤ a·S·p` (ceiling covers the kept value) | as above, `rem > 0` |
 | `excess_loop_spec` | generated loop | preserves the [loop invariant](#the-loop-invariant-of-process_excess_payment), returns `ExcessPost` | `ExcessLegOK` per leg |
-| `process_excess_payment_spec` | `process_excess_payment` | never aborts; `ExcessPost` (below) | `\|L\| < 2^32`, `E ≥ 0`, `ExcessLegOK` |
-| `excess_tokens_conserved` | same | `amtSum out + refSum new = amtSum L`; new refunds appended after old | a shape |
+| `process_excess_payment_spec` | `process_excess_payment` | never aborts. `ExcessPost` (below) | `\|L\| < 2^32`, `E ≥ 0`, `ExcessLegOK` |
+| `excess_tokens_conserved` | same | `amtSum out + refSum new = amtSum L`. New refunds appended after old | a shape |
 | `legFate_removed_iff` | same (per leg) | removed iff the refund is the whole amount (a trim refunds less) | a fate |
 | `excess_nonneg` | same | output amounts, values, new refunds `≥ 0` | a shape |
-| `excess_length_le`, `excess_sublist` | same | `\|out\| ≤ \|L\|`; `out` `LegLe`-paired with a sublist of `L` (same asset, feed, index; amount and value only lowered) | a shape |
+| `excess_length_le`, `excess_sublist` | same | `\|out\| ≤ \|L\|`. `out` `LegLe`-paired with a sublist of `L` (same asset, feed and index, and only amount and value lowered) | a shape |
 
-`ExcessPost`: shape (fates), `usdSum out ≤ usdSum L`; without `keep`,
-`usdSum out ≥ usdSum L − E`; with `keep`, `usdSum out ≤ usdSum L − E`, or
-every leg was visited and every remaining leg has amount `≤ 0` or value `0`.
+`ExcessPost` has the shape (fates) and `usdSum out ≤ usdSum L`. Without
+`keep`, `usdSum out ≥ usdSum L − E`. With `keep`, `usdSum out ≤ usdSum L − E`,
+or every leg was visited and every remaining leg has amount `≤ 0` or value
+`0`.
 
 ### `RepayPlanUnit.lean`
 
 | Lean name | Rust function | Claim | Hypotheses |
 |---|---|---|---|
 | `one_unit_per_leg_usd_spec` | `math.rs::one_unit_per_leg_usd` | `Σ unitUsd(dec, p)` | `dec ≤ 18`, `p ≥ 0`, sum `< 2^127` |
-| `one_unit_per_debt_leg_usd_spec` | `math.rs::one_unit_per_debt_leg_usd` | `Σ unitUsd` of the cached feeds over the borrow keys; context unchanged | every debt asset priced (`UnitKeyOK`), sum `< 2^127` |
+| `one_unit_per_debt_leg_usd_spec` | `math.rs::one_unit_per_debt_leg_usd` | `Σ unitUsd` of the cached feeds over the borrow keys. Context unchanged | every debt asset priced (`UnitKeyOK`), sum `< 2^127` |
 | `whole_unit_repayment_spec` | `math.rs::whole_unit_repayment` | never aborts, context unchanged, `quote ≤ r ≤ D`, both raises characterised (below) | `WholeUnitDom` |
 | `raised_ge_quote` | same | raised repayment `≥` quote | `opb > 0`, `0 ≤ q < D` |
 
-**`whole_unit_repayment_spec`** (whole-unit legs), if `r ≠ quote`
-(`WholeUnitRaised`): one supply leg has `dec < 3` and `hu(quote·opb/W) < m`;
-either `r = D` with `(D + U)·opb ≤ u·W` (floor test), or
+**`whole_unit_repayment_spec`** (whole-unit legs): if `r ≠ quote`
+(`WholeUnitRaised`), one supply leg has `dec < 3` and `hu(quote·opb/W) < m`.
+Then either `r = D` with `(D + U)·opb ≤ u·W` (floor test), or
 `r = ⌈m·W/opb⌉ < D` (so `r·opb ≥ m·W`) with the full-close test failed.
 
 ### `RepayPlan.lean`
@@ -123,25 +126,26 @@ either `r = D` with `(D + U)·opb ≤ u·W` (floor test), or
 | Lean name | Rust function | Claim | Hypotheses |
 |---|---|---|---|
 | `legUsd_le_tokUsd` | `calculate_repayment_amounts` (per leg) | `legUsd ≤ tokUsd(legPay)` (a capped leg's floor debt value ≤ value of the ceiling-rounded `D`) | `RepayLegOK` |
-| `legUsd_zero_of_pay_nonpos`, `legPay_nonneg` | same | `legPay ≥ 0`; `legPay ≤ 0 → legUsd = 0` | `RepayLegOK` |
+| `legUsd_zero_of_pay_nonpos`, `legPay_nonneg` | same | `legPay ≥ 0`. `legPay ≤ 0 → legUsd = 0` | `RepayLegOK` |
 | `calc_tokens_conserved` | same | `amtSum entries + refSum refunds = Σ offered` | the spec's entries and refunds |
 | `release_unbacked_repayment_spec` | `math.rs::release_unbacked_repayment` | releases at most `E`, exact refunds, flags cleared (below) | `\|legs\| < 2^32`, `ExcessLegOK false` per leg, `Σ usd < 2^127` |
 | `normalize_tail_spec` | `normalize_repayment_plan` after the ideal is known | trimming, total, `seize_all` and record of `NormSpec` | as stated in the file |
-| `normalize_repayment_plan_spec` | `math.rs::normalize_repayment_plan` | never aborts; plan satisfies `NormSpec` (below) | REP and `RepayLegTrimOK` per leg, `\|P\| < 2^32`, `Σ legUsd + Σ unit < 2^127`, `EstDomain`, `hwu`, `hrep` |
+| `normalize_repayment_plan_spec` | `math.rs::normalize_repayment_plan` | never aborts. Plan satisfies `NormSpec` (below) | REP and `RepayLegTrimOK` per leg, `\|P\| < 2^32`, `Σ legUsd + Σ unit < 2^127`, `EstDomain`, `hwu`, `hrep` |
 | `repayment_plan_spec` | pipeline | per leg `repaid ≤ debt` and `≤ offered`, exact tokens, `repay_usd = Σ usd_wad` (below) | as `normalize_repayment_plan_spec` |
 | `whole_unit_returns` | `whole_unit_repayment` | discharges `hwu` | `WholeUnitAcctDom`, `max ≤ BPS·(BPS−1)` |
 
 * **`release_unbacked_repayment_spec`**: `E ≤ 0`: unchanged. `E > 0`: legs
-  and refunds from `process_excess_payment` (`keep = false`, `ExcessPost`),
-  `repay_usd = Σ usd_wad`, `Σ usd(before) − E ≤ repay_usd ≤ Σ usd(before)`;
-  `full_close = repays_all_debt = false`; bonus and `seize_all` unchanged.
-* **`NormSpec`**: planned entries/refunds; plan legs a `LegLe`-sublist;
-  exact tokens; `repay_usd = Σ usd_wad ≤ Σ legUsd`; a full close is untrimmed;
-  `seize_all → C < D`; the estimate's bonus; quote `q ∈ [0, D]`; insolvent:
-  full close iff `q ≥ D`, else `repay_usd ≤ q`; solvent partial:
-  `repay_usd ≥ min(Σ legUsd, I)` for the ideal `I < D`. Certora:
-  `liquidation_does_not_increase_repaid_debt`; the `split_liq_*` rules assume
-  this acceptance.
+  and refunds come from `process_excess_payment` (`keep = false`,
+  `ExcessPost`). `repay_usd = Σ usd_wad`.
+  `Σ usd(before) − E ≤ repay_usd ≤ Σ usd(before)`.
+  `full_close = repays_all_debt = false`. Bonus and `seize_all` are unchanged.
+* **`NormSpec`**: planned entries and refunds. Plan legs are a
+  `LegLe`-sublist. Tokens are exact. `repay_usd = Σ usd_wad ≤ Σ legUsd`. A
+  full close is untrimmed. `seize_all → C < D`. The bonus is the estimate's
+  bonus. Quote `q ∈ [0, D]`. Insolvent: full close iff `q ≥ D`, else
+  `repay_usd ≤ q`. Solvent partial: `repay_usd ≥ min(Σ legUsd, I)` for the
+  ideal `I < D`. Certora: `liquidation_does_not_increase_repaid_debt`. The
+  `split_liq_*` rules assume the acceptance behaviour that `NormSpec` states.
 * **`repayment_plan_spec`**: each repaid leg `x` has a merged leg
   `l = (k, offered)` with `x`'s hub asset and `k`'s feed and borrow-index
   snapshot, `0 ≤ x.amount ≤ D(k)`, `x.amount ≤ offered`,
@@ -158,30 +162,31 @@ Helpers (all proved, doc comments in the files): `rp_huD_*`, `shape_*`,
 
 ### Hypotheses and why they hold in production
 
-* **`ExcessLegOK keep e`** (per leg of `process_excess_payment`): `usd ≥ 0`;
-  a leg with positive amount and value has a positive price, `dec ≤ 18`,
+* **`ExcessLegOK keep e`** (per leg of `process_excess_payment`): `usd ≥ 0`.
+  A leg with positive amount and value has a positive price, `dec ≤ 18`,
   `usd·W ≤ (2^127−1)·p`, `amount·S < 2^127`, `tokUsd(amount) < 2^127`, and
   (without `keep`) `usd ≤ tokUsd(amount)`. For the legs that
-  `calculate_repayment_amounts` records, `entry_excess_ok` derives all of it.
+  `calculate_repayment_amounts` records, `entry_excess_ok` derives all of
+  these conditions.
   It uses REP (controller.md) plus `RepayLegTrimOK`: a positive price, and
   the quotient and the kept amount's value fit `i128`. The backing condition
-  is `legUsd_le_tokUsd`. Oracle prices are positive; `usd·W/p` is about the
+  is `legUsd_le_tokUsd`. Oracle prices are positive. `usd·W/p` is about the
   token amount scaled to 18 decimals, far below `2^127`.
 * **`|L| < 2^32`**: the host `Vec` length is a `u32`.
 * **`E ≥ 0`**: `normalize_repayment_plan` passes `total − ideal` only when
-  `total > ideal`; `release_unbacked_repayment` returns early on `E ≤ 0`.
-* **`EstDomain`**: see controller-estimate.md (validated curve, bonus bounds,
+  `total > ideal`. `release_unbacked_repayment` returns early on `E ≤ 0`.
+* **`EstDomain`**: see [controller-estimate.md](controller-estimate.md) (validated curve, bonus bounds,
   consistent snapshot, `D ≤ 10^36`).
 * **`hwu`** (the whole-unit raise returns a non-negative value): discharged
   by `whole_unit_returns` on `WholeUnitAcctDom`:
   * `D ≤ 10^33` WAD (10^15 USD), so that `quote·(1 + bonus)` fits for every
-    bonus up to `BPS·(BPS−1)`;
-  * fewer than `2^32` supply legs;
-  * each leg served by the context (`load_markets` runs first) with
-    `dec ≤ 18`, price `≤ 10^36` and a RAY value that fits;
-  * every debt asset priced;
+    bonus up to `BPS·(BPS−1)`.
+  * There are fewer than `2^32` supply legs.
+  * The context serves each leg (`load_markets` runs first) with
+    `dec ≤ 18`, price `≤ 10^36` and a RAY value that fits.
+  * Every debt asset is priced.
   * `D + Σ unit < 2^127`.
-* **`hrep`**: `repays_every_debt_leg` is opaque (uninterpreted); the theorem
+* **`hrep`**: `repays_every_debt_leg` is opaque (uninterpreted). The theorem
   assumes it returns. Its Rust body is a lookup loop that can abort only where
   `cached_market_index` (a pool fetch for an uncached key) or
   `unscale_borrow_ceil` (overflow) can.
@@ -195,28 +200,28 @@ Helpers (all proved, doc comments in the files): `rp_huD_*`, `shape_*`,
 * `split_liq_*` (liquidation_rules) assume a partial plan accepts at most
   the ideal amount on an insolvent account. `normalize_repayment_plan_spec`
   proves `repay_usd ≤ q` there. On a solvent partial plan it proves only the
-  lower bound `repay_usd ≥ min(Σ legUsd, I)`: the kept value can exceed the
+  lower bound `repay_usd ≥ min(Σ legUsd, I)`. The kept value can exceed the
   ideal by less than one token unit of the trimmed leg
   ([finding 3](#findings)).
 * boundary_rules, consistency_rules and position_rules make no claim about
-  these functions (they cover bad-debt gates and the supply/borrow paths).
+  these functions (they cover bad-debt gates and the supply and borrow paths).
 
 ## Findings
 
 No counterexample to an intended property was found. Observations:
 
-* **Zero refunds.** This case needs no `keep_within_quote`, and a remaining
-  excess smaller than the value of one native unit of the trimmed leg. Then
-  the ceiling keeps the whole amount. The loop appends a refund of `0`
-  tokens and releases nothing. Example: USDC-like leg, `dec = 6`, `p = 10^18`,
-  `amount = 100`, `usd = 10^14`, `rem = 1`: `kept = 10^14 − 1`,
-  `floor = 99`, not covered, so `new_amount = min(100, 100) = 100`, refund
-  `0`, value unchanged. Refunds of a partial plan are only reported (never
-  pulled), so this is cosmetic. It is allowed by the theorems (`trim` with
-  `a = amount`).
+* **Zero refunds.** This case arises without `keep_within_quote` and with a
+  remaining excess smaller than the value of one native unit of the trimmed
+  leg. Then the ceiling keeps the whole amount. The loop appends a refund of
+  `0` tokens and releases nothing. Example: a USDC-like leg with `dec = 6`,
+  `p = 10^18`, `amount = 100`, `usd = 10^14` and `rem = 1`. Then
+  `kept = 10^14 − 1` and `floor = 99`, which does not cover `kept`, so
+  `new_amount = min(100, 100) = 100`, the refund is `0`, and the value is
+  unchanged. Refunds of a partial plan are only reported (never pulled), so
+  the case is cosmetic. The theorems allow it (`trim` with `a = amount`).
 * **Dead branch with `keep_within_quote`.** The kept value is at most
   `usd − rem` (`keep_amount_arith`), so `removed_usd ≥ remaining_excess_usd`
-  always holds. The `else` branch (`remaining − removed`) is never taken; the
+  always holds. The `else` branch (`remaining − removed`) is never taken. The
   loop proof shows it by contradiction. Harmless.
 * **Solvent trim rounds toward the liquidator.** As the Rust comment
   documents, the solvent trim keeps the ceiling of the backed tokens (rounded
@@ -227,24 +232,24 @@ No counterexample to an intended property was found. Observations:
 
 ## Not covered
 
-* **Exact abort conditions of `process_excess_payment`**: only sufficient
+* **Exact abort conditions of `process_excess_payment`**. Only sufficient
   conditions (`ExcessLegOK`) are proved. Outside them the call can abort,
   for example on a zero price for a leg with positive value, or on a
   negative recorded value.
 * **Lower bound of the released value** (release `≥ E − one unit`) is not
-  stated; only `≤ E` (and exact token conservation) is.
+  stated. Only `≤ E` (and exact token conservation) is stated.
 * **The `held_units ≥ 1` condition** of `whole_unit_repayment` is not part of
   `WholeUnitRaised`. A raise implies it, but the statement does not record
   it. The values of the `quote`-returning branches are not characterised
   beyond `r = quote`.
-* **`seize_all`**: only `seize_all → C < D` is proved, not its exact value.
+* **`seize_all`**. Only `seize_all → C < D` is proved, not its exact value.
 * **Consistency with the seizure budget** passed to
   `release_unbacked_repayment` (the `unseized_usd` of
   `calculate_seized_collateral`). The proof shows only that at most that
   value is released. The per-leg seizure loop is proved on the seizure side
   ([controller-seizure.md](controller-seizure.md)).
 * **`repays_every_debt_leg`** (see Scope) and **`aggregate_positive_payments`**
-  ([controller.md](controller.md#not-covered)).
+  are not proved ([controller.md](controller.md#not-covered)).
 
 ## Axioms
 
