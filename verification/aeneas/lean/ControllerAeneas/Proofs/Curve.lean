@@ -62,10 +62,12 @@ theorem max_bonus_for_threshold_spec (env : Env) (p : math.fp.Wad) :
   have hz : (math.fp.Wad.ZERO : Std.I128).val = 0 := by unfold math.fp.Wad.ZERO; rfl
   rw [hz]
   by_cases hp : p.val ≤ 0
-  · simp only [hp, decide_true, ↓reduceIte]
-    simp [math.fp.Bps.from, core.convert.IntoFrom, core.convert.IntoFrom.into,
-      core.convert.FromI128I32, core.convert.num.FromI128I32.from, hp]
-    rfl
+  · simp only [hp, decide_true, bind_ok, ↓reduceIte]
+    rw [WP.spec_ok]
+    have hzB : (math.fp.Bps.ZERO : Std.I128).val = 0 := by
+      unfold math.fp.Bps.ZERO
+      rfl
+    exact ⟨fun _ => hzB, fun h => by omega⟩
   · have hp' : 0 < p.val := by omega
     simp only [hp, decide_false, Bool.false_eq_true, ↓reduceIte, math.fp.Wad.raw, bind_ok]
     have hpb := p.hBounds
@@ -85,55 +87,69 @@ theorem max_bonus_for_threshold_spec (env : Env) (p : math.fp.Wad) :
     rw [BPS_val, WAD_val] at hi1
     have hie : i1.val = c := IsCeil.unique (by norm_num) hi1 hc
     have hB : (constants.production.shared.BPS : Std.I128).val = 10^4 := BPS_val
+    norm_num at hB
+    rw [show math.fp.Bps.ONE = constants.production.shared.BPS by
+      unfold math.fp.Bps.ONE
+      rfl]
     -- clamp(i1, 1, BPS)
-    simp only [math.fp.Bps.raw, bind_ok, core.cmp.impls.OrdI128.clamp, IScalar.clamp, massert]
+    simp only [bps_from_same, bind_ok]
+    simp only [core.cmp.Ord.clamp.trait_default, core.cmp.Ord.clamp.default,
+      core.cmp.Ord.clamp_body, math.fp.Bps.Insts.CoreCmpPartialOrdBps,
+      core.cmp.PartialOrd.le.default, core.cmp.PartialOrd.le_body,
+      core.cmp.PartialOrd.lt.default, core.cmp.PartialOrd.lt_body,
+      core.cmp.PartialOrd.gt.default, core.cmp.PartialOrd.gt_body,
+      math.fp.Bps.Insts.CoreCmpPartialOrdBps.partial_cmp,
+      math.fp.Bps.Insts.CoreCmpOrd.cmp, core.cmp.impls.OrdI128.cmp,
+      bind_ok, Option.some.injEq, compare_lt_iff_lt, compare_eq_iff_eq,
+      compare_gt_iff_gt, massert]
     have h1B : (1#i128 : Std.I128).val ≤ constants.production.shared.BPS.val := by
       rw [hB]; simp
     have hn1 : ¬ (i1.val < (1#i128 : Std.I128).val) := by simp; omega
-    simp only [h1B, ↓reduceIte, bind_ok, hn1]
+    simp [hB, hn1]
     by_cases hbig : i1.val > constants.production.shared.BPS.val
-    · simp only [hbig, ↓reduceIte]
-      step as ⟨d, hd⟩
+    · have hn1' : ¬ i1.val < 1 := by omega
+      have hbig' : 10000 < i1.val := by rw [← hB]; exact hbig
+      simp [compare_lt_iff_lt, compare_gt_iff_gt, hn1']
+      simp only [hbig', ↓reduceIte, bind_ok]
+      unfold math.fp.Bps.checked_sub
+      step with checked_sub_nonneg_spec env constants.production.shared.BPS
+        constants.production.shared.BPS (by rw [hB]; norm_num) (le_refl _) as ⟨d, hd⟩
       rw [show constants.production.shared.BPS.val - constants.production.shared.BPS.val = 0
         by ring] at hd
-      have hm := core.num.checked_mul_IScalar_bv_spec constants.production.shared.BPS d
-      rw [show I128.checked_mul constants.production.shared.BPS d =
-        core.num.checked_mul_IScalar constants.production.shared.BPS d from rfl]
-      cases hmo : core.num.checked_mul_IScalar constants.production.shared.BPS d with
-      | none =>
-        exfalso; rw [hmo] at hm; simp only at hm; apply hm; rw [hd]
-        simp [I128.min, I128.max, I128.numBits, IScalar.min, IScalar.max, IScalarTy.numBits]
-      | some m =>
-        rw [hmo] at hm; obtain ⟨_, _, hmv, _⟩ := hm
-        simp only [lift, core.option.Option.unwrap_or_else, bind_ok]
-        step as ⟨q, hq⟩
-        simp only [bps_from_same, WP.spec_ok]
-        refine ⟨fun h => h.elim, fun _ => ⟨c, 10^4, hc, hc1, ?_, ?_⟩⟩
-        · rw [hB, hie] at hbig; omega
-        · rw [hq, hmv, hd, hB]; simp; unfold IsFloor; norm_num
-    · simp only [hbig, ↓reduceIte]
+      unfold math.fp.Bps.div_floor
+      step with mul_div_floor_spec env d constants.production.shared.BPS
+        constants.production.shared.BPS (by rw [hB]; norm_num)
+        ⟨0, by rw [hd, hB]; unfold IsFloor; norm_num, by norm_num, by norm_num⟩ as ⟨q, hq⟩
+      intro _
+      refine ⟨c, hc, hc1, ?_⟩
+      have hmin : min c 10000 = 10000 := by rw [← hie]; rw [hB] at hbig; omega
+      rw [hmin]
+      simpa [hd, hB] using hq
+    · have hn1' : ¬ i1.val < 1 := by omega
       have hle : i1.val ≤ 10^4 := by rw [hB] at hbig; omega
-      step as ⟨d, hd⟩
-      have hm := core.num.checked_mul_IScalar_bv_spec constants.production.shared.BPS d
-      rw [show I128.checked_mul constants.production.shared.BPS d =
-        core.num.checked_mul_IScalar constants.production.shared.BPS d from rfl]
-      cases hmo : core.num.checked_mul_IScalar constants.production.shared.BPS d with
-      | none =>
-        exfalso; rw [hmo] at hm; simp only at hm; apply hm; rw [hd, hB]
-        have hi1ge : 1 ≤ i1.val := by rw [hie]; exact hc1
-        simp only [IScalar.min, IScalar.max, IScalarTy.numBits]
-        norm_num
-        constructor <;> nlinarith [hi1ge, hle]
-      | some m =>
-        rw [hmo] at hm; obtain ⟨_, _, hmv, _⟩ := hm
-        simp only [lift, core.option.Option.unwrap_or_else, bind_ok]
-        step as ⟨q, hq⟩
-        simp only [bps_from_same, WP.spec_ok]
-        refine ⟨fun h => h.elim, fun _ => ⟨c, c, hc, hc1, by omega, ?_⟩⟩
-        rw [hq, hmv, hd, hB, hie]
-        have hnn : 0 ≤ 10^4 * (10^4 - c) := by nlinarith
-        rw [← hie]
-        exact tdiv_isFloor_of_nonneg _ _ (by omega) (by rw [hie]; exact hnn)
+      have hbig' : ¬ 10000 < i1.val := by omega
+      simp [compare_lt_iff_lt, compare_gt_iff_gt, hn1']
+      simp only [hbig', ↓reduceIte, bind_ok]
+      unfold math.fp.Bps.checked_sub
+      step with checked_sub_nonneg_spec env constants.production.shared.BPS i1
+        (by omega) (by rw [hB]; exact hle) as ⟨d, hd⟩
+      have hi1pos : 0 < i1.val := by rw [hie]; omega
+      obtain ⟨q, hq⟩ := isFloor_exists
+        (d.val * constants.production.shared.BPS.val) i1.val hi1pos
+      have hq0 : 0 ≤ q := IsFloor.nonneg_of hi1pos hq (by
+        rw [hd, hB]
+        nlinarith)
+      have hqmax : q ≤ 10^8 := IsFloor.le_of hi1pos hq (by
+        rw [hd, hB]
+        nlinarith)
+      unfold math.fp.Bps.div_floor
+      step with mul_div_floor_spec env d constants.production.shared.BPS i1 (by omega)
+        ⟨q, hq, by omega, by norm_num at hqmax ⊢; omega⟩ as ⟨r, hr⟩
+      intro _
+      refine ⟨c, hc, hc1, ?_⟩
+      have hmin : min c 10000 = c := by rw [← hie]; exact min_eq_left hle
+      rw [hmin]
+      simpa [hd, hB, hie, mul_comm] using hr
 
 /-- **The maximum bonus keeps a full seizure solvent (INV-LIQ).** For a seizure
 proportion `0 < p ≤ 1 WAD` (weighted collateral over total collateral, at
@@ -289,39 +305,31 @@ theorem calculate_linear_bonus_spec (env : Env) (hf : math.fp.Wad) (base max : m
     rw [← hsc] at hsr
     unfold math.fp.Bps.checked_sub
     step with checked_sub_nonneg_spec env max base hb0 hbm as ⟨r, hr⟩
-    simp only [math.fp.Bps.raw, wad_from_same, bind_ok]
     obtain ⟨i, hi⟩ := IsHalfUp.exists (r.val * sc.val) (10^18) (by norm_num)
     have hir := IsHalfUp.le_of_ratio_le_one (by norm_num) (by omega) hsr.1 hsr.2 hi
-    unfold math.fp.Wad.mul
+    unfold math.fp.Bps.mul_wad
     step with mul_div_half_up_spec env r sc constants.production.shared.WAD (by omega) hsr.1
       (by rw [WAD_val]; norm_num) ⟨i, by rw [WAD_val]; exact hi, by
         have := r.hBounds; simp only [IScalarTy.numBits] at this; omega⟩ as ⟨iv, hiv⟩
     rw [WAD_val] at hiv
     have hie : iv.val = i := IsHalfUp.unique (by norm_num) hiv hi
-    simp only [math.fp.Wad.raw, bind_ok]
     obtain ⟨j, hj⟩ := IsHalfUp.exists (iv.val * curve.bonus_factor.val) (10^4) (by norm_num)
     have hjr := IsHalfUp.le_of_ratio_le_one (by norm_num) (by omega) hfac0 hfac hj
-    unfold math.fp.Bps.apply_to
+    unfold math.fp.Bps.mul
     step with mul_div_half_up_spec env iv curve.bonus_factor constants.production.shared.BPS
       (by omega) hfac0 (by rw [BPS_val]; norm_num) ⟨j, by rw [BPS_val]; exact hj, by
         have := iv.hBounds; simp only [IScalarTy.numBits] at this; omega⟩ as ⟨jv, hjv⟩
     rw [BPS_val] at hjv
     have hje : jv.val = j := IsHalfUp.unique (by norm_num) hjv hj
     have hsum : base.val + jv.val ≤ max.val := by omega
-    have hm := core.num.checked_add_IScalar_bv_spec base jv
-    rw [show I128.checked_add base jv = core.num.checked_add_IScalar base jv from rfl]
-    cases hmo : core.num.checked_add_IScalar base jv with
-    | none =>
-      exfalso; rw [hmo] at hm; simp only at hm; apply hm
-      have := max.hBounds
-      simp only [IScalar.min, IScalar.max, IScalarTy.numBits] at this ⊢
-      omega
-    | some t =>
-      rw [hmo] at hm; obtain ⟨_, _, htv, _⟩ := hm
-      simp only [lift, core.option.Option.unwrap_or_else, bind_ok, bps_from_same, WP.spec_ok]
-      refine ⟨fun h => absurd h hge, fun _ => ?_, by omega, by omega⟩
-      exact ⟨q, sc.val, i, j, hq, hsc, by rw [← hr]; exact hi, by rw [← hie]; exact hj,
-        by rw [htv, hje]⟩
+    unfold math.fp.Bps.checked_add
+    step with checked_add_raw_spec env base jv (by
+      have hmax := max.hBounds
+      simp only [IScalarTy.numBits] at hmax
+      constructor <;> omega) as ⟨v, hv⟩
+    refine ⟨fun h => absurd h hge, fun _ => ?_, by omega, by omega⟩
+    exact ⟨q, sc.val, i, j, hq, hsc, by rw [← hr]; exact hi, by rw [← hie]; exact hj,
+      by rw [hv, hje]⟩
 
 /-- **The linear bonus is non-increasing in the health factor.** Under the
 hypotheses of `calculate_linear_bonus_spec`, for `0 ≤ hf₁ ≤ hf₂` both calls

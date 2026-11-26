@@ -102,6 +102,25 @@ theorem sz_ray_div_wad :
   step as ⟨r, hr⟩
   rw [hr, h1, h2]; norm_num
 
+/-- `Wad::to_ray_saturating` exactly upscales by `10^9` and clamps at
+`i128::MAX` for a non-negative WAD value. -/
+theorem sz_wad_to_ray_saturating_val (env : Env) (w : math.fp.Wad) (hw : 0 ≤ w.val) :
+    math.fp.Wad.to_ray_saturating w env ⦃ r =>
+      r.val = min (w.val * 10^9) (2^127 - 1) ⦄ := by
+  unfold math.fp.Wad.to_ray_saturating
+  step with mul_div_floor_saturating_spec env w constants.production.shared.RAY
+    constants.production.shared.WAD (by rw [WAD_val]; norm_num) as ⟨r, hr⟩
+  have hf : IsFloor
+      (w.val * constants.production.shared.RAY.val)
+      constants.production.shared.WAD.val (w.val * 10^9) := by
+    rw [RAY_val, WAD_val]
+    unfold IsFloor
+    simp only [if_pos (by norm_num : (0 : Int) < 10^18)]
+    constructor <;> nlinarith
+  rw [hr _ hf]
+  have : 0 ≤ w.val * 10^9 := by positivity
+  omega
+
 /-! ## Comparisons and `min` on `Ray` -/
 
 @[simp] theorem sz_ray_le (a b : math.fp.Ray) :

@@ -25,6 +25,14 @@ noncomputable section
 
 namespace controller_aeneas
 
+/-- Trait implementation: [core::convert::num::{impl core::convert::From<u32> for i128}]
+    Source: '/rustc/library/core/src/convert/num.rs', lines 148:8-148:42; this code is generated from a macro invocation at: '/rustc/library/core/src/convert/num.rs', lines 195:0-195:70
+    Name pattern: [core::convert::From<i128, u32>] -/
+@[reducible, rust_trait_impl "core::convert::From<i128, u32>"]
+def I128.Insts.CoreConvertFromU32 : core.convert.From Std.I128 Std.U32 := {
+  «from» := I128.Insts.CoreConvertFromU32.from
+}
+
 /-- Trait implementation: [aeneas_soroban_shim::{impl core::cmp::PartialEq<aeneas_soroban_shim::I256> for aeneas_soroban_shim::I256}]
     Source: 'shim/src/lib.rs', lines 74:0-74:23
     Name pattern: [core::cmp::PartialEq<aeneas_soroban_shim::I256, aeneas_soroban_shim::I256>] -/
@@ -368,13 +376,13 @@ def math.fp.Ray.mul
   ok i
 
 /-- [controller_aeneas::math::fp_core::to_i128::{impl core::ops::function::FnOnce<(), i128> for controller_aeneas::math::fp_core::to_i128::{closure}<'_0, '_1>}::call_once]:
-    Source: 'src/../../../../common/src/math/fp_core.rs', lines 302:24-302:77 -/
+    Source: 'src/../../../../common/src/math/fp_core.rs', lines 338:24-338:77 -/
 def math.fp_core.to_i128.closure.Insts.CoreOpsFunctionFnOnceTupleI128.call_once
   (c : math.fp_core.to_i128.closure) (_ : Unit) : Result Std.I128 := do
   fail panic
 
 /-- Trait implementation: [controller_aeneas::math::fp_core::to_i128::{impl core::ops::function::FnOnce<(), i128> for controller_aeneas::math::fp_core::to_i128::{closure}<'_0, '_1>}]
-    Source: 'src/../../../../common/src/math/fp_core.rs', lines 302:24-302:77 -/
+    Source: 'src/../../../../common/src/math/fp_core.rs', lines 338:24-338:77 -/
 @[reducible]
 def math.fp_core.to_i128.closure.Insts.CoreOpsFunctionFnOnceTupleI128 :
   core.ops.function.FnOnce math.fp_core.to_i128.closure Unit Std.I128 := {
@@ -383,7 +391,7 @@ def math.fp_core.to_i128.closure.Insts.CoreOpsFunctionFnOnceTupleI128 :
 }
 
 /-- [controller_aeneas::math::fp_core::to_i128]:
-    Source: 'src/../../../../common/src/math/fp_core.rs', lines 300:0-303:1 -/
+    Source: 'src/../../../../common/src/math/fp_core.rs', lines 336:0-339:1 -/
 def math.fp_core.to_i128
   (env : aeneas_soroban_shim.Env) (val : aeneas_soroban_shim.I256) :
   Result Std.I128
@@ -545,7 +553,7 @@ def math.fp_core.div_ceil_i128
       Std.I128 residual
 
 /-- [controller_aeneas::math::fp_core::mul_div_ceil::{impl core::ops::function::FnOnce<(i128,), core::option::Option<i128>> for controller_aeneas::math::fp_core::mul_div_ceil::{closure}<'_0>}::call_once]:
-    Source: 'src/../../../../common/src/math/fp_core.rs', lines 168:18-168:53 -/
+    Source: 'src/../../../../common/src/math/fp_core.rs', lines 204:18-204:53 -/
 def
   math.fp_core.mul_div_ceil.closure.Insts.CoreOpsFunctionFnOnceTupleI128OptionI128.call_once
   (c : math.fp_core.mul_div_ceil.closure) (tupled_args : Std.I128) :
@@ -554,7 +562,7 @@ def
   math.fp_core.div_ceil_i128 tupled_args c
 
 /-- Trait implementation: [controller_aeneas::math::fp_core::mul_div_ceil::{impl core::ops::function::FnOnce<(i128,), core::option::Option<i128>> for controller_aeneas::math::fp_core::mul_div_ceil::{closure}<'_0>}]
-    Source: 'src/../../../../common/src/math/fp_core.rs', lines 168:18-168:53 -/
+    Source: 'src/../../../../common/src/math/fp_core.rs', lines 204:18-204:53 -/
 @[reducible]
 def
   math.fp_core.mul_div_ceil.closure.Insts.CoreOpsFunctionFnOnceTupleI128OptionI128
@@ -599,7 +607,7 @@ def math.fp_core.div_ceil_i256
   else ok quotient
 
 /-- [controller_aeneas::math::fp_core::mul_div_ceil]:
-    Source: 'src/../../../../common/src/math/fp_core.rs', lines 164:0-175:1
+    Source: 'src/../../../../common/src/math/fp_core.rs', lines 200:0-211:1
     Visibility: public -/
 def math.fp_core.mul_div_ceil
   (env : aeneas_soroban_shim.Env) (x : Std.I128) (y : Std.I128) (d : Std.I128)
@@ -655,7 +663,7 @@ def math.fp.Ray.mul_ceil
   ok i
 
 /-- [controller_aeneas::math::fp_core::div_by_int_half_up]:
-    Source: 'src/../../../../common/src/math/fp_core.rs', lines 279:0-296:1
+    Source: 'src/../../../../common/src/math/fp_core.rs', lines 315:0-332:1
     Visibility: public -/
 def math.fp_core.div_by_int_half_up
   (env : aeneas_soroban_shim.Env) (a : Std.I128) (b : Std.I128) :
@@ -677,7 +685,7 @@ def math.fp_core.div_by_int_half_up
     else ok quotient
 
 /-- [controller_aeneas::math::fp_core::rescale_half_up::{impl core::ops::function::Fn<(i128, core::option::Option<i128>), i128> for controller_aeneas::math::fp_core::rescale_half_up::{closure}<'_0>}::call]:
-    Source: 'src/../../../../common/src/math/fp_core.rs', lines 235:48-239:5 -/
+    Source: 'src/../../../../common/src/math/fp_core.rs', lines 271:48-275:5 -/
 def
   math.fp_core.rescale_half_up.closure.Insts.CoreOpsFunctionFnPairI128OptionI128I128.call
   (c : math.fp_core.rescale_half_up.closure)
@@ -690,7 +698,7 @@ def
   | some factor1 => math.fp_core.div_by_int_half_up c a factor1
 
 /-- [controller_aeneas::math::fp_core::rescale_half_up::{impl core::ops::function::FnMut<(i128, core::option::Option<i128>), i128> for controller_aeneas::math::fp_core::rescale_half_up::{closure}<'_0>}::call_mut]:
-    Source: 'src/../../../../common/src/math/fp_core.rs', lines 235:48-239:5 -/
+    Source: 'src/../../../../common/src/math/fp_core.rs', lines 271:48-275:5 -/
 def
   math.fp_core.rescale_half_up.closure.Insts.CoreOpsFunctionFnMutPairI128OptionI128I128.call_mut
   (state : math.fp_core.rescale_half_up.closure)
@@ -703,7 +711,7 @@ def
   ok (i, state)
 
 /-- [controller_aeneas::math::fp_core::rescale_half_up::{impl core::ops::function::FnOnce<(i128, core::option::Option<i128>), i128> for controller_aeneas::math::fp_core::rescale_half_up::{closure}<'_0>}::call_once]:
-    Source: 'src/../../../../common/src/math/fp_core.rs', lines 235:48-239:5 -/
+    Source: 'src/../../../../common/src/math/fp_core.rs', lines 271:48-275:5 -/
 def
   math.fp_core.rescale_half_up.closure.Insts.CoreOpsFunctionFnOncePairI128OptionI128I128.call_once
   (c : math.fp_core.rescale_half_up.closure)
@@ -716,7 +724,7 @@ def
   ok i
 
 /-- Trait implementation: [controller_aeneas::math::fp_core::rescale_half_up::{impl core::ops::function::FnOnce<(i128, core::option::Option<i128>), i128> for controller_aeneas::math::fp_core::rescale_half_up::{closure}<'_0>}]
-    Source: 'src/../../../../common/src/math/fp_core.rs', lines 235:48-239:5 -/
+    Source: 'src/../../../../common/src/math/fp_core.rs', lines 271:48-275:5 -/
 @[reducible]
 def
   math.fp_core.rescale_half_up.closure.Insts.CoreOpsFunctionFnOncePairI128OptionI128I128
@@ -727,7 +735,7 @@ def
 }
 
 /-- Trait implementation: [controller_aeneas::math::fp_core::rescale_half_up::{impl core::ops::function::FnMut<(i128, core::option::Option<i128>), i128> for controller_aeneas::math::fp_core::rescale_half_up::{closure}<'_0>}]
-    Source: 'src/../../../../common/src/math/fp_core.rs', lines 235:48-239:5 -/
+    Source: 'src/../../../../common/src/math/fp_core.rs', lines 271:48-275:5 -/
 @[reducible]
 def
   math.fp_core.rescale_half_up.closure.Insts.CoreOpsFunctionFnMutPairI128OptionI128I128
@@ -740,7 +748,7 @@ def
 }
 
 /-- Trait implementation: [controller_aeneas::math::fp_core::rescale_half_up::{impl core::ops::function::Fn<(i128, core::option::Option<i128>), i128> for controller_aeneas::math::fp_core::rescale_half_up::{closure}<'_0>}]
-    Source: 'src/../../../../common/src/math/fp_core.rs', lines 235:48-239:5 -/
+    Source: 'src/../../../../common/src/math/fp_core.rs', lines 271:48-275:5 -/
 @[reducible]
 def
   math.fp_core.rescale_half_up.closure.Insts.CoreOpsFunctionFnPairI128OptionI128I128
@@ -753,7 +761,7 @@ def
 }
 
 /-- [controller_aeneas::math::fp_core::rescale::{impl core::ops::function::FnOnce<(), i128> for controller_aeneas::math::fp_core::rescale::{closure#1}<'_0, '_1, T0>}::call_once]:
-    Source: 'src/../../../../common/src/math/fp_core.rs', lines 223:28-223:81 -/
+    Source: 'src/../../../../common/src/math/fp_core.rs', lines 259:28-259:81 -/
 def
   math.fp_core.rescale.closure_1.Insts.CoreOpsFunctionFnOnceTupleI128.call_once
   {T0 : Type _} (coreopsfunctionFnT0PairI128OptionI128I128Inst :
@@ -764,7 +772,7 @@ def
   fail panic
 
 /-- Trait implementation: [controller_aeneas::math::fp_core::rescale::{impl core::ops::function::FnOnce<(), i128> for controller_aeneas::math::fp_core::rescale::{closure#1}<'_0, '_1, T0>}]
-    Source: 'src/../../../../common/src/math/fp_core.rs', lines 223:28-223:81 -/
+    Source: 'src/../../../../common/src/math/fp_core.rs', lines 259:28-259:81 -/
 @[reducible]
 def math.fp_core.rescale.closure_1.Insts.CoreOpsFunctionFnOnceTupleI128 {T0 :
   Type _} (coreopsfunctionFnT0PairI128OptionI128I128Inst : core.ops.function.Fn
@@ -776,7 +784,7 @@ def math.fp_core.rescale.closure_1.Insts.CoreOpsFunctionFnOnceTupleI128 {T0 :
 }
 
 /-- [controller_aeneas::math::fp_core::rescale::{impl core::ops::function::FnOnce<(i128,), core::option::Option<i128>> for controller_aeneas::math::fp_core::rescale::{closure}<'_0, T0>}::call_once]:
-    Source: 'src/../../../../common/src/math/fp_core.rs', lines 222:22-222:52 -/
+    Source: 'src/../../../../common/src/math/fp_core.rs', lines 258:22-258:52 -/
 def
   math.fp_core.rescale.closure.Insts.CoreOpsFunctionFnOnceTupleI128OptionI128.call_once
   {T0 : Type _} (coreopsfunctionFnT0PairI128OptionI128I128Inst :
@@ -787,7 +795,7 @@ def
   ok (I128.checked_mul c tupled_args)
 
 /-- Trait implementation: [controller_aeneas::math::fp_core::rescale::{impl core::ops::function::FnOnce<(i128,), core::option::Option<i128>> for controller_aeneas::math::fp_core::rescale::{closure}<'_0, T0>}]
-    Source: 'src/../../../../common/src/math/fp_core.rs', lines 222:22-222:52 -/
+    Source: 'src/../../../../common/src/math/fp_core.rs', lines 258:22-258:52 -/
 @[reducible]
 def math.fp_core.rescale.closure.Insts.CoreOpsFunctionFnOnceTupleI128OptionI128
   {T0 : Type _} (coreopsfunctionFnT0PairI128OptionI128I128Inst :
@@ -800,7 +808,7 @@ def math.fp_core.rescale.closure.Insts.CoreOpsFunctionFnOnceTupleI128OptionI128
 }
 
 /-- [controller_aeneas::math::fp_core::rescale]:
-    Source: 'src/../../../../common/src/math/fp_core.rs', lines 208:0-227:1 -/
+    Source: 'src/../../../../common/src/math/fp_core.rs', lines 244:0-263:1 -/
 def math.fp_core.rescale
   {T0 : Type _} (coreopsfunctionFnT0PairI128OptionI128I128Inst :
   core.ops.function.Fn T0 (Std.I128 × (Option Std.I128)) Std.I128)
@@ -826,7 +834,7 @@ def math.fp_core.rescale
       coreopsfunctionFnT0PairI128OptionI128I128Inst.call round_down (a, factor)
 
 /-- [controller_aeneas::math::fp_core::rescale_half_up]:
-    Source: 'src/../../../../common/src/math/fp_core.rs', lines 234:0-240:1
+    Source: 'src/../../../../common/src/math/fp_core.rs', lines 270:0-276:1
     Visibility: public -/
 def math.fp_core.rescale_half_up
   (env : aeneas_soroban_shim.Env) (a : Std.I128) (from_decimals : Std.U32)
@@ -851,7 +859,7 @@ def math.fp.Ray.to_wad
   ok i
 
 /-- [controller_aeneas::math::fp_core::rescale_floor::{impl core::ops::function::Fn<(i128, core::option::Option<i128>), i128> for controller_aeneas::math::fp_core::rescale_floor::{closure}}::call]:
-    Source: 'src/../../../../common/src/math/fp_core.rs', lines 247:48-251:5 -/
+    Source: 'src/../../../../common/src/math/fp_core.rs', lines 283:48-287:5 -/
 def
   math.fp_core.rescale_floor.closure.Insts.CoreOpsFunctionFnPairI128OptionI128I128.call
   (c : math.fp_core.rescale_floor.closure)
@@ -864,7 +872,7 @@ def
   | some factor1 => a / factor1
 
 /-- [controller_aeneas::math::fp_core::rescale_floor::{impl core::ops::function::FnMut<(i128, core::option::Option<i128>), i128> for controller_aeneas::math::fp_core::rescale_floor::{closure}}::call_mut]:
-    Source: 'src/../../../../common/src/math/fp_core.rs', lines 247:48-251:5 -/
+    Source: 'src/../../../../common/src/math/fp_core.rs', lines 283:48-287:5 -/
 def
   math.fp_core.rescale_floor.closure.Insts.CoreOpsFunctionFnMutPairI128OptionI128I128.call_mut
   (state : math.fp_core.rescale_floor.closure)
@@ -877,7 +885,7 @@ def
   ok (i, state)
 
 /-- [controller_aeneas::math::fp_core::rescale_floor::{impl core::ops::function::FnOnce<(i128, core::option::Option<i128>), i128> for controller_aeneas::math::fp_core::rescale_floor::{closure}}::call_once]:
-    Source: 'src/../../../../common/src/math/fp_core.rs', lines 247:48-251:5 -/
+    Source: 'src/../../../../common/src/math/fp_core.rs', lines 283:48-287:5 -/
 def
   math.fp_core.rescale_floor.closure.Insts.CoreOpsFunctionFnOncePairI128OptionI128I128.call_once
   (c : math.fp_core.rescale_floor.closure)
@@ -890,7 +898,7 @@ def
   ok i
 
 /-- Trait implementation: [controller_aeneas::math::fp_core::rescale_floor::{impl core::ops::function::FnOnce<(i128, core::option::Option<i128>), i128> for controller_aeneas::math::fp_core::rescale_floor::{closure}}]
-    Source: 'src/../../../../common/src/math/fp_core.rs', lines 247:48-251:5 -/
+    Source: 'src/../../../../common/src/math/fp_core.rs', lines 283:48-287:5 -/
 @[reducible]
 def
   math.fp_core.rescale_floor.closure.Insts.CoreOpsFunctionFnOncePairI128OptionI128I128
@@ -901,7 +909,7 @@ def
 }
 
 /-- Trait implementation: [controller_aeneas::math::fp_core::rescale_floor::{impl core::ops::function::FnMut<(i128, core::option::Option<i128>), i128> for controller_aeneas::math::fp_core::rescale_floor::{closure}}]
-    Source: 'src/../../../../common/src/math/fp_core.rs', lines 247:48-251:5 -/
+    Source: 'src/../../../../common/src/math/fp_core.rs', lines 283:48-287:5 -/
 @[reducible]
 def
   math.fp_core.rescale_floor.closure.Insts.CoreOpsFunctionFnMutPairI128OptionI128I128
@@ -914,7 +922,7 @@ def
 }
 
 /-- Trait implementation: [controller_aeneas::math::fp_core::rescale_floor::{impl core::ops::function::Fn<(i128, core::option::Option<i128>), i128> for controller_aeneas::math::fp_core::rescale_floor::{closure}}]
-    Source: 'src/../../../../common/src/math/fp_core.rs', lines 247:48-251:5 -/
+    Source: 'src/../../../../common/src/math/fp_core.rs', lines 283:48-287:5 -/
 @[reducible]
 def
   math.fp_core.rescale_floor.closure.Insts.CoreOpsFunctionFnPairI128OptionI128I128
@@ -927,7 +935,7 @@ def
 }
 
 /-- [controller_aeneas::math::fp_core::rescale_floor]:
-    Source: 'src/../../../../common/src/math/fp_core.rs', lines 246:0-252:1 -/
+    Source: 'src/../../../../common/src/math/fp_core.rs', lines 282:0-288:1 -/
 def math.fp_core.rescale_floor
   (env : aeneas_soroban_shim.Env) (a : Std.I128) (from_decimals : Std.U32)
   (to_decimals : Std.U32) :
@@ -950,7 +958,7 @@ def math.fp.Ray.to_wad_floor
   ok i
 
 /-- [controller_aeneas::math::fp_core::rescale_ceil::{impl core::ops::function::Fn<(i128, core::option::Option<i128>), i128> for controller_aeneas::math::fp_core::rescale_ceil::{closure}}::call]:
-    Source: 'src/../../../../common/src/math/fp_core.rs', lines 260:48-272:5 -/
+    Source: 'src/../../../../common/src/math/fp_core.rs', lines 296:48-308:5 -/
 def
   math.fp_core.rescale_ceil.closure.Insts.CoreOpsFunctionFnPairI128OptionI128I128.call
   (c : math.fp_core.rescale_ceil.closure)
@@ -971,7 +979,7 @@ def
     else ok quotient
 
 /-- [controller_aeneas::math::fp_core::rescale_ceil::{impl core::ops::function::FnMut<(i128, core::option::Option<i128>), i128> for controller_aeneas::math::fp_core::rescale_ceil::{closure}}::call_mut]:
-    Source: 'src/../../../../common/src/math/fp_core.rs', lines 260:48-272:5 -/
+    Source: 'src/../../../../common/src/math/fp_core.rs', lines 296:48-308:5 -/
 def
   math.fp_core.rescale_ceil.closure.Insts.CoreOpsFunctionFnMutPairI128OptionI128I128.call_mut
   (state : math.fp_core.rescale_ceil.closure)
@@ -984,7 +992,7 @@ def
   ok (i, state)
 
 /-- [controller_aeneas::math::fp_core::rescale_ceil::{impl core::ops::function::FnOnce<(i128, core::option::Option<i128>), i128> for controller_aeneas::math::fp_core::rescale_ceil::{closure}}::call_once]:
-    Source: 'src/../../../../common/src/math/fp_core.rs', lines 260:48-272:5 -/
+    Source: 'src/../../../../common/src/math/fp_core.rs', lines 296:48-308:5 -/
 def
   math.fp_core.rescale_ceil.closure.Insts.CoreOpsFunctionFnOncePairI128OptionI128I128.call_once
   (c : math.fp_core.rescale_ceil.closure) (p : (Std.I128 × (Option Std.I128)))
@@ -997,7 +1005,7 @@ def
   ok i
 
 /-- Trait implementation: [controller_aeneas::math::fp_core::rescale_ceil::{impl core::ops::function::FnOnce<(i128, core::option::Option<i128>), i128> for controller_aeneas::math::fp_core::rescale_ceil::{closure}}]
-    Source: 'src/../../../../common/src/math/fp_core.rs', lines 260:48-272:5 -/
+    Source: 'src/../../../../common/src/math/fp_core.rs', lines 296:48-308:5 -/
 @[reducible]
 def
   math.fp_core.rescale_ceil.closure.Insts.CoreOpsFunctionFnOncePairI128OptionI128I128
@@ -1008,7 +1016,7 @@ def
 }
 
 /-- Trait implementation: [controller_aeneas::math::fp_core::rescale_ceil::{impl core::ops::function::FnMut<(i128, core::option::Option<i128>), i128> for controller_aeneas::math::fp_core::rescale_ceil::{closure}}]
-    Source: 'src/../../../../common/src/math/fp_core.rs', lines 260:48-272:5 -/
+    Source: 'src/../../../../common/src/math/fp_core.rs', lines 296:48-308:5 -/
 @[reducible]
 def
   math.fp_core.rescale_ceil.closure.Insts.CoreOpsFunctionFnMutPairI128OptionI128I128
@@ -1021,7 +1029,7 @@ def
 }
 
 /-- Trait implementation: [controller_aeneas::math::fp_core::rescale_ceil::{impl core::ops::function::Fn<(i128, core::option::Option<i128>), i128> for controller_aeneas::math::fp_core::rescale_ceil::{closure}}]
-    Source: 'src/../../../../common/src/math/fp_core.rs', lines 260:48-272:5 -/
+    Source: 'src/../../../../common/src/math/fp_core.rs', lines 296:48-308:5 -/
 @[reducible]
 def
   math.fp_core.rescale_ceil.closure.Insts.CoreOpsFunctionFnPairI128OptionI128I128
@@ -1034,7 +1042,7 @@ def
 }
 
 /-- [controller_aeneas::math::fp_core::rescale_ceil]:
-    Source: 'src/../../../../common/src/math/fp_core.rs', lines 259:0-273:1 -/
+    Source: 'src/../../../../common/src/math/fp_core.rs', lines 295:0-309:1 -/
 def math.fp_core.rescale_ceil
   (env : aeneas_soroban_shim.Env) (a : Std.I128) (from_decimals : Std.U32)
   (to_decimals : Std.U32) :
@@ -1270,7 +1278,7 @@ def math.fp.Wad.div_ceil
   ok i
 
 /-- [controller_aeneas::math::fp_core::mul_div_floor_saturating::{impl core::ops::function::FnOnce<(i128,), core::option::Option<i128>> for controller_aeneas::math::fp_core::mul_div_floor_saturating::{closure}<'_0>}::call_once]:
-    Source: 'src/../../../../common/src/math/fp_core.rs', lines 184:18-184:54 -/
+    Source: 'src/../../../../common/src/math/fp_core.rs', lines 220:18-220:54 -/
 def
   math.fp_core.mul_div_floor_saturating.closure.Insts.CoreOpsFunctionFnOnceTupleI128OptionI128.call_once
   (c : math.fp_core.mul_div_floor_saturating.closure) (tupled_args : Std.I128)
@@ -1280,7 +1288,7 @@ def
   math.fp_core.div_floor_i128 tupled_args c
 
 /-- Trait implementation: [controller_aeneas::math::fp_core::mul_div_floor_saturating::{impl core::ops::function::FnOnce<(i128,), core::option::Option<i128>> for controller_aeneas::math::fp_core::mul_div_floor_saturating::{closure}<'_0>}]
-    Source: 'src/../../../../common/src/math/fp_core.rs', lines 184:18-184:54 -/
+    Source: 'src/../../../../common/src/math/fp_core.rs', lines 220:18-220:54 -/
 @[reducible]
 def
   math.fp_core.mul_div_floor_saturating.closure.Insts.CoreOpsFunctionFnOnceTupleI128OptionI128
@@ -1291,7 +1299,7 @@ def
 }
 
 /-- [controller_aeneas::math::fp_core::mul_div_floor_saturating]:
-    Source: 'src/../../../../common/src/math/fp_core.rs', lines 180:0-201:1
+    Source: 'src/../../../../common/src/math/fp_core.rs', lines 216:0-237:1
     Visibility: public -/
 def math.fp_core.mul_div_floor_saturating
   (env : aeneas_soroban_shim.Env) (x : Std.I128) (y : Std.I128) (d : Std.I128)
@@ -1352,8 +1360,18 @@ def math.fp.Wad.mul_ratio_floor
   let i ← math.fp_core.mul_div_floor env self numerator denominator
   ok i
 
-/-- [controller_aeneas::math::fp::{controller_aeneas::math::fp::Wad}::apply_ratio_to_amount_floor]:
+/-- [controller_aeneas::math::fp::{controller_aeneas::math::fp::Wad}::div_by_int_floor]:
     Source: 'src/../../../../common/src/math/fp.rs', lines 296:4-298:5
+    Visibility: public -/
+def math.fp.Wad.div_by_int_floor
+  (self : math.fp.Wad) (env : aeneas_soroban_shim.Env) (divisor : Std.I128) :
+  Result math.fp.Wad
+  := do
+  let i ← math.fp_core.mul_div_floor env self 1#i128 divisor
+  ok i
+
+/-- [controller_aeneas::math::fp::{controller_aeneas::math::fp::Wad}::apply_ratio_to_amount_floor]:
+    Source: 'src/../../../../common/src/math/fp.rs', lines 301:4-303:5
     Visibility: public -/
 def math.fp.Wad.apply_ratio_to_amount_floor
   (self : math.fp.Wad) (env : aeneas_soroban_shim.Env)
@@ -1363,7 +1381,7 @@ def math.fp.Wad.apply_ratio_to_amount_floor
   math.fp_core.mul_div_floor env amount self denominator
 
 /-- [controller_aeneas::math::fp::{controller_aeneas::math::fp::Wad}::mul_ceil]:
-    Source: 'src/../../../../common/src/math/fp.rs', lines 317:4-319:5
+    Source: 'src/../../../../common/src/math/fp.rs', lines 322:4-324:5
     Visibility: public -/
 def math.fp.Wad.mul_ceil
   (self : math.fp.Wad) (env : aeneas_soroban_shim.Env) (other : math.fp.Wad) :
@@ -1374,7 +1392,7 @@ def math.fp.Wad.mul_ceil
   ok i
 
 /-- [controller_aeneas::math::fp::{controller_aeneas::math::fp::Wad}::from_token]:
-    Source: 'src/../../../../common/src/math/fp.rs', lines 322:4-329:5
+    Source: 'src/../../../../common/src/math/fp.rs', lines 327:4-334:5
     Visibility: public -/
 def math.fp.Wad.from_token
   (env : aeneas_soroban_shim.Env) (amount : Std.I128) (decimals : Std.U32) :
@@ -1386,7 +1404,7 @@ def math.fp.Wad.from_token
   ok i
 
 /-- [controller_aeneas::math::fp::{controller_aeneas::math::fp::Wad}::to_token_floor]:
-    Source: 'src/../../../../common/src/math/fp.rs', lines 337:4-339:5
+    Source: 'src/../../../../common/src/math/fp.rs', lines 342:4-344:5
     Visibility: public -/
 def math.fp.Wad.to_token_floor
   (self : math.fp.Wad) (env : aeneas_soroban_shim.Env) (decimals : Std.U32) :
@@ -1395,8 +1413,20 @@ def math.fp.Wad.to_token_floor
   math.fp_core.rescale_floor env self constants.production.shared.WAD_DECIMALS
     decimals
 
+/-- [controller_aeneas::math::fp::{controller_aeneas::math::fp::Wad}::to_ray_saturating]:
+    Source: 'src/../../../../common/src/math/fp.rs', lines 358:4-360:5
+    Visibility: public -/
+def math.fp.Wad.to_ray_saturating
+  (self : math.fp.Wad) (env : aeneas_soroban_shim.Env) :
+  Result math.fp.Ray
+  := do
+  let i ←
+    math.fp_core.mul_div_floor_saturating env self
+      constants.production.shared.RAY constants.production.shared.WAD
+  ok i
+
 /-- [controller_aeneas::math::fp::{controller_aeneas::math::fp::Wad}::checked_add]:
-    Source: 'src/../../../../common/src/math/fp.rs', lines 352:4-354:5
+    Source: 'src/../../../../common/src/math/fp.rs', lines 363:4-365:5
     Visibility: public -/
 def math.fp.Wad.checked_add
   (self : math.fp.Wad) (env : aeneas_soroban_shim.Env) (rhs : math.fp.Wad) :
@@ -1406,7 +1436,7 @@ def math.fp.Wad.checked_add
   ok i
 
 /-- [controller_aeneas::math::fp::{controller_aeneas::math::fp::Wad}::checked_sub]:
-    Source: 'src/../../../../common/src/math/fp.rs', lines 358:4-360:5
+    Source: 'src/../../../../common/src/math/fp.rs', lines 369:4-371:5
     Visibility: public -/
 def math.fp.Wad.checked_sub
   (self : math.fp.Wad) (env : aeneas_soroban_shim.Env) (rhs : math.fp.Wad) :
@@ -1416,14 +1446,14 @@ def math.fp.Wad.checked_sub
   ok i
 
 /-- [controller_aeneas::math::fp::{impl core::cmp::PartialEq<controller_aeneas::math::fp::Bps> for controller_aeneas::math::fp::Bps}::eq]:
-    Source: 'src/../../../../common/src/math/fp.rs', lines 365:29-365:38
+    Source: 'src/../../../../common/src/math/fp.rs', lines 376:29-376:38
     Visibility: public -/
 def math.fp.Bps.Insts.CoreCmpPartialEqBps.eq
   (self : math.fp.Bps) (other : math.fp.Bps) : Result Bool := do
   ok (self = other)
 
 /-- Trait implementation: [controller_aeneas::math::fp::{impl core::cmp::PartialEq<controller_aeneas::math::fp::Bps> for controller_aeneas::math::fp::Bps}]
-    Source: 'src/../../../../common/src/math/fp.rs', lines 365:29-365:38 -/
+    Source: 'src/../../../../common/src/math/fp.rs', lines 376:29-376:38 -/
 @[reducible]
 impl_def math.fp.Bps.Insts.CoreCmpPartialEqBps : core.cmp.PartialEq math.fp.Bps
   math.fp.Bps := {
@@ -1433,14 +1463,14 @@ impl_def math.fp.Bps.Insts.CoreCmpPartialEqBps : core.cmp.PartialEq math.fp.Bps
 }
 
 /-- [controller_aeneas::math::fp::{impl core::cmp::Eq for controller_aeneas::math::fp::Bps}::assert_fields_are_eq]:
-    Source: 'src/../../../../common/src/math/fp.rs', lines 365:40-365:42
+    Source: 'src/../../../../common/src/math/fp.rs', lines 376:40-376:42
     Visibility: public -/
 def math.fp.Bps.Insts.CoreCmpEq.assert_fields_are_eq
   (self : math.fp.Bps) : Result Unit := do
   ok ()
 
 /-- Trait implementation: [controller_aeneas::math::fp::{impl core::cmp::Eq for controller_aeneas::math::fp::Bps}]
-    Source: 'src/../../../../common/src/math/fp.rs', lines 365:40-365:42 -/
+    Source: 'src/../../../../common/src/math/fp.rs', lines 376:40-376:42 -/
 @[reducible]
 def math.fp.Bps.Insts.CoreCmpEq : core.cmp.Eq math.fp.Bps := {
   partialEqInst := math.fp.Bps.Insts.CoreCmpPartialEqBps
@@ -1448,14 +1478,14 @@ def math.fp.Bps.Insts.CoreCmpEq : core.cmp.Eq math.fp.Bps := {
 }
 
 /-- [controller_aeneas::math::fp::{impl core::cmp::Ord for controller_aeneas::math::fp::Bps}::cmp]:
-    Source: 'src/../../../../common/src/math/fp.rs', lines 365:56-365:59
+    Source: 'src/../../../../common/src/math/fp.rs', lines 376:56-376:59
     Visibility: public -/
 def math.fp.Bps.Insts.CoreCmpOrd.cmp
   (self : math.fp.Bps) (other : math.fp.Bps) : Result Ordering := do
   ok (core.cmp.impls.OrdI128.cmp self other)
 
 /-- [controller_aeneas::math::fp::{impl core::cmp::PartialOrd<controller_aeneas::math::fp::Bps> for controller_aeneas::math::fp::Bps}::partial_cmp]:
-    Source: 'src/../../../../common/src/math/fp.rs', lines 365:44-365:54
+    Source: 'src/../../../../common/src/math/fp.rs', lines 376:44-376:54
     Visibility: public -/
 def math.fp.Bps.Insts.CoreCmpPartialOrdBps.partial_cmp
   (self : math.fp.Bps) (other : math.fp.Bps) : Result (Option Ordering) := do
@@ -1463,7 +1493,7 @@ def math.fp.Bps.Insts.CoreCmpPartialOrdBps.partial_cmp
   ok (some o)
 
 /-- Trait implementation: [controller_aeneas::math::fp::{impl core::cmp::PartialOrd<controller_aeneas::math::fp::Bps> for controller_aeneas::math::fp::Bps}]
-    Source: 'src/../../../../common/src/math/fp.rs', lines 365:44-365:54 -/
+    Source: 'src/../../../../common/src/math/fp.rs', lines 376:44-376:54 -/
 @[reducible]
 impl_def math.fp.Bps.Insts.CoreCmpPartialOrdBps : core.cmp.PartialOrd
   math.fp.Bps math.fp.Bps := {
@@ -1480,7 +1510,7 @@ impl_def math.fp.Bps.Insts.CoreCmpPartialOrdBps : core.cmp.PartialOrd
 }
 
 /-- Trait implementation: [controller_aeneas::math::fp::{impl core::cmp::Ord for controller_aeneas::math::fp::Bps}]
-    Source: 'src/../../../../common/src/math/fp.rs', lines 365:56-365:59 -/
+    Source: 'src/../../../../common/src/math/fp.rs', lines 376:56-376:59 -/
 @[reducible]
 impl_def math.fp.Bps.Insts.CoreCmpOrd : core.cmp.Ord math.fp.Bps := {
   eqInst := math.fp.Bps.Insts.CoreCmpEq
@@ -1491,8 +1521,19 @@ impl_def math.fp.Bps.Insts.CoreCmpOrd : core.cmp.Ord math.fp.Bps := {
   clamp := core.cmp.Ord.clamp.trait_default math.fp.Bps.Insts.CoreCmpOrd
 }
 
+/-- [controller_aeneas::math::fp::{controller_aeneas::math::fp::Bps}::ONE]
+    Source: 'src/../../../../common/src/math/fp.rs', lines 380:4-380:34
+    Visibility: public -/
+@[global_simps, irreducible]
+def math.fp.Bps.ONE : math.fp.Bps := constants.production.shared.BPS
+
+/-- [controller_aeneas::math::fp::{controller_aeneas::math::fp::Bps}::ZERO]
+    Source: 'src/../../../../common/src/math/fp.rs', lines 381:4-381:33
+    Visibility: public -/
+@[global_simps, irreducible] def math.fp.Bps.ZERO : math.fp.Bps := 0#i128
+
 /-- [controller_aeneas::math::fp::{controller_aeneas::math::fp::Bps}::from]:
-    Source: 'src/../../../../common/src/math/fp.rs', lines 374:4-376:5
+    Source: 'src/../../../../common/src/math/fp.rs', lines 386:4-388:5
     Visibility: public -/
 def math.fp.Bps.from
   {T0 : Type _} (coreconvertIntoT0I128Inst : core.convert.Into T0 Std.I128)
@@ -1503,13 +1544,60 @@ def math.fp.Bps.from
   ok i
 
 /-- [controller_aeneas::math::fp::{controller_aeneas::math::fp::Bps}::raw]:
-    Source: 'src/../../../../common/src/math/fp.rs', lines 380:4-382:5
+    Source: 'src/../../../../common/src/math/fp.rs', lines 392:4-394:5
     Visibility: public -/
 def math.fp.Bps.raw (self : math.fp.Bps) : Result Std.I128 := do
   ok self
 
+/-- [controller_aeneas::math::fp::{controller_aeneas::math::fp::Bps}::div_floor]:
+    Source: 'src/../../../../common/src/math/fp.rs', lines 402:4-404:5
+    Visibility: public -/
+def math.fp.Bps.div_floor
+  (self : math.fp.Bps) (env : aeneas_soroban_shim.Env) (other : math.fp.Bps) :
+  Result math.fp.Bps
+  := do
+  let i ←
+    math.fp_core.mul_div_floor env self constants.production.shared.BPS other
+  ok i
+
+/-- [controller_aeneas::math::fp::{controller_aeneas::math::fp::Bps}::mul]:
+    Source: 'src/../../../../common/src/math/fp.rs', lines 407:4-409:5
+    Visibility: public -/
+def math.fp.Bps.mul
+  (self : math.fp.Bps) (env : aeneas_soroban_shim.Env) (other : math.fp.Bps) :
+  Result math.fp.Bps
+  := do
+  let i ←
+    math.fp_core.mul_div_half_up env self other constants.production.shared.BPS
+  ok i
+
+/-- [controller_aeneas::math::fp::{controller_aeneas::math::fp::Bps}::mul_wad]:
+    Source: 'src/../../../../common/src/math/fp.rs', lines 412:4-414:5
+    Visibility: public -/
+def math.fp.Bps.mul_wad
+  (self : math.fp.Bps) (env : aeneas_soroban_shim.Env) (factor : math.fp.Wad) :
+  Result math.fp.Bps
+  := do
+  let i ←
+    math.fp_core.mul_div_half_up env self factor
+      constants.production.shared.WAD
+  ok i
+
+/-- [controller_aeneas::math::fp::{controller_aeneas::math::fp::Bps}::from_fraction_floor]:
+    Source: 'src/../../../../common/src/math/fp.rs', lines 417:4-419:5
+    Visibility: public -/
+def math.fp.Bps.from_fraction_floor
+  (env : aeneas_soroban_shim.Env) (numerator : math.fp.Wad)
+  (denominator : math.fp.Wad) :
+  Result math.fp.Bps
+  := do
+  let i ←
+    math.fp_core.mul_div_floor env numerator constants.production.shared.BPS
+      denominator
+  ok i
+
 /-- [controller_aeneas::math::fp::{controller_aeneas::math::fp::Bps}::from_fraction_ceil]:
-    Source: 'src/../../../../common/src/math/fp.rs', lines 395:4-397:5
+    Source: 'src/../../../../common/src/math/fp.rs', lines 422:4-424:5
     Visibility: public -/
 def math.fp.Bps.from_fraction_ceil
   (env : aeneas_soroban_shim.Env) (numerator : math.fp.Wad)
@@ -1521,19 +1609,107 @@ def math.fp.Bps.from_fraction_ceil
       denominator
   ok i
 
-/-- [controller_aeneas::math::fp::{controller_aeneas::math::fp::Bps}::from_weighted_sum]:
-    Source: 'src/../../../../common/src/math/fp.rs', lines 405:4-407:5
+/-- [controller_aeneas::math::fp_core::mul_add_div_rem_nonnegative::{impl core::ops::function::FnOnce<(i128,), core::option::Option<i128>> for controller_aeneas::math::fp_core::mul_add_div_rem_nonnegative::{closure}<'_0>}::call_once]:
+    Source: 'src/../../../../common/src/math/fp_core.rs', lines 182:18-182:54 -/
+def
+  math.fp_core.mul_add_div_rem_nonnegative.closure.Insts.CoreOpsFunctionFnOnceTupleI128OptionI128.call_once
+  (c : math.fp_core.mul_add_div_rem_nonnegative.closure)
+  (tupled_args : Std.I128) :
+  Result (Option Std.I128)
+  := do
+  ok (I128.checked_add tupled_args c)
+
+/-- Trait implementation: [controller_aeneas::math::fp_core::mul_add_div_rem_nonnegative::{impl core::ops::function::FnOnce<(i128,), core::option::Option<i128>> for controller_aeneas::math::fp_core::mul_add_div_rem_nonnegative::{closure}<'_0>}]
+    Source: 'src/../../../../common/src/math/fp_core.rs', lines 182:18-182:54 -/
+@[reducible]
+def
+  math.fp_core.mul_add_div_rem_nonnegative.closure.Insts.CoreOpsFunctionFnOnceTupleI128OptionI128
+  : core.ops.function.FnOnce math.fp_core.mul_add_div_rem_nonnegative.closure
+  Std.I128 (Option Std.I128) := {
+  call_once :=
+    math.fp_core.mul_add_div_rem_nonnegative.closure.Insts.CoreOpsFunctionFnOnceTupleI128OptionI128.call_once
+}
+
+/-- [controller_aeneas::math::fp_core::mul_add_div_rem_nonnegative]:
+    Source: 'src/../../../../common/src/math/fp_core.rs', lines 168:0-195:1 -/
+def math.fp_core.mul_add_div_rem_nonnegative
+  (env : aeneas_soroban_shim.Env) (x : Std.I128) (y : Std.I128)
+  (carry : Std.I128) (d : Std.I128) :
+  Result (Std.I128 × Std.I128)
+  := do
+  math.fp_core.require_nonzero_divisor env d
+  massert (¬ (x < 0#i128))
+  massert (¬ (y < 0#i128))
+  massert (¬ (carry < 0#i128))
+  massert (¬ (d < 0#i128))
+  let o ← lift (I128.checked_mul x y)
+  let o1 ←
+    core.option.Option.and_then
+      math.fp_core.mul_add_div_rem_nonnegative.closure.Insts.CoreOpsFunctionFnOnceTupleI128OptionI128
+      o carry
+  match o1 with
+  | none =>
+    let i ← aeneas_soroban_shim.I256.from_i128 env x
+    let i1 ← aeneas_soroban_shim.I256.from_i128 env y
+    let i2 ← aeneas_soroban_shim.I256.mul i i1
+    let i3 ← aeneas_soroban_shim.I256.from_i128 env carry
+    let numerator ← aeneas_soroban_shim.I256.add i2 i3
+    let divisor ← aeneas_soroban_shim.I256.from_i128 env d
+    let i4 ← aeneas_soroban_shim.I256.div numerator divisor
+    let i5 ← math.fp_core.to_i128 env i4
+    let i6 ← aeneas_soroban_shim.I256.rem_euclid numerator divisor
+    let i7 ← math.fp_core.to_i128 env i6
+    ok (i5, i7)
+  | some numerator =>
+    let i ← numerator / d
+    let i1 ← numerator % d
+    ok (i, i1)
+
+/-- [controller_aeneas::math::fp::{controller_aeneas::math::fp::Bps}::checked_add]:
+    Source: 'src/../../../../common/src/math/fp.rs', lines 521:4-523:5
     Visibility: public -/
-def math.fp.Bps.from_weighted_sum
-  (env : aeneas_soroban_shim.Env) (weighted_sum : Std.I128)
-  (weight : math.fp.Wad) :
+def math.fp.Bps.checked_add
+  (self : math.fp.Bps) (env : aeneas_soroban_shim.Env) (rhs : math.fp.Bps) :
   Result math.fp.Bps
   := do
-  let i ← math.fp_core.div_by_int_half_up env weighted_sum weight
+  let i ← math.fp.checked_add_raw env self rhs
   ok i
 
+/-- [controller_aeneas::math::fp::{controller_aeneas::math::fp::Bps}::add_weighted_term]:
+    Source: 'src/../../../../common/src/math/fp.rs', lines 439:4-455:5
+    Visibility: public -/
+def math.fp.Bps.add_weighted_term
+  (self : math.fp.Bps) (env : aeneas_soroban_shim.Env) (rate : math.fp.Bps)
+  (weight : math.fp.Wad) (total_weight : math.fp.Wad) (remainder : math.fp.Wad)
+  :
+  Result (math.fp.Bps × math.fp.Wad)
+  := do
+  let (quotient, remainder1) ←
+    math.fp_core.mul_add_div_rem_nonnegative env rate weight remainder
+      total_weight
+  let b ← math.fp.Bps.checked_add self env quotient
+  ok (b, remainder1)
+
+/-- [controller_aeneas::math::fp::{controller_aeneas::math::fp::Bps}::round_weighted_remainder]:
+    Source: 'src/../../../../common/src/math/fp.rs', lines 459:4-468:5
+    Visibility: public -/
+def math.fp.Bps.round_weighted_remainder
+  (self : math.fp.Bps) (env : aeneas_soroban_shim.Env)
+  (remainder : math.fp.Wad) (divisor : math.fp.Wad) :
+  Result math.fp.Bps
+  := do
+  massert (¬ (remainder < 0#i128))
+  massert (¬ (divisor <= 0#i128))
+  massert (¬ (remainder >= divisor))
+  let i ← divisor / 2#i128
+  let i1 ← divisor % 2#i128
+  let i2 ← i + i1
+  if remainder >= i2
+  then math.fp.Bps.checked_add self env 1#i128
+  else ok self
+
 /-- [controller_aeneas::math::fp::{controller_aeneas::math::fp::Bps}::to_wad]:
-    Source: 'src/../../../../common/src/math/fp.rs', lines 410:4-412:5
+    Source: 'src/../../../../common/src/math/fp.rs', lines 471:4-473:5
     Visibility: public -/
 def math.fp.Bps.to_wad
   (self : math.fp.Bps) (env : aeneas_soroban_shim.Env) :
@@ -1544,17 +1720,8 @@ def math.fp.Bps.to_wad
       constants.production.shared.BPS
   ok i
 
-/-- [controller_aeneas::math::fp::{controller_aeneas::math::fp::Bps}::apply_to]:
-    Source: 'src/../../../../common/src/math/fp.rs', lines 415:4-417:5
-    Visibility: public -/
-def math.fp.Bps.apply_to
-  (self : math.fp.Bps) (env : aeneas_soroban_shim.Env) (amount : Std.I128) :
-  Result Std.I128
-  := do
-  math.fp_core.mul_div_half_up env amount self constants.production.shared.BPS
-
 /-- [controller_aeneas::math::fp::{controller_aeneas::math::fp::Bps}::apply_to_ray_ceil]:
-    Source: 'src/../../../../common/src/math/fp.rs', lines 425:4-427:5
+    Source: 'src/../../../../common/src/math/fp.rs', lines 486:4-488:5
     Visibility: public -/
 def math.fp.Bps.apply_to_ray_ceil
   (self : math.fp.Bps) (env : aeneas_soroban_shim.Env) (value : math.fp.Ray) :
@@ -1565,7 +1732,7 @@ def math.fp.Bps.apply_to_ray_ceil
   ok i
 
 /-- [controller_aeneas::math::fp::{controller_aeneas::math::fp::Bps}::apply_to_wad_floor]:
-    Source: 'src/../../../../common/src/math/fp.rs', lines 448:4-452:5
+    Source: 'src/../../../../common/src/math/fp.rs', lines 509:4-513:5
     Visibility: public -/
 def math.fp.Bps.apply_to_wad_floor
   (self : math.fp.Bps) (env : aeneas_soroban_shim.Env) (value : math.fp.Wad) :
@@ -1575,7 +1742,7 @@ def math.fp.Bps.apply_to_wad_floor
   math.fp.Wad.mul_floor value env ratio
 
 /-- [controller_aeneas::math::fp::{controller_aeneas::math::fp::Bps}::apply_to_ray]:
-    Source: 'src/../../../../common/src/math/fp.rs', lines 455:4-457:5
+    Source: 'src/../../../../common/src/math/fp.rs', lines 516:4-518:5
     Visibility: public -/
 def math.fp.Bps.apply_to_ray
   (self : math.fp.Bps) (env : aeneas_soroban_shim.Env) (value : math.fp.Ray) :
@@ -1587,7 +1754,7 @@ def math.fp.Bps.apply_to_ray
   ok i1
 
 /-- [controller_aeneas::math::fp::{controller_aeneas::math::fp::Bps}::checked_sub]:
-    Source: 'src/../../../../common/src/math/fp.rs', lines 466:4-468:5
+    Source: 'src/../../../../common/src/math/fp.rs', lines 527:4-529:5
     Visibility: public -/
 def math.fp.Bps.checked_sub
   (self : math.fp.Bps) (env : aeneas_soroban_shim.Env) (rhs : math.fp.Bps) :
@@ -2449,13 +2616,15 @@ def positions.get_supply_position_or_panic
     types.AccountPosition.Insts.CoreConvertFromShared0AccountPositionRaw apr
 
 /-- [controller_aeneas::positions::liquidation::math::split_seized_shares]:
-    Source: 'src/positions/liquidation/../../../../../../contracts/controller/src/positions/liquidation/math.rs', lines 544:0-570:1 -/
+    Source: 'src/positions/liquidation/../../../../../../contracts/controller/src/positions/liquidation/math.rs', lines 537:0-563:1 -/
 def positions.liquidation.math.split_seized_shares
   (env : aeneas_soroban_shim.Env) (seized_scaled : math.fp.Ray)
   (bonus_scaled : math.fp.Ray) (liquidation_fees_bps : Std.U32) :
   Result (math.fp.Ray × math.fp.Ray)
   := do
-  let fees ← I128.Insts.CoreConvertFromU32.from liquidation_fees_bps
+  let i ← I128.Insts.CoreConvertFromU32.from liquidation_fees_bps
+  let fees ←
+    math.fp.Bps.from (core.convert.IntoFrom (core.convert.FromSame Std.I128)) i
   let b ←
     core.cmp.PartialOrd.lt.trait_default math.fp.Ray.Insts.CoreCmpPartialOrdRay
       seized_scaled math.fp.Ray.ZERO
@@ -2468,11 +2637,11 @@ def positions.liquidation.math.split_seized_shares
     core.cmp.PartialOrd.gt.trait_default math.fp.Ray.Insts.CoreCmpPartialOrdRay
       bonus_scaled seized_scaled
   massert (¬ b2)
-  massert (¬ (fees >= constants.production.shared.BPS))
   let b3 ←
-    math.fp.Bps.from (core.convert.IntoFrom (core.convert.FromSame Std.I128))
-      fees
-  let fee_scaled ← math.fp.Bps.apply_to_ray_ceil b3 env bonus_scaled
+    core.cmp.PartialOrd.ge.trait_default math.fp.Bps.Insts.CoreCmpPartialOrdBps
+      fees math.fp.Bps.ONE
+  massert (¬ b3)
+  let fee_scaled ← math.fp.Bps.apply_to_ray_ceil fees env bonus_scaled
   let b4 ←
     core.cmp.PartialOrd.gt.trait_default math.fp.Ray.Insts.CoreCmpPartialOrdRay
       fee_scaled seized_scaled
@@ -2694,7 +2863,7 @@ def positions.liquidation.apply.credited_shares
   ok liquidator_scaled
 
 /-- [controller_aeneas::positions::liquidation::curve::is_socializable_bad_debt]:
-    Source: 'src/positions/liquidation/../../../../../../contracts/controller/src/positions/liquidation/curve.rs', lines 24:0-26:1 -/
+    Source: 'src/positions/liquidation/../../../../../../contracts/controller/src/positions/liquidation/curve.rs', lines 42:0-44:1 -/
 def positions.liquidation.curve.is_socializable_bad_debt
   (total_debt : math.fp.Wad) (total_collateral : math.fp.Wad) :
   Result Bool
@@ -2735,7 +2904,7 @@ def positions.liquidation.apply.check_bad_debt_after_liquidation
     else ok cache
 
 /-- [controller_aeneas::positions::liquidation::curve::{controller_aeneas::positions::liquidation::curve::LiquidationCurve}::from_config]:
-    Source: 'src/positions/liquidation/../../../../../../contracts/controller/src/positions/liquidation/curve.rs', lines 35:4-41:5 -/
+    Source: 'src/positions/liquidation/../../../../../../contracts/controller/src/positions/liquidation/curve.rs', lines 53:4-59:5 -/
 def positions.liquidation.curve.LiquidationCurve.from_config
   (cfg : types.SpokeConfig) :
   Result positions.liquidation.curve.LiquidationCurve
@@ -2746,13 +2915,13 @@ def positions.liquidation.curve.LiquidationCurve.from_config
   let w1 ←
     math.fp.Wad.from (core.convert.IntoFrom (core.convert.FromSame Std.I128))
       cfg.hf_for_max_bonus_wad
-  let i ← I128.Insts.CoreConvertFromU32.from cfg.liquidation_bonus_factor_bps
   let b ←
-    math.fp.Bps.from (core.convert.IntoFrom (core.convert.FromSame Std.I128)) i
+    math.fp.Bps.from (core.convert.IntoFrom I128.Insts.CoreConvertFromU32)
+      cfg.liquidation_bonus_factor_bps
   ok { target_hf := w, hf_for_max_bonus := w1, bonus_factor := b }
 
 /-- [controller_aeneas::positions::liquidation::curve::{controller_aeneas::positions::liquidation::curve::LiquidationCurve}::bonus_scale]:
-    Source: 'src/positions/liquidation/../../../../../../contracts/controller/src/positions/liquidation/curve.rs', lines 45:4-54:5 -/
+    Source: 'src/positions/liquidation/../../../../../../contracts/controller/src/positions/liquidation/curve.rs', lines 63:4-72:5 -/
 def positions.liquidation.curve.LiquidationCurve.bonus_scale
   (self : positions.liquidation.curve.LiquidationCurve)
   (env : aeneas_soroban_shim.Env) (hf : math.fp.Wad) (target : math.fp.Wad) :
@@ -2770,30 +2939,8 @@ def positions.liquidation.curve.LiquidationCurve.bonus_scale
     core.cmp.Ord.min.trait_default math.fp.Wad.Insts.CoreCmpOrd w2
       math.fp.Wad.ONE
 
-/-- [controller_aeneas::positions::liquidation::curve::calculate_linear_bonus_with_target::{impl core::ops::function::FnOnce<(), i128> for controller_aeneas::positions::liquidation::curve::calculate_linear_bonus_with_target::{closure}<'_0, '_1>}::call_once]:
-    Source: 'src/positions/liquidation/../../../../../../contracts/controller/src/positions/liquidation/curve.rs', lines 78:28-78:81 -/
-def
-  positions.liquidation.curve.calculate_linear_bonus_with_target.closure.Insts.CoreOpsFunctionFnOnceTupleI128.call_once
-  (c : positions.liquidation.curve.calculate_linear_bonus_with_target.closure)
-  (_ : Unit) :
-  Result Std.I128
-  := do
-  fail panic
-
-/-- Trait implementation: [controller_aeneas::positions::liquidation::curve::calculate_linear_bonus_with_target::{impl core::ops::function::FnOnce<(), i128> for controller_aeneas::positions::liquidation::curve::calculate_linear_bonus_with_target::{closure}<'_0, '_1>}]
-    Source: 'src/positions/liquidation/../../../../../../contracts/controller/src/positions/liquidation/curve.rs', lines 78:28-78:81 -/
-@[reducible]
-def
-  positions.liquidation.curve.calculate_linear_bonus_with_target.closure.Insts.CoreOpsFunctionFnOnceTupleI128
-  : core.ops.function.FnOnce
-  positions.liquidation.curve.calculate_linear_bonus_with_target.closure Unit
-  Std.I128 := {
-  call_once :=
-    positions.liquidation.curve.calculate_linear_bonus_with_target.closure.Insts.CoreOpsFunctionFnOnceTupleI128.call_once
-}
-
 /-- [controller_aeneas::positions::liquidation::curve::calculate_linear_bonus_with_target]:
-    Source: 'src/positions/liquidation/../../../../../../contracts/controller/src/positions/liquidation/curve.rs', lines 59:0-80:1 -/
+    Source: 'src/positions/liquidation/../../../../../../contracts/controller/src/positions/liquidation/curve.rs', lines 78:0-93:1 -/
 def positions.liquidation.curve.calculate_linear_bonus_with_target
   (env : aeneas_soroban_shim.Env) (hf : math.fp.Wad) (base : math.fp.Bps)
   (max : math.fp.Bps) (curve : positions.liquidation.curve.LiquidationCurve)
@@ -2809,45 +2956,45 @@ def positions.liquidation.curve.calculate_linear_bonus_with_target
     let scale ←
       positions.liquidation.curve.LiquidationCurve.bonus_scale curve env hf
         target
-    let bonus_range ← math.fp.Bps.checked_sub max env base
-    let i ← math.fp.Bps.raw bonus_range
-    let w ←
-      math.fp.Wad.from (core.convert.IntoFrom (core.convert.FromSame Std.I128))
-        i
-    let w1 ← math.fp.Wad.mul w env scale
-    let bonus_increment ← math.fp.Wad.raw w1
-    let scaled_increment ←
-      math.fp.Bps.apply_to curve.bonus_factor env bonus_increment
-    let i1 ← math.fp.Bps.raw base
-    let o ← lift (I128.checked_add i1 scaled_increment)
-    let i2 ←
-      core.option.Option.unwrap_or_else
-        positions.liquidation.curve.calculate_linear_bonus_with_target.closure.Insts.CoreOpsFunctionFnOnceTupleI128
-        o env
-    math.fp.Bps.from (core.convert.IntoFrom (core.convert.FromSame Std.I128))
-      i2
+    let b1 ← math.fp.Bps.checked_sub max env base
+    let bonus_increment ← math.fp.Bps.mul_wad b1 env scale
+    let b2 ← math.fp.Bps.mul bonus_increment env curve.bonus_factor
+    math.fp.Bps.checked_add base env b2
 
 /-- [controller_aeneas::positions::liquidation::curve::max_hf_preserving_bonus_bps]:
-    Source: 'src/positions/liquidation/../../../../../../contracts/controller/src/positions/liquidation/curve.rs', lines 84:0-93:1 -/
+    Source: 'src/positions/liquidation/../../../../../../contracts/controller/src/positions/liquidation/curve.rs', lines 98:0-112:1 -/
 def positions.liquidation.curve.max_hf_preserving_bonus_bps
+  (env : aeneas_soroban_shim.Env)
   (snap : positions.liquidation.curve.LiquidationSnapshot) :
-  Result (Option Std.I128)
+  Result (Option positions.liquidation.curve.HfPreservingBonusCap)
   := do
-  let proportion ← math.fp.Wad.raw snap.proportion_seized
-  if proportion <= 0#i128
+  let b ←
+    core.cmp.PartialOrd.le.trait_default math.fp.Wad.Insts.CoreCmpPartialOrdWad
+      snap.proportion_seized math.fp.Wad.ZERO
+  if b
   then ok none
   else
-    let i ← math.fp.Wad.raw snap.hf
-    if i >= constants.production.shared.WAD
+    let b1 ←
+      core.cmp.PartialOrd.ge.trait_default
+        math.fp.Wad.Insts.CoreCmpPartialOrdWad snap.hf math.fp.Wad.ONE
+    if b1
     then ok none
     else
-      let i1 ← i * constants.production.shared.BPS
-      let i2 ← i1 / proportion
-      let i3 ← i2 - constants.production.shared.BPS
-      ok (some i3)
+      let hf_over_seizure ←
+        math.fp.Bps.from_fraction_floor env snap.hf snap.proportion_seized
+      let b2 ←
+        core.cmp.PartialOrd.lt.trait_default
+          math.fp.Bps.Insts.CoreCmpPartialOrdBps hf_over_seizure
+          math.fp.Bps.ONE
+      if b2
+      then ok (some positions.liquidation.curve.HfPreservingBonusCap.BelowZero)
+      else
+        let b3 ← math.fp.Bps.checked_sub hf_over_seizure env math.fp.Bps.ONE
+        ok (some (positions.liquidation.curve.HfPreservingBonusCap.NonNegative
+          b3))
 
 /-- [controller_aeneas::positions::liquidation::curve::liquidation_at_target]:
-    Source: 'src/positions/liquidation/../../../../../../contracts/controller/src/positions/liquidation/curve.rs', lines 170:0-187:1 -/
+    Source: 'src/positions/liquidation/../../../../../../contracts/controller/src/positions/liquidation/curve.rs', lines 192:0-209:1 -/
 def positions.liquidation.curve.liquidation_at_target
   (env : aeneas_soroban_shim.Env)
   (snap : positions.liquidation.curve.LiquidationSnapshot)
@@ -2886,7 +3033,7 @@ def positions.liquidation.curve.liquidation_at_target
         snap.total_debt
 
 /-- [controller_aeneas::positions::liquidation::curve::estimate_liquidation_amount]:
-    Source: 'src/positions/liquidation/../../../../../../contracts/controller/src/positions/liquidation/curve.rs', lines 101:0-137:1 -/
+    Source: 'src/positions/liquidation/../../../../../../contracts/controller/src/positions/liquidation/curve.rs', lines 119:0-158:1 -/
 def positions.liquidation.curve.estimate_liquidation_amount
   (env : aeneas_soroban_shim.Env)
   (snap : positions.liquidation.curve.LiquidationSnapshot)
@@ -2897,7 +3044,7 @@ def positions.liquidation.curve.estimate_liquidation_amount
   let scaled_bonus ←
     positions.liquidation.curve.calculate_linear_bonus_with_target env 
       snap.hf bounds.base bounds.max curve curve.target_hf
-  let o ← positions.liquidation.curve.max_hf_preserving_bonus_bps snap
+  let o ← positions.liquidation.curve.max_hf_preserving_bonus_bps env snap
   match o with
   | none =>
     let ideal ←
@@ -2920,7 +3067,7 @@ def positions.liquidation.curve.estimate_liquidation_amount
       then ok (snap.total_debt, scaled_bonus)
       else ok (ideal, scaled_bonus)
     else ok (ideal, scaled_bonus)
-  | some cap =>
+  | some hpbc =>
     let b ←
       core.cmp.PartialOrd.lt.trait_default
         math.fp.Wad.Insts.CoreCmpPartialOrdWad snap.total_collateral
@@ -2936,67 +3083,44 @@ def positions.liquidation.curve.estimate_liquidation_amount
           snap.total_debt
       ok (w1, bounds.base)
     else
-      let i ← math.fp.Bps.raw bounds.base
-      if cap < i
-      then
-        let i1 ← lift (core.cmp.impls.OrdI128.max cap 0#i128)
+      match hpbc with
+      | positions.liquidation.curve.HfPreservingBonusCap.BelowZero =>
+        ok (snap.total_debt, math.fp.Bps.ZERO)
+      | positions.liquidation.curve.HfPreservingBonusCap.NonNegative cap =>
         let b1 ←
-          math.fp.Bps.from (core.convert.IntoFrom (core.convert.FromSame
-            Std.I128)) i1
-        ok (snap.total_debt, b1)
-      else
-        let i1 ← math.fp.Bps.raw scaled_bonus
-        let i2 ← lift (core.cmp.impls.OrdI128.min i1 cap)
-        let bonus ←
-          math.fp.Bps.from (core.convert.IntoFrom (core.convert.FromSame
-            Std.I128)) i2
-        let ideal ←
-          positions.liquidation.curve.liquidation_at_target env snap bonus
-            curve.target_hf
-        let remaining_debt ←
-          math.fp.Wad.checked_sub snap.total_debt env ideal
-        let b1 ←
-          core.cmp.PartialOrd.gt.trait_default
-            math.fp.Wad.Insts.CoreCmpPartialOrdWad remaining_debt
-            math.fp.Wad.ZERO
+          core.cmp.PartialOrd.lt.trait_default
+            math.fp.Bps.Insts.CoreCmpPartialOrdBps cap bounds.base
         if b1
-        then
-          let i3 ← constants.controller.BAD_DEBT_USD_THRESHOLD
-          let w ←
-            math.fp.Wad.from (core.convert.IntoFrom (core.convert.FromSame
-              Std.I128)) i3
+        then ok (snap.total_debt, cap)
+        else
+          let bonus ←
+            core.cmp.Ord.min.trait_default math.fp.Bps.Insts.CoreCmpOrd
+              scaled_bonus cap
+          let ideal ←
+            positions.liquidation.curve.liquidation_at_target env snap bonus
+              curve.target_hf
+          let remaining_debt ←
+            math.fp.Wad.checked_sub snap.total_debt env ideal
           let b2 ←
-            core.cmp.PartialOrd.lt.trait_default
-              math.fp.Wad.Insts.CoreCmpPartialOrdWad remaining_debt w
+            core.cmp.PartialOrd.gt.trait_default
+              math.fp.Wad.Insts.CoreCmpPartialOrdWad remaining_debt
+              math.fp.Wad.ZERO
           if b2
-          then ok (snap.total_debt, bonus)
+          then
+            let i ← constants.controller.BAD_DEBT_USD_THRESHOLD
+            let w ←
+              math.fp.Wad.from (core.convert.IntoFrom (core.convert.FromSame
+                Std.I128)) i
+            let b3 ←
+              core.cmp.PartialOrd.lt.trait_default
+                math.fp.Wad.Insts.CoreCmpPartialOrdWad remaining_debt w
+            if b3
+            then ok (snap.total_debt, bonus)
+            else ok (ideal, bonus)
           else ok (ideal, bonus)
-        else ok (ideal, bonus)
-
-/-- [controller_aeneas::positions::liquidation::curve::max_bonus_for_threshold::{impl core::ops::function::FnOnce<(), i128> for controller_aeneas::positions::liquidation::curve::max_bonus_for_threshold::{closure}<'_0, '_1>}::call_once]:
-    Source: 'src/positions/liquidation/../../../../../../contracts/controller/src/positions/liquidation/curve.rs', lines 201:24-201:77 -/
-def
-  positions.liquidation.curve.max_bonus_for_threshold.closure.Insts.CoreOpsFunctionFnOnceTupleI128.call_once
-  (c : positions.liquidation.curve.max_bonus_for_threshold.closure) (_ : Unit)
-  :
-  Result Std.I128
-  := do
-  fail panic
-
-/-- Trait implementation: [controller_aeneas::positions::liquidation::curve::max_bonus_for_threshold::{impl core::ops::function::FnOnce<(), i128> for controller_aeneas::positions::liquidation::curve::max_bonus_for_threshold::{closure}<'_0, '_1>}]
-    Source: 'src/positions/liquidation/../../../../../../contracts/controller/src/positions/liquidation/curve.rs', lines 201:24-201:77 -/
-@[reducible]
-def
-  positions.liquidation.curve.max_bonus_for_threshold.closure.Insts.CoreOpsFunctionFnOnceTupleI128
-  : core.ops.function.FnOnce
-  positions.liquidation.curve.max_bonus_for_threshold.closure Unit Std.I128
-  := {
-  call_once :=
-    positions.liquidation.curve.max_bonus_for_threshold.closure.Insts.CoreOpsFunctionFnOnceTupleI128.call_once
-}
 
 /-- [controller_aeneas::positions::liquidation::curve::max_bonus_for_threshold]:
-    Source: 'src/positions/liquidation/../../../../../../contracts/controller/src/positions/liquidation/curve.rs', lines 191:0-203:1 -/
+    Source: 'src/positions/liquidation/../../../../../../contracts/controller/src/positions/liquidation/curve.rs', lines 213:0-223:1 -/
 def positions.liquidation.curve.max_bonus_for_threshold
   (env : aeneas_soroban_shim.Env) (proportion_seized : math.fp.Wad) :
   Result math.fp.Bps
@@ -3005,25 +3129,21 @@ def positions.liquidation.curve.max_bonus_for_threshold
     core.cmp.PartialOrd.le.trait_default math.fp.Wad.Insts.CoreCmpPartialOrdWad
       proportion_seized math.fp.Wad.ZERO
   if b
-  then math.fp.Bps.from (core.convert.IntoFrom core.convert.FromI128I32) 0#i32
+  then ok math.fp.Bps.ZERO
   else
     let b1 ←
       math.fp.Bps.from_fraction_ceil env proportion_seized math.fp.Wad.ONE
-    let i ← math.fp.Bps.raw b1
-    let eff_thr_bps ←
-      core.cmp.impls.OrdI128.clamp i 1#i128 constants.production.shared.BPS
-    let i1 ← constants.production.shared.BPS - eff_thr_bps
-    let o ← lift (I128.checked_mul constants.production.shared.BPS i1)
-    let numerator ←
-      core.option.Option.unwrap_or_else
-        positions.liquidation.curve.max_bonus_for_threshold.closure.Insts.CoreOpsFunctionFnOnceTupleI128
-        o env
-    let i2 ← numerator / eff_thr_bps
-    math.fp.Bps.from (core.convert.IntoFrom (core.convert.FromSame Std.I128))
-      i2
+    let b2 ←
+      math.fp.Bps.from (core.convert.IntoFrom (core.convert.FromSame Std.I128))
+        1#i128
+    let effective_threshold ←
+      core.cmp.Ord.clamp.trait_default math.fp.Bps.Insts.CoreCmpOrd b1 b2
+        math.fp.Bps.ONE
+    let b3 ← math.fp.Bps.checked_sub math.fp.Bps.ONE env effective_threshold
+    math.fp.Bps.div_floor b3 env effective_threshold
 
 /-- [controller_aeneas::positions::liquidation::math::sum_repaid_usd]: loop body 0:
-    Source: 'src/positions/liquidation/../../../../../../contracts/controller/src/positions/liquidation/math.rs', lines 346:4-348:5 -/
+    Source: 'src/positions/liquidation/../../../../../../contracts/controller/src/positions/liquidation/math.rs', lines 344:4-346:5 -/
 @[rust_loop_body]
 def positions.liquidation.math.sum_repaid_usd_loop.body
   (env : aeneas_soroban_shim.Env)
@@ -3043,7 +3163,7 @@ def positions.liquidation.math.sum_repaid_usd_loop.body
     ok (cont (iter1, total1))
 
 /-- [controller_aeneas::positions::liquidation::math::sum_repaid_usd]: loop 0:
-    Source: 'src/positions/liquidation/../../../../../../contracts/controller/src/positions/liquidation/math.rs', lines 346:4-348:5 -/
+    Source: 'src/positions/liquidation/../../../../../../contracts/controller/src/positions/liquidation/math.rs', lines 344:4-346:5 -/
 @[rust_loop]
 def positions.liquidation.math.sum_repaid_usd_loop
   (iter : aeneas_soroban_shim.VecIter types.RepayEntry)
@@ -3056,7 +3176,7 @@ def positions.liquidation.math.sum_repaid_usd_loop
     (iter, total)
 
 /-- [controller_aeneas::positions::liquidation::math::sum_repaid_usd]:
-    Source: 'src/positions/liquidation/../../../../../../contracts/controller/src/positions/liquidation/math.rs', lines 344:0-350:1 -/
+    Source: 'src/positions/liquidation/../../../../../../contracts/controller/src/positions/liquidation/math.rs', lines 342:0-348:1 -/
 def positions.liquidation.math.sum_repaid_usd
   (env : aeneas_soroban_shim.Env)
   (repaid_tokens : aeneas_soroban_shim.Vec types.RepayEntry) :
@@ -3079,7 +3199,7 @@ def positions.liquidation.math.NormalizedRepaymentPlan.validate
   massert (¬ b)
 
 /-- [controller_aeneas::positions::liquidation::math::{controller_aeneas::positions::liquidation::math::LiquidationPlan}::validate]: loop body 0:
-    Source: 'src/positions/liquidation/../../../../../../contracts/controller/src/positions/liquidation/math.rs', lines 58:8-70:5 -/
+    Source: 'src/positions/liquidation/../../../../../../contracts/controller/src/positions/liquidation/math.rs', lines 58:8-72:5 -/
 @[rust_loop_body]
 def positions.liquidation.math.LiquidationPlan.validate_loop.body
   (iter : aeneas_soroban_shim.VecIter types.SeizeEntry) :
@@ -3093,15 +3213,35 @@ def positions.liquidation.math.LiquidationPlan.validate_loop.body
     massert (¬ (entry.amount <= 0#i128))
     massert (¬ (entry.protocol_fee < 0#i128))
     massert (¬ (entry.protocol_fee > entry.amount))
-    massert (¬ (entry.scaled_amount <= 0#i128))
-    massert (¬ (entry.bonus_scaled < 0#i128))
-    massert (¬ (entry.bonus_scaled > entry.scaled_amount))
-    let i ← I128.Insts.CoreConvertFromU32.from entry.liquidation_fees
-    massert (¬ (i >= constants.production.shared.BPS))
+    let scaled_amount ←
+      math.fp.Ray.from (core.convert.IntoFrom (core.convert.FromSame Std.I128))
+        entry.scaled_amount
+    let bonus_scaled ←
+      math.fp.Ray.from (core.convert.IntoFrom (core.convert.FromSame Std.I128))
+        entry.bonus_scaled
+    let b ←
+      core.cmp.PartialOrd.le.trait_default
+        math.fp.Ray.Insts.CoreCmpPartialOrdRay scaled_amount math.fp.Ray.ZERO
+    massert (¬ b)
+    let b1 ←
+      core.cmp.PartialOrd.lt.trait_default
+        math.fp.Ray.Insts.CoreCmpPartialOrdRay bonus_scaled math.fp.Ray.ZERO
+    massert (¬ b1)
+    let b2 ←
+      core.cmp.PartialOrd.gt.trait_default
+        math.fp.Ray.Insts.CoreCmpPartialOrdRay bonus_scaled scaled_amount
+    massert (¬ b2)
+    let b3 ←
+      math.fp.Bps.from (core.convert.IntoFrom I128.Insts.CoreConvertFromU32)
+        entry.liquidation_fees
+    let b4 ←
+      core.cmp.PartialOrd.ge.trait_default
+        math.fp.Bps.Insts.CoreCmpPartialOrdBps b3 math.fp.Bps.ONE
+    massert (¬ b4)
     ok (cont iter1)
 
 /-- [controller_aeneas::positions::liquidation::math::{controller_aeneas::positions::liquidation::math::LiquidationPlan}::validate]: loop 0:
-    Source: 'src/positions/liquidation/../../../../../../contracts/controller/src/positions/liquidation/math.rs', lines 58:8-70:5 -/
+    Source: 'src/positions/liquidation/../../../../../../contracts/controller/src/positions/liquidation/math.rs', lines 58:8-72:5 -/
 @[rust_loop]
 def positions.liquidation.math.LiquidationPlan.validate_loop
   (iter : aeneas_soroban_shim.VecIter types.SeizeEntry) : Result Unit := do
@@ -3111,7 +3251,7 @@ def positions.liquidation.math.LiquidationPlan.validate_loop
     iter
 
 /-- [controller_aeneas::positions::liquidation::math::{controller_aeneas::positions::liquidation::math::LiquidationPlan}::validate]:
-    Source: 'src/positions/liquidation/../../../../../../contracts/controller/src/positions/liquidation/math.rs', lines 55:4-70:5 -/
+    Source: 'src/positions/liquidation/../../../../../../contracts/controller/src/positions/liquidation/math.rs', lines 55:4-72:5 -/
 def positions.liquidation.math.LiquidationPlan.validate
   (self : positions.liquidation.math.LiquidationPlan)
   (env : aeneas_soroban_shim.Env) :
@@ -3175,66 +3315,22 @@ def storage.iter_typed_positions
   aeneas_soroban_shim.Vec.Insts.CoreIterTraitsCollectIntoIteratorTVecIter.into_iter
     out1
 
-/-- [controller_aeneas::positions::liquidation::math::get_account_bonus_params::{impl core::ops::function::FnOnce<(), i128> for controller_aeneas::positions::liquidation::math::get_account_bonus_params::{closure#1}<'_0, '_1>}::call_once]:
-    Source: 'src/positions/liquidation/../../../../../../contracts/controller/src/positions/liquidation/math.rs', lines 608:28-608:81 -/
-def
-  positions.liquidation.math.get_account_bonus_params.closure_1.Insts.CoreOpsFunctionFnOnceTupleI128.call_once
-  (c : positions.liquidation.math.get_account_bonus_params.closure_1)
-  (_ : Unit) :
-  Result Std.I128
-  := do
-  fail panic
-
-/-- Trait implementation: [controller_aeneas::positions::liquidation::math::get_account_bonus_params::{impl core::ops::function::FnOnce<(), i128> for controller_aeneas::positions::liquidation::math::get_account_bonus_params::{closure#1}<'_0, '_1>}]
-    Source: 'src/positions/liquidation/../../../../../../contracts/controller/src/positions/liquidation/math.rs', lines 608:28-608:81 -/
-@[reducible]
-def
-  positions.liquidation.math.get_account_bonus_params.closure_1.Insts.CoreOpsFunctionFnOnceTupleI128
-  : core.ops.function.FnOnce
-  positions.liquidation.math.get_account_bonus_params.closure_1 Unit Std.I128
-  := {
-  call_once :=
-    positions.liquidation.math.get_account_bonus_params.closure_1.Insts.CoreOpsFunctionFnOnceTupleI128.call_once
-}
-
-/-- [controller_aeneas::positions::liquidation::math::get_account_bonus_params::{impl core::ops::function::FnOnce<(i128,), core::option::Option<i128>> for controller_aeneas::positions::liquidation::math::get_account_bonus_params::{closure}<'_0>}::call_once]:
-    Source: 'src/positions/liquidation/../../../../../../contracts/controller/src/positions/liquidation/math.rs', lines 607:22-607:71 -/
-def
-  positions.liquidation.math.get_account_bonus_params.closure.Insts.CoreOpsFunctionFnOnceTupleI128OptionI128.call_once
-  (c : positions.liquidation.math.get_account_bonus_params.closure)
-  (tupled_args : Std.I128) :
-  Result (Option Std.I128)
-  := do
-  ok (I128.checked_add c tupled_args)
-
-/-- Trait implementation: [controller_aeneas::positions::liquidation::math::get_account_bonus_params::{impl core::ops::function::FnOnce<(i128,), core::option::Option<i128>> for controller_aeneas::positions::liquidation::math::get_account_bonus_params::{closure}<'_0>}]
-    Source: 'src/positions/liquidation/../../../../../../contracts/controller/src/positions/liquidation/math.rs', lines 607:22-607:71 -/
-@[reducible]
-def
-  positions.liquidation.math.get_account_bonus_params.closure.Insts.CoreOpsFunctionFnOnceTupleI128OptionI128
-  : core.ops.function.FnOnce
-  positions.liquidation.math.get_account_bonus_params.closure Std.I128 (Option
-  Std.I128) := {
-  call_once :=
-    positions.liquidation.math.get_account_bonus_params.closure.Insts.CoreOpsFunctionFnOnceTupleI128OptionI128.call_once
-}
-
 /-- [controller_aeneas::positions::liquidation::math::get_account_bonus_params]: loop body 0:
-    Source: 'src/positions/liquidation/../../../../../../contracts/controller/src/positions/liquidation/math.rs', lines 593:4-609:5 -/
+    Source: 'src/positions/liquidation/../../../../../../contracts/controller/src/positions/liquidation/math.rs', lines 588:4-606:5 -/
 @[rust_loop_body]
 def positions.liquidation.math.get_account_bonus_params_loop.body
-  (env : aeneas_soroban_shim.Env)
+  (env : aeneas_soroban_shim.Env) (total_collateral : math.fp.Wad)
   (iter : aeneas_soroban_shim.VecIter (types.HubAssetKey ×
   types.AccountPosition)) (cache : context.Context)
-  (weighted_bonus_sum : Std.I128) :
+  (weighted_bonus : math.fp.Bps) (weighted_remainder : math.fp.Wad) :
   Result (ControlFlow ((aeneas_soroban_shim.VecIter (types.HubAssetKey ×
-    types.AccountPosition)) × context.Context × Std.I128) (context.Context ×
-    Std.I128))
+    types.AccountPosition)) × context.Context × math.fp.Bps × math.fp.Wad)
+    (context.Context × math.fp.Bps × math.fp.Wad))
   := do
   let (o, iter1) ←
     aeneas_soroban_shim.VecIter.Insts.CoreIterTraitsIteratorIterator.next iter
   match o with
-  | none => ok (done (cache, weighted_bonus_sum))
+  | none => ok (done (cache, weighted_bonus, weighted_remainder))
   | some p =>
     let (hub_asset, position) := p
     let (feed, cache1) ← context.Context.cached_price cache hub_asset.asset
@@ -3243,36 +3339,29 @@ def positions.liquidation.math.get_account_bonus_params_loop.body
     let value ←
       rates.value.position_value env position.scaled_amount
         market_index.supply_index feed.price
-    let i ← math.fp.Wad.raw value
-    let i1 ← math.fp.Bps.raw position.liquidation_bonus
-    let o1 ← lift (I128.checked_mul i i1)
-    let o2 ←
-      core.option.Option.and_then
-        positions.liquidation.math.get_account_bonus_params.closure.Insts.CoreOpsFunctionFnOnceTupleI128OptionI128
-        o1 weighted_bonus_sum
-    let weighted_bonus_sum1 ←
-      core.option.Option.unwrap_or_else
-        positions.liquidation.math.get_account_bonus_params.closure_1.Insts.CoreOpsFunctionFnOnceTupleI128
-        o2 env
-    ok (cont (iter1, cache2, weighted_bonus_sum1))
+    let (weighted_bonus1, weighted_remainder1) ←
+      math.fp.Bps.add_weighted_term weighted_bonus env
+        position.liquidation_bonus value total_collateral weighted_remainder
+    ok (cont (iter1, cache2, weighted_bonus1, weighted_remainder1))
 
 /-- [controller_aeneas::positions::liquidation::math::get_account_bonus_params]: loop 0:
-    Source: 'src/positions/liquidation/../../../../../../contracts/controller/src/positions/liquidation/math.rs', lines 593:4-609:5 -/
+    Source: 'src/positions/liquidation/../../../../../../contracts/controller/src/positions/liquidation/math.rs', lines 588:4-606:5 -/
 @[rust_loop]
 def positions.liquidation.math.get_account_bonus_params_loop
   (iter : aeneas_soroban_shim.VecIter (types.HubAssetKey ×
   types.AccountPosition)) (env : aeneas_soroban_shim.Env)
-  (cache : context.Context) (weighted_bonus_sum : Std.I128) :
-  Result (context.Context × Std.I128)
+  (cache : context.Context) (total_collateral : math.fp.Wad)
+  (weighted_bonus : math.fp.Bps) (weighted_remainder : math.fp.Wad) :
+  Result (context.Context × math.fp.Bps × math.fp.Wad)
   := do
   loop
-    (fun (iter1, cache1, weighted_bonus_sum1) =>
-      positions.liquidation.math.get_account_bonus_params_loop.body env iter1
-      cache1 weighted_bonus_sum1)
-    (iter, cache, weighted_bonus_sum)
+    (fun (iter1, cache1, weighted_bonus1, weighted_remainder1) =>
+      positions.liquidation.math.get_account_bonus_params_loop.body env
+      total_collateral iter1 cache1 weighted_bonus1 weighted_remainder1)
+    (iter, cache, weighted_bonus, weighted_remainder)
 
 /-- [controller_aeneas::positions::liquidation::math::get_account_bonus_params]:
-    Source: 'src/positions/liquidation/../../../../../../contracts/controller/src/positions/liquidation/math.rs', lines 574:0-615:1 -/
+    Source: 'src/positions/liquidation/../../../../../../contracts/controller/src/positions/liquidation/math.rs', lines 567:0-613:1 -/
 def positions.liquidation.math.get_account_bonus_params
   (env : aeneas_soroban_shim.Env) (cache : context.Context)
   (supply_positions : aeneas_soroban_shim.Map types.HubAssetKey
@@ -3291,21 +3380,18 @@ def positions.liquidation.math.get_account_bonus_params
     ok ({ base := b1, max }, cache)
   else
     let iter ← storage.iter_typed_positions supply_positions
-    let (cache1, weighted_bonus_sum) ←
+    let (cache1, weighted_bonus, weighted_remainder) ←
       positions.liquidation.math.get_account_bonus_params_loop iter env cache
-        0#i128
-    let b1 ←
-      math.fp.Bps.from_weighted_sum env weighted_bonus_sum total_collateral
-    let weighted_bonus_bps ← math.fp.Bps.raw b1
-    let i ← math.fp.Bps.raw max
-    let i1 ← lift (core.cmp.impls.OrdI128.min weighted_bonus_bps i)
+        total_collateral math.fp.Bps.ZERO math.fp.Wad.ZERO
     let base ←
-      math.fp.Bps.from (core.convert.IntoFrom (core.convert.FromSame Std.I128))
-        i1
-    ok ({ base, max }, cache1)
+      math.fp.Bps.round_weighted_remainder weighted_bonus env
+        weighted_remainder total_collateral
+    let b1 ←
+      core.cmp.Ord.min.trait_default math.fp.Bps.Insts.CoreCmpOrd base max
+    ok ({ base := b1, max }, cache1)
 
 /-- [controller_aeneas::positions::liquidation::math::calculate_seizure_proportions]:
-    Source: 'src/positions/liquidation/../../../../../../contracts/controller/src/positions/liquidation/math.rs', lines 84:0-106:1 -/
+    Source: 'src/positions/liquidation/../../../../../../contracts/controller/src/positions/liquidation/math.rs', lines 86:0-108:1 -/
 def positions.liquidation.math.calculate_seizure_proportions
   (env : aeneas_soroban_shim.Env) (account : types.Account)
   (total_collateral : math.fp.Wad) (weighted_collateral : math.fp.Wad)
@@ -3375,7 +3461,7 @@ def types.PriceFeed.usd_value_wad
   math.fp.Wad.mul w env self.price
 
 /-- [controller_aeneas::positions::liquidation::math::calculate_repayment_amounts::{impl core::ops::function::FnOnce<(), controller_aeneas::types::DebtPositionRaw> for controller_aeneas::positions::liquidation::math::calculate_repayment_amounts::{closure}<'_0, '_1>}::call_once]:
-    Source: 'src/positions/liquidation/../../../../../../contracts/controller/src/positions/liquidation/math.rs', lines 132:28-132:92 -/
+    Source: 'src/positions/liquidation/../../../../../../contracts/controller/src/positions/liquidation/math.rs', lines 133:28-133:92 -/
 def
   positions.liquidation.math.calculate_repayment_amounts.closure.Insts.CoreOpsFunctionFnOnceTupleDebtPositionRaw.call_once
   (c : positions.liquidation.math.calculate_repayment_amounts.closure)
@@ -3385,7 +3471,7 @@ def
   fail panic
 
 /-- Trait implementation: [controller_aeneas::positions::liquidation::math::calculate_repayment_amounts::{impl core::ops::function::FnOnce<(), controller_aeneas::types::DebtPositionRaw> for controller_aeneas::positions::liquidation::math::calculate_repayment_amounts::{closure}<'_0, '_1>}]
-    Source: 'src/positions/liquidation/../../../../../../contracts/controller/src/positions/liquidation/math.rs', lines 132:28-132:92 -/
+    Source: 'src/positions/liquidation/../../../../../../contracts/controller/src/positions/liquidation/math.rs', lines 133:28-133:92 -/
 @[reducible]
 def
   positions.liquidation.math.calculate_repayment_amounts.closure.Insts.CoreOpsFunctionFnOnceTupleDebtPositionRaw
@@ -3397,7 +3483,7 @@ def
 }
 
 /-- [controller_aeneas::positions::liquidation::math::calculate_repayment_amounts]: loop body 0:
-    Source: 'src/positions/liquidation/../../../../../../contracts/controller/src/positions/liquidation/math.rs', lines 125:4-171:5 -/
+    Source: 'src/positions/liquidation/../../../../../../contracts/controller/src/positions/liquidation/math.rs', lines 126:4-172:5 -/
 @[rust_loop_body]
 def positions.liquidation.math.calculate_repayment_amounts_loop.body
   (env : aeneas_soroban_shim.Env) (account : types.Account)
@@ -3474,7 +3560,7 @@ def positions.liquidation.math.calculate_repayment_amounts_loop.body
     ok (cont (iter1, refunds1, cache2, total_repaid_usd1, repaid_tokens1))
 
 /-- [controller_aeneas::positions::liquidation::math::calculate_repayment_amounts]: loop 0:
-    Source: 'src/positions/liquidation/../../../../../../contracts/controller/src/positions/liquidation/math.rs', lines 125:4-171:5 -/
+    Source: 'src/positions/liquidation/../../../../../../contracts/controller/src/positions/liquidation/math.rs', lines 126:4-172:5 -/
 @[rust_loop]
 def positions.liquidation.math.calculate_repayment_amounts_loop
   (iter : aeneas_soroban_shim.VecIter (types.HubAssetKey × Std.I128))
@@ -3492,7 +3578,7 @@ def positions.liquidation.math.calculate_repayment_amounts_loop
     (iter, refunds, cache, total_repaid_usd, repaid_tokens)
 
 /-- [controller_aeneas::positions::liquidation::math::calculate_repayment_amounts]:
-    Source: 'src/positions/liquidation/../../../../../../contracts/controller/src/positions/liquidation/math.rs', lines 113:0-174:1 -/
+    Source: 'src/positions/liquidation/../../../../../../contracts/controller/src/positions/liquidation/math.rs', lines 114:0-175:1 -/
 def positions.liquidation.math.calculate_repayment_amounts
   (env : aeneas_soroban_shim.Env)
   (raw_payments : aeneas_soroban_shim.Vec (types.HubAssetKey × Std.I128))
@@ -3675,7 +3761,7 @@ def positions.liquidation.math.process_excess_payment_loop
     (repaid_tokens, refunds, remaining_excess_usd, current_index)
 
 /-- [controller_aeneas::positions::liquidation::math::process_excess_payment]:
-    Source: 'src/positions/liquidation/../../../../../../contracts/controller/src/positions/liquidation/math.rs', lines 681:0-759:1 -/
+    Source: 'src/positions/liquidation/../../../../../../contracts/controller/src/positions/liquidation/math.rs', lines 677:0-755:1 -/
 def positions.liquidation.math.process_excess_payment
   (env : aeneas_soroban_shim.Env)
   (repaid_tokens : aeneas_soroban_shim.Vec types.RepayEntry)
@@ -3689,7 +3775,7 @@ def positions.liquidation.math.process_excess_payment
     refunds keep_within_quote excess_usd current_index
 
 /-- [controller_aeneas::positions::liquidation::math::one_unit_per_leg_usd]: loop body 0:
-    Source: 'src/positions/liquidation/../../../../../../contracts/controller/src/positions/liquidation/math.rs', lines 335:4-339:5 -/
+    Source: 'src/positions/liquidation/../../../../../../contracts/controller/src/positions/liquidation/math.rs', lines 333:4-337:5 -/
 @[rust_loop_body]
 def positions.liquidation.math.one_unit_per_leg_usd_loop.body
   (env : aeneas_soroban_shim.Env)
@@ -3711,7 +3797,7 @@ def positions.liquidation.math.one_unit_per_leg_usd_loop.body
     ok (cont (iter1, total1))
 
 /-- [controller_aeneas::positions::liquidation::math::one_unit_per_leg_usd]: loop 0:
-    Source: 'src/positions/liquidation/../../../../../../contracts/controller/src/positions/liquidation/math.rs', lines 335:4-339:5 -/
+    Source: 'src/positions/liquidation/../../../../../../contracts/controller/src/positions/liquidation/math.rs', lines 333:4-337:5 -/
 @[rust_loop]
 def positions.liquidation.math.one_unit_per_leg_usd_loop
   (iter : aeneas_soroban_shim.VecIter types.RepayEntry)
@@ -3725,7 +3811,7 @@ def positions.liquidation.math.one_unit_per_leg_usd_loop
     (iter, total)
 
 /-- [controller_aeneas::positions::liquidation::math::one_unit_per_leg_usd]:
-    Source: 'src/positions/liquidation/../../../../../../contracts/controller/src/positions/liquidation/math.rs', lines 333:0-341:1 -/
+    Source: 'src/positions/liquidation/../../../../../../contracts/controller/src/positions/liquidation/math.rs', lines 331:0-339:1 -/
 def positions.liquidation.math.one_unit_per_leg_usd
   (env : aeneas_soroban_shim.Env)
   (repaid_tokens : aeneas_soroban_shim.Vec types.RepayEntry) :
@@ -3736,7 +3822,7 @@ def positions.liquidation.math.one_unit_per_leg_usd
     math.fp.Wad.ZERO
 
 /-- [controller_aeneas::positions::liquidation::math::one_unit_per_debt_leg_usd]: loop body 0:
-    Source: 'src/positions/liquidation/../../../../../../contracts/controller/src/positions/liquidation/math.rs', lines 324:4-328:5 -/
+    Source: 'src/positions/liquidation/../../../../../../contracts/controller/src/positions/liquidation/math.rs', lines 322:4-326:5 -/
 @[rust_loop_body]
 def positions.liquidation.math.one_unit_per_debt_leg_usd_loop.body
   (env : aeneas_soroban_shim.Env)
@@ -3757,7 +3843,7 @@ def positions.liquidation.math.one_unit_per_debt_leg_usd_loop.body
     ok (cont (iter1, cache1, total1))
 
 /-- [controller_aeneas::positions::liquidation::math::one_unit_per_debt_leg_usd]: loop 0:
-    Source: 'src/positions/liquidation/../../../../../../contracts/controller/src/positions/liquidation/math.rs', lines 324:4-328:5 -/
+    Source: 'src/positions/liquidation/../../../../../../contracts/controller/src/positions/liquidation/math.rs', lines 322:4-326:5 -/
 @[rust_loop]
 def positions.liquidation.math.one_unit_per_debt_leg_usd_loop
   (iter : aeneas_soroban_shim.VecIter types.HubAssetKey)
@@ -3772,7 +3858,7 @@ def positions.liquidation.math.one_unit_per_debt_leg_usd_loop
     (iter, cache, total)
 
 /-- [controller_aeneas::positions::liquidation::math::one_unit_per_debt_leg_usd]:
-    Source: 'src/positions/liquidation/../../../../../../contracts/controller/src/positions/liquidation/math.rs', lines 322:0-330:1 -/
+    Source: 'src/positions/liquidation/../../../../../../contracts/controller/src/positions/liquidation/math.rs', lines 320:0-328:1 -/
 def positions.liquidation.math.one_unit_per_debt_leg_usd
   (env : aeneas_soroban_shim.Env) (account : types.Account)
   (cache : context.Context) :
@@ -3786,7 +3872,7 @@ def positions.liquidation.math.one_unit_per_debt_leg_usd
     math.fp.Wad.ZERO
 
 /-- [controller_aeneas::positions::liquidation::math::whole_unit_repayment]:
-    Source: 'src/positions/liquidation/../../../../../../contracts/controller/src/positions/liquidation/math.rs', lines 247:0-293:1 -/
+    Source: 'src/positions/liquidation/../../../../../../contracts/controller/src/positions/liquidation/math.rs', lines 245:0-291:1 -/
 def positions.liquidation.math.whole_unit_repayment
   (env : aeneas_soroban_shim.Env) (account : types.Account)
   (snap : positions.liquidation.curve.LiquidationSnapshot)
@@ -3820,27 +3906,27 @@ def positions.liquidation.math.whole_unit_repayment
           let one_plus_bonus ← math.fp.Wad.checked_add math.fp.Wad.ONE env w
           let w1 ← math.fp.Wad.from_token env 1#i128 feed.asset_decimals
           let unit_usd ← math.fp.Wad.mul w1 env feed.price
-          let i1 ← math.fp.Wad.raw unit_usd
-          let i2 ← i1 / 1000000#i128
-          let i3 ← lift (core.cmp.impls.OrdI128.max i2 1#i128)
-          let w2 ←
-            math.fp.Wad.from (core.convert.IntoFrom (core.convert.FromSame
-              Std.I128)) i3
-          let unit_with_margin ← math.fp.Wad.checked_add unit_usd env w2
-          let w3 ← math.fp.Wad.mul quote_usd env one_plus_bonus
+          let w2 ← math.fp.Wad.div_by_int_floor unit_usd env 1000000#i128
+          let w3 ←
+            math.fp.Wad.from (core.convert.IntoFrom core.convert.FromI128I32)
+              1#i32
+          let margin ←
+            core.cmp.Ord.max.trait_default math.fp.Wad.Insts.CoreCmpOrd w2 w3
+          let unit_with_margin ← math.fp.Wad.checked_add unit_usd env margin
+          let w4 ← math.fp.Wad.mul quote_usd env one_plus_bonus
           let b ←
             core.cmp.PartialOrd.ge.trait_default
-              math.fp.Wad.Insts.CoreCmpPartialOrdWad w3 unit_with_margin
+              math.fp.Wad.Insts.CoreCmpPartialOrdWad w4 unit_with_margin
           if b
           then ok (quote_usd, cache2)
           else
             let unit_at_bonus ←
               math.fp.Wad.div_floor unit_usd env one_plus_bonus
-            let (w4, cache3) ←
+            let (w5, cache3) ←
               positions.liquidation.math.one_unit_per_debt_leg_usd env account
                 cache2
             let full_close_ceiling ←
-              math.fp.Wad.checked_add snap.total_debt env w4
+              math.fp.Wad.checked_add snap.total_debt env w5
             let b1 ←
               core.cmp.PartialOrd.ge.trait_default
                 math.fp.Wad.Insts.CoreCmpPartialOrdWad unit_at_bonus
@@ -3968,7 +4054,7 @@ def positions.liquidation.math.normalize_repayment_plan
        }, cache2)
 
 /-- [controller_aeneas::positions::liquidation::math::calculate_seized_collateral]: loop body 0:
-    Source: 'src/positions/liquidation/../../../../../../contracts/controller/src/positions/liquidation/math.rs', lines 386:9-424:9 -/
+    Source: 'src/positions/liquidation/../../../../../../contracts/controller/src/positions/liquidation/math.rs', lines 382:9-420:9 -/
 @[rust_loop_body]
 def positions.liquidation.math.calculate_seized_collateral_loop.body
   (env : aeneas_soroban_shim.Env) (total_collateral : math.fp.Wad) (b : Bool)
@@ -4000,13 +4086,7 @@ def positions.liquidation.math.calculate_seized_collateral_loop.body
     let seizure_for_asset_usd ← math.fp.Wad.mul total_seizure_usd env share
     let seizure_amount_wad ←
       math.fp.Wad.div seizure_for_asset_usd env feed.price
-    let i ← math.fp.Wad.raw seizure_amount_wad
-    let i1 ←
-      constants.production.shared.RAY / constants.production.shared.WAD
-    let i2 ← core.num.I128.saturating_mul i i1
-    let seizure_ray ←
-      math.fp.Ray.from (core.convert.IntoFrom (core.convert.FromSame Std.I128))
-        i2
+    let seizure_ray ← math.fp.Wad.to_ray_saturating seizure_amount_wad env
     let (cache3, unseized_usd1, iter2, seizure_amount_wad1, seizure_ray1) ←
       if b1
       then ok (cache2, unseized_usd, iter1, seizure_amount_wad, seizure_ray)
@@ -4076,11 +4156,7 @@ def positions.liquidation.math.calculate_seized_collateral_loop.body
         let is_full_close ←
           math.fp.Ray.Insts.CoreCmpPartialEqRay.eq capped_ray actual_ray
         let w ← math.fp.Wad.div_floor seizure_amount_wad1 env one_plus_bonus
-        let i3 ← math.fp.Wad.raw w
-        let i4 ← core.num.I128.saturating_mul i3 i1
-        let base_ray ←
-          math.fp.Ray.from (core.convert.IntoFrom (core.convert.FromSame
-            Std.I128)) i4
+        let base_ray ← math.fp.Wad.to_ray_saturating w env
         let b4 ←
           core.cmp.PartialOrd.gt.trait_default
             math.fp.Ray.Insts.CoreCmpPartialOrdRay capped_ray base_ray
@@ -4143,10 +4219,10 @@ def positions.liquidation.math.calculate_seized_collateral_loop.body
               else ok 0#i128
             let protocol_fee ←
               lift (core.cmp.impls.OrdI128.min bumped_fee realised_excess)
-            let i5 ← math.fp.Ray.raw seized_scaled
-            let i6 ← math.fp.Ray.raw bonus_scaled
-            let i7 ← math.fp.Bps.raw position.liquidation_fees
-            let i8 ← lift (IScalar.hcast .U32 i7)
+            let i ← math.fp.Ray.raw seized_scaled
+            let i1 ← math.fp.Ray.raw bonus_scaled
+            let i2 ← math.fp.Bps.raw position.liquidation_fees
+            let i3 ← lift (IScalar.hcast .U32 i2)
             let pfr ←
               core.convert.IntoFrom.into
                 types.PriceFeedRaw.Insts.CoreConvertFromShared0PriceFeed feed
@@ -4160,16 +4236,16 @@ def positions.liquidation.math.calculate_seized_collateral_loop.body
                    hub_asset,
                    amount := capped_amount,
                    protocol_fee,
-                   scaled_amount := i5,
-                   bonus_scaled := i6,
-                   liquidation_fees := i8,
+                   scaled_amount := i,
+                   bonus_scaled := i1,
+                   liquidation_fees := i3,
                    feed := pfr,
                    market_index := mir
                  } : types.SeizeEntry)
             ok (cont (iter2, cache3, seized1, unseized_usd1))
 
 /-- [controller_aeneas::positions::liquidation::math::calculate_seized_collateral]: loop 0:
-    Source: 'src/positions/liquidation/../../../../../../contracts/controller/src/positions/liquidation/math.rs', lines 386:9-424:9 -/
+    Source: 'src/positions/liquidation/../../../../../../contracts/controller/src/positions/liquidation/math.rs', lines 382:9-420:9 -/
 @[rust_loop]
 def positions.liquidation.math.calculate_seized_collateral_loop
   (iter : aeneas_soroban_shim.VecIter (types.HubAssetKey ×
@@ -4189,7 +4265,7 @@ def positions.liquidation.math.calculate_seized_collateral_loop
     (iter, cache, seized, unseized_usd)
 
 /-- [controller_aeneas::positions::liquidation::math::calculate_seized_collateral]:
-    Source: 'src/positions/liquidation/../../../../../../contracts/controller/src/positions/liquidation/math.rs', lines 366:0-517:1 -/
+    Source: 'src/positions/liquidation/../../../../../../contracts/controller/src/positions/liquidation/math.rs', lines 362:0-510:1 -/
 def positions.liquidation.math.calculate_seized_collateral
   (env : aeneas_soroban_shim.Env) (account : types.Account)
   (total_collateral : math.fp.Wad)
@@ -4218,7 +4294,7 @@ def positions.liquidation.math.calculate_seized_collateral
     ok ((seized1, w1), cache1)
 
 /-- [controller_aeneas::positions::liquidation::math::release_unbacked_repayment]:
-    Source: 'src/positions/liquidation/../../../../../../contracts/controller/src/positions/liquidation/math.rs', lines 521:0-539:1 -/
+    Source: 'src/positions/liquidation/../../../../../../contracts/controller/src/positions/liquidation/math.rs', lines 514:0-532:1 -/
 def positions.liquidation.math.release_unbacked_repayment
   (env : aeneas_soroban_shim.Env)
   (repayment : positions.liquidation.math.NormalizedRepaymentPlan)
@@ -4290,7 +4366,7 @@ def types.SeizeEntry.Insts.CoreCloneClone : core.clone.Clone types.SeizeEntry
 }
 
 /-- [controller_aeneas::positions::liquidation::math::scale_seizures_to_received]: loop body 0:
-    Source: 'src/positions/liquidation/../../../../../../contracts/controller/src/positions/liquidation/math.rs', lines 640:4-672:5 -/
+    Source: 'src/positions/liquidation/../../../../../../contracts/controller/src/positions/liquidation/math.rs', lines 637:4-668:5 -/
 @[rust_loop_body]
 def positions.liquidation.math.scale_seizures_to_received_loop.body
   (env : aeneas_soroban_shim.Env) (received_usd : math.fp.Wad)
@@ -4311,16 +4387,14 @@ def positions.liquidation.math.scale_seizures_to_received_loop.body
     let r ←
       math.fp.Ray.from (core.convert.IntoFrom (core.convert.FromSame Std.I128))
         entry.scaled_amount
-    let r1 ← math.fp.Ray.mul_wad_ratio_floor r env received_usd planned_usd
-    let scaled_amount ← math.fp.Ray.raw r1
-    let r2 ←
-      math.fp.Ray.from (core.convert.IntoFrom (core.convert.FromSame Std.I128))
-        scaled_amount
-    let r3 ←
+    let scaled_amount ←
+      math.fp.Ray.mul_wad_ratio_floor r env received_usd planned_usd
+    let r1 ←
       math.fp.Ray.from (core.convert.IntoFrom (core.convert.FromSame Std.I128))
         entry.market_index.supply_index
     let shares_amount ←
-      rates.scaling.unscale_supply_floor env r2 r3 entry.feed.asset_decimals
+      rates.scaling.unscale_supply_floor env scaled_amount r1
+        entry.feed.asset_decimals
     let i ←
       math.fp.Wad.apply_ratio_to_amount_floor received_usd env planned_usd
         entry.amount
@@ -4329,22 +4403,23 @@ def positions.liquidation.math.scale_seizures_to_received_loop.body
       math.fp.Wad.apply_ratio_to_amount_floor received_usd env planned_usd
         entry.protocol_fee
     let i2 ← lift (core.cmp.impls.OrdI128.min i1 amount)
-    let r4 ←
+    let i3 ← math.fp.Ray.raw scaled_amount
+    let r2 ←
       math.fp.Ray.from (core.convert.IntoFrom (core.convert.FromSame Std.I128))
         entry.bonus_scaled
-    let r5 ← math.fp.Ray.mul_wad_ratio_floor r4 env received_usd planned_usd
-    let i3 ← math.fp.Ray.raw r5
+    let r3 ← math.fp.Ray.mul_wad_ratio_floor r2 env received_usd planned_usd
+    let i4 ← math.fp.Ray.raw r3
     let scaled1 ←
       aeneas_soroban_shim.Vec.push_back scaled
         {
           entry
             with
-            amount, protocol_fee := i2, scaled_amount, bonus_scaled := i3
+            amount, protocol_fee := i2, scaled_amount := i3, bonus_scaled := i4
         }
     ok (cont (iter1, scaled1))
 
 /-- [controller_aeneas::positions::liquidation::math::scale_seizures_to_received]: loop 0:
-    Source: 'src/positions/liquidation/../../../../../../contracts/controller/src/positions/liquidation/math.rs', lines 640:4-672:5 -/
+    Source: 'src/positions/liquidation/../../../../../../contracts/controller/src/positions/liquidation/math.rs', lines 637:4-668:5 -/
 @[rust_loop]
 def positions.liquidation.math.scale_seizures_to_received_loop
   (iter : aeneas_soroban_shim.VecIter types.SeizeEntry)
@@ -4360,7 +4435,7 @@ def positions.liquidation.math.scale_seizures_to_received_loop
     (iter, scaled)
 
 /-- [controller_aeneas::positions::liquidation::math::scale_seizures_to_received]:
-    Source: 'src/positions/liquidation/../../../../../../contracts/controller/src/positions/liquidation/math.rs', lines 629:0-674:1 -/
+    Source: 'src/positions/liquidation/../../../../../../contracts/controller/src/positions/liquidation/math.rs', lines 626:0-670:1 -/
 def positions.liquidation.math.scale_seizures_to_received
   (env : aeneas_soroban_shim.Env)
   (seized : aeneas_soroban_shim.Vec types.SeizeEntry)

@@ -170,21 +170,31 @@ theorem estimate_aborts_inconsistent (env : Env)
       (by omega) (by omega) (by omega) (by omega) (by omega) (by omega) (by omega) (by omega))
   have hsb : sb.val = 0 := by omega
   rw [hsbeq, bind_ok] at hr
-  obtain ⟨o, ho, -, hsome⟩ := spec_imp_eq_ok (max_hf_preserving_bonus_bps_spec snap (by omega))
-  obtain ⟨cap, rfl, hfl⟩ := hsome ⟨by omega, by omega⟩
-  have hcap : cap.val = 0 := by
+  obtain ⟨o, ho, -, hsome⟩ :=
+    spec_imp_eq_ok (max_hf_preserving_bonus_bps_spec env snap (by omega))
+  obtain ⟨q, hfl, hcapcase⟩ := hsome ⟨by omega, by omega⟩
+  have hq : q = 10^4 := by
     rw [hhf, hp] at hfl
-    have := IsFloor.unique (by norm_num) hfl
-      (show IsFloor ((10^18 - 1) * 10^4) (10^18 - 1) (0 + 10^4) by unfold IsFloor; norm_num)
+    exact IsFloor.unique (by norm_num) hfl
+      (show IsFloor ((10^18 - 1) * 10^4) (10^18 - 1) (10^4) by unfold IsFloor; norm_num)
+  have hnleft : ¬ (q < 10^4 ∧
+      o = some positions.liquidation.curve.HfPreservingBonusCap.BelowZero) := by
+    intro h
+    omega
+  obtain ⟨-, cap, hcapo, hcap⟩ := hcapcase.resolve_left hnleft
+  cases hcapo
+  have hcap : cap.val = 0 := by
     omega
   rw [ho, bind_ok] at hr
-  simp only [wad_lt, bind_ok, math.fp.Bps.raw] at hr
+  simp only [wad_lt, bind_ok] at hr
   have c1 : ¬ snap.total_collateral.val < snap.total_debt.val := by omega
-  have c2 : ¬ cap < bounds.base := by simp [IScalar.lt_equiv]; omega
-  simp only [c1, decide_false, Bool.false_eq_true, ↓reduceIte, c2, est_lift_ok, bind_ok,
-    bps_from_same] at hr
-  generalize hbn : core.cmp.impls.OrdI128.min sb cap = bn at hr
-  have hbnv : bn.val = 0 := by rw [← hbn]; simp [hsb, hcap]
+  have c2 : ¬ cap.val < bounds.base.val := by omega
+  simp only [c1, decide_false, Bool.false_eq_true, ↓reduceIte, bps_lt, c2, bind_ok,
+    est_bps_min] at hr
+  generalize hbn : (if cap.val < sb.val then cap else sb) = bn at hr
+  have hbnv : bn.val = 0 := by
+    rw [← hbn]
+    split <;> omega
   obtain ⟨v, hv⟩ := est_bind_eq_ok_inv hr
   refine liquidation_at_target_abort env snap bn curve.target_hf (by omega) (by omega)
     (by omega) (by omega) (by omega) (by omega) (by omega) (by omega) (by omega) (by omega)

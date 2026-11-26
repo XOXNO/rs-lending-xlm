@@ -61,7 +61,7 @@ def math.fp_core.try_mul_div_half_up.closure := Std.I128
 def math.fp_core.mul_div_half_up.closure := aeneas_soroban_shim.Env
 
 /-- [controller_aeneas::math::fp_core::to_i128::{closure}]
-    Source: 'src/../../../../common/src/math/fp_core.rs', lines 302:24-302:77 -/
+    Source: 'src/../../../../common/src/math/fp_core.rs', lines 338:24-338:77 -/
 @[reducible]
 def math.fp_core.to_i128.closure := aeneas_soroban_shim.Env
 
@@ -77,45 +77,50 @@ def math.fp_core.mul_div_floor.closure := Std.I128
 def math.fp.Wad := Std.I128
 
 /-- [controller_aeneas::math::fp_core::mul_div_ceil::{closure}]
-    Source: 'src/../../../../common/src/math/fp_core.rs', lines 168:18-168:53 -/
+    Source: 'src/../../../../common/src/math/fp_core.rs', lines 204:18-204:53 -/
 @[reducible]
 def math.fp_core.mul_div_ceil.closure := Std.I128
 
 /-- [controller_aeneas::math::fp_core::rescale_half_up::{closure}]
-    Source: 'src/../../../../common/src/math/fp_core.rs', lines 235:48-239:5 -/
+    Source: 'src/../../../../common/src/math/fp_core.rs', lines 271:48-275:5 -/
 @[reducible]
 def math.fp_core.rescale_half_up.closure := aeneas_soroban_shim.Env
 
 /-- [controller_aeneas::math::fp_core::rescale::{closure#1}]
-    Source: 'src/../../../../common/src/math/fp_core.rs', lines 223:28-223:81 -/
+    Source: 'src/../../../../common/src/math/fp_core.rs', lines 259:28-259:81 -/
 @[reducible]
 def math.fp_core.rescale.closure_1 (T0 : Type _) := aeneas_soroban_shim.Env
 
 /-- [controller_aeneas::math::fp_core::rescale::{closure}]
-    Source: 'src/../../../../common/src/math/fp_core.rs', lines 222:22-222:52 -/
+    Source: 'src/../../../../common/src/math/fp_core.rs', lines 258:22-258:52 -/
 @[reducible]
 def math.fp_core.rescale.closure (T0 : Type _) := Std.I128
 
 /-- [controller_aeneas::math::fp_core::rescale_floor::{closure}]
-    Source: 'src/../../../../common/src/math/fp_core.rs', lines 247:48-251:5 -/
+    Source: 'src/../../../../common/src/math/fp_core.rs', lines 283:48-287:5 -/
 @[reducible]
 def math.fp_core.rescale_floor.closure := Unit
 
 /-- [controller_aeneas::math::fp_core::rescale_ceil::{closure}]
-    Source: 'src/../../../../common/src/math/fp_core.rs', lines 260:48-272:5 -/
+    Source: 'src/../../../../common/src/math/fp_core.rs', lines 296:48-308:5 -/
 @[reducible]
 def math.fp_core.rescale_ceil.closure := Unit
 
 /-- [controller_aeneas::math::fp_core::mul_div_floor_saturating::{closure}]
-    Source: 'src/../../../../common/src/math/fp_core.rs', lines 184:18-184:54 -/
+    Source: 'src/../../../../common/src/math/fp_core.rs', lines 220:18-220:54 -/
 @[reducible]
 def math.fp_core.mul_div_floor_saturating.closure := Std.I128
 
 /-- [controller_aeneas::math::fp::Bps]
-    Source: 'src/../../../../common/src/math/fp.rs', lines 366:0-366:21
+    Source: 'src/../../../../common/src/math/fp.rs', lines 377:0-377:21
     Visibility: public -/
 @[reducible]
 def math.fp.Bps := Std.I128
+
+/-- [controller_aeneas::math::fp_core::mul_add_div_rem_nonnegative::{closure}]
+    Source: 'src/../../../../common/src/math/fp_core.rs', lines 182:18-182:54 -/
+@[reducible]
+def math.fp_core.mul_add_div_rem_nonnegative.closure := Std.I128
 
 /-- [controller_aeneas::types::DebtPositionRaw]
     Source: 'src/types.rs', lines 232:0-234:1
@@ -392,7 +397,7 @@ structure risk.totals.AccountRiskTotals where
   health_factor : math.fp.Wad
 
 /-- [controller_aeneas::positions::liquidation::curve::LiquidationSnapshot]
-    Source: 'src/positions/liquidation/../../../../../../contracts/controller/src/positions/liquidation/curve.rs', lines 8:0-14:1 -/
+    Source: 'src/positions/liquidation/../../../../../../contracts/controller/src/positions/liquidation/curve.rs', lines 7:0-13:1 -/
 structure positions.liquidation.curve.LiquidationSnapshot where
   total_debt : math.fp.Wad
   total_collateral : math.fp.Wad
@@ -401,29 +406,26 @@ structure positions.liquidation.curve.LiquidationSnapshot where
   hf : math.fp.Wad
 
 /-- [controller_aeneas::positions::liquidation::curve::BonusBounds]
-    Source: 'src/positions/liquidation/../../../../../../contracts/controller/src/positions/liquidation/curve.rs', lines 17:0-20:1 -/
+    Source: 'src/positions/liquidation/../../../../../../contracts/controller/src/positions/liquidation/curve.rs', lines 16:0-19:1 -/
 structure positions.liquidation.curve.BonusBounds where
   base : math.fp.Bps
   max : math.fp.Bps
 
+/-- [controller_aeneas::positions::liquidation::curve::HfPreservingBonusCap]
+    Source: 'src/positions/liquidation/../../../../../../contracts/controller/src/positions/liquidation/curve.rs', lines 25:0-28:1 -/
+@[discriminant isize]
+inductive positions.liquidation.curve.HfPreservingBonusCap where
+| BelowZero : positions.liquidation.curve.HfPreservingBonusCap
+| NonNegative :
+  math.fp.Bps →
+  positions.liquidation.curve.HfPreservingBonusCap
+
 /-- [controller_aeneas::positions::liquidation::curve::LiquidationCurve]
-    Source: 'src/positions/liquidation/../../../../../../contracts/controller/src/positions/liquidation/curve.rs', lines 28:0-32:1 -/
+    Source: 'src/positions/liquidation/../../../../../../contracts/controller/src/positions/liquidation/curve.rs', lines 46:0-50:1 -/
 structure positions.liquidation.curve.LiquidationCurve where
   target_hf : math.fp.Wad
   hf_for_max_bonus : math.fp.Wad
   bonus_factor : math.fp.Bps
-
-/-- [controller_aeneas::positions::liquidation::curve::calculate_linear_bonus_with_target::{closure}]
-    Source: 'src/positions/liquidation/../../../../../../contracts/controller/src/positions/liquidation/curve.rs', lines 78:28-78:81 -/
-@[reducible]
-def positions.liquidation.curve.calculate_linear_bonus_with_target.closure :=
-  aeneas_soroban_shim.Env
-
-/-- [controller_aeneas::positions::liquidation::curve::max_bonus_for_threshold::{closure}]
-    Source: 'src/positions/liquidation/../../../../../../contracts/controller/src/positions/liquidation/curve.rs', lines 201:24-201:77 -/
-@[reducible]
-def positions.liquidation.curve.max_bonus_for_threshold.closure :=
-  aeneas_soroban_shim.Env
 
 /-- [controller_aeneas::types::PaymentTuple]
     Source: 'src/types.rs', lines 252:0-255:1
@@ -449,19 +451,8 @@ structure positions.liquidation.math.LiquidationPlan where
   repayment : positions.liquidation.math.NormalizedRepaymentPlan
   seized : aeneas_soroban_shim.Vec types.SeizeEntry
 
-/-- [controller_aeneas::positions::liquidation::math::get_account_bonus_params::{closure#1}]
-    Source: 'src/positions/liquidation/../../../../../../contracts/controller/src/positions/liquidation/math.rs', lines 608:28-608:81 -/
-@[reducible]
-def positions.liquidation.math.get_account_bonus_params.closure_1 :=
-  aeneas_soroban_shim.Env
-
-/-- [controller_aeneas::positions::liquidation::math::get_account_bonus_params::{closure}]
-    Source: 'src/positions/liquidation/../../../../../../contracts/controller/src/positions/liquidation/math.rs', lines 607:22-607:71 -/
-@[reducible]
-def positions.liquidation.math.get_account_bonus_params.closure := Std.I128
-
 /-- [controller_aeneas::positions::liquidation::math::calculate_repayment_amounts::{closure}]
-    Source: 'src/positions/liquidation/../../../../../../contracts/controller/src/positions/liquidation/math.rs', lines 132:28-132:92 -/
+    Source: 'src/positions/liquidation/../../../../../../contracts/controller/src/positions/liquidation/math.rs', lines 133:28-133:92 -/
 @[reducible]
 def positions.liquidation.math.calculate_repayment_amounts.closure :=
   aeneas_soroban_shim.Env
