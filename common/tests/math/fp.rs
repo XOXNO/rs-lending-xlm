@@ -144,6 +144,56 @@ fn bps_ratios_and_fees_keep_their_rounding_direction() {
         Ray::from(1)
     );
     assert_eq!(Bps::from_weighted_sum(&env, 5, Wad::from(2)).raw(), 3);
+    assert_eq!(
+        Bps::from(5_000).mul(&env, Bps::from(5_000)),
+        Bps::from(2_500)
+    );
+    assert_eq!(
+        Bps::from(5_000).mul_wad(&env, Wad::from(WAD / 3)),
+        Bps::from(1_667)
+    );
+    assert_eq!(
+        Bps::from(5_000).div_floor(&env, Bps::from(3_000)),
+        Bps::from(16_666)
+    );
+    assert_eq!(Bps::ZERO, Bps::from(0));
+}
+
+#[test]
+fn weighted_bps_terms_keep_one_final_rounding_and_wide_products() {
+    let env = Env::default();
+
+    let mut average = Bps::ZERO;
+    let mut remainder = Wad::ZERO;
+    let total = Wad::from(3);
+    for rate in [Bps::from(500), Bps::from(500), Bps::from(501)] {
+        (average, remainder) =
+            average.add_weighted_term(&env, rate, Wad::from(1), total, remainder);
+    }
+    assert_eq!(
+        average.round_weighted_remainder(&env, remainder, total),
+        Bps::from(500)
+    );
+
+    let weight = Wad::from(i128::MAX / 8);
+    let (average, remainder) =
+        Bps::ZERO.add_weighted_term(&env, Bps::from(90_000), weight, weight, Wad::ZERO);
+    assert_eq!(remainder, Wad::ZERO);
+    assert_eq!(
+        average.round_weighted_remainder(&env, remainder, weight),
+        Bps::from(90_000)
+    );
+}
+
+#[test]
+fn typed_wad_rescaling_and_integer_flooring_preserve_saturation() {
+    let env = Env::default();
+    assert_eq!(Wad::from(7).div_by_int_floor(&env, 2), Wad::from(3));
+    assert_eq!(Wad::ONE.to_ray_saturating(&env), Ray::ONE);
+    assert_eq!(
+        Wad::from(i128::MAX).to_ray_saturating(&env),
+        Ray::from(i128::MAX)
+    );
 }
 
 #[test]
@@ -946,8 +996,8 @@ fn test_wad_add_checked() {
 //
 // Every token amount enters the accounting through `Ray::from_asset`, which
 // upscales by 10^(27 - decimals). That single multiplication is the ceiling on
-// any balance the protocol can hold, and it is the same ceiling
-// `common::validation::max_cap_for_decimals` computes for caps.
+// any balance the protocol can hold. `common::validation::max_cap_for_decimals`
+// computes the same ceiling for caps.
 
 /// The largest asset-unit amount whose ray form still fits `i128`.
 fn max_representable_units(decimals: u32) -> i128 {
@@ -966,7 +1016,7 @@ fn test_ray_from_asset_ceiling_holds_across_the_listable_decimal_range() {
             ray.raw() > 0,
             "ceiling must be representable at {decimals} decimals"
         );
-        // One more asset unit would not fit: the residue below i128::MAX is
+        // One more asset unit would not fit. The residue below i128::MAX is
         // strictly smaller than one unit's worth of ray.
         let unit_in_ray = 10i128.pow(RAY_DECIMALS - decimals);
         assert!(
@@ -1010,7 +1060,7 @@ fn test_ray_from_asset_one_unit_above_the_ceiling_overflows_at_max_decimals() {
 
 /// Real-execution check of the Certora rule `ray_asset_roundtrip_preserves_7_decimal_amount`
 /// (`certora/common/spec/math_rules.rs`) over its assumed range. Upscale multiplies by
-/// exactly `10^20` and downscale divides by it, so the roundtrip is exact;
+/// exactly `10^20` and downscale divides by it, so the roundtrip is exact.
 /// `1e15 * 1e20 = 1e35` fits in i128.
 #[test]
 fn ray_asset_roundtrip_is_exact_over_the_certora_range() {
@@ -1051,8 +1101,8 @@ fn ray_asset_roundtrip_is_exact_over_the_certora_range() {
     }
 }
 
-/// Real-execution check of the Certora rule `wad_token_roundtrip_preserves_7_decimal_amount`:
-/// the same shape with the factor `10^11`.
+/// Real-execution check of the Certora rule `wad_token_roundtrip_preserves_7_decimal_amount`,
+/// which has the same shape with the factor `10^11`.
 #[test]
 fn wad_token_roundtrip_is_exact_over_the_certora_range() {
     let env = Env::default();
@@ -1087,7 +1137,7 @@ fn ray_asset_roundtrip_is_exact_across_decimals() {
     let env = Env::default();
     for decimals in 0u32..=18 {
         let headroom = 27u32 - decimals.min(27);
-        // Keep amount * 10^headroom inside i128 (~1.7e38), with a decade spare.
+        // Keep amount * 10^headroom inside i128 (~1.7e38), with one decade of margin.
         let exp = 37u32.saturating_sub(headroom).min(30);
         let max = 10i128.pow(exp);
         for amount in [0i128, 1, 7, max / 3, max - 1, max] {
@@ -1114,7 +1164,7 @@ fn upscale_factors_are_exact_powers_of_ten() {
         100_000_000_000_000_000_000,
         "RAY factor from 7 decimals"
     );
-    // The largest factor the protocol can ask for: 0-decimal asset up to RAY.
+    // The largest factor the protocol can ask for is the rescale of a 0-decimal asset up to RAY.
     assert_eq!(
         10i128.pow(27),
         1_000_000_000_000_000_000_000_000_000,
@@ -1124,7 +1174,7 @@ fn upscale_factors_are_exact_powers_of_ten() {
 
 /// `Ray::mul_ratio_ceil` rounds up. `burn_claimable_revenue`
 /// (`contracts/pool/src/cache/shares.rs`) uses it to burn at least the pro-rata revenue
-/// shares on a partial claim; flooring would let repeated partial claims take unbacked cash.
+/// shares on a partial claim. Flooring would let repeated partial claims take unbacked cash.
 #[test]
 fn mul_ratio_ceil_rounds_up_and_never_below_the_exact_ratio() {
     let env = Env::default();
@@ -1133,10 +1183,10 @@ fn mul_ratio_ceil_rounds_up_and_never_below_the_exact_ratio() {
         50,
         "exact ratio must not be rounded up"
     );
-    // Inexact: must round up, not truncate.
+    // An inexact ratio must round up, not truncate.
     assert_eq!(Ray::from(100i128).mul_ratio_ceil(&env, 1, 3).raw(), 34);
     assert_eq!(Ray::from(10i128).mul_ratio_ceil(&env, 1, 4).raw(), 3);
-    // A positive numerator never rounds to zero; `burn_claimable_revenue` asserts a
+    // A positive numerator never rounds to zero. `burn_claimable_revenue` asserts a
     // non-zero burn.
     assert_eq!(Ray::from(1i128).mul_ratio_ceil(&env, 1, i128::MAX).raw(), 1);
 }
@@ -1155,7 +1205,7 @@ fn mul_ratio_ceil_never_exceeds_the_base_when_ratio_is_at_most_one() {
             (2, 3),
             (999, 1_000),
             (1, 1_000_000),
-            // amount == actual: the ratio is exactly one, the tightest case.
+            // When amount == actual the ratio is exactly one, the tightest case.
             (1_000_000, 1_000_000),
         ] {
             let burned = Ray::from(revenue)
@@ -1174,9 +1224,9 @@ fn mul_ratio_ceil_never_exceeds_the_base_when_ratio_is_at_most_one() {
 }
 
 /// Every wrapper applies the rounding its name states at the scale its type
-/// names. Operands are seeded random values of every magnitude; a result is
-/// checked whenever the exact value is representable, against the inequalities
-/// in `test_support` rather than against the primitive the wrapper calls.
+/// names. Operands are seeded random values of every magnitude. The test checks a
+/// result whenever the exact value is representable. It uses the inequalities in
+/// `test_support`, not the function the wrapper calls.
 #[test]
 fn exact_wrappers_apply_the_named_rounding_at_the_named_scale() {
     let env = Env::default();
@@ -1184,8 +1234,8 @@ fn exact_wrappers_apply_the_named_rounding_at_the_named_scale() {
     let mut sampler = Sampler::new(6);
 
     for _ in 0..4_000 {
-        // `a` is the receiver, `o` the other operand or divisor, `k` a second
-        // divisor, `signed` a receiver for the operations that accept any sign.
+        // `a` is the receiver. `o` is the other operand or divisor. `k` is a second
+        // divisor. `signed` is a receiver for the operations that accept any sign.
         let (a, o, k) = (
             sampler.non_negative(),
             sampler.non_negative().max(1),
@@ -1209,7 +1259,7 @@ fn exact_wrappers_apply_the_named_rounding_at_the_named_scale() {
             };
         }
 
-        // Multiplication divides the product by the scale; division multiplies
+        // Multiplication divides the product by the scale. Division multiplies
         // the receiver by the scale and divides by the other operand.
         for (scale, product, scaled) in [
             (RAY, Wide::product(a, o), Wide::product(a, RAY)),
@@ -1305,8 +1355,8 @@ fn exact_wrappers_apply_the_named_rounding_at_the_named_scale() {
             }
         );
 
-        // Decimal conversions: exact when upscaling, the named rounding when
-        // downscaling, for a receiver of either sign.
+        // Decimal conversions are exact on an upscale and use the named rounding on a
+        // downscale, for a receiver of either sign.
         let (ray_any, wad_any) = (Ray::from(signed), Wad::from(signed));
         exact!(true, ray_any.to_wad(&env).raw(), |q| {
             is_rescaled(q, signed, RAY_DECIMALS, WAD_DECIMALS, Rounding::HalfAway)
@@ -1350,7 +1400,7 @@ fn exact_wrappers_apply_the_named_rounding_at_the_named_scale() {
             |q| is_rescaled(q, signed, decimals, WAD_DECIMALS, Rounding::HalfAway)
         );
 
-        // Basis points: the receiver is the rate, `o` the amount it applies to.
+        // Basis points. The receiver is the rate and `o` is the amount it applies to.
         let rated = Wide::product(o, a);
         let rated_fits = half_up_fits(rated, BPS);
         exact!(rated_fits, bps.apply_to(&env, o), |q| is_half_up(
@@ -1390,7 +1440,7 @@ fn exact_wrappers_apply_the_named_rounding_at_the_named_scale() {
     }
 }
 
-/// The ratio, fraction and saturating wrappers each round once, in the
+/// The ratio, fraction, and saturating wrappers each round once, in the
 /// direction they are named for, on the exact product of their operands.
 /// The `try_` forms are `None` exactly when that result is not representable.
 #[test]
@@ -1400,8 +1450,8 @@ fn exact_ratio_and_fraction_wrappers_round_once_in_their_named_direction() {
     let mut sampler = Sampler::new(7);
 
     for _ in 0..4_000 {
-        // `a` is the receiver, `o` and `k` the other operands or divisors,
-        // `signed` a numerator of either sign.
+        // `a` is the receiver. `o` and `k` are the other operands or divisors.
+        // `signed` is a numerator of either sign.
         let (a, o, k) = (
             sampler.non_negative(),
             sampler.non_negative().max(1),
@@ -1442,7 +1492,7 @@ fn exact_ratio_and_fraction_wrappers_round_once_in_their_named_direction() {
         );
         exact!(a.checked_mul(o), ray.mul_int(&env, o).raw());
 
-        // Divisions scale the receiver up first; fractions scale the numerator.
+        // Divisions scale the receiver up first. Fractions scale the numerator.
         assert_eq!(
             ray.try_div(&env, Ray::from(o)).map(Ray::raw),
             half_up_of(a, RAY, o),
@@ -1490,14 +1540,14 @@ fn exact_ratio_and_fraction_wrappers_round_once_in_their_named_direction() {
             "Wad({a}).mul_floor_saturating({o})"
         );
 
-        // Ceiling fees: the receiver is the rate, `o` the amount.
+        // Ceiling fees. The receiver is the rate and `o` is the amount.
         exact!(ceil_of(o, a, BPS), bps.apply_to_ceil(&env, o));
         exact!(
             ceil_of(o, a, BPS),
             bps.apply_to_ray_ceil(&env, Ray::from(o)).raw()
         );
 
-        // Token valuation divides by the token unit once; the upscale to WAD
+        // Token valuation divides by the token unit once. The upscale to WAD
         // is exact and rejects more than 18 decimals.
         assert_eq!(
             wad.try_value_of_token(&env, o, decimals).map(Wad::raw),
@@ -1516,7 +1566,7 @@ fn exact_ratio_and_fraction_wrappers_round_once_in_their_named_direction() {
         );
     }
 
-    // Zero is a valid amount: only a negative one is rejected.
+    // Zero is a valid amount. Only a negative one is rejected.
     assert_eq!(Wad::try_from_token_upscale(0, 7), Some(Wad::ZERO));
     assert_eq!(Wad::try_from_token_upscale(-1, 7), None);
 }
