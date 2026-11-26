@@ -260,12 +260,13 @@ pub enum SpokeError {
 
     SpokeAssetFrozen = 316,
 
-    /// `set_spoke_asset_flags` or `edit_asset_in_spoke` would clear paused/frozen/no_seize.
+    /// `set_spoke_asset_flags` or `edit_asset_in_spoke` would clear `paused`, `frozen`, or
+    /// `no_seize`.
     /// Only the timelocked `relax_spoke_asset_flags` clears a flag.
     SpokeAssetFlagRelaxation = 317,
 
-    /// The listing's `no_seize` flag is set: this asset cannot be taken as liquidation
-    /// collateral. Unlike `SpokeAssetPaused` this gates only the seizure leg.
+    /// The listing's `no_seize` flag is set. This asset cannot be taken as liquidation
+    /// collateral. Unlike `SpokeAssetPaused`, `no_seize` gates only the seizure leg.
     SpokeAssetSeizureHalted = 318,
 
     /// `relax_spoke_asset_flags` names a flags epoch other than the listing's stored one.

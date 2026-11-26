@@ -1,21 +1,21 @@
 //! Policy: a collateral stamped with `liquidation_threshold == 0` must stay liquidatable.
 //!
-//! Failure shape guarded against: seizure requires a non-zero per-asset threshold, so a zeroed
-//! collateral can never be seized and the debt can never be cleared.
+//! The tests guard against one failure. If seizure required a non-zero per-asset threshold, a
+//! zeroed collateral could never be seized and the debt could never be cleared.
 //!
 //! Seizure here is pro-rata over the account's whole collateral set and reads no per-asset
 //! threshold, so a zero-threshold account liquidates at a zero bonus. These tests cover both
 //! seize modes, the mixed-collateral case, and both bad-debt routes.
 //!
-//! `policy_configuration_cannot_stamp_a_zero_liquidation_threshold` pins reachability:
+//! `policy_configuration_cannot_stamp_a_zero_liquidation_threshold` pins reachability.
 //! `validate_risk_bounds` requires `threshold > ltv` over `u32`, so no configuration entry point
-//! writes a zero, and `apply_gated_liquidation_params` only copies a validated config value onto
-//! a position. The fixtures write the position map directly; the tests check that no lock-out
-//! exists, not a live configuration.
+//! writes a zero. `apply_gated_liquidation_params` only copies a validated config value onto a
+//! position. The fixtures write the position map directly. The tests check that no lock-out
+//! exists. They do not test a live configuration.
 //!
 //! The pool is a stub that reproduces the pool's scaled arithmetic
-//! (`common::rates::resolve_repay` / `resolve_withdrawal`) and nothing else; the controller crate
-//! does not depend on the pool contract. Cash-side behaviour lives in `tests/test-harness`.
+//! (`common::rates::resolve_repay` and `resolve_withdrawal`) and nothing else. The controller
+//! crate does not depend on the pool contract. Cash-side behaviour lives in `tests/test-harness`.
 
 use crate::constants::{
     DEFAULT_HF_FOR_MAX_BONUS_WAD, DEFAULT_LIQUIDATION_BONUS_FACTOR_BPS,
@@ -33,9 +33,9 @@ use soroban_sdk::testutils::Address as _;
 use soroban_sdk::{contract, contractimpl, symbol_short, token, Address, Env, Map, Vec};
 
 /// Every token in these fixtures is 7-decimal and priced at exactly one dollar, and every index
-/// sits at one RAY, so `N * RAY` scaled units are `N` tokens are `N` dollars. That keeps the
-/// fixtures readable in dollars while the code under test still runs its full
-/// scaled -> asset -> USD conversion chain.
+/// sits at one RAY, so `N * RAY` scaled units equal `N` tokens, and `N` tokens equal `N` dollars.
+/// That keeps the fixtures readable in dollars while the code under test still runs its full
+/// scaled-to-asset-to-USD conversion chain.
 const DECIMALS: u32 = 7;
 const ONE_TOKEN: i128 = 10_000_000;
 const SPOKE: u32 = 1;
@@ -98,7 +98,7 @@ impl StubPool {
         out
     }
 
-    /// Counts seized entries (at least one per call) so the bad-debt tests can prove the
+    /// Counts seized entries, at least one per call, so the bad-debt tests can prove that the
     /// socialization leg reached the pool.
     pub fn seize_positions(env: Env, entries: Vec<PoolSeizeEntry>) {
         let key = symbol_short!("seizes");
@@ -153,7 +153,7 @@ struct Fixture {
     liquidator: Address,
     /// Collateral whose stamped `liquidation_threshold` is zero.
     zeroed: HubAssetKey,
-    /// Collateral stamped with an ordinary threshold; present only in the mixed fixture.
+    /// Collateral stamped with an ordinary threshold. Only the mixed fixture has it.
     normal: HubAssetKey,
     debt: HubAssetKey,
 }
@@ -245,7 +245,7 @@ fn seed(zeroed_scaled: i128, normal_scaled: i128, debt_scaled: i128) -> Fixture 
 
     let owner = Address::generate(&env);
     let liquidator = Address::generate(&env);
-    // Funds the repayment leg; the seizure legs move no tokens through this stub pool.
+    // Fund the repayment leg. The seizure legs move no tokens through this stub pool.
     token::StellarAssetClient::new(&env, &debt.asset).mint(&liquidator, &(1_000 * ONE_TOKEN));
 
     let nft = env.register(
@@ -285,8 +285,8 @@ fn seed(zeroed_scaled: i128, normal_scaled: i128, debt_scaled: i128) -> Fixture 
                 liquidation_bonus_factor_bps: DEFAULT_LIQUIDATION_BONUS_FACTOR_BPS,
             },
         );
-        // The listings carry ordinary thresholds; only the stamped positions are zeroed. The
-        // receiver-side tuple assertion depends on this.
+        // The listings carry ordinary thresholds. Only the stamped positions are zeroed. The
+        // receiver-side tuple assertion depends on this setup.
         storage::set_spoke_asset(&env, SPOKE, &zeroed, &listed_asset(8_000));
         storage::set_spoke_asset(&env, SPOKE, &normal, &listed_asset(8_000));
         storage::set_spoke_asset(&env, SPOKE, &debt, &listed_asset(8_000));
@@ -335,7 +335,7 @@ fn payment(fx: &Fixture, tokens: i128) -> Vec<(HubAssetKey, i128)> {
 #[test]
 fn policy_zero_threshold_account_is_liquidatable_not_locked() {
     // $100 of zero-threshold collateral against $90 of debt. Weighted collateral is zero, so
-    // the health factor is zero; the estimate must still price the liquidation.
+    // the health factor is zero. The estimate must still price the liquidation.
     let fx = seed(100 * RAY, 0, 90 * RAY);
     let client = fx.client();
 
@@ -475,9 +475,9 @@ fn policy_zero_threshold_collateral_is_seized_pro_rata_beside_a_normal_one() {
 
 #[test]
 fn policy_zero_threshold_account_is_still_socializable_as_bad_debt() {
-    // $3 of collateral under $10 of debt: insolvent and at or below the $5 dust cap. The gate
-    // reads only the two USD totals, so a zeroed threshold does not exempt the account from
-    // cleanup.
+    // $3 of collateral under $10 of debt is insolvent and at or below the $5 dust cap. The
+    // gate reads only the two USD totals, so a zeroed threshold does not exempt the account
+    // from cleanup.
     let fx = seed(3 * RAY, 0, 10 * RAY);
     let client = fx.client();
 
@@ -496,7 +496,8 @@ fn policy_zero_threshold_account_is_still_socializable_as_bad_debt() {
 #[test]
 fn policy_zero_threshold_liquidation_promotes_its_own_residual_to_bad_debt() {
     // $6 of collateral under $50 of debt. Repaying $6 consumes the whole collateral at a zero
-    // bonus and leaves $44 of debt against nothing; the in-call bad-debt check must socialize it.
+    // bonus and leaves $44 of debt against nothing. The in-call bad-debt check must socialize
+    // that debt.
     let fx = seed(6 * RAY, 0, 50 * RAY);
     let client = fx.client();
 

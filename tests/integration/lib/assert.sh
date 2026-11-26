@@ -8,7 +8,7 @@ _view_pool_int() {
 
 # Reads a scalar view from the contract that `VIEW_AT` names (default: the
 # controller). Takes the `_view_int` arguments, so `_retry_until` can call it.
-# Callers set `local VIEW_AT`; bash dynamic scoping makes it visible here.
+# Callers set `local VIEW_AT`. Bash dynamic scoping makes it visible here.
 _view_at_int() {
   view "$1" "${VIEW_AT:-$CONTROLLER}" -- "${@:2}" | tr -d '"' | tr -d '[:space:]'
 }
@@ -79,7 +79,7 @@ assert_int_view_at_nonneg() {
 }
 
 # `assert_int_view_eq` against an arbitrary contract. Compares as strings, so it
-# serves bool views too.
+# also works for bool views.
 assert_view_eq_at() {
   local contract="$1" label="$2" expected="$3"
   shift 3
@@ -232,9 +232,9 @@ print(remaining*si//(ray*scale))
 PYCLOSE
 }
 
-# Independent fixture reference: LIQA/LIQG $0.70, LIQB $1, 7 decimals,
+# Independent fixture reference: LIQA and LIQG $0.70, LIQB $1, 7 decimals,
 # 75% threshold, 8% minimum bonus, 1% protocol fee. No collateral borrowing.
-# Optional fifth argument "credit" returns seized/fee RAY shares, not token units.
+# Optional fifth argument "credit" returns seized and fee RAY shares, not token units.
 liquidation_reference() {
     python3 - "$@" <<'PYLIQ'
 import json,sys
@@ -247,7 +247,7 @@ R,W,U=10**27,10**18,10**20
 half=lambda n,d:(n+d//2)//d
 ceil=lambda n,d:(n+d-1)//d
 assert si==R
-# Credit keeps fractional native units: preserve the protocol's staged WAD rounding.
+# Credit keeps fractional native units. Preserve the protocol's staged WAD rounding.
 collateral=half(half(s,10**9)*7,10); weighted=(s//10**9*7//10)*3//4
 debt_value=ceil(d*bi,R*10**9); hf=weighted*W//debt_value
 assert collateral>=debt_value and 0<hf<W
@@ -290,7 +290,7 @@ PYBURN
     record "$label" ok assert "" "" "" "" "" "exact debt share burn"
 }
 
-# LIQG has no borrowing: its index and cash stay fixed during share credit.
+# LIQG has no borrowing. Its index and cash stay fixed during share credit.
 assert_liquidation_credit() {
     local label="$1" expected; shift
     expected=$(liquidation_reference "$1" "$5" "$9" "${10}" credit) \
@@ -325,7 +325,7 @@ PYCREDIT
     record "$label" ok assert "" "" "" "" "" "independent exact seizure and ceiling-rounded bonus fee; share conservation; same-spoke Normal receiver; supply/cash unchanged"
 }
 
-# Reconstruct supply/revenue accrual at the transaction's committed borrow
+# Reconstruct supply and revenue accrual at the transaction's committed borrow
 # index. ponytail: one native accrual chunk; replay chunks if fixtures span over a year.
 pool_accrual_at_committed_index() {
     python3 - "$@" <<'PYACCRUAL'

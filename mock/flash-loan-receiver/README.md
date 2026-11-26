@@ -1,7 +1,7 @@
 # Flash Loan Receiver (test)
 
-Test-only receiver for harness and live testnet flash-loan tests.
-**Not for production.** Anyone can invoke it; a real receiver must gate the
+This receiver is test-only. It serves the harness and the live testnet flash-loan tests.
+**Not for production.** Anyone can invoke it. A real receiver must gate the
 caller to the trusted pool.
 
 ## Callback
@@ -10,11 +10,11 @@ caller to the trusted pool.
 execute_flash_loan(initiator, asset, amount, fee, pool, data)
 ```
 
-`data` is XDR `FlashLoanRequest { mode }`; other bytes trap `InvalidData`. The
-receiver repays by `approve`; the pool pulls `amount + fee` with
-`transfer_from` after the callback.
+`data` is XDR `FlashLoanRequest { mode }`. Other bytes trap `InvalidData`. The
+receiver repays with `approve`. After the callback, the pool pulls `amount + fee` with
+`transfer_from`.
 
-Reentry modes read the `Plan` stored by `set_plan(controller, hub_id, spoke_id, account_id)`. Without a plan they trap with `MissingPlan`. `ReenterPoolFlashLoan` calls the callback's `pool` and takes only `hub_id` from the plan; the other reentry modes call `controller`.
+Re-entry modes read the `Plan` stored by `set_plan(controller, hub_id, spoke_id, account_id)`. Without a plan they trap with `MissingPlan`. `ReenterPoolFlashLoan` calls the callback's `pool` and takes only `hub_id` from the plan. The other re-entry modes call `controller`.
 
 | Mode | Behavior |
 | --- | --- |
@@ -30,15 +30,15 @@ Reentry modes read the `Plan` stored by `set_plan(controller, hub_id, spoke_id, 
 | `ReenterMigrateBlend` | Nested `migrate_from_blend`, then approve |
 | `ReenterControllerUpgradePoolParams` | Nested owner-only `upgrade_liquidity_pool_params`, then approve |
 
-Here the flash loan starts at the controller, so the Soroban host rejects each
+The flash loan starts at the controller, so the Soroban host rejects each
 controller re-entry with `Error(Context, InvalidAction)` before the protocol flash guard
-runs. The harness pins host rejection; these callbacks do not test the
+runs. The harness asserts the host rejection. These callbacks do not test the
 controller's flash guard.
 
 ## Layout
 
 ```text
-src/lib.rs                   Receiver + modes
+src/lib.rs                   Receiver and modes
 examples/encode_request.rs   Prints the hex XDR data for a mode name
                              (used by make test-flash-loan-receiver)
 ```

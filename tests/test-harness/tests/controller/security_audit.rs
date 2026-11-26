@@ -322,7 +322,7 @@ fn poc_paused_debt_blocks_liquidation_repay() {
 
 /// Pausing a collateral listing does not block liquidation of the accounts that hold it.
 ///
-/// Seizure is pro-rata across the account's whole collateral set; only the listing's
+/// Seizure is pro-rata across the account's whole collateral set. Only the listing's
 /// `no_seize` flag halts it (ADR-0008).
 #[test]
 fn poc_paused_collateral_does_not_block_liquidation_seizure() {

@@ -19,8 +19,8 @@ def run(script, *args):
 with tempfile.TemporaryDirectory() as directory:
     root = Path(directory)
     (root / 'runs').mkdir()
-    # Real file lock, separate processes; a second quote cannot race a submitted
-    # operation. The mock receipt advances the ledger seen by the next holder.
+    # The test uses a real file lock and separate processes. A second quote cannot race a
+    # submitted operation. The mock receipt advances the ledger seen by the next holder.
     script = r'''set -uo pipefail
 source "$1/lib/core.sh"; source "$1/lib/invoke.sh"; source "$1/lib/assets.sh"
 INTEG_DIR="$2"; LOG_DIR="$2"; RPC_URL=unused; XLM_SAC=X; AGGREGATOR=A
@@ -101,8 +101,8 @@ swap_xlm_to wallet addr token 1 "$label"
         assert not (failed_rpc / 'rpc.quoted').exists()
         assert not (failed_rpc / 'runs/.external-funding.lane-a.pending.json').exists()
 
-    # Actual quote helper: save stale attempts, then accept fresh; never accept
-    # malformed or permanently stale snapshots, and keep route encoding intact.
+    # Actual quote helper. It saves stale attempts, then accepts a fresh quote. It never
+    # accepts malformed or permanently stale snapshots, and it keeps route encoding intact.
     for mode in ('fresh', 'stale', 'malformed', 'multihop'):
         logs = root / mode
         logs.mkdir()

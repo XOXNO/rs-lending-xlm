@@ -77,7 +77,7 @@ fn contract_account_authenticates_supply_and_rejects_invalid_authorizations() {
         }
     };
 
-    // set_auths disables the harness mock: only the custom-account entry exists.
+    // set_auths disables the harness mock. Only the custom-account entry exists.
     for (signature, include_transfer) in [(false, true), (true, false)] {
         env.set_auths(&[authorization(signature, include_transfer)]);
         assert!(ctrl

@@ -9,8 +9,8 @@ use crate::context::Context;
 use crate::positions::liquidation::math::*;
 use crate::positions::{enforce_spoke_asset_flags, FreezePolicy};
 
-/// Builds a normalized repayment and pro-rata seizure plan for debt with HF < 1 WAD.
-/// Repayment rejects `paused` but permits `frozen`; seizure rejects only `no_seize`.
+/// Builds a normalized repayment and pro-rata seizure plan for debt with a health factor below 1
+/// WAD. Repayment rejects `paused` but permits `frozen`. Seizure rejects only `no_seize`.
 pub(crate) fn build_liquidation_plan(
     env: &Env,
     account: &Account,

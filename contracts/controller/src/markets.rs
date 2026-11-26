@@ -21,7 +21,7 @@ use crate::{events, payments, storage};
 const POOL_DEPLOY_SALT: [u8; 32] = [0u8; 32];
 const POSITION_NFT_DEPLOY_SALT: [u8; 32] = [1u8; 32];
 
-/// Deploys and records the sole pool at a fixed salt; rejects a second deployment.
+/// Deploys and records the sole pool at a fixed salt. Rejects a second deployment.
 pub(crate) fn deploy_pool(env: &Env, wasm_hash: BytesN<32>) -> Address {
     assert_with_error!(
         env,
@@ -39,8 +39,8 @@ pub(crate) fn deploy_pool(env: &Env, wasm_hash: BytesN<32>) -> Address {
     pool
 }
 
-/// Deploys and records the position NFT with the controller as minter/burner.
-/// Uses a salt distinct from the pool and rejects a second deployment.
+/// Deploys and records the position NFT with the controller as minter and burner. Uses a salt
+/// distinct from the pool and rejects a second deployment.
 pub(crate) fn deploy_position_nft(
     env: &Env,
     wasm_hash: BytesN<32>,
@@ -64,8 +64,8 @@ pub(crate) fn deploy_position_nft(
     nft
 }
 
-/// Creates a pool market in an active hub and emits its configuration.
-/// Requires `params.asset_id` to match `asset`; returns the pool address.
+/// Creates a pool market in an active hub and emits its configuration. Requires `params.asset_id`
+/// to match `asset`. Returns the pool address.
 pub(crate) fn create_liquidity_pool(
     env: &Env,
     hub_id: u32,
@@ -109,7 +109,7 @@ pub(crate) fn upgrade_pool(env: &Env, new_wasm_hash: BytesN<32>) {
     pool_upgrade_call(env, &pool_addr, &new_wasm_hash);
 }
 
-/// Upgrades the position NFT Wasm; fails if the NFT is unconfigured.
+/// Upgrades the position NFT Wasm. Fails if the NFT is unconfigured.
 pub(crate) fn upgrade_position_nft(env: &Env, new_wasm_hash: BytesN<32>) {
     let nft_addr = storage::get_position_nft(env);
     nft_upgrade_call(env, &nft_addr, &new_wasm_hash);
@@ -124,8 +124,8 @@ pub(crate) fn update_indexes(env: &Env, caller: Address, assets: Vec<HubAssetKey
     pool_update_indexes_call(env, &pool_addr, &assets);
 }
 
-/// Claims and forwards revenue to the accumulator in input order. Returns
-/// measured controller receipts; requires caller authorization and no flash loan.
+/// Claims and forwards revenue to the accumulator in input order. Returns measured controller
+/// receipts. Requires caller authorization and no flash loan.
 pub(crate) fn claim_revenue(env: &Env, caller: Address, assets: Vec<HubAssetKey>) -> Vec<i128> {
     validation::require_authorized_caller(env, &caller);
     let mut results = Vec::new(env);
@@ -137,8 +137,8 @@ pub(crate) fn claim_revenue(env: &Env, caller: Address, assets: Vec<HubAssetKey>
     results
 }
 
-/// Transfers funds to the pool, credits the measured receipt up to the backing
-/// shortfall, and refunds unused funds. Returns credited cash; rejects flash loans.
+/// Transfers funds to the pool, credits the measured receipt up to the backing shortfall, and
+/// refunds unused funds. Returns credited cash. Rejects flash loans.
 pub(crate) fn recapitalize(
     env: &Env,
     payer: Address,
@@ -163,8 +163,8 @@ pub(crate) fn recapitalize(
     pool_recapitalize_call(env, &pool_addr, &hub_asset, &payer, received).actual_amount
 }
 
-/// Claims one market's revenue and forwards the measured controller receipt.
-/// Requires an accumulator; emits a revenue event only for positive receipts.
+/// Claims one market's revenue and forwards the measured controller receipt. Requires an
+/// accumulator. Emits a revenue event only for positive receipts.
 fn claim_revenue_for_asset(
     env: &Env,
     caller: &Address,

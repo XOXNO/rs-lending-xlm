@@ -36,7 +36,7 @@ pub(crate) enum DelayTier {
 }
 
 /// Returns the delay, in ledgers, required for operations in `tier`. `Standard`
-/// uses the configured minimum delay; `Sensitive` and `Recovery` use that minimum
+/// uses the configured minimum delay. `Sensitive` and `Recovery` use that minimum
 /// raised to their respective floor constants.
 pub(crate) fn operation_delay(env: &Env, tier: DelayTier) -> u32 {
     let min = get_min_delay(env);
@@ -52,8 +52,8 @@ pub(crate) fn require_nonzero_delay(env: &Env, delay: u32) {
     assert_with_error!(env, delay != 0, GenericError::InvalidTimelockDelay);
 }
 
-/// Validates that `new_delay` is nonzero, at most
-/// `constants::TIMELOCK_MAX_DELAY_LEDGERS`, and either at least the current
+/// Validates that `new_delay` is nonzero and at most
+/// `constants::TIMELOCK_MAX_DELAY_LEDGERS`. It must also be at least the current
 /// minimum delay (an increase) or at least `constants::TIMELOCK_MIN_DELAY_LEDGERS`
 /// (a decrease never goes below that floor). Panics with
 /// `GenericError::InvalidTimelockDelay` otherwise.
@@ -171,7 +171,7 @@ fn begin_immediate(env: &Env, caller: &Address, role: &str) {
 
 /// Renews the governance instance's storage TTL, computes `operation`'s id,
 /// and checks that the operation has not expired. Returns the operation id.
-/// It authorizes no caller: execution of a ready operation is permissionless.
+/// It authorizes no caller. Execution of a ready operation is permissionless.
 fn prepare_execute(env: &Env, operation: &Operation) -> BytesN<32> {
     renew_instance(env);
     let operation_id = hash_operation(env, operation);

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Canonical file hashes; used before deployment and before publication."""
+"""Compute canonical file hashes. Callers use them before deployment and before publication."""
 import hashlib
 import json
 import subprocess

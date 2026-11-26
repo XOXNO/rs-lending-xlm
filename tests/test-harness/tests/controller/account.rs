@@ -169,8 +169,8 @@ fn test_adopt_account_prunes_old_owner_bookkeeping() {
         "old owner must have no account left after the transferred id is pruned"
     );
 
-    // A harness verb invoked as the old owner must not resolve the transferred
-    // account: `create_account` for ALICE mints a new id.
+    // A test-helper verb called as the old owner must not resolve the transferred
+    // account. `create_account` for ALICE mints a new id.
     let alice_new_account_id = t.create_account(ALICE);
     assert_ne!(
         alice_new_account_id, account_id,

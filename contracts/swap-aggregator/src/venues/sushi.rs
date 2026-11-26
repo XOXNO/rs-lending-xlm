@@ -13,11 +13,11 @@ const MAX_SQRT_RATIO_MINUS_ONE: [u8; 32] = [
     0xef, 0xd1, 0xfc, 0x6a, 0x50, 0x64, 0x88, 0x49, 0x5d, 0x95, 0x1d, 0x52, 0x63, 0x98, 0x8d, 0x25,
 ];
 
-/// Executes an exact-in swap against a Sushi V3-style concentrated-liquidity pool: determines the
-/// swap direction from the pool's `token0`/`token1`, computes an extreme sqrt-price limit,
-/// forwards the pool's oracle hints, authorizes the pool to pull the input token from the router,
-/// then invokes the pool's `swap`. The fill is measured by
-/// [`crate::venues::dispatch_hop`], which also enforces that it is positive.
+/// Executes an exact-in swap against a Sushi V3-style concentrated-liquidity pool. The function
+/// determines the swap direction from the pool's `token0` and `token1`, computes an extreme
+/// sqrt-price limit, and forwards the pool's oracle hints. It then authorizes the pool to pull
+/// the input token from the router and invokes the pool's `swap`.
+/// [`crate::venues::dispatch_hop`] measures the fill and enforces that it is positive.
 pub(crate) fn swap(ctx: &HopContext<'_>) {
     execute(ctx, ctx.amount_in);
 }

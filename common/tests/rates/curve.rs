@@ -341,7 +341,7 @@ fn exact_borrow_rate_follows_the_piecewise_curve() {
     for _ in 0..2_000 {
         let mut params = sample_params(&env, &mut sampler);
         // Listing validation keeps the cap above the curve. Half the cases
-        // lower it into the curve, which the function must still honour.
+        // lower it into the curve, and the function must still honour the lowered cap.
         if sampler.below(2) == 0 {
             params.max_borrow_rate = Ray::from(sampler.at_most(params.max_borrow_rate.raw()));
         }
@@ -406,7 +406,7 @@ fn exact_utilization_and_deposit_rate_round_half_up() {
     let env = unmetered_env();
     let mut sampler = Sampler::new(32);
     for _ in 0..5_000 {
-        // Any non-negative pair: debt at or above supply reads as full
+        // Any non-negative pair. Debt at or above supply reads as full
         // utilization, and only a smaller debt is divided.
         let (borrowed, supplied) = (sampler.non_negative(), sampler.non_negative());
         let expected = if supplied == 0 {
@@ -427,7 +427,7 @@ fn exact_utilization_and_deposit_rate_round_half_up() {
             sampler.at_most(2 * RAY),
             sampler.at_most(MAX_BORROW_RATE_RAY),
         );
-        // From one below to one above the accepted `0..BPS` range.
+        // The inputs run from one below to one above the accepted `0..BPS` range.
         let reserve_factor = sampler.at_most(BPS + 1) - 1;
         let expected = if used == 0 || !(0..BPS).contains(&reserve_factor) {
             Some(0)

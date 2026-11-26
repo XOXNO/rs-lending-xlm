@@ -1,8 +1,8 @@
 //! Strategy orchestration for one `execute_strategy` call.
 //!
-//! Flow: auth → decode program → pull input → optional input fee → run the
-//! instruction stream → optional output fee → min-out check → trustline →
-//! payout → residual accrual → swap event.
+//! Order of steps: auth, decode program, pull input, optional input fee, run the
+//! instruction stream, optional output fee, min-out check, trustline, payout,
+//! residual accrual, swap event.
 
 mod residual;
 mod reverse;
@@ -26,8 +26,8 @@ use crate::venues;
 
 /// Token and amount produced by the previous instruction, for [`Mode::Prev`].
 ///
-/// `None` after an instruction with no single well-defined output (a burn
-/// releases several constituents), which makes a following `Prev` fail closed.
+/// The value is `None` after an instruction with no single well-defined output (a burn
+/// releases several constituents). A following `Prev` then fails closed.
 type PrevOutput = Option<(Address, i128)>;
 
 /// Everything the instruction loop needs that does not change between steps.
@@ -77,7 +77,7 @@ pub(crate) fn run(env: Env, sender: Address, total_in: i128, payload: StrategyPa
     let mut vault = Vault::new(&env);
     let mut tokens_cache: Map<Address, Vec<Address>> = Map::new(&env);
 
-    // Credit the measured delta, not declared `total_in`: a fee-on-transfer
+    // Credit the measured delta, not the declared `total_in`. A fee-on-transfer
     // input would otherwise draw the shortfall from the fee reserve.
     let credited_in = transfer_amount_measured(
         &env,
@@ -244,8 +244,8 @@ fn swap_hop(ctx: &Ctx<'_>, op: &Op, venue: SwapVenue) -> SwapHop {
 /// Opens `receiver`'s missing trustline via the SAC `trust` call (CAP-73).
 ///
 /// Skips non-SAC tokens, so custom token code never runs here. The SAC is a no-auth no-op for
-/// a contract receiver or an existing trustline. Failures are ignored: the payout transfer
-/// reverts if the trustline is still missing.
+/// a contract receiver or an existing trustline. The function ignores failures. The payout
+/// transfer reverts if the trustline is still missing.
 pub(super) fn ensure_trustline(env: &Env, token: &Address, receiver: &Address) {
     if token.executable() != Some(Executable::StellarAsset) {
         return;

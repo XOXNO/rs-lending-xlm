@@ -47,7 +47,7 @@ pub(crate) fn remove_submission(env: &Env, feed_id: &String, signer: &Address) {
         .remove(&DataKey::LatestSubmission(feed_id.clone(), signer.clone()));
 }
 
-/// Loads the current aggregate for `feed_id`, renewing its TTL when present.
+/// Loads the current aggregate for `feed_id` and renews its TTL when present.
 /// Returns `None` if no aggregate is stored.
 pub(crate) fn load_aggregate(env: &Env, feed_id: &String) -> Option<RedStonePriceData> {
     let key = DataKey::CurrentAggregate(feed_id.clone());

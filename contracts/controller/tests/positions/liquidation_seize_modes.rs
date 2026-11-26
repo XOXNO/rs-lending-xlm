@@ -1,10 +1,10 @@
 //! Credit-mode seizure arithmetic.
 //!
-//! These cover the part of `SeizeMode::Credit` that has no pool in it: the scaled split, its
-//! conservation identity, and the scaled fields `calculate_seized_collateral` derives. The
-//! end-to-end behaviour — cash-starved markets, pool totals, receiving-account rules, events —
-//! lives in `tests/test-harness/tests/controller/liquidation_seize_modes.rs`, which needs a
-//! real pool.
+//! These tests cover the part of `SeizeMode::Credit` that has no pool in it. That part is the
+//! scaled split, its conservation identity, and the scaled fields that
+//! `calculate_seized_collateral` derives. The end-to-end tests need a real pool. They live in
+//! `tests/test-harness/tests/controller/liquidation_seize_modes.rs` and cover cash-starved
+//! markets, pool totals, receiving-account rules, and events.
 
 use super::*;
 use crate::positions::liquidation::math::{calculate_seized_collateral, NormalizedRepaymentPlan};
@@ -33,7 +33,7 @@ fn index_raw(supply_index: i128) -> MarketIndexRaw {
     }
 }
 
-/// A `SeizeEntry` carrying only the credit-mode fields; the asset-unit pair is irrelevant here.
+/// A `SeizeEntry` that carries only the credit-mode fields. The asset-unit pair is irrelevant here.
 fn scaled_entry(
     env: &Env,
     scaled_amount: i128,
@@ -63,14 +63,15 @@ fn split(env: &Env, seized: i128, bonus: i128, fees: u32) -> (i128, i128) {
 
 // --- conservation --------------------------------------------------------
 //
-// `S == fee + liquidator` exactly. `split_seized_shares` asserts the identity;
-// these tests pin the arithmetic that feeds it, including rounding boundaries.
+// `S == fee + liquidator` exactly. `split_seized_shares` asserts the identity.
+// These tests pin the arithmetic that feeds it, including rounding boundaries.
 
 #[test]
 fn split_conserves_shares_across_the_decimal_range() {
     let env = Env::default();
-    // Magnitudes spanning a 6-decimal stablecoin unit through an 18-decimal
-    // token's whole supply, at RAY scale, plus the degenerate small values.
+    // The magnitudes range from a 6-decimal stablecoin unit to the whole supply of
+    // an 18-decimal token, at RAY scale. They also include the degenerate small
+    // values.
     let magnitudes = [
         1i128,
         2,
@@ -85,7 +86,7 @@ fn split_conserves_shares_across_the_decimal_range() {
     let fee_rates = [0u32, 1, 7, 100, 500, 2_500, 9_999];
 
     for seized in magnitudes {
-        // The bonus base is bounded by the seizure; walk its whole range.
+        // The seizure bounds the bonus base. Walk the whole range.
         for bonus in [0, 1, seized / 3, seized / 2, seized - 1, seized] {
             if bonus < 0 || bonus > seized {
                 continue;
@@ -108,13 +109,13 @@ fn split_conserves_shares_across_the_decimal_range() {
 fn one_scaled_unit_seizure_conserves() {
     let env = Env::default();
     // The smallest seizure. Any rate above zero rounds the fee up to the single
-    // unit, which leaves the liquidator nothing and still conserves.
+    // unit. The liquidator gets nothing, and the split still conserves.
     let (fee, liquidator) = split(&env, 1, 1, 1);
     assert_eq!((fee, liquidator), (1, 0));
     assert_eq!(fee + liquidator, 1);
 
-    // With no bonus realised there is no fee base at all, so the unit is the
-    // liquidator's.
+    // With no bonus realised, there is no fee base, so the unit goes to the
+    // liquidator.
     let (fee, liquidator) = split(&env, 1, 0, 9_999);
     assert_eq!((fee, liquidator), (0, 1));
     assert_eq!(fee + liquidator, 1);
@@ -123,11 +124,12 @@ fn one_scaled_unit_seizure_conserves() {
 #[test]
 fn fee_rounds_up_not_half_up() {
     let env = Env::default();
-    // 10_000 units of bonus at 1 bps is exactly 1; at 1 bps on 10_001 it is
-    // 1.0001, which must become 2, not 1.
+    // 10_000 units of bonus at 1 bps is exactly 1. At 1 bps on 10_001 the fee is
+    // 1.0001, and it must round to 2, not 1.
     assert_eq!(split(&env, 1_000_000, 10_000, 1).0, 1);
     assert_eq!(split(&env, 1_000_000, 10_001, 1).0, 2);
-    // Well below the half-way point, where half-up would have floored to zero.
+    // This value is well below the half-way point, where half-up rounding would
+    // have floored the fee to zero.
     assert_eq!(split(&env, 1_000_000, 1, 1).0, 1);
 }
 
@@ -143,7 +145,7 @@ fn zero_fee_rate_gives_the_liquidator_the_whole_seizure() {
 fn zero_bonus_gives_the_liquidator_the_whole_seizure() {
     let env = Env::default();
     // A seizure clamped at or below the repayment share realises no excess, so
-    // there is nothing for the protocol to take a cut of.
+    // the protocol has nothing to take a cut of.
     let (fee, liquidator) = split(&env, 5 * RAY, 0, 9_999);
     assert_eq!(fee, 0);
     assert_eq!(liquidator, 5 * RAY);
@@ -174,8 +176,8 @@ fn split_rejects_a_fee_rate_at_or_above_one_hundred_percent() {
     let env = Env::default();
     let contract = env.register(crate::Controller, (Address::generate(&env),));
     env.as_contract(&contract, || {
-        // `validate_liquidation_fees` rejects BPS at configuration time; the
-        // split re-checks because the rate is read from a stamped position.
+        // `validate_liquidation_fees` rejects BPS at configuration time. The split
+        // checks again because it reads the rate from a stamped position.
         split(&env, RAY, RAY, BPS as u32);
     });
 }
@@ -185,7 +187,7 @@ fn split_rejects_a_fee_rate_at_or_above_one_hundred_percent() {
 #[test]
 fn under_delivery_scaling_keeps_the_bonus_bounded_and_the_split_exact() {
     let env = Env::default();
-    // A debt token that delivered 37% of what was sent.
+    // The debt token delivered 37% of the amount sent.
     let received = Wad::from(37 * WAD);
     let planned = Wad::from(100 * WAD);
 
@@ -203,8 +205,8 @@ fn under_delivery_scaling_keeps_the_bonus_bounded_and_the_split_exact() {
             out.bonus_scaled <= out.scaled_amount,
             "scaling must not lift the fee base above the seizure"
         );
-        // The split is re-derived after scaling, so conservation holds against
-        // the *scaled* total rather than being carried across the scaling step.
+        // The split is derived again after scaling. Conservation therefore holds
+        // against the *scaled* total and is not carried across the scaling step.
         let (fee, liquidator) = split(&env, out.scaled_amount, out.bonus_scaled, fees);
         assert_eq!(fee + liquidator, out.scaled_amount);
         assert!(
@@ -258,7 +260,7 @@ fn seize_fixture(env: &Env, scaled_amount: i128, fees_bps: u32) -> (Address, Hub
 }
 
 /// Runs the seizure planner against a single-collateral account whose market sits at
-/// `supply_index`, so the asset-value-to-share conversion is exercised at a non-unit index.
+/// `supply_index`. The asset-value-to-share conversion then runs at a non-unit index.
 fn run_seizure(
     env: &Env,
     scaled_amount: i128,
@@ -299,11 +301,11 @@ fn run_seizure(
 #[test]
 fn a_full_close_moves_the_entire_scaled_position_with_no_rounding() {
     let env = Env::default();
-    // A supply index well away from 1.0, so a scaled -> asset -> scaled round
-    // trip would visibly lose or invent shares.
+    // The supply index is well away from 1.0. A scaled-to-asset-to-scaled round
+    // trip would then visibly lose or invent shares.
     let supply_index = RAY + RAY / 3;
     let scaled = 10_000 * RAY;
-    // Ask to seize far more value than the account holds, forcing the clamp.
+    // Ask to seize far more value than the account holds. This forces the clamp.
     let (entries, position_scaled) = run_seizure(
         &env,
         scaled,
@@ -354,8 +356,8 @@ fn a_partial_seizure_never_credits_more_shares_than_the_position_holds() {
 #[test]
 fn the_planner_stamps_the_seized_positions_own_fee_rate() {
     let env = Env::default();
-    // Carrying the rate on the entry is what lets every site re-derive the same
-    // split without reading account state again.
+    // The rate on the entry lets every call site derive the same split without
+    // reading account state again.
     let (entries, _) = run_seizure(&env, 10_000 * RAY, RAY, 750, 100 * WAD, 500, 10_000 * WAD);
     assert_eq!(entries.get(0).unwrap().liquidation_fees, 750);
 }

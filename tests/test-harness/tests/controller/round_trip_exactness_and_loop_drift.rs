@@ -1,4 +1,4 @@
-//! GH-01. The directed-rounding policy end to end: a user never takes out more
+//! GH-01. The directed-rounding policy end to end. A user never takes out more
 //! than the deposit plus accrued interest, at any index, after any number of
 //! repetitions.
 

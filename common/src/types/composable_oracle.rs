@@ -84,7 +84,7 @@ impl ProviderRef {
 
     /// Returns true if the reference uses multi-observation (non-spot) sampling
     /// rather than a spot price. Reflector references are smoothed when their
-    /// read mode is `Twap` (equal-weight mean of records); RedStone and Xoxno
+    /// read mode is `Twap` (equal-weight mean of records). RedStone, Xoxno,
     /// and Chainlink references are never smoothed.
     fn is_smoothed(&self) -> bool {
         match self {
@@ -134,8 +134,8 @@ pub struct ScaledSource {
 }
 
 /// Configuration for pricing an Aquarius liquidity-pool share token from its two underlying
-/// reserves. `key_a`/`key_b` resolve the prices of `token_a`/`token_b`, and
-/// `reserve_a_decimals`/`reserve_b_decimals` give each reserve's token decimals. A pool
+/// reserves. `key_a` and `key_b` resolve the prices of `token_a` and `token_b`, and
+/// `reserve_a_decimals` and `reserve_b_decimals` give each reserve's token decimals. A pool
 /// whose computed value falls below `min_pool_value_wad` is treated as unpriceable.
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -154,8 +154,8 @@ pub struct AquariusLpSource {
     pub min_pool_value_wad: i128,
 }
 
-/// Plain Curve LP valuation. Governance pins the reviewed pool executable;
-/// every ordered coin must have its own registered `PriceKey::Token` oracle.
+/// Plain Curve LP valuation. Governance pins the reviewed pool executable.
+/// Every ordered coin must have its own registered `PriceKey::Token` oracle.
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CurveStableLpSource {
@@ -165,7 +165,7 @@ pub struct CurveStableLpSource {
     pub min_pool_value_wad: i128,
 }
 
-/// Structural resource ceiling; each pool executable still requires governance review.
+/// Structural resource ceiling. Each pool executable still requires governance review.
 pub const MAX_CURVE_COINS: u32 = 3;
 
 /// One input used to price an asset: a direct feed, a factor-scaled feed, or an LP

@@ -1,11 +1,11 @@
-# Zero-state teardown. Runs last in a lane: drains the DeFindex strategy when
-# one exists, repays every live account's debts from the owner wallet (topped
-# up by ADMIN when short), withdraws every position, claims all pool revenue,
-# then asserts on chain:
+# Zero-state teardown. This flow runs last in a lane. It drains the DeFindex
+# strategy when one exists, repays every live account's debts from the owner
+# wallet (topped up by ADMIN when short), withdraws every position, and claims
+# all pool revenue. It then asserts on chain:
 #
 #   - position NFT total_supply == 0 (every emptied account was burned)
-#   - per market: pool borrowed, supplied and revenue at most accounting dust
-#   - pool + controller token balances at most rounding dust
+#   - per market: pool borrowed, supplied, and revenue at most accounting dust
+#   - pool and controller token balances at most rounding dust
 #
 # Each market then records its residue: the value the protocol still holds
 # after every participant leaves.
@@ -34,8 +34,8 @@ _td_wallet_alias() {
     return 1
 }
 
-# Prints the asset code when `sac` is a harness-issued mock (state SAC_<code>),
-# which makes it mintable by ADMIN for repay shortfalls.
+# Prints the asset code when `sac` is a harness-issued mock (state SAC_<code>).
+# ADMIN can mint such a mock for repay shortfalls.
 _td_mock_code_for() {
     local sac="$1" v
     for v in $(compgen -A variable | grep '^SAC_'); do
@@ -44,7 +44,7 @@ _td_mock_code_for() {
     return 1
 }
 
-# Ensures `owner` holds `pay` of `sac`: ADMIN mints a mock asset, and sends a
+# Ensures `owner` holds `pay` of `sac`. ADMIN mints a mock asset, and sends a
 # classic asset other than XLM from its own balance (trustline first). A
 # borrower whose proceeds went to a receiver or a swap never held the debt
 # asset, so the repay transfer would otherwise fail.
@@ -63,7 +63,7 @@ _td_ensure_funds() {
     need=$(raw_add "$(raw_sub "$pay" "$bal")" 1000) || return 1
     local line
     line=$(classic_line "$sac")
-    # ADMIN can be short (flash-lane receiver funding drains it): buy the
+    # ADMIN can be short (flash-lane receiver funding drains it). Buy the
     # asset with XLM through the aggregator first.
     local admin_bal
     admin_bal=$(balance "$sac" "$ADMIN_ADDR") || return 1
@@ -104,7 +104,7 @@ _td_repay_account() {
             --account_id "$id" --hub_asset "$(hub_key "$hub" "$sac")")
         [[ "$debt" =~ ^[0-9]+$ ]] || { _assert_fail "td_debt_$id" "unreadable debt"; return 1; }
         [ "$debt" != 0 ] || continue
-        # Interest accrues between the read and the transaction; the
+        # Interest accrues between the read and the transaction. The
         # pool refunds any excess, so the buffer costs nothing.
         pay=$(python3 -c 'import sys; d=int(sys.argv[1]); print(d+d//50+100)' "$debt") || return 1
         _td_ensure_funds "$id" "$alias" "$owner" "$sac" "$pay"
@@ -116,7 +116,7 @@ _td_repay_account() {
     done
 }
 
-# Pass 2: withdraw every position of `id` with `WITHDRAW_ALL`; the controller
+# Pass 2: withdraw every position of `id` with `WITHDRAW_ALL`. The controller
 # burns the account once its last position is gone.
 _td_withdraw_account() {
     local id="$1"
@@ -126,7 +126,7 @@ _td_withdraw_account() {
     owner=$(view "td_owner2_$id" "$POSITION_NFT" -- owner_of --token_id "$id" | tr -d '"') || return 1
     alias=$(_td_wallet_alias "$owner") || return 0
     pos=$(view "td_positions2_$id" "$CONTROLLER" -- get_account_positions --account_id "$id") || return 1
-    # The supported account limit is five positions; never split/retry a failed submission.
+    # The supported account limit is five positions. Never split or retry a failed submission.
     withdrawals=$(jq -ec --arg all "$WITHDRAW_ALL" '.[0] | keys | if length <= 5 then map([fromjson, $all]) else error("too many positions") end' <<<"$pos") || {
         _assert_fail "td_positions_$id" "invalid withdrawal positions or more than five assets"
         return 1
@@ -215,7 +215,7 @@ flow_teardown() {
     phase teardown
     require_var MARKETS
     require_var POSITION_NFT
-    # Financial failures remain sticky; cleanup still runs afterward.
+    # Financial failures remain sticky. Cleanup still runs afterward.
     snapshot_before_cleanup || _assert_fail pre_cleanup_snapshot "incomplete pre-cleanup snapshot"
 
     # The DeFindex strategy owns its controller account, so only the
@@ -245,7 +245,7 @@ flow_teardown() {
     for id in ${ids[@]+"${ids[@]}"}; do _td_repay_account "$id"; done
     for id in ${ids[@]+"${ids[@]}"}; do _td_withdraw_account "$id"; done
 
-    # Revenue last: with borrowed at zero nothing accrues after the claim, so
+    # Revenue goes last. With borrowed at zero nothing accrues after the claim, so
     # the post-claim zero read is stable.
     local m hub sac rev
     for m in $MARKETS; do
@@ -258,8 +258,8 @@ flow_teardown() {
         fi
     done
 
-    # The zero-state proof, then the residue report: what the protocol still
-    # holds per market after every participant has left.
+    # Run the zero-state proof, then the residue report. The report lists what the
+    # protocol still holds per market after every participant has left.
     assert_view_eq_at "$POSITION_NFT" td_nft_zero 0 total_supply
     group_begin td_residue 8 reads || return 1
     for m in $MARKETS; do group_spawn td_residue_job "${m%%:*}" "${m##*:}"; done

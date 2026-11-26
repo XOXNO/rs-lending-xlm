@@ -1,25 +1,26 @@
 ## Summary
 
-One paragraph: what changed and why, citing modules or entrypoints (e.g.
-"controller withdraw restamp", "pool interest index floor").
+Write one paragraph that states what changed and why. Cite modules or
+entrypoints, for example "controller withdraw restamp" or "pool interest index
+floor".
 
-## Risk Surface
+## Risk areas
 
 **Areas touched (check and explain each):**
-- [ ] Storage layout, keys, TTL/renewal, per-side maps (`SupplyPositions`/`BorrowPositions`), `HubAssetKey` or `PoolKey`
-- [ ] Oracle config, price resolution, tolerance, providers (Reflector/RedStone/Xoxno/Aquarius), sanity/staleness, or call-site policy
-- [ ] Risk params, LTV/liquidation curves, caps, position limits, min-borrow-collateral, or spoke overrides
-- [ ] Authorization, delegates, position managers, pause/freeze matrix, or governance/timelock/roles/upgrade
-- [ ] Flash-loan or strategy reentrancy, callback surfaces, or balance-delta validation
+- [ ] Storage layout, keys, TTL or renewal, per-side maps (`SupplyPositions`/`BorrowPositions`), `HubAssetKey` or `PoolKey`
+- [ ] Oracle config, price resolution, tolerance, providers (Reflector, RedStone, Xoxno, or Aquarius), sanity or staleness checks, or call-site policy
+- [ ] Risk params, LTV or liquidation curves, caps, position limits, min-borrow-collateral, or spoke overrides
+- [ ] Authorization, delegates, position managers, pause and freeze matrix, or governance, timelock, roles, or upgrade
+- [ ] Flash-loan or strategy reentrancy, callbacks, or balance-delta validation
 - [ ] Pool accounting, cash, interest split, revenue, bad-debt socialization, or reserves
-- [ ] Controller–pool–governance boundaries or `HubAssetKey` isolation
-- [ ] Common math/rates/types, events (stable ABI), or interface/ABI changes
-- [ ] WASM size, Soroban footprint (reads/writes/entries), compute or resources (`make wasm-size-check`)
+- [ ] Controller, pool, and governance boundaries or `HubAssetKey` isolation
+- [ ] Common math, rates, types, events (stable ABI), or interface or ABI changes
+- [ ] WASM size, Soroban footprint (reads, writes, and entries), compute or resources (`make wasm-size-check`)
 - [ ] Other (describe):
 
-- Affected contracts/modules:
+- Affected contracts or modules:
 - Affected invariants (cite file:function or test):
-- Impact (solvency, oracle, liquidation, flash-loan, storage, …):
+- Impact (for example solvency, oracle, liquidation, flash-loan, or storage):
 
 See [CONTRIBUTING.md](../CONTRIBUTING.md), the contract README and rustdoc, and
 the [invariants](../docs/reference/invariants.md).
@@ -31,19 +32,19 @@ the [invariants](../docs/reference/invariants.md).
 - [ ] `make clippy`
 - [ ] `make build`, then `make test` (whole workspace)
 - [ ] `make wasm-size-check`
-- [ ] `make docs-check` / `make access-control-check`
+- [ ] `make docs-check` and `make access-control-check`
 
-**Protocol-sensitive changes — list what ran, with key results:**
-- Certora profile(s) / rules (see `certora/profiles.json` and `certora/*/spec/README.*`):
-- Fuzz target(s) + duration (`make fuzz` / `make fuzz-contract`):
-- Proptest / mutants / other (Scout, miri, harness tests):
+**Protocol-sensitive changes. List what ran, with key results:**
+- Certora profiles and rules (see `certora/profiles.json` and `certora/*/spec/README.*`):
+- Fuzz targets and duration (`make fuzz` / `make fuzz-contract`):
+- Proptest, mutants, or other checks (Scout, miri, harness tests):
 
-Run against the exact tree in this PR.
+Run the checks against the exact tree in this pull request.
 
-## Operations & Downstream
+## Operations and downstream
 
 - Deployment, WASM upgrade, or migration required:
-- Config, role, cap, oracle, spoke or governance follow-up (incl. timelock proposals):
+- Config, role, cap, oracle, spoke, or governance follow-up (including timelock proposals):
 - Keeper, indexer, configs, or off-chain impact (TTL, events, feeds):
 - Breaking changes for users, liquidators, strategies, or integrators:
 

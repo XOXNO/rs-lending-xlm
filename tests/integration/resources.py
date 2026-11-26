@@ -36,7 +36,7 @@ def check(limits, data, receipt):
         for resource, field in [('disk_read_bytes','txMaxDiskReadBytes'),('write_bytes','txMaxWriteBytes'),('read_entries','txMaxDiskReadEntries'),('write_entries','txMaxWriteLedgerEntries'),('tx_bytes','txMaxSizeBytes'),('event_bytes','txMaxContractEventsSizeBytes')]:
             assert 0 <= usage[resource] <= int(cap[field]), f'{name}: {resource} exceeds {field}'
     # Successful execution proves the testnet hard memory cap. If mainnet's
-    # cap is lower, that evidence is insufficient: require another measurement.
+    # cap is lower, that evidence is insufficient. Require another measurement.
     assert int(limits['testnet']['limits']['txMemoryLimit']) <= int(limits['mainnet']['limits']['txMemoryLimit']), 'mainnet memory proof unavailable'
     return usage
 

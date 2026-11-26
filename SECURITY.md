@@ -16,14 +16,14 @@ discussion, or social-media post. Use one of these channels:
   [PGP key](.github/security-pgp-key.asc), fingerprint
   `E6CD 3011 03A0 CF06 96C4 57F5 35F6 978D 1310 C877`.
 
-Include:
+Include these items in the report:
 
-- the issue and its practical impact;
-- a minimal reproduction or proof of concept;
-- the affected revision or release, ideally a commit SHA;
-- the environment, network, and contract addresses where applicable;
-- observed and expected behavior, and any assumptions needed to trigger it;
-- whether any part of the issue is already public.
+- The issue and its practical impact.
+- A minimal reproduction or proof of concept.
+- The affected revision or release, ideally a commit SHA.
+- The environment, network, and contract addresses where applicable.
+- Observed and expected behavior, and any assumptions needed to trigger it.
+- Whether any part of the issue is already public.
 
 Do not access, modify, or disclose another person's data. Stop once you have
 enough evidence to show impact.
@@ -42,7 +42,7 @@ We may credit reporters in release notes with their consent.
 ## Bug bounty
 
 The [Immunefi program page](https://immunefi.com/bug-bounty/xoxno/information/)
-sets the assets in scope, the reward for each severity and the submission
+sets the assets in scope, the reward for each severity, and the submission
 rules. Where this policy and the program page differ on a bounty question, the
 program page applies.
 
@@ -57,12 +57,12 @@ program page applies.
 
 ### Out of scope
 
-- Vulnerabilities in upstream dependencies or third-party oracle providers;
-  report these to their maintainers.
+- Vulnerabilities in upstream dependencies or third-party oracle providers.
+  Report these to their maintainers.
 - Scenarios that require a compromised governance, operational-role, or keeper
-  key, unless the report demonstrates that the protocol makes that compromise
-  materially worse.
-- Purely theoretical claims without a reproducible security impact.
+  key. These are in scope only when the report demonstrates that the protocol
+  makes the compromise materially worse.
+- Theoretical claims without a reproducible security impact.
 - Test-only contracts, unless the issue affects a production build.
 
 A strong report identifies a concrete deviation from a protocol invariant,
@@ -70,19 +70,19 @@ authorization boundary, accounting rule, price guarantee, or liveness property.
 
 ## Supported versions
 
-Security fixes target the latest tag on main. Mainnet follows that release;
-testnet may run release candidates. If unsure whether a deployment is
+Security fixes target the latest tag on main. Mainnet follows that release.
+Testnet may run release candidates. If you are unsure whether a deployment is
 affected, include its network and contract addresses in the report.
 
 ## Safe harbor
 
 XOXNO will not pursue legal action against good-faith researchers who follow
-this policy and:
+this policy and who:
 
-- report privately;
-- avoid disruption, privacy violations, and data destruction;
-- prefer local or testnet environments for active testing; and
-- do not exploit an issue beyond what is necessary to demonstrate it.
+- Report privately.
+- Avoid disruption, privacy violations, and data destruction.
+- Prefer local or testnet environments for active testing.
+- Do not exploit an issue beyond what is necessary to demonstrate it.
 
 This policy does not authorize activity that violates law, targets third-party
 systems, or places user assets or data at risk.
@@ -93,5 +93,5 @@ systems, or places user assets or data at risk.
 |---|---|---|---|---|
 | Runtime Verification | Core contracts and `common/` | `a2486b25` (`v1.1.0`) | 2026-09-30 to 2026-11-13 | [PDF](audits/2026-11-runtime-verification.pdf) |
 
-An audit covers only the commit in its scope; compare it with the release you
+An audit covers only the commit in its scope. Compare it with the release you
 use.

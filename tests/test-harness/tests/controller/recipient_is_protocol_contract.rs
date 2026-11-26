@@ -1,5 +1,5 @@
 //! GH-17. A borrow or withdraw addressed to the pool or the controller
-//! strands the tokens: the pool debits cash without its balance moving, and
+//! strands the tokens. The pool debits cash without its balance moving, and
 //! the controller holds funds no balance-delta measurement can ever claim.
 //! Both recipients are rejected before any transfer, with the same error the
 //! flash-position receiver check uses.

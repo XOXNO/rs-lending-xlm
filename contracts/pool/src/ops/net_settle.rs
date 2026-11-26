@@ -16,8 +16,8 @@ use crate::{guards, ops};
 
 /// Settles up to `entry.amount` of debt against the user's supply position
 /// on the same market. Burns are sized from the conservative overlap of
-/// floored supply and ceiled debt, so a side closes fully only when that
-/// overlap exhausts it; a positive settle that would burn zero shares on
+/// floored supply and ceiled debt. A side closes fully only when that
+/// overlap exhausts it. A positive settle that would burn zero shares on
 /// either side panics. Returns the residual positions, market indexes, and
 /// settled asset amount, plus a snapshot for the caller to emit.
 pub(crate) fn apply(

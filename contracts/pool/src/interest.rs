@@ -1,8 +1,8 @@
 //! Interest accrual, protocol fee booking, and bad-debt socialization.
 //!
-//! Time is advanced in chunks of at most [`MAX_COMPOUND_DELTA_MS`] so compound
+//! The module advances time in chunks of at most [`MAX_COMPOUND_DELTA_MS`] so compound
 //! interest stays within the fixed-point rate engine's safe domain. Accrual
-//! never overflows on a market value: interest stops at the value ceiling
+//! never overflows a market value, because interest stops at the value ceiling
 //! (INV-IDX-06).
 
 use core::num::NonZeroU64;
@@ -16,12 +16,12 @@ use soroban_sdk::Env;
 use crate::cache::Cache;
 use crate::events;
 
-/// Accrues borrow/supply indexes from `last_timestamp` to the cache's current time.
+/// Accrues borrow and supply indexes from `last_timestamp` to the cache's current time.
 ///
-/// No-op when no time has elapsed. Splits long gaps into max-sized compound
-/// windows, then sets `last_timestamp` to `current_timestamp`. Time advances
-/// also when the market value ceiling holds a window's interest; the call then
-/// emits one `MarketValueCeilingEvent`.
+/// Does nothing when no time has elapsed. Splits long gaps into compound
+/// windows of the maximum size, then sets `last_timestamp` to
+/// `current_timestamp`. Time also advances when the market value ceiling holds
+/// a window's interest. The call then emits one `MarketValueCeilingEvent`.
 pub(crate) fn global_sync(env: &Env, cache: &mut Cache) {
     if !cache.needs_accrual() {
         return;
@@ -68,7 +68,7 @@ fn accrue_chunk(env: &Env, cache: &mut Cache, delta_ms: u64) -> bool {
 /// Converts a RAY fee into floor-rounded scaled supply shares and mints them as revenue.
 ///
 /// Increases both `revenue` and total `supplied` so revenue participates in the
-/// supply index until claimed. No-op for zero fee.
+/// supply index until claimed. Does nothing for a zero fee.
 pub(crate) fn add_protocol_revenue(cache: &mut Cache, fee: Ray) {
     if fee == Ray::ZERO {
         return;
@@ -80,9 +80,10 @@ pub(crate) fn add_protocol_revenue(cache: &mut Cache, fee: Ray) {
 
 /// Socializes `bad_debt` by reducing the supply index (capped at total supply value).
 ///
-/// Used when seizing unpaid debt: remaining supplier claims shrink pro-rata.
-/// No-op when total supplied value is zero. Floors the resulting index at
-/// [`SUPPLY_INDEX_FLOOR_RAW`] to avoid a zero index.
+/// The seize path uses it for unpaid debt. Remaining supplier claims shrink
+/// pro rata. Does nothing when total supplied value is zero. Floors the
+/// resulting index at [`SUPPLY_INDEX_FLOOR_RAW`] so the index never reaches
+/// zero.
 pub(crate) fn apply_bad_debt_to_supply_index(cache: &mut Cache, bad_debt: Ray) {
     let total_supplied_value = cache.supplied().mul(cache.env(), cache.supply_index());
 

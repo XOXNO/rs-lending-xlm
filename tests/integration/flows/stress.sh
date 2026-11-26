@@ -110,9 +110,11 @@ stress_crash_job() {
     dual_px "$(stress_sac "$1")" "$(stress_code "$1")" $((WAD / 10 * 6)) "crash_$(stress_code "$1")"
 }
 
-# Required probes stay inside the supported dimensions; budget failure blocks the gate. A contract error is recorded as `sim-error` and counts, so
-# every probe stays within POSITION_LIMIT_MAX (5). Past it, the probe reverts
-# with #109 PositionLimitExceeded and measures the validator, not the budget.
+# Required probes stay inside the supported dimensions, and budget failure
+# blocks the gate. A contract error is recorded as `sim-error` and counts.
+# Every probe therefore stays within POSITION_LIMIT_MAX (5). Past that limit,
+# the probe reverts with #109 PositionLimitExceeded and measures the validator,
+# not the budget.
 flow_stress_supply_frontier() {
     phase stress_supply_frontier
     local k args i
@@ -222,7 +224,7 @@ local k i args acct var debt_args repay_args
             save_state "$var" "$acct"
         fi
     done
-    # One maximal account: 5 collaterals against 5 debts is the largest
+    # One maximal account holds 5 collaterals against 5 debts. It is the largest
     # liquidation that the position limit (5) allows.
     if [ -z "${LIQF_ACCT_MAX:-}" ]; then
         args=""
@@ -285,7 +287,7 @@ stress_select_oracles() {
 }
 
 # Ten roots resolve through ten reference keys and twenty separate providers.
-# This exercises Scaled composition costs; it does not stand in for LP costs.
+# This exercises Scaled composition costs. It does not stand in for LP costs.
 flow_stress_composed() {
     phase stress_composed
     local i code sac dual quote roots
@@ -294,7 +296,7 @@ flow_stress_composed() {
         code=$(stress_code "$i"); sac=$(stress_sac "$i")
         stress_select_oracles "$i" || return 1
         dual=$(oracle_cfg_mock_dual "$sac" "$code") || return 1
-        # A USD-base Reflector is a bare quote; Ref-scaled factors use RedStone.
+        # A USD-base Reflector is a bare quote. Ref-scaled factors use RedStone.
         quote=$(jq -c '.asset_decimals=0 | .sources=[.sources[0]] | .min_sanity_price_wad="960000000000000000" | .max_sanity_price_wad="1040000000000000000"' <<<"$dual") || return 1
         inv "stress_composed_quote_$code" "$ADMIN" "$PRICE_AGGREGATOR" -- set_oracle \
             --key "{\"Ref\":\"Q$code\"}" --oracle "$quote" >/dev/null || return 1
@@ -324,8 +326,8 @@ stress_composed_restore_job() {
         --key "$(price_key_token "$sac")" --oracle "$dual" >/dev/null
 }
 
-# Prepare once, change the same account using another signer, then submit the
-# stale envelope after three ledgers. No resimulation or submission retry.
+# Prepare once, change the same account with another signer, then submit the
+# stale envelope after three ledgers. The flow does not resimulate or retry the submission.
 flow_stress_delayed() {
     [ -z "${E2E_JOB:-}" ] || { job_refuse flow_stress_delayed stress_delayed_borrow; return 1; }
     phase stress_delayed

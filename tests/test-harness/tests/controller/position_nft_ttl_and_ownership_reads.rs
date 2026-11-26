@@ -22,14 +22,14 @@ use test_harness::{assert_contract_error, errors, usd_cents, LendingTest, ALICE,
 const DAY_LEDGERS: u32 = 17_280;
 const DAY_SECS: u64 = 86_400;
 
-/// OZ `OWNER_EXTEND_AMOUNT` — 30 days.
+/// OZ `OWNER_EXTEND_AMOUNT`, 30 days.
 const OZ_OWNER_WINDOW: u32 = 30 * DAY_LEDGERS;
-/// Protocol `TTL_BUMP_USER` — 120 days.
+/// Protocol `TTL_BUMP_USER`, 120 days.
 const PROTOCOL_USER_WINDOW: u32 = 120 * DAY_LEDGERS;
-/// OZ `OWNER_TTL_THRESHOLD` — 29 days. `owner_of` only extends below this.
+/// OZ `OWNER_TTL_THRESHOLD`, 29 days. `owner_of` only extends below this.
 const OZ_OWNER_THRESHOLD: u32 = 29 * DAY_LEDGERS;
 
-/// Mirror of `stellar_tokens::non_fungible::NFTStorageKey`; keep variant names
+/// Mirror of `stellar_tokens::non_fungible::NFTStorageKey`. Keep variant names
 /// and payload types aligned with the pinned dependency.
 #[contracttype]
 pub enum NftKey {
@@ -106,7 +106,7 @@ fn mint_lifts_owner_entry_to_the_protocol_window() {
 ///
 /// `mint` starts the `Owner` entry on the 120-day protocol window, so `owner_of`
 /// extends nothing until the entry falls under `OZ_OWNER_THRESHOLD`. That decay
-/// takes just over 91 days; 92 clears it with margin. The op is a supply
+/// takes just over 91 days. A wait of 92 days clears it with margin. The op is a supply
 /// because adding collateral cannot fail a health check.
 fn decay_owner_leg_then_touch(t: &mut LendingTest) {
     let id = t.account_id(ALICE);
@@ -151,7 +151,7 @@ fn passive_owner_of_lifts_only_to_the_oz_window() {
         "a resolved owner_of restores the entry to exactly OWNER_EXTEND_AMOUNT"
     );
 
-    // Repeating it does not stack: still 30 days, not 60.
+    // Repeating it does not stack. It stays 30 days, not 60.
     t.supply(ALICE, "USDC", 1.0);
     assert_eq!(
         owner_ttl(&t, id),
@@ -172,7 +172,7 @@ fn passive_owner_of_lifts_only_to_the_oz_window() {
 }
 
 /// INV-STOR-02b: `renew_account` and `position-nft::renew` both lift the
-/// ownership leg to the protocol window. `renew_account` is owner-gated;
+/// ownership leg to the protocol window. `renew_account` is owner-gated.
 /// `position-nft::renew` carries no `require_auth`, so a keeper or liquidation
 /// bot can renew any position.
 #[test]
@@ -190,9 +190,9 @@ fn renew_account_and_permissionless_renew_close_the_ttl_gap() {
         "renew_account must lift the ownership leg to the controller's window"
     );
 
-    // Decay past TTL_THRESHOLD_USER (30 days remaining), the point below which
-    // Soroban's `extend_ttl` stops being a no-op, then have an unrelated third
-    // party top it back up.
+    // Decay past TTL_THRESHOLD_USER (30 days remaining). Below that point,
+    // Soroban's `extend_ttl` stops being a no-op. Then an unrelated third
+    // party tops it back up.
     t.advance_time_no_refresh(91 * DAY_SECS);
     let decayed = owner_ttl(&t, id);
     assert!(
@@ -210,7 +210,7 @@ fn renew_account_and_permissionless_renew_close_the_ttl_gap() {
 
 /// INV-STOR-02d: liquidation is the first ownership read after expiry in the
 /// local recording host, which restores persistent entries on access. This
-/// does not verify transaction preparation, restore funding or an enforcing footprint.
+/// does not verify transaction preparation, restore funding, or an enforcing footprint.
 #[test]
 fn liquidation_resolves_nft_ownership_and_succeeds_after_auto_restore() {
     let mut t = LendingTest::new().standard_two_asset().build();
@@ -224,8 +224,8 @@ fn liquidation_resolves_nft_ownership_and_succeeds_after_auto_restore() {
     // 120 days.
     decay_owner_leg_then_touch(&mut t);
 
-    // Ownership leg on OZ's ceiling, account leg on the protocol's; note the
-    // exact ledger the ownership leg dies at.
+    // The ownership leg sits on OZ's ceiling and the account leg on the protocol's.
+    // Note the exact ledger the ownership leg dies at.
     let owner_dies_at = t.env.ledger().sequence() + owner_ttl(&t, id);
     let meta_dies_at = t.env.ledger().sequence() + meta_ttl(&t, id);
     assert_eq!(owner_ttl(&t, id), OZ_OWNER_WINDOW);
@@ -235,7 +235,7 @@ fn liquidation_resolves_nft_ownership_and_succeeds_after_auto_restore() {
          the whole hazard: owner_dies_at={owner_dies_at} meta_dies_at={meta_dies_at}"
     );
 
-    // Dormant past the ownership leg's death, while the account leg is alive.
+    // The account lies dormant past the ownership leg's death while the account leg is alive.
     t.advance_time(31 * DAY_SECS);
     let seq = t.env.ledger().sequence();
     assert!(
@@ -262,7 +262,7 @@ fn liquidation_resolves_nft_ownership_and_succeeds_after_auto_restore() {
     );
 }
 
-/// A partial liquidation resolves NFT ownership: `process_liquidation` calls
+/// A partial liquidation resolves NFT ownership. `process_liquidation` calls
 /// `storage::get_account`, which reads `owner_of`. With the `Owner` entry
 /// burned and every controller-side account entry intact, the liquidation
 /// fails with `AccountNotFound`.

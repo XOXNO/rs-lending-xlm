@@ -28,8 +28,8 @@ pub(crate) struct RepaymentRequest<'a> {
     pub amount: i128,
 }
 
-/// Borrows to `to` or the authorized owner/delegate, then checks solvency.
-/// Persists supply alongside debt when the check restamps supply LTVs.
+/// Borrows to `to` or the authorized owner or delegate, then checks solvency. Persists supply
+/// alongside debt when the check restamps supply LTVs.
 pub(crate) fn process_borrow(
     env: &Env,
     caller: &Address,
@@ -65,7 +65,7 @@ pub(crate) fn process_borrow(
     finalize_position_flow(env, account_id, &account, &mut cache, sides, false);
 }
 
-/// Repays with the caller's measured transfers; loads and persists debt only.
+/// Repays with the caller's measured transfers. Loads and persists debt only.
 pub(crate) fn process_repay(
     env: &Env,
     caller: &Address,
@@ -161,8 +161,8 @@ fn settle_repay(
     );
 }
 
-/// Merges debt, spoke usage, market index, and event state from a pool result.
-/// Entries may open positions; exits require an existing position.
+/// Merges debt, spoke usage, market index, and event state from a pool result. Entries may open
+/// positions. Exits require an existing position.
 pub(crate) fn merge_debt_leg(
     env: &Env,
     account: &mut Account,
@@ -204,8 +204,8 @@ pub(crate) fn merge_debt_leg(
     account::update_or_remove_debt_position(account, hub_asset, &position);
 }
 
-/// Repays prefunded actions and merges the pool results. The pool refunds
-/// excess to `payer`; returns the mutations.
+/// Repays prefunded actions and merges the pool results. The pool refunds excess to `payer`.
+/// Returns the mutations.
 pub(crate) fn apply_repay_batch(
     env: &Env,
     account: &mut Account,
@@ -230,8 +230,8 @@ pub(crate) fn apply_repay_batch(
     results
 }
 
-/// Repays a resolved debt from funds already received by the pool, enforcing
-/// exit flags. Refunds excess to `refund_to` and returns the merged mutation.
+/// Repays a resolved debt from funds already received by the pool and enforces exit flags. Refunds
+/// excess to `refund_to` and returns the merged mutation.
 pub(crate) fn repay_prefunded_position(
     env: &Env,
     account: &mut Account,

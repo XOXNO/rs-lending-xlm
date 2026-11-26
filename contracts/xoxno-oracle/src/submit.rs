@@ -1,6 +1,6 @@
-//! Signer-facing entry points for submitting prices to the oracle, single
-//! and batched, with the validation chain that gates each submission before
-//! it is stored and the feed's aggregate is recomputed.
+//! Signer-facing entry points that submit prices to the oracle, one at a time
+//! or in a batch. Each submission passes a validation chain before the contract
+//! stores it and recomputes the aggregate of the feed.
 
 use common::ttl::renew_instance;
 
@@ -27,13 +27,14 @@ fn validate_price(price: i128) -> Result<(), Error> {
 
 #[contractimpl]
 impl XoxnoOracle {
-    /// Submits `price` for `feed_id` on behalf of `signer`, requiring
-    /// `signer`'s authorization. Validates that `signer` is registered,
-    /// `feed_id` is known, the price is within bounds, and
-    /// `package_timestamp` (milliseconds) is not in the future, not stale
-    /// (age vs max submission age in seconds), and not older than the
-    /// signer's previous submission for the feed. Stores the submission and
-    /// recomputes the feed's aggregate.
+    /// Submits `price` for `feed_id` on behalf of `signer`. Requires the
+    /// authorization of `signer`. Validates that `signer` is registered,
+    /// `feed_id` is known, and the price is within bounds. Also validates that
+    /// `package_timestamp` (milliseconds) is not in the future, is not stale,
+    /// and is not older than the previous submission of the signer for the
+    /// feed. The staleness check compares the age against the maximum
+    /// submission age in seconds. Stores the submission and recomputes the
+    /// aggregate of the feed.
     pub fn submit_price(
         env: Env,
         signer: Address,
@@ -55,11 +56,11 @@ impl XoxnoOracle {
         Ok(())
     }
 
-    /// Submits `prices` for `feed_ids` on behalf of `signer`, requiring
-    /// `signer`'s authorization and using the same `package_timestamp`
+    /// Submits `prices` for `feed_ids` on behalf of `signer`. Requires the
+    /// authorization of `signer` and uses the same `package_timestamp`
     /// (milliseconds) for every entry. Validates every entry before it stores
-    /// any submission, then stores each submission and recomputes each feed's
-    /// aggregate.
+    /// any submission. Then stores each submission and recomputes the aggregate
+    /// of each feed.
     ///
     /// Returns the first failure in this order: `NotAuthorizedSigner`,
     /// `LengthMismatch`, `FutureTimestamp`, `StaleSubmission` (age), then per

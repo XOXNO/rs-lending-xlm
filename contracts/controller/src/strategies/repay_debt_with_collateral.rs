@@ -24,9 +24,9 @@ pub(crate) struct RepayWithCollateralParams<'a> {
     pub close_position: bool,
 }
 
-/// Repays from collateral: nets same-market balances or withdraws and swaps.
-/// Closing requires all debt cleared before returning collateral to `caller`;
-/// every path ends with the standard risk checks and finalization.
+/// Repays from collateral. The function nets same-market balances, or it withdraws and swaps.
+/// Closing requires all debt cleared before the function returns collateral to `caller`. Every path
+/// ends with the standard risk checks and finalization.
 pub(crate) fn process_repay_debt_with_collateral(
     env: &Env,
     caller: &Address,
@@ -91,8 +91,8 @@ pub(crate) fn process_repay_debt_with_collateral(
     strategy_finalize(env, account_id, &mut account, &mut cache);
 }
 
-/// Confirms debt exists before withdrawing collateral, then swaps and repays
-/// using measured receipts.
+/// Confirms debt exists before it withdraws collateral, then swaps and repays with measured
+/// receipts.
 fn repay_via_collateral_swap(
     env: &Env,
     caller: &Address,

@@ -3,8 +3,8 @@
 //! The Certora rules `timestamp_at_future_skew_boundary_is_allowed` and
 //! `timestamp_beyond_future_skew_reverts` exercise `check_not_future_at`,
 //! which no contract calls. Production uses `is_future_at`, which drops the
-//! leg instead of panicking. These tests cover the boundary on the live path,
-//! and check that a dropped leg fails closed instead of degrading a dual
+//! leg instead of panicking. These tests cover the boundary on the live path.
+//! They also check that a dropped leg fails closed instead of degrading a dual
 //! source to a single leg (INV-ORACLE-02).
 
 use common::oracle::observation::MAX_FUTURE_SKEW_SECONDS;
@@ -33,7 +33,7 @@ fn single_source_usdc(t: &LendingTest, redstone: &Address, feed_id: &String) {
 }
 
 /// A feed stamped at exactly `now + MAX_FUTURE_SKEW_SECONDS` is a valid
-/// observation on the live path. The borrow forces a valuation; a supply alone
+/// observation on the live path. The borrow forces a valuation. A supply alone
 /// does not read a price.
 #[test]
 fn future_skew_boundary_is_accepted_on_the_live_path() {

@@ -285,8 +285,8 @@ fn child_edit_that_drops_a_declared_shared_provider_keeps_the_parent_valid() {
     let parent = scaled_parent(&env, &direct_adapter, &factor_adapter, &quote_key, declared);
     client.set_oracle(&parent_key, &parent);
 
-    // Moving the quote off the shared adapter shrinks the overlap to nothing;
-    // the parent's declaration still covers it.
+    // Moving the quote off the shared adapter shrinks the overlap to nothing. The
+    // parent's declaration still covers it.
     let mut moved_quote = redstone_single(&env, &quote_adapter, "QUOTE", 900);
     moved_quote.asset_decimals = 0;
     client.set_oracle(&quote_key, &moved_quote);
@@ -1196,9 +1196,9 @@ fn hard_price_accepts_the_inclusive_edges_of_the_sanity_band() {
     }
 }
 
-/// The constructor emits the initial owner. `ownable::set_owner` emits no
-/// event and the only other event is `config:asset_oracle`, so an
-/// event-sourced indexer learns the owner only from this one.
+/// The constructor emits the initial owner. `ownable::set_owner` emits no event. The only
+/// other event is `config:asset_oracle`. An event-sourced indexer therefore learns the
+/// owner only from the constructor event.
 #[test]
 fn constructor_emits_owner() {
     use soroban_sdk::xdr::{ContractEventBody, ScSymbol, ScVal};
@@ -1224,8 +1224,8 @@ fn upgrade_reaches_the_host_for_the_owner() {
     env.mock_all_auths();
     let (_owner, client) = register_agg(&env);
 
-    // An unknown hash is the cheapest proof the call got past authorization and
-    // into `update_current_contract`: the host is what rejects it.
+    // An unknown hash is the cheapest proof that the call got past authorization and into
+    // `update_current_contract`. The host rejects the hash there.
     let missing = BytesN::from_array(&env, &[0xA5; 32]);
     assert!(
         client.try_upgrade(&missing).is_err(),
@@ -1233,12 +1233,12 @@ fn upgrade_reaches_the_host_for_the_owner() {
     );
 }
 
-/// Without mocked auths the call fails. An unknown hash and a missing signature
-/// both surface as `Error(Context, InvalidAction)`, so this test cannot tell
-/// the owner guard from the host rejecting the hash. `make access-control-check`
-/// proves the `#[only_owner]` attribute is present, and
-/// `upgrade_price_aggregator_executes_against_the_aggregator` in the governance
-/// tests runs the authorized path against a real uploaded hash.
+/// Without mocked auths the call fails. An unknown hash and a missing signature both
+/// return `Error(Context, InvalidAction)`. This test therefore cannot tell the owner
+/// guard from the host rejecting the hash. `make access-control-check` proves the
+/// `#[only_owner]` attribute is present. The test
+/// `upgrade_price_aggregator_executes_against_the_aggregator` in the governance tests
+/// runs the authorized path against a real uploaded hash.
 #[test]
 fn upgrade_is_rejected_without_owner_authorization() {
     let env = Env::default();
@@ -1265,8 +1265,8 @@ fn set_sanity_band_refuses_each_widened_edge_alone_and_accepts_an_unchanged_edge
     let live = client.oracle(&key).unwrap();
     let (floor, ceiling) = (live.min_sanity_price_wad, live.max_sanity_price_wad);
 
-    // Floor lowered, ceiling tightened: the tightened edge does not offset the
-    // widened one.
+    // The floor is lowered and the ceiling is tightened. The tightened edge does not
+    // offset the widened one.
     assert_eq!(
         client.try_set_sanity_band(&key, &(floor - 1), &(ceiling - 1)),
         Err(Ok(sanity_band_must_tighten())),
@@ -1277,7 +1277,7 @@ fn set_sanity_band_refuses_each_widened_edge_alone_and_accepts_an_unchanged_edge
         Err(Ok(sanity_band_must_tighten())),
         "lowering the floor with the ceiling unchanged"
     );
-    // Ceiling raised, floor tightened.
+    // The ceiling is raised and the floor is tightened.
     assert_eq!(
         client.try_set_sanity_band(&key, &(floor + 1), &(ceiling + 1)),
         Err(Ok(sanity_band_must_tighten())),
@@ -1311,7 +1311,7 @@ fn set_sanity_band_refuses_each_widened_edge_alone_and_accepts_an_unchanged_edge
         (floor + 1, ceiling - 1)
     );
 
-    // The ratchet applies to the stored band: the old floor now widens it.
+    // The narrowing rule applies to the stored band: the old floor now widens it.
     assert_eq!(
         client.try_set_sanity_band(&key, &floor, &(ceiling - 1)),
         Err(Ok(sanity_band_must_tighten()))
@@ -1378,12 +1378,12 @@ fn market_leg_past_its_own_budget_is_stale_under_a_loose_asset_ceiling() {
         },
     );
 
-    // Exactly at the market leg's budget: still priced.
+    // The age is exactly the market leg's budget, so the feed is still priced.
     env.ledger()
         .with_mut(|li| li.timestamp = t0 + MARKET_BUDGET);
     assert_eq!(hard_price(&env, &client, key.clone()).price_wad, WAD);
 
-    // One second past the market budget; still inside the asset ceiling.
+    // The age is one second past the market budget. It is still inside the asset ceiling.
     env.ledger()
         .with_mut(|li| li.timestamp = t0 + MARKET_BUDGET + 1);
     let status = soft_quote(&env, &client, key.clone());
@@ -1405,10 +1405,10 @@ fn market_leg_past_its_own_budget_is_stale_under_a_loose_asset_ceiling() {
     assert_eq!(hard_price(&env, &client, key).price_wad, WAD);
 }
 
-/// A two-leg oracle whose legs share provider `x` is exempt from the 10%
-/// single-source band cap, because its legs trust {x, y} and {x}: the sets
-/// differ. `x` alone then moves both legs together and the accepted price
-/// with them. The underlying's price, from `y`, does not move.
+/// A two-leg oracle whose legs share provider `x` is exempt from the 10% single-source
+/// band cap, because its legs trust {x, y} and {x}. The sets differ. `x` alone then moves
+/// both legs together and the accepted price with them. The underlying's price, from `y`,
+/// does not move.
 #[test]
 fn shared_provider_oracle_escapes_the_single_source_band_cap() {
     let env = Env::default();

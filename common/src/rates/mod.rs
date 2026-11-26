@@ -1,5 +1,5 @@
 //! Interest-rate curve, compounding, index-update, and unit-scaling
-//! primitives used to accrue and account for pool interest.
+//! functions used to accrue and account for pool interest.
 
 #[cfg(test)]
 #[path = "../../tests/rates/support.rs"]

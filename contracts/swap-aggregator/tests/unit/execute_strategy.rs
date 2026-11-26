@@ -535,7 +535,7 @@ fn a_program_with_no_instructions_is_rejected() {
     );
 }
 
-/// Split weights need not sum to 1e6: the residual guard rejects unrouted input
+/// Split weights need not sum to 1e6. The residual guard rejects unrouted input
 /// above its allowance.
 #[test]
 fn an_under_routed_split_leaves_funds_behind_and_reverts() {
@@ -572,7 +572,7 @@ fn an_under_routed_split_leaves_funds_behind_and_reverts() {
     );
 }
 
-/// An unrouted remainder of exactly the residual allowance passes; one raw unit
+/// An unrouted remainder of exactly the residual allowance passes. One raw unit
 /// more reverts with `ExcessiveResidual`. An input of 1_000_000 sets the
 /// allowance to the 1_000 dust floor and makes one weight ppm equal one raw unit.
 #[test]

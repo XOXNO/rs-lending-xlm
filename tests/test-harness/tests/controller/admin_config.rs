@@ -217,7 +217,7 @@ fn test_upgrade_pool_params_accepts_max_borrow_rate_at_cap() {
     );
 
     let _ = rate_before;
-    // The at-cap model is accepted and stored: at zero utilization the borrow
+    // The at-cap model is accepted and stored. At zero utilization the borrow
     // rate equals the new base rate (RAY / 100, 1%).
     let rate_after = t.pool_borrow_rate("USDC");
     assert!(

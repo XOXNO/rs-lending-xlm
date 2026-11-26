@@ -159,7 +159,7 @@ fn reserved_fee_balance_does_not_walk_the_referral_space() {
     // Measured: about 3k CPU per referral with the counter (the ledger map holds
     // more entries) and about 62k with a per-referral walk. The 10k threshold
     // sits between the two. If an SDK bump pushes the counter figure past it,
-    // re-measure both and keep the threshold between them; do not only raise it.
+    // re-measure both and keep the threshold between them. Do not only raise it.
     assert!(
         per_referral < 10_000,
         "sweep cost must not scale with the referral counter \
@@ -250,8 +250,8 @@ fn reserved_total_matches_bucket_sum() {
         .map(|_| router.add_referral(&Address::generate(&env), &100, &None))
         .collect();
 
-    // Three 1_000-unit swaps each way: 2% combined fee off the input side, the
-    // remaining 980 swapped 1:1 by the mock.
+    // Three 1_000-unit swaps each way. The 2% combined fee comes off the input side, and the
+    // mock swaps the remaining 980 at 1:1.
     sac_a.mint(&sender, &3_000);
     sac_b.mint(&sender, &3_000);
     sac_a.mint(&pool, &3_000);

@@ -1,7 +1,7 @@
 //! Invocation-local token ledger for one `execute_strategy` call.
 //!
 //! Tracks spendable balances and lifetime credits (deposits only). Credits
-//! drive residual allowance; withdrawals do not reduce credited amounts.
+//! drive the residual allowance. Withdrawals do not reduce credited amounts.
 
 use soroban_sdk::{panic_with_error, Address, Env, Map, Vec};
 
@@ -11,7 +11,7 @@ use crate::errors::Error;
 pub(crate) struct Vault<'a> {
     env: &'a Env,
     balances: Map<Address, i128>,
-    /// Cumulative deposits per token (never decreased by withdraw).
+    /// Cumulative deposits per token. A withdraw never decreases them.
     credited: Map<Address, i128>,
 }
 
@@ -30,7 +30,7 @@ impl<'a> Vault<'a> {
         self.balances.get(token.clone()).unwrap_or(0)
     }
 
-    /// Returns the tokens with a tracked balance entry; the balance itself may be zero.
+    /// Returns the tokens with a tracked balance entry. The balance of an entry may be zero.
     pub fn tokens(&self) -> Vec<Address> {
         self.balances.keys()
     }

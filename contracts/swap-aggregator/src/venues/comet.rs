@@ -1,13 +1,13 @@
-//! Comet DEX hop: approve → `swap_exact_amount_in` or `_out` → clear allowance.
+//! Comet DEX hop: approve, call `swap_exact_amount_in` or `_out`, then clear the allowance.
 
 use soroban_sdk::{token, vec, Env, IntoVal, Symbol, Val, Vec};
 
 use crate::venues::{authorize_token_approve, HopContext};
 
-/// Executes an exact-in swap against a Comet pool: approves the router's input-token allowance to
-/// the pool, invokes `swap_exact_amount_in` with invoker auth for the pool's nested `approve`,
-/// then clears the allowance. [`crate::venues::dispatch_hop`] measures the fill and checks
-/// that it is positive. [`exact_output`] does the same with `swap_exact_amount_out`.
+/// Executes an exact-in swap against a Comet pool. The function approves the router's input-token
+/// allowance to the pool. It then invokes `swap_exact_amount_in` with invoker auth for the pool's
+/// nested `approve` and clears the allowance. [`crate::venues::dispatch_hop`] measures the fill
+/// and checks that it is positive. [`exact_output`] does the same with `swap_exact_amount_out`.
 pub(crate) fn swap(ctx: &HopContext<'_>) {
     execute(ctx, "swap_exact_amount_in", 0);
 }

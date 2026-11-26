@@ -238,7 +238,7 @@ fn propose_transfer_controller_ownership_rejects_non_contract_owner() {
     assert_contract_error(mapped, errors::NOT_SMART_CONTRACT);
 }
 
-/// Execution is permissionless: a ready op runs with no authorization recorded
+/// Execution is permissionless. A ready op runs with no authorization recorded
 /// and no role held by the caller.
 #[test]
 fn execution_is_permissionless() {
@@ -262,7 +262,7 @@ fn execution_is_permissionless() {
     let args = soroban_sdk::vec![&t.env, new_limits.into_val(&t.env)];
     let function = Symbol::new(&t.env, SET_POSITION_LIMITS);
 
-    // No authorization is recorded at all: the op still runs.
+    // No authorization is recorded at all. The op still runs.
     t.env.set_auths(&[]);
     gov.execute(&t.controller, &function, &args, &salt(&t.env, 0), &s);
     let stored = read_controller_position_limits(&t);

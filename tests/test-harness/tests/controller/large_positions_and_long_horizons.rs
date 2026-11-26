@@ -1,19 +1,19 @@
-//! GH-06. One billion whole tokens at 3, 7 and 18 decimals, steep stress rate
-//! curves, years of accrual at several utilizations. Every path must clear,
-//! the borrow index must track an `e^(r t)` reference within the Taylor bound,
-//! accrued interest must be fully assigned, and the exit must pay back what
-//! the book says. The last test drives the one limit the domain has: the ray
-//! value of a whale market reaches the value ceiling long before the index
-//! cap. Accrual holds interest there, and every exit keeps working (audit
-//! finding S-04).
+//! GH-06. The tests use one billion whole tokens at 3, 7, and 18 decimals, steep
+//! stress rate curves, and years of accrual at several utilizations. Every path
+//! must clear. The borrow index must track an `e^(r t)` reference within the
+//! Taylor bound. Accrued interest must be fully assigned. The exit must pay back
+//! what the book says. The last test drives the one limit the domain has. The ray
+//! value of a whale market reaches the value ceiling long before the index cap.
+//! Accrual holds interest there, and every exit keeps working (audit finding
+//! S-04).
 //!
-//! Cells are chosen under that ceiling. Utilization is value-based and debt
-//! compounds faster than supply, so an untouched market drifts upward: on the
-//! XLM curve a book left at 50 percent utilization crosses the optimal point
-//! after about ten years and runs away (the reference puts it at x8650 after
-//! twenty). Every cell asserts the reference projection stays under the
-//! ceiling, so a bad cell fails with a message instead of comparing a held
-//! index against an unheld reference.
+//! The cells are chosen under that ceiling. Utilization is value-based, and debt
+//! compounds faster than supply, so an untouched market drifts upward. On the
+//! XLM curve, a book left at 50 percent utilization crosses the optimal point
+//! after about ten years and diverges. The reference puts it at x8650 after
+//! twenty years. Every cell asserts that the reference projection stays under the
+//! ceiling, so a bad cell fails with a message instead of comparing a held index
+//! against an unheld reference.
 
 use common::constants::{MAX_MARKET_ENTRY_RAY, MAX_MARKET_VALUE_RAY};
 use common::math::fp::Ray;
@@ -30,7 +30,8 @@ use test_harness::{
 const YEAR_SECS: u64 = 31_556_926;
 const BILLION: i128 = 1_000_000_000;
 
-/// Steep XLM stress curve: 175 percent max borrow rate, optimal at 75 percent.
+/// Steep XLM stress curve. The max borrow rate is 175 percent, and the optimal
+/// utilization is 75 percent.
 fn xlm_curve() -> MarketParamsPreset {
     MarketParamsPreset {
         max_borrow_rate: RAY * 175 / 100,
@@ -45,7 +46,8 @@ fn xlm_curve() -> MarketParamsPreset {
     }
 }
 
-/// Steep USDC stress curve: 125 percent max borrow rate, optimal at 85 percent.
+/// Steep USDC stress curve. The max borrow rate is 125 percent, and the optimal
+/// utilization is 85 percent.
 fn usdc_curve() -> MarketParamsPreset {
     MarketParamsPreset {
         max_borrow_rate: RAY * 125 / 100,
@@ -156,9 +158,10 @@ fn annual_rate(p: &MarketParamsPreset, util: f64) -> f64 {
     rate.min(p.max_borrow_rate as f64 / ray)
 }
 
-/// Floating-point replay of one-year chunks: utilization, rate, `e^(r t)`,
-/// reward split, revenue shares. Returns the reference borrow index and the
-/// summed per-chunk Taylor tail the contract is allowed to lose.
+/// The helper replays one-year chunks in floating point and computes utilization,
+/// rate, `e^(r t)`, reward split, and revenue shares. It returns the reference
+/// borrow index and the summed per-chunk Taylor tail the contract is allowed to
+/// lose.
 fn reference(p: &MarketParamsPreset, start: &Book, years: u32) -> (f64, f64) {
     let ray = RAY as f64;
     let mut supplied = start.supplied as f64;
@@ -190,8 +193,9 @@ fn reference(p: &MarketParamsPreset, start: &Book, years: u32) -> (f64, f64) {
     (bi, allowed)
 }
 
-/// One cell of the matrix: supply a billion tokens, borrow `util_bps` of it,
-/// accrue `years`, check the index, the conservation law and the exit.
+/// One cell of the matrix. The cell supplies a billion tokens, borrows `util_bps`
+/// of it, accrues `years`, and checks the index, the conservation law, and the
+/// exit.
 fn run_cell(
     name: &'static str,
     decimals: u32,
@@ -223,7 +227,8 @@ fn run_cell(
     }
     let after = book(&t, name);
 
-    // Borrow index against the reference, one-sided: the contract may only under-accrue.
+    // Compare the borrow index against the reference. The check is one-sided because
+    // the contract may only under-accrue.
     let (ref_bi, allowed) = reference(&params, &before, years);
     let projected_debt_whole = (debt / unit) as f64 * ref_bi;
     assert!(
@@ -236,10 +241,10 @@ fn run_cell(
         "{name} u={util_bps} y={years}: contract over-accrued {got_bi} > {ref_bi}"
     );
     let shortfall = (ref_bi - got_bi) / ref_bi;
-    // Twice the tail: the truncated interest also feeds back through the
-    // revenue shares into the next chunk's utilization, and on the steep
-    // segment the curve amplifies that into the next chunk's rate. Measured
-    // excess over one tail is a few percent of the tail.
+    // The bound is twice the tail. The truncated interest also feeds back through
+    // the revenue shares into the next chunk's utilization, and on the steep
+    // segment the curve amplifies that feedback into the next chunk's rate. The
+    // measured excess over one tail is a few percent of the tail.
     assert!(
         shortfall <= 2.0 * allowed + 1e-9,
         "{name} u={util_bps} y={years}: shortfall {shortfall:e} exceeds twice the Taylor bound {allowed:e}"
@@ -248,7 +253,8 @@ fn run_cell(
         "{name} d={decimals} u={util_bps}bps y={years}: index x{got_bi:.4}, reference x{ref_bi:.4}, shortfall {shortfall:e}"
     );
 
-    // Conservation: interest == supplier gain + revenue gain, to a handful of raw ray units per chunk.
+    // Conservation. Interest == supplier gain + revenue gain, to a handful of raw ray
+    // units per chunk.
     let env = &t.env;
     let interest = Ray::from(after.borrowed)
         .mul(env, Ray::from(after.borrow_index))
@@ -278,7 +284,8 @@ fn run_cell(
         assigned.raw()
     );
 
-    // Exit: repay all with one unit of overpayment, then the supplier withdraws all.
+    // Exit. The borrower repays all with one unit of overpayment, and then the
+    // supplier withdraws all.
     if debt > 0 {
         let owed = t.borrow_balance_raw(ALICE, name) + 1;
         t.repay_raw(ALICE, name, owed);
@@ -339,14 +346,15 @@ fn value_ceiling_events(t: &LendingTest) -> usize {
 }
 
 /// Audit finding S-04, inverted. The audit supplied a market to the admitted
-/// cap and let interest run: a market value passed `i128`, the next accrual
-/// panicked with `MathOverflow`, and because every verb accrues first the
-/// market froze. No repay, no withdraw, no liquidation, until a pool upgrade.
+/// cap and let interest run. A market value passed `i128`, and the next accrual
+/// panicked with `MathOverflow`. Because every verb accrues first, the market
+/// froze. It allowed no repay, no withdraw, and no liquidation until a pool
+/// upgrade.
 ///
-/// The same market now reaches the value ceiling and stays live. Accrual
-/// holds interest there and says so in an event; repayment, withdrawal and
-/// liquidation all go through; only new entries are refused, until exits take
-/// the market back under the entry ceiling. The index cap never engages.
+/// The same market now reaches the value ceiling and stays live. Accrual holds
+/// interest there and says so in an event. Repayment, withdrawal, and liquidation
+/// all go through. Only new entries are refused, until exits take the market back
+/// under the entry ceiling. The index cap never engages.
 #[test]
 fn a_market_supplied_at_the_admitted_cap_stays_live_when_interest_reaches_the_value_ceiling() {
     // Collateral at a thousand dollars, so cover for the debt fits under the
@@ -401,7 +409,7 @@ fn a_market_supplied_at_the_admitted_cap_stays_live_when_interest_reaches_the_va
         "the index cap did not engage before the value ceiling"
     );
 
-    // One more year: time advances, the event repeats, nothing accrues.
+    // One more year passes. Time advances, the event repeats, and nothing accrues.
     t.advance_time(YEAR_SECS);
     t.update_indexes_for(&["BIG18"]);
     assert_eq!(value_ceiling_events(&t), 1);
@@ -426,7 +434,7 @@ fn a_market_supplied_at_the_admitted_cap_stays_live_when_interest_reaches_the_va
         wallet_before + 1_000_000 * unit
     );
 
-    // Liquidation: the debt grew eightfold against fixed collateral.
+    // Liquidation. The debt grew eightfold against fixed collateral.
     t.assert_liquidatable(ALICE);
     let debt_before = t.borrow_balance_raw(ALICE, "BIG18");
     let collateral_before = t.supply_balance_raw(ALICE, "COL");
@@ -448,7 +456,7 @@ fn a_market_supplied_at_the_admitted_cap_stays_live_when_interest_reaches_the_va
         errors::MARKET_CEILING_REACHED,
     );
 
-    // Full exit: the borrower repays everything, the supplier leaves whole.
+    // Full exit. The borrower repays everything, and the supplier leaves whole.
     let owed = t.borrow_balance_raw(ALICE, "BIG18") + unit;
     t.repay_raw(ALICE, "BIG18", owed);
     assert_eq!(t.borrow_balance_raw(ALICE, "BIG18"), 0);

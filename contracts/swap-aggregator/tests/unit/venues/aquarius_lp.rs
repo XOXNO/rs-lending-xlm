@@ -517,8 +517,8 @@ fn mint_pre_balances_even_a_wildly_skewed_input() {
         alloc::vec::Vec::new(),
         Some(pool),
         1,
-        // Off-chain optimum for 8B/2B against 100B/100B @ 30 bps (the LP
-        // pool's fee). A nearby wrong guess (e.g. 2_903_518_000) leaves
+        // Off-chain optimum for 8B/2B against 100B/100B at 30 bps (the LP
+        // pool's fee). A nearby wrong guess, such as 2_903_518_000, leaves
         // residual above the allowance and reverts with ExcessiveResidual.
         2_903_506_438,
         true,
@@ -850,7 +850,7 @@ fn burn_routes_every_constituent_through_its_own_path() {
 
     let out = RouterClient::new(&env, &router_addr).execute_strategy(&sender, &1_000, &xdr);
 
-    // 1000 of each constituent, each swapped 1:1 -- not 1000 from one leg alone.
+    // 1000 of each constituent, each swapped 1:1, not 1000 from one leg alone.
     assert_eq!(out, 2_000);
     assert_eq!(token::Client::new(&env, &token_c).balance(&sender), 2_000);
     assert_eq!(token::Client::new(&env, &token_a).balance(&router_addr), 0);
@@ -985,8 +985,8 @@ fn pre_swap_of_the_entire_held_side_clears_the_amount_guard() {
     let env = Env::default();
     env.mock_all_auths();
 
-    // Exactly the 800 token_a held: the guard must let this through. It still
-    // reverts, but on the unbalanced mint downstream -- not as InvalidAmount.
+    // Exactly the 800 token_a held. The guard must let this through. It still
+    // reverts, but on the unbalanced mint downstream, not as InvalidAmount.
     let (router_addr, sender, xdr) = pre_balance_fixture(&env, 800, 1_000_000);
 
     let err = RouterClient::new(&env, &router_addr)
@@ -1120,7 +1120,7 @@ fn referral_zap_in_with_ppm_pre_swap_succeeds() {
     );
 
     // Whatever the deposit refused is dust inside the residual allowance
-    // (`max(credited / 1e6, 1_000)`); anything larger would have reverted.
+    // (`max(credited / 1e6, 1_000)`). Anything larger would have reverted.
     let residual = router.admin_fee_balance(&zap.token_b);
     assert!(
         (0..=1_000).contains(&residual),

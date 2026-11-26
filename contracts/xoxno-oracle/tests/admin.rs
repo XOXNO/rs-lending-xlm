@@ -216,7 +216,7 @@ fn purge_feed_frees_the_asset_for_remapping() {
     client.add_feed(&first, &asset);
     client.purge_feed(&first);
 
-    // Fails with FeedAlreadyMapped if the asset->feed mapping outlived the purge.
+    // Fails with FeedAlreadyMapped if the asset-to-feed mapping outlived the purge.
     client.add_feed(&second, &asset);
 
     assert_eq!(
@@ -440,7 +440,7 @@ fn set_threshold_footprint_does_not_grow_with_feed_count() {
     );
 }
 
-/// Raising the threshold keeps an existing aggregate; `recompute_feeds` applies the new
+/// Raising the threshold keeps an existing aggregate. `recompute_feeds` applies the new
 /// threshold to it.
 #[test]
 fn recompute_feeds_applies_a_raised_threshold_to_an_existing_aggregate() {
@@ -462,7 +462,7 @@ fn recompute_feeds_applies_a_raised_threshold_to_an_existing_aggregate() {
         Some(100u128)
     );
 
-    // Sweeping applies the new threshold: a single submission is below quorum.
+    // Sweeping applies the new threshold. A single submission is below quorum.
     client.recompute_feeds(&vec![&env, feed.clone()]);
     assert_eq!(
         expect_error(client.try_read_price_data_for_feed(&feed)),

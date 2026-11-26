@@ -1,5 +1,5 @@
 //! GH-10. Fifty repetitions of a verb cycle inside one invocation extract
-//! nothing: the runner's wallet never rises, and spoke usage matches both the
+//! nothing. The runner's wallet never rises, and spoke usage matches both the
 //! positions and the pool's shares.
 
 use crate::helpers::{borrow_op, repay_op, supply_op, withdraw_op, Snapshot};
@@ -10,7 +10,7 @@ use test_harness::{LendingTest, BOB};
 const U: i128 = 10_000_000;
 
 fn setup() -> (LendingTest, soroban_sdk::Address) {
-    // No seeded liquidity: its shares have no spoke usage.
+    // No seeded liquidity here, because its shares have no spoke usage.
     let mut t = LendingTest::new()
         .standard_two_asset()
         .with_market_liquidity("USDC", 0.0)

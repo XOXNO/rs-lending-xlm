@@ -1,9 +1,9 @@
 //! Payload construction for tests.
 //!
-//! Tests describe a strategy the way the off-chain router thinks about it —
-//! paths with *absolute* split weights, plus optional LP legs — and this module
+//! Tests describe a strategy the way the off-chain router thinks about it:
+//! paths with *absolute* split weights, plus optional LP legs. This module
 //! lowers that into the packed program the contract decodes. It is the
-//! executable reference for the off-chain encoders; keep it in step with
+//! executable reference for the off-chain encoders. Keep it in step with
 //! `crate::program`.
 
 use alloc::vec::Vec as AllocVec;
@@ -43,7 +43,7 @@ pub(crate) struct SwapPath {
 pub(crate) enum PreSwap {
     /// Deposit straight into the pool with no balancing swap.
     None,
-    /// `amounts[idx]` — an absolute amount.
+    /// `amounts[idx]`, an absolute amount.
     Fixed(i128),
     /// `weights[idx]` parts-per-million of the vault balance of the input token.
     Ppm(u32),
@@ -109,7 +109,7 @@ pub(crate) fn strategy_xdr_with_referral(
 /// Full strategy with optional burn and mint legs.
 ///
 /// `pre_swap_amount > 0` emits an ordinary Aquarius swap against the mint pool
-/// just before the deposit — the contract has no dedicated pre-swap step.
+/// just before the deposit. The contract has no dedicated pre-swap step.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn lp_strategy_xdr(
     env: &Env,
@@ -223,7 +223,7 @@ impl<'a> Builder<'a> {
         self
     }
 
-    /// Record the mint leg; it is emitted last, after every path instruction.
+    /// Record the mint leg. It is emitted last, after every path instruction.
     pub(crate) fn mint(
         mut self,
         pool: Address,
@@ -281,7 +281,7 @@ impl<'a> Builder<'a> {
         self
     }
 
-    /// Emit one path: the head instruction sizes the input, the rest chain.
+    /// Emit one path. The head instruction sizes the input, and the remaining instructions chain.
     fn emit_path(&mut self, path: &SwapPath, head_mode: u8) {
         for (n, hop) in path.hops.iter().enumerate() {
             let idx_a = self.asset(&hop.pool);

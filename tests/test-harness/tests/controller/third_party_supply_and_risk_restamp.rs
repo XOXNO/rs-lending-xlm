@@ -26,8 +26,8 @@ fn stamped_tuple(t: &LendingTest, account: u64) -> (u32, u32, u32) {
 const STALE_TUPLE: (u32, u32, u32) = (8_000, 500, 1_200);
 const TIGHT_TUPLE: (u32, u32, u32) = (7_000, 600, 0);
 
-/// 10_000 USDC against 7_000 USD of ETH, then relisted at `TIGHT_TUPLE`:
-/// health factor at the new threshold 0.7 * 10_000 / 7_000 = 1.0.
+/// 10_000 USDC against 7_000 USD of ETH, then relisted at `TIGHT_TUPLE`.
+/// The health factor at the new threshold is 0.7 * 10_000 / 7_000 = 1.0.
 fn stale_account() -> (LendingTest, u64) {
     let mut t = LendingTest::new().standard_two_asset().build();
     t.supply(BOB, "ETH", 100.0);
@@ -48,7 +48,7 @@ fn a_stranger_cannot_tighten_a_stale_threshold_below_the_update_floor() {
     let account = t.account_id(ALICE);
     assert_eq!(stamped_threshold(&t, account), 8_000);
     // Health factor with the old threshold: 0.8 * 10_000 / 7_000 = 1.14.
-    // Governance tightens to 70 percent: the hypothetical HF would be 1.0, below 1.05.
+    // Governance tightens to 70 percent. The hypothetical HF would be 1.0, below 1.05.
     t.edit_asset_in_spoke("USDC", HARNESS_SPOKE, true, true, 6_500, 7_000, 500);
     t.supply_to(CAROL, account, "USDC", 0.0000001);
     assert_eq!(

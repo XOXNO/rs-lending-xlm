@@ -1,7 +1,7 @@
 //! Mint and burn of scaled supply, debt, and protocol revenue shares.
 //!
-//! Revenue shares are a subset of total supply: minting revenue increases both
-//! `revenue` and `supplied`; burning claimable revenue decreases both.
+//! Revenue shares are a subset of total supply. Minting revenue increases both
+//! `revenue` and `supplied`. Burning claimable revenue decreases both.
 
 use common::errors::GenericError;
 use common::math::fp::Ray;
@@ -16,7 +16,7 @@ impl Cache {
         self.supplied = self.supplied.checked_add(&self.env, scaled);
     }
 
-    /// Burns scaled supply shares, then asserts revenue ≤ total supply.
+    /// Burns scaled supply shares, then asserts that revenue does not exceed total supply.
     pub(crate) fn burn_supply(&mut self, scaled: Ray) {
         self.supplied = self.supplied.checked_sub(&self.env, scaled);
         self.require_revenue_backed();
@@ -40,8 +40,8 @@ impl Cache {
 
     /// Reclassifies existing supply shares as protocol revenue (seize deposit side).
     ///
-    /// Increases `revenue` only; supply total is unchanged. Asserts revenue still
-    /// does not exceed total supply.
+    /// Increases only `revenue`. The supply total is unchanged. Asserts that revenue
+    /// still does not exceed total supply.
     pub(crate) fn absorb_supply_as_revenue(&mut self, scaled: Ray) {
         self.revenue = self.revenue.checked_add(&self.env, scaled);
         self.require_revenue_backed();

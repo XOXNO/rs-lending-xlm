@@ -160,7 +160,7 @@ impl Fixture {
         self.execute(input, amount, &self.payload(hops, floor))
     }
 
-    /// User, router and pool balances of every asset, in [`Self::assets`] order, plus the pool's
+    /// User, router, and pool balances of every asset, in [`Self::assets`] order, plus the pool's
     /// accounting snapshot.
     pub(super) fn state(&self) -> (alloc::vec::Vec<i128>, pool_abi::PoolSnapshot) {
         let balances = self

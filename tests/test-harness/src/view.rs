@@ -295,7 +295,7 @@ impl LendingTest {
     }
 
     /// Returns the account owner through the position NFT's `owner_of`, as the
-    /// controller does; `AccountMeta` stores no owner.
+    /// controller does. `AccountMeta` stores no owner.
     pub fn get_account_owner(&self, account_id: u64) -> soroban_sdk::Address {
         self.nft_owner_of(account_id)
     }
@@ -305,8 +305,8 @@ impl LendingTest {
     /// Cash a market must keep back from every debt mint, in token units.
     ///
     /// Mirrors `pool::guards::require_liquidation_buffer` at the stored supply
-    /// index: floored supply, reserve rounded up. A test that borrows right
-    /// after reading it can draw exactly to the bound.
+    /// index. The supply rounds down and the reserve rounds up. A test that
+    /// borrows right after reading this value can draw exactly to the bound.
     pub fn liquidation_buffer_raw(&self, asset_name: &str) -> i128 {
         let asset = self.resolve_asset(asset_name);
         let sync = self

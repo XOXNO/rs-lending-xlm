@@ -8,8 +8,8 @@ use swap_aggregator_interface::SwapAggregatorClient;
 use crate::payments::balance_delta_since;
 use crate::storage;
 
-/// Swaps through the configured router, guarding its execution against reentry.
-/// Refunds unspent input and returns the controller's measured output receipt.
+/// Swaps through the configured router and guards its execution against reentry. Refunds unspent
+/// input and returns the controller's measured output receipt.
 pub(crate) fn swap_tokens(
     env: &Env,
     refund_to: &Address,
@@ -37,7 +37,7 @@ pub(crate) fn swap_tokens(
         let _ = router.execute_strategy(&controller, &amount_in, swap);
     });
 
-    // Reject input gains or overspending; refund only this swap's unused input.
+    // Reject input gains or overspending. Refund only this swap's unused input.
     let in_after = token_in_client.balance(&controller);
     assert_with_error!(env, in_after <= in_before, StrategyError::RouterOverspend);
     let actual_spent = in_before - in_after;
@@ -54,7 +54,7 @@ pub(crate) fn swap_tokens(
     verify_router_output(env, token_out, out_before)
 }
 
-/// Passes matching assets through only with an empty route; otherwise swaps.
+/// Passes matching assets through only with an empty route. Otherwise the function swaps.
 pub(crate) fn swap_tokens_or_passthrough(
     env: &Env,
     refund_to: &Address,
@@ -71,7 +71,7 @@ pub(crate) fn swap_tokens_or_passthrough(
     }
 }
 
-/// Returns the output balance increase; rejects zero or negative receipts.
+/// Returns the output balance increase. Rejects zero or negative receipts.
 fn verify_router_output(env: &Env, token_out: &Address, balance_before: i128) -> i128 {
     let received = balance_delta_since(
         env,

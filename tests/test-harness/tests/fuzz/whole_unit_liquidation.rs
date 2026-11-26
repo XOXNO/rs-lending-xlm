@@ -2,10 +2,10 @@
 //! documented rules in `docs/reference/formulas.md#bonus-and-target-repayment`.
 //!
 //! One case lists a 0-, 1- or 2-decimal collateral market in its own hub and
-//! spoke, borrows 7-decimal USDC and optionally a 6- or 18-decimal second leg,
+//! spoke. It borrows 7-decimal USDC and optionally a 6- or 18-decimal second leg,
 //! drops the collateral price into an HF band, then liquidates. A settled call
 //! that leaves the account below HF 1 is followed by debt-sized liquidations
-//! of the residue. Tests prefixed `wul_`.
+//! of the residue. The tests use the prefix `wul_`.
 
 use std::cell::RefCell;
 use std::collections::BTreeMap;
@@ -210,7 +210,7 @@ fn record_max(stats: &Stats, key: &str, value: &BigRational) {
 }
 
 /// Returns `(units, unit_cents)`: at least the units whose LTV value clears the
-/// $5 borrow floor with margin; a unit-edge case opens 2 units.
+/// $5 borrow floor with margin. A unit-edge case opens 2 units.
 fn sizing(case: &Case) -> (i128, i128) {
     let ltv = i128::from(case.ltv);
     if matches!(case.band, Band::UnitEdge) {
@@ -526,7 +526,7 @@ impl World {
     /// Prices the two-unit account at `C / D = 1.9`, or HF 0.99 when that is
     /// lower, and liquidates it with a debt-sized offer. Fails the case when
     /// the account stays healthy or the liquidation reverts. Returns whether
-    /// debt remains; the sale then leaves exactly one unit.
+    /// debt remains. The sale then leaves exactly one unit.
     fn sell_to_one_unit(&mut self, case: &Case) -> Result<bool, TestCaseError> {
         let lt = i128::from(case.lt);
         prop_assert!(
@@ -668,8 +668,8 @@ fn mirror_bonus(env: &Env, totals: (i128, i128, i128, i128), listed: i128, curve
     }
 }
 
-/// `floor(U / (1 + b)) - R < D <= ceil((U + m) / (1 + b))`: neither rule 1 nor
-/// rule 2 applies.
+/// Returns true when `floor(U / (1 + b)) - R < D <= ceil((U + m) / (1 + b))`, so
+/// neither rule 1 nor rule 2 applies.
 fn in_margin_band(env: &Env, unit: Wad, bonus_bps: i128, debt: i128, per_leg_unit: i128) -> bool {
     let one_plus_bonus = Wad::ONE.checked_add(env, Bps::from(bonus_bps).to_wad(env));
     let margin = (unit.raw() / 1_000_000).max(1);
@@ -711,10 +711,10 @@ fn refunded(estimate: &LiquidationEstimate, asset: &Address) -> i128 {
 
 /// Runs one liquidation, checks P1-P8 and returns whether the account is
 /// still liquidatable with debt left. P2 and P3 allow `tol`, which is
-/// `price / 2e18 + (1 + b) + 1` raw WAD. P2 allows one more unit on a full close,
-/// and `(1 + b) * R`, with `R` one base unit per repaid leg, when an insolvent
+/// `price / 2e18 + (1 + b) + 1` raw WAD. P2 allows one more unit on a full close.
+/// P2 also allows `(1 + b) * R`, with `R` one base unit per repaid leg, when an insolvent
 /// call pays within `R` of the collateral-backed quote and receives every unit.
-/// P3 bounds a partial plan from the other side: the liquidator pays at most
+/// P3 bounds a partial plan from the other side. The liquidator pays at most
 /// `2 * (1 + b) * R + tol` more than the units it receives are worth.
 fn liquidate_step(
     w: &mut World,
@@ -1236,10 +1236,10 @@ fn prop_whole_unit_liquidation_holds_the_documented_bounds() {
 }
 
 /// Opens 2 whole units of a 0-decimal collateral at $1,000 with LTV = 3/4 of
-/// `lt` and a USDC borrow at 90% of LTV, on the curve target HF 1.1, max-bonus
-/// HF 0.8 and `factor_bps`. It then prices the collateral at the unit edge
-/// `U / (1 + b) = D / (1 + e)`: an even `pick` sets `e = 0` at 5,000,
-/// -0.24 ppm at 4,600 and +3 ppm at 10,000; an odd `pick` first sells one unit.
+/// `lt`. The account has a USDC borrow at 90% of LTV, on the curve target HF
+/// 1.1, max-bonus HF 0.8 and `factor_bps`. It then prices the collateral at the
+/// unit edge `U / (1 + b) = D / (1 + e)`. An even `pick` sets `e = 0` at 5,000,
+/// -0.24 ppm at 4,600 and +3 ppm at 10,000. An odd `pick` first sells one unit.
 fn edge_case(pick: i128, lt: u32, bonus: u32, factor_bps: u32) -> Case {
     Case {
         decimals: 0,
@@ -1292,7 +1292,7 @@ fn step_counts(w: &mut World, offer_bps: i128) -> BTreeMap<String, u64> {
 
 /// `edge_case(5_000, 2_600, 300, 1_500)`: LT 26%, listed bonus 3%, curve
 /// factor 15%, `e = 0`. Two units at `U = $509.79` hold `D = $351.00` at
-/// `b = 45.24%` and `HF = 0.7552`, so `U / (1 + b) = D` and `D` is inside
+/// `b = 45.24%` and `HF = 0.7552`, so `U / (1 + b) = D`. `D` is inside
 /// `floor(U / (1 + b)) - R < D <= ceil((U + m) / (1 + b))`. Offers of 1%, 100%
 /// and 300% of the debt all revert. After one day of accrual, `D` is out of
 /// that band and a debt-sized offer sells one unit.
@@ -1323,7 +1323,7 @@ fn wul_two_units_inside_the_margin_band_refuse_every_offer_until_accrual() {
 }
 
 /// `edge_case(4_600, 2_600, 300, 1_500)`: the same account at `e = -0.24` ppm,
-/// so `floor(U / (1 + b)) >= D + R` with `R = $0.0000001`. Rule 1 applies: a
+/// so `floor(U / (1 + b)) >= D + R` with `R = $0.0000001`. Rule 1 applies. A
 /// debt-sized offer repays the whole `$351.00` debt for one unit.
 #[test]
 fn wul_two_units_above_the_margin_band_close_in_full_for_one_unit() {
@@ -1342,8 +1342,8 @@ fn wul_two_units_above_the_margin_band_close_in_full_for_one_unit() {
 }
 
 /// `edge_case(10_000, 2_600, 300, 1_500)`: the same account at `e = +3` ppm,
-/// so `ceil((U + m) / (1 + b)) < D`. Rule 2 applies: a debt-sized offer sells
-/// one unit, the other unit and some debt stay, and `C / D` does not fall.
+/// so `ceil((U + m) / (1 + b)) < D`. Rule 2 applies. A debt-sized offer sells
+/// one unit. The other unit and some debt stay, and `C / D` does not fall.
 #[test]
 fn wul_two_units_below_the_margin_band_sell_one_unit() {
     unnamed_thread(|| {
@@ -1359,7 +1359,7 @@ fn wul_two_units_below_the_margin_band_sell_one_unit() {
     });
 }
 
-/// `edge_case(5_001, lt, 500, 1_500)` for LT 26%, 60% and 90%: a debt-sized
+/// `edge_case(5_001, lt, 500, 1_500)` for LT 26%, 60% and 90%. A debt-sized
 /// sale at `C / D = 1.9`, or HF 0.99 when lower, leaves one unit, which is
 /// then priced at `e = 0`. That puts `C = U` less than one USDC base unit
 /// above `D` ($124.07, $193.47 and $580.62), so the HF-preserving cap is 0.

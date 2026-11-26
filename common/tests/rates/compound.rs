@@ -54,8 +54,8 @@ fn test_compound_interest_high_x_pins_all_taylor_terms() {
     );
 }
 
-/// Pins Taylor-term wiring against an unrolled expansion at sampled rates/times,
-/// including stress rates; both paths share the Ray primitives.
+/// Checks the Taylor terms against an unrolled expansion at sampled rates and
+/// times, including stress rates. Both paths share the Ray functions.
 #[test]
 fn test_compound_interest_matches_the_unrolled_taylor_expansion() {
     fn unrolled(env: &Env, x: Ray) -> Ray {
@@ -114,7 +114,7 @@ fn test_compound_interest_scaled_exponent_overflow_is_math_overflow() {
 
 /// The documented series, computed exactly: `1 + x + sum(x^k / k!)` for `k`
 /// in `2..=8` with `x = rate * delta_ms`, every power and every term rounded
-/// half up. `None` when a step does not fit `i128`.
+/// half up. It returns `None` when a step does not fit `i128`.
 fn exact_compound(rate: i128, delta_ms: u64) -> Option<i128> {
     if delta_ms == 0 {
         return Some(RAY);
@@ -146,19 +146,19 @@ fn exact_compound_interest_matches_the_rounded_taylor_series() {
     check(0, 1);
     check(0, u64::MAX);
     check(1, 1);
-    // The largest exponent the protocol reaches: the rate cap over one full chunk.
+    // The largest exponent the protocol reaches is the rate cap over one full chunk.
     let capped_rate = half_up_of(MAX_BORROW_RATE_RAY, 1, year).unwrap();
     check(capped_rate, MAX_COMPOUND_DELTA_MS);
 
     let mut sampler = Sampler::new(21);
     for _ in 0..4_000 {
-        // The protocol domain: a per-millisecond rate under the cap, over at
+        // The protocol domain is a per-millisecond rate under the cap, over at
         // most one chunk.
         let rate = half_up_of(sampler.at_most(MAX_BORROW_RATE_RAY), 1, year).unwrap();
         check(rate, sampler.at_most(year) as u64);
     }
     for _ in 0..1_000 {
-        // Exponents up to 64: the eighth power stops fitting `i128` near 25.
+        // Exponents up to 64. The eighth power stops fitting `i128` near 25.
         check(sampler.at_most(64 * RAY), 1);
         // Any rate over any interval is exact or a typed overflow.
         check(

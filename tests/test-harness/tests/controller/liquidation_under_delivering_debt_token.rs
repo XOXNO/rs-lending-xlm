@@ -165,7 +165,7 @@ fn seizure_follows_the_aggregate_received_value_when_one_of_two_debt_legs_under_
     let account_id = t.resolve_account_id(ALICE);
     let liquidator = t.get_or_create_user(LIQUIDATOR);
     let usdc = token::Client::new(&t.env, &t.resolve_asset("USDC"));
-    // 0.5 ETH = $1 000 planned / $900 received; 0.01 WBTC = $600 planned and received.
+    // 0.5 ETH is $1 000 planned and $900 received. 0.01 WBTC is $600 planned and received.
     let (eth_sent, wbtc_sent) = (5_000_000i128, 100_000i128);
     t.resolve_market("ETH")
         .token_admin

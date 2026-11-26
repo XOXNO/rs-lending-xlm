@@ -128,7 +128,7 @@ fn test_mixed_decimal_types_single_account() {
     let hf = t.health_factor(ALICE);
     assert!(hf > 1.5 && hf < 1.7, "HF should be ~1.6, got {}", hf);
 
-    // Checks the exact collateral from the preset prices, so a decimal
+    // The check uses the exact collateral from the preset prices, so a decimal
     // conversion error cannot hide inside a wide window.
     let total_collateral = t.total_collateral(ALICE);
     let expected_collateral = 5_000.0 * 1.0 + 0.083 * 60_000.0 + 33.3 * 150.0;

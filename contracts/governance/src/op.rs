@@ -24,7 +24,7 @@ pub use governance_interface::{
     SpokeAssetArgs, SpokeLiquidationCurveArgs, TransferOwnershipArgs, UpgradePoolParamsArgs,
 };
 
-/// Validates risk bounds, liquidation fees, and supply/borrow caps for a
+/// Validates risk bounds, liquidation fees, and supply and borrow caps for a
 /// spoke-asset add or edit operation. Panics if any of the checks fail.
 fn validate_spoke_asset(env: &Env, args: &SpokeAssetArgs) {
     validate_risk_bounds(env, args.ltv, args.threshold, args.bonus);
@@ -32,9 +32,10 @@ fn validate_spoke_asset(env: &Env, args: &SpokeAssetArgs) {
     validate::asset::validate_spoke_cap_args(env, args.supply_cap, args.borrow_cap);
 }
 
-/// Returns a copy of `oracle` with `asset_decimals` set for `key`: for a
-/// `PriceKey::Token`, the stored oracle's decimals when one exists, otherwise
-/// the on-chain token decimals; `0` for a `PriceKey::Ref`.
+/// Returns a copy of `oracle` with `asset_decimals` set for `key`. For a
+/// `PriceKey::Token`, the value is the stored oracle's decimals when one
+/// exists, otherwise the on-chain token decimals. For a `PriceKey::Ref`, the
+/// value is `0`.
 pub(crate) fn resolve_oracle(env: &Env, key: &PriceKey, oracle: &AssetOracle) -> AssetOracle {
     let mut resolved = oracle.clone();
     resolved.asset_decimals = match key {

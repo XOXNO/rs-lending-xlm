@@ -1,18 +1,18 @@
-//! Spoke usage is a derived total: for every `(spoke, hub asset, side)` it must
+//! Spoke usage is a derived total. For every `(spoke, hub asset, side)` it must
 //! equal the sum of the scaled positions it caps. Every share writer updates it
 //! through the same leg merge, so the invariant holds after each step of a
-//! flow that exercises all of them. The check itself lives in the harness
+//! flow that exercises all of them. The check itself lives in the test harness
 //! (`assert_spoke_usage_matches_positions`) so scenarios can call it anywhere.
 //!
-//! `apply_exit` no-ops on a missing row, so it cannot detect a share writer
+//! `apply_exit` does nothing on a missing row, so it cannot detect a share writer
 //! that skips `apply_leg_usage`. This flow runs every production writer and
 //! catches that skip.
 
 use common::types::SeizeMode;
 use test_harness::{usd_cents, LendingTest, ALICE, BOB, CAROL, DAVE, LIQUIDATOR};
 
-/// Two accounts in the harness spoke plus a third in the stablecoin spoke, so
-/// the per-spoke split is exercised as well as the per-asset one. The dust
+/// The flow uses two accounts in the test-harness spoke and a third in the stablecoin spoke,
+/// so it exercises the per-spoke split as well as the per-asset one. The dust
 /// floor is off so a fourth, tiny account can end the flow inside the
 /// bad-debt gate (collateral at or below `BAD_DEBT_USD_THRESHOLD`).
 fn two_spokes() -> LendingTest {
@@ -47,12 +47,12 @@ fn usage_equals_positions_across_supply_borrow_withdraw_repay_and_both_seize_mod
     t.withdraw_all(CAROL, "USDC");
     t.assert_spoke_usage_matches_positions();
 
-    // Interest accrues; scaled amounts do not move but the check must still
+    // Interest accrues. Scaled amounts do not move, but the check must still
     // hold against the same scaled book.
     t.advance_time(test_harness::days(30));
     t.assert_spoke_usage_matches_positions();
 
-    // Transfer seize burns shares out of the spoke; Credit(0) moves them to a
+    // Transfer seize burns shares out of the spoke. Credit(0) moves them to a
     // fresh account in the same spoke and exits only the protocol fee.
     t.set_price("USDC", usd_cents(50));
     t.assert_liquidatable(ALICE);
@@ -62,7 +62,7 @@ fn usage_equals_positions_across_supply_borrow_withdraw_repay_and_both_seize_mod
     assert!(receiver > 0, "credit mode opens a receiving account");
     t.assert_spoke_usage_matches_positions();
 
-    // Bad-debt cleanup removes both sides of Dave's book: at one cent his
+    // Bad-debt cleanup removes both sides of Dave's book. At one cent his
     // collateral is under the dust threshold and below his debt.
     t.set_price("USDC", usd_cents(1));
     t.clean_bad_debt_for(DAVE);

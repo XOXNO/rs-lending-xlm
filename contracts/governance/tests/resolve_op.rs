@@ -1,4 +1,4 @@
-//! Tests for the `resolve_op` arms, the `resolve_oracle` key variants and the
+//! Tests for the `resolve_op` arms, the `resolve_oracle` key variants, and the
 //! `apply_self_op` rejection path.
 //!
 //! Each resolve case pins the target contract, the function and the delay tier.
@@ -59,7 +59,7 @@ fn deploy_position_nft_resolves_to_controller_with_standard_delay() {
             args.symbol.into_val(&env),
         ]
     );
-    // Standard is safe: the controller reverts with `PositionNftAlreadyDeployed`
+    // Standard is safe because the controller reverts with `PositionNftAlreadyDeployed`
     // once an NFT exists. `UpgradePositionNft` has no such guard and is Sensitive.
     assert_eq!(resolved.delay_tier, DelayTier::Standard);
 }

@@ -1,8 +1,7 @@
-//! Strategy entry points with shared pricing and account finalization.
-//! `legs` handles position operations; `payments` measures receipts and refunds;
-//! `swap` enforces the router boundary. Account strategies refresh LTV and check
-//! post-pool risk before persistence. Flash loans settle entirely in the pool
-//! without opening or mutating an account.
+//! Strategy entry points with shared pricing and account finalization. `legs` handles position
+//! operations. `payments` measures receipts and refunds. `swap` enforces the router boundary.
+//! Account strategies refresh LTV and check post-pool risk before persistence. Flash loans settle
+//! entirely in the pool without opening or mutating an account.
 
 #[cfg(test)]
 #[path = "../../tests/strategies/mod.rs"]
@@ -42,9 +41,8 @@ pub(crate) fn prefetch_strategy_prices(
     cache.fetch_prices(&assets);
 }
 
-/// Refreshes listed collateral LTV, checks solvency, health and collateral floor,
-/// then persists positions and spoke usage, removes an empty account, and emits
-/// the position batch.
+/// Refreshes listed collateral LTV, checks solvency, health, and collateral floor, then persists
+/// positions and spoke usage, removes an empty account, and emits the position batch.
 pub(crate) fn strategy_finalize(
     env: &Env,
     account_id: u64,

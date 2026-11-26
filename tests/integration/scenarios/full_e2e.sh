@@ -58,7 +58,7 @@ run_case flow_liq_credit flow_liq_credit || die flow_liq_credit "required case f
 run_case flow_liq_credit_rejections flow_liq_credit_rejections || die flow_liq_credit_rejections "required case failed"
 run_case flow_clean_bad_debt flow_clean_bad_debt || die flow_clean_bad_debt "required case failed"
 run_case flow_force_socialize_and_recap flow_force_socialize_and_recap || die flow_force_socialize_and_recap "required case failed"
-# Sets no_seize on LIQG for the rest of the run: no later flow may seize LIQG.
+# Sets no_seize on LIQG for the rest of the run. No later flow may seize LIQG.
 run_case flow_spoke_flags_and_curve flow_spoke_flags_and_curve || die flow_spoke_flags_and_curve "required case failed"
 run_case flow_liq_deprecated_spoke_credit flow_liq_deprecated_spoke_credit || die flow_liq_deprecated_spoke_credit "required case failed"
 
@@ -85,7 +85,7 @@ run_case flow_admin_upgrade flow_admin_upgrade || die flow_admin_upgrade "requir
 
 run_case flow_xoxno_oracle flow_xoxno_oracle || die flow_xoxno_oracle "required case failed"
 
-# Runs last: teardown closes every position, so no flow that needs one may
+# Runs last. Teardown closes every position, so no flow that needs one may
 # follow it.
 run_case flow_teardown flow_teardown || die flow_teardown "required case failed"
 

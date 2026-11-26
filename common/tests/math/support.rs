@@ -1,7 +1,7 @@
 //! Exact reference arithmetic for the fixed-point tests.
 //!
-//! [`Wide`] is a 256-bit two's-complement integer: wide enough for the product
-//! of any two `i128` values plus a few `i128` terms. The predicates state each
+//! [`Wide`] is a 256-bit two's-complement integer. It is wide enough for the
+//! product of any two `i128` values plus a few `i128` terms. The predicates state each
 //! rounding rule through its defining inequalities and never divide, so they
 //! share no arithmetic with the code under test.
 
@@ -187,21 +187,21 @@ fn first_true(holds: impl Fn(i128) -> bool) -> i128 {
 }
 
 /// `floor(x * y / d)` for a positive `d`, or `None` when it does not fit
-/// `i128`. Bisects the inequality [`is_floor`] states, so it never divides.
+/// `i128`. It bisects the inequality [`is_floor`] states, so it never divides.
 pub fn floor_of(x: i128, y: i128, d: i128) -> Option<i128> {
     let n = Wide::product(x, y);
     floor_fits(n, d).then(|| first_true(|q| n < Wide::product(q, d) + Wide::from(d)))
 }
 
 /// `ceil(x * y / d)` for a positive `d`, or `None` when it does not fit
-/// `i128`. Bisects the inequality [`is_ceil`] states.
+/// `i128`. It bisects the inequality [`is_ceil`] states.
 pub fn ceil_of(x: i128, y: i128, d: i128) -> Option<i128> {
     let n = Wide::product(x, y);
     ceil_fits(n, d).then(|| first_true(|q| n <= Wide::product(q, d)))
 }
 
 /// `x * y / d` rounded half up, for `x * y >= 0` and a positive `d`, or `None`
-/// when it does not fit `i128`. Bisects the inequality [`is_half_up`] states.
+/// when it does not fit `i128`. It bisects the inequality [`is_half_up`] states.
 pub fn half_up_of(x: i128, y: i128, d: i128) -> Option<i128> {
     let n = Wide::product(x, y);
     let biased = n.doubled() + Wide::from(d);
@@ -217,20 +217,20 @@ pub fn quotient_negative(n: Wide, d: i128) -> bool {
 /// How a decimal downscale rounds.
 #[derive(Clone, Copy, Debug)]
 pub enum Rounding {
-    /// To nearest, exact halves away from zero.
+    /// Rounds to nearest, with exact halves away from zero.
     HalfAway,
-    /// Toward zero.
+    /// Rounds toward zero.
     TowardZero,
-    /// Toward positive infinity.
+    /// Rounds toward positive infinity.
     Ceil,
 }
 
 /// The largest decimal gap whose power of ten fits `i128`.
 const MAX_EXACT_GAP: u32 = 38;
 
-/// True when rescaling `a` from `from` to `to` decimals is representable:
-/// every downscale is, and an upscale is when both the power of ten and the
-/// scaled value fit `i128`.
+/// True when rescaling `a` from `from` to `to` decimals is representable.
+/// Every downscale is representable. An upscale is representable when both the power
+/// of ten and the scaled value fit `i128`.
 pub fn rescale_fits(a: i128, from: u32, to: u32) -> bool {
     if to <= from {
         return true;
@@ -243,8 +243,8 @@ pub fn rescale_fits(a: i128, from: u32, to: u32) -> bool {
     Wide::from(i128::MIN) <= scaled && scaled <= Wide::from(i128::MAX)
 }
 
-/// True when `r` is `a` rescaled from `from` to `to` decimals: exact when
-/// upscaling, rounded by `rounding` when downscaling. Requires
+/// True when `r` is `a` rescaled from `from` to `to` decimals. The result is
+/// exact when upscaling and rounded by `rounding` when downscaling. Requires
 /// `rescale_fits(a, from, to)`.
 pub fn is_rescaled(r: i128, a: i128, from: u32, to: u32, rounding: Rounding) -> bool {
     if from == to {
@@ -328,7 +328,7 @@ impl Sampler {
     }
 
     /// A non-negative value no larger than `max`. Draws that already fit keep
-    /// their uniform bit length; the rest wrap into the range.
+    /// their uniform bit length. The rest wrap into the range.
     pub fn at_most(&mut self, max: i128) -> i128 {
         let value = self.non_negative();
         if value > max {

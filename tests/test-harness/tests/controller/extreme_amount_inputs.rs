@@ -79,7 +79,7 @@ fn supply_at_the_domain_ceiling_succeeds_and_one_unit_more_is_rejected() {
         let result = t
             .ctrl_client()
             .try_supply(&alice, &id, &HARNESS_SPOKE, &leg(&t, "A", 1));
-        // Pins the typed error and shows that the book did not move.
+        // The assertion pins the typed error and shows that the book did not move.
         assert_contract_error(map_try_ok_value(result), errors::MARKET_CEILING_REACHED);
         assert_eq!(
             t.supply_balance_raw(ALICE, "A"),
@@ -143,7 +143,7 @@ fn repay_of_half_i128_max_closes_the_debt_and_refunds_the_rest() {
 }
 
 /// Collateral covers the debt but not the base bonus, so the plan is a full
-/// close: the whole offer is pulled and the pool refunds all but the debt.
+/// close. The whole offer is pulled, and the pool refunds all but the debt.
 #[test]
 fn liquidation_payment_of_half_i128_max_nets_only_the_close_amount() {
     let mut t = setup(7);
@@ -165,7 +165,8 @@ fn liquidation_payment_of_half_i128_max_nets_only_the_close_amount() {
     );
     let after = t.borrow_balance_raw(ALICE, "A");
     assert!(after < before, "debt fell");
-    // Equality: `spent <= before - after` alone also passes when no debt token is pulled.
+    // Assert equality. `spent <= before - after` alone also passes when no debt token
+    // is pulled.
     let spent = liq_before - t.token_balance_raw(LIQUIDATOR, "A");
     assert_eq!(
         spent,

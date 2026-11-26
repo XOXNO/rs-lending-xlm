@@ -4,10 +4,10 @@ use soroban_sdk::{symbol_short, vec, IntoVal, Val, Vec};
 
 use crate::venues::HopContext;
 
-/// Executes an exact-in swap against a Phoenix pool: authorizes the pool to pull `amount_in` of
-/// the input token from the router, then invokes the pool's `swap` with its four optional
-/// trailing parameters left unset. The fill is measured by
-/// [`crate::venues::dispatch_hop`], which also enforces that it is positive.
+/// Executes an exact-in swap against a Phoenix pool. The function authorizes the pool to pull
+/// `amount_in` of the input token from the router. It then invokes the pool's `swap` with its
+/// four optional trailing parameters left unset. [`crate::venues::dispatch_hop`] measures the
+/// fill and enforces that it is positive.
 pub(crate) fn swap(ctx: &HopContext<'_>) {
     let args: Vec<Val> = vec![
         ctx.env,

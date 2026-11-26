@@ -1,19 +1,19 @@
 # Integration tests
 
-Contract-level scenarios run in-process via the `test-harness` library ([crate README](../README.md)). Each domain directory (`tests/<domain>/main.rs`) and each top-level `tests/*.rs` file is one Cargo test binary. Run `make build` first: the pool and position-nft WASM must exist.
+Contract-level scenarios run in-process through the `test-harness` library ([crate README](../README.md)). Each domain directory (`tests/<domain>/main.rs`) and each top-level `tests/*.rs` file is one Cargo test binary. The pool and position-nft WASM must exist, so run `make build` first.
 
 ## Binaries
 
-Domain binaries live in `<name>/main.rs`; the rest are `<name>.rs`.
+Domain binaries live in `<name>/main.rs`. The other binaries are `<name>.rs`.
 
 | `--test` | Coverage |
 |----------|----------|
 | `smoke_test` | Supply, borrow, withdraw, repay, liquidate, interest, spoke, revenue, multiply |
-| `controller` | Positions, supply/borrow/repay/withdraw, liquidation, admin, spoke, flash loan, keeper, views |
-| `governance` | Timelock operation states, immediate-path roles, permissionless execution, spoke, Redstone, DEX USD repricing, stale edits; forwarder input validation (market creation, asset config, IRM, position limits, oracle config/tolerance probing) |
+| `controller` | Positions, supply, borrow, repay, and withdraw, liquidation, admin, spoke, flash loan, keeper, views |
+| `governance` | Timelock operation states, immediate-path roles, permissionless execution, spoke, Redstone, DEX USD repricing, stale edits. Forwarder input validation (market creation, asset config, IRM, position limits, oracle config and tolerance probing) |
 | `oracle` | `tolerance/` (bands, config, dual source, edges, staleness), future timestamps and future-skew live path, TWAP, TWAP lag with a late push leg, Redstone, XOXNO adapter, DEX USD repricing |
 | `pool` | Interest curves, rate math, revenue, accrual partition bound, pool coverage, borrow against zero supply |
-| `strategy` | Multiply, flash position, swap collateral/debt, Blend migration, router guards, cross-hub loops, `edge/` cases, adversarial and happy paths |
+| `strategy` | Multiply, flash position, swap collateral and debt, Blend migration, router guards, cross-hub loops, `edge/` cases, adversarial and happy paths |
 | `composition` | One caller contract chains controller verbs in one invocation: atomic revert, delegate revocation, NFT transfer, repeated loops, supplier exit |
 | `fuzz` | Proptest properties ([`fuzz/README.md`](fuzz/README.md)) |
 | `meta` | TTL regressions, budget and memory attribution, footprint, chaos and stress sims, economic attacks, invariants, reentrancy matrix |
@@ -21,7 +21,7 @@ Domain binaries live in `<name>/main.rs`; the rest are `<name>.rs`.
 | `pool_money_flow_audit` | Audit regression: pool money paths under a mocked owner (books, shared token custody, recapitalization refunds) |
 | `curve_collateral` | Curve LP collateral against production price-aggregator and router WASMs and real Curve pool executables, under mainnet resource limits |
 | `custom_account_auth` | Contract account authorizes the controller directly through the host |
-| `poc_multiply_reentrancy` | Initial-payment token re-entering the controller during `multiply` aborts the call; no collateral or USDC moves |
+| `poc_multiply_reentrancy` | Initial-payment token re-entering the controller during `multiply` aborts the call. No collateral or USDC moves |
 | `strategy_origination_fee_parity` | `flash_position` opens the same position as `multiply`, without the strategy origination fee |
 | `strategy_solvency_gate_rollback` | Solvency-gate rejection in `flash_position` reverts every earlier transfer |
 | `zz_storage_sizing` | Prints per-account storage entry XDR sizes (`print_storage_sizes`) |
@@ -31,7 +31,7 @@ discovers every binary.
 
 ## Module inventory
 
-Each domain's `main.rs` declares its modules. List them with (swap `controller` for any domain):
+Each domain's `main.rs` declares its modules. List them with this command (replace `controller` with any domain):
 
 ```bash
 grep -E '^ *(pub )?mod ' tests/test-harness/tests/controller/main.rs
@@ -56,11 +56,11 @@ grep -E '^ *(pub )?mod ' tests/test-harness/tests/controller/main.rs
 
 | Module | Role |
 |--------|------|
-| `liquidation.rs` | Smoke: proportional/targeted seize, bonus tiers, bad-debt socialization; rejects healthy account, active flash loan, zero amount; allows paused controller, self-liquidation |
-| `liquidation_coverage.rs` | Input validation: duplicate payments, empty/zero/unsupported assets, subunit collateral, multi-debt caps |
+| `liquidation.rs` | Smoke: proportional and targeted seize, bonus tiers, bad-debt socialization. Rejects healthy account, active flash loan, zero amount. Allows paused controller, self-liquidation |
+| `liquidation_coverage.rs` | Input validation: duplicate payments, empty, zero, and unsupported assets, subunit collateral, multi-debt caps |
 | `liquidation_math.rs` | Bonus formula, protocol fee on bonus only, bad-debt index delta, bounded seizure |
-| `liquidation_boundary.rs` | HF exactly 1 vs just below, monotone bonus band, bad-debt trigger at collateral floor |
-| `liquidation_mixed_decimal.rs` | Mixed collateral/debt decimals |
+| `liquidation_boundary.rs` | HF exactly 1 and just below, monotone bonus band, bad-debt trigger at collateral floor |
+| `liquidation_mixed_decimal.rs` | Mixed collateral and debt decimals |
 | `liquidation_and_borrow_exact_boundaries.rs` | HF exactly 1, borrow at the LTV limit, LTV collateral at the floor |
 | `liquidation_accrual_timing.rs` | In-call index accrual at fixed prices gives the liquidator nothing |
 | `liquidation_band_full_close.rs` | Full closes in the band `D <= C < D * (1 + base)`: merged offers, fee-on-transfer debt, over-offers |
@@ -69,7 +69,7 @@ grep -E '^ *(pub )?mod ' tests/test-harness/tests/controller/main.rs
 | `liquidation_ratchet.rs` | Chained partial liquidations never extract more than one liquidation |
 | `liquidation_seize_modes.rs` | `no_seize` pause split and share-credit liquidation (`SeizeMode::Credit`) |
 | `liquidation_under_delivering_debt_token.rs` | Fee-on-transfer debt token scales both debt retired and collateral seized |
-| `spoke_liquidation_combo.rs` | Spoke liquidation with category-specific LTV/threshold |
+| `spoke_liquidation_combo.rs` | Spoke liquidation with category-specific LTV and threshold |
 
 ## Test naming
 
@@ -110,11 +110,11 @@ make test-one FILE=controller
 make test-match PATTERN=liquidation
 ```
 
-Proptest runs, `PROPTEST_CASES` and committed regression seeds: [`fuzz/README.md`](fuzz/README.md).
+Proptest runs, `PROPTEST_CASES`, and committed regression seeds are described in [`fuzz/README.md`](fuzz/README.md).
 
 ## Fixtures
 
-Shared builders and seeds live in `src/fixtures.rs`; the crate root re-exports them (`src/prelude.rs`):
+Shared builders and seeds live in `src/fixtures.rs`. The crate root re-exports them through `src/prelude.rs`:
 
 ```rust
 use test_harness::{seed_liquidatable_usdc_eth, LendingTest, ALICE};
@@ -132,7 +132,7 @@ use test_harness::{seed_liquidatable_usdc_eth, LendingTest, ALICE};
 | `seed_band_usdc_eth(t)` | Alice: 10k USDC, 3 ETH debt, USDC at $0.62 (collateral covers the debt, not the base bonus) |
 | `seed_fuzz_conservation_book(t)` | Two-user seed for accounting conservation properties |
 
-Builder knobs: `with_min_borrow_collateral_disabled()` (LTV-weighted borrow collateral floor = 0), `with_max_utilization_disabled_all_markets()`, `with_budget_enabled()`, `with_market(preset)`, `with_market_config`, `with_position_limits`.
+The builder knobs are `with_min_borrow_collateral_disabled()` (LTV-weighted borrow collateral floor = 0), `with_max_utilization_disabled_all_markets()`, `with_budget_enabled()`, `with_market(preset)`, `with_market_config`, and `with_position_limits`.
 
 ```rust
 let mut t = LendingTest::new().dual_source_two_asset(); // already built
@@ -142,7 +142,7 @@ seed_liquidatable_usdc_eth(&mut t);
 
 ## Library reference
 
-The harness also pins live contract facts: the ownership chain
+The harness also asserts live contract facts: the ownership chain
 (`controller/ownership.rs`), the pause matrix
 (`controller/security_audit_extended.rs`), multi-hub and spoke wiring
 (`controller/multi_hub.rs`, `controller/spoke.rs`), the bad-debt floor

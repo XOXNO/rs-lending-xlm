@@ -1,6 +1,7 @@
-//! Computes structural properties of oracle source compositions — trusted
-//! provider contracts, unsmoothed-market-leg presence, loosest staleness bound,
-//! and composition depth — by recursing through a source's dependencies.
+//! Computes structural properties of oracle source compositions by recursing
+//! through a source's dependencies. The properties are the trusted provider
+//! contracts, the presence of an unsmoothed market leg, the loosest staleness
+//! bound, and the composition depth.
 
 use common::errors::OracleError;
 use common::types::{FeedSource, PriceKey, PriceSource, MAX_RESOLUTION_DEPTH};
@@ -46,9 +47,8 @@ impl SourceProperties {
         }
     }
 
-    /// Merges `self` with `other`: ORs the unsmoothed-market-leg flags, unions
-    /// the trusted-contract sets, and takes the maximum of the staleness bound
-    /// and depth.
+    /// Merges `self` with `other`. The merge ORs the unsmoothed-market-leg flags, unions
+    /// the trusted-contract sets, and takes the maximum of the staleness bound and depth.
     fn join(&self, other: &Self) -> Self {
         let mut trust = self.trust.clone();
         for contract in other.trust.iter() {
@@ -110,9 +110,9 @@ pub(crate) fn local_properties(env: &Env, source: &PriceSource) -> SourcePropert
     }
 }
 
-/// Computes the full `SourceProperties` of `source`, joining in the properties
-/// of every dependency it references (recursing through their registered
-/// oracles at `depth + 1`). Panics with `OracleDepthExceeded` if `depth`
+/// Computes the full `SourceProperties` of `source`. The function recurses through the
+/// registered oracles of every dependency the source references, at `depth + 1`, and
+/// joins their properties into the result. Panics with `OracleDepthExceeded` if `depth`
 /// exceeds the maximum resolution depth.
 pub(crate) fn properties_of_source(
     session: &mut Session,
@@ -133,11 +133,11 @@ pub(crate) fn properties_of_source(
     properties
 }
 
-/// Computes the joined `SourceProperties` across every source configured on the
-/// oracle registered for `key`, tracking `key` on the session's resolution
-/// stack while iterating. Panics with `OracleDepthExceeded` if `depth` exceeds
-/// the maximum resolution depth, `OracleCycleDetected` if `key` is already on
-/// the stack, or `OracleNotConfigured` if `key` has no registered oracle.
+/// Computes the joined `SourceProperties` across every source configured on the oracle
+/// registered for `key`. The function tracks `key` on the session's resolution stack
+/// during the iteration. Panics with `OracleDepthExceeded` if `depth` exceeds the maximum
+/// resolution depth. Panics with `OracleCycleDetected` if `key` is already on the stack.
+/// Panics with `OracleNotConfigured` if `key` has no registered oracle.
 pub(crate) fn properties_of_key(
     session: &mut Session,
     key: &PriceKey,

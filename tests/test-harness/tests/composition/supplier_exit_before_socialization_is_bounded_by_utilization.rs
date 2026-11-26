@@ -1,6 +1,6 @@
-//! GH-15. A supplier can leave, trigger the permissionless clean-up, and come
-//! back in one invocation, dodging its share of the write-down. The exit
-//! size is bounded by `max_utilization`: past it the whole script reverts.
+//! GH-15. A supplier can leave, trigger the permissionless clean-up, come
+//! back in one invocation, and dodge its share of the write-down. The exit
+//! size is bounded by `max_utilization`. Past that bound the whole script reverts.
 
 use crate::helpers::{supply_op, withdraw_op};
 use script_runner::{AccountOp, Op};
@@ -33,7 +33,7 @@ fn seed(max_util_unbounded: bool, whale_borrow_eth: f64) -> Seed {
         .run_script(&runner, &vec![&t.env, supply_op(&t, 0, "ETH", 50 * U)])
         .expect("runner supplies ETH");
     t.supply(BOB, "ETH", 50.0);
-    // ALICE's tiny USDC collateral backs ETH debt; a USDC crash makes the account dust-insolvent.
+    // ALICE's tiny USDC collateral backs ETH debt. A USDC crash makes the account dust-insolvent.
     t.supply(ALICE, "USDC", 10.0);
     t.borrow(ALICE, "ETH", 0.003);
     if whale_borrow_eth > 0.0 {
@@ -81,7 +81,7 @@ fn exit_then_clean_then_re_enter_dodges_the_write_down_when_utilization_allows()
 
 #[test]
 fn the_exit_is_capped_by_max_utilization_and_the_script_reverts_whole() {
-    // 48 of 100 ETH borrowed: cash covers the runner's 50, but the exit
+    // 48 of 100 ETH borrowed. Cash covers the runner's 50, but the exit
     // would leave 48 of 50 in use, past the 95 percent ceiling.
     let Seed {
         t,

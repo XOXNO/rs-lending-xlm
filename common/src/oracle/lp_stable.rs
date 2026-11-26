@@ -244,10 +244,10 @@ mod tests {
         }
     }
 
-    /// Covers a reserve whose WAD normalisation overflows `i128`, one that
+    /// Covers a reserve whose WAD normalization overflows `i128`, one that
     /// lands above `MAX_NORMALIZED_RESERVE_WAD`, the cap itself at one unit
     /// over, and, at 10^15 : 10^3 tokens, a pool whose first Newton step
-    /// overflows `U256`, which must not trap the host.
+    /// overflows `U256`. That overflow must not trap the host.
     #[test]
     fn absurd_reserve_errors_not_panics() {
         let env = Env::default();

@@ -1,4 +1,4 @@
-//! Composition suite: one contract, as the top-level caller, chains
+//! Composition suite. One contract, as the top-level caller, chains
 //! controller verbs in a single invocation.
 
 extern crate std;

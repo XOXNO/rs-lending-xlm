@@ -88,7 +88,7 @@ pub mod codes {
     pub const COLLATERAL_REQUIRED: u32 = StrategyError::CollateralRequired as u32;
     pub const COLLATERAL_MINIMUM_NOT_MET: u32 = StrategyError::CollateralMinimumNotMet as u32;
 
-    // OpenZeppelin stellar-contracts codes; the harness does not depend on those crates:
+    // OpenZeppelin stellar-contracts codes. The harness does not depend on those crates.
     // stellar-contract-utils pausable `EnforcedPause` (1000), stellar-access access_control
     // `Unauthorized` (2000) and role_transfer `NoPendingTransfer` (2200), stellar-governance
     // timelock `InvalidOperationState` (4002).

@@ -15,7 +15,7 @@ use crate::storage;
 /// How strictly account creation treats a deprecated spoke.
 #[derive(Clone, Copy)]
 pub(crate) enum SpokeAdmission {
-    /// New exposure: the spoke must be active.
+    /// New exposure requires an active spoke.
     ActiveOnly,
     /// Seizure receivers may enter deprecated spokes to unwind existing exposure.
     AllowDeprecated,
@@ -39,8 +39,8 @@ pub(crate) fn create_account(
     )
 }
 
-/// Mints an account NFT and stores metadata. Requires an existing, nonzero spoke;
-/// deprecated spokes are allowed only by `admission`.
+/// Mints an account NFT and stores metadata. Requires an existing, nonzero spoke. The `admission`
+/// value decides whether a deprecated spoke is allowed.
 pub(crate) fn create_account_with(
     env: &Env,
     owner: &Address,
@@ -80,9 +80,9 @@ pub(crate) enum AccountGuard {
     Multiply,
 }
 
-/// Creates an account for `caller` when `account_id` is zero; otherwise loads it.
-/// Existing accounts require a matching spoke. `Migrate` also requires an owner
-/// or active delegate; `Multiply` additionally requires a matching mode.
+/// Creates an account for `caller` when `account_id` is zero. Otherwise it loads the account. An
+/// existing account requires a matching spoke. `Migrate` also requires an owner or active delegate.
+/// `Multiply` also requires a matching mode.
 pub(crate) fn load_or_create_account(
     env: &Env,
     caller: &Address,
@@ -154,8 +154,8 @@ fn require_spoke_match(env: &Env, account: &Account, spoke_id: u32) {
     }
 }
 
-/// Deletes all account entries and burns its NFT atomically. Account deletion
-/// must use this path to preserve the NFT/account existence invariant.
+/// Deletes all account entries and burns its NFT atomically. Account deletion must use this
+/// function to preserve the NFT and account existence invariant.
 pub(crate) fn remove_account_and_burn_nft(env: &Env, account_id: u64) {
     storage::remove_account_entry(env, account_id);
     let nft = storage::get_position_nft(env);
@@ -225,20 +225,20 @@ pub(crate) fn renew_account(env: &Env, caller: Address, account_id: u64) {
     nft_renew_call(env, &nft, account_id);
 }
 
-/// Requires the NFT owner to grant an active manager access; renews instance TTL.
+/// Requires the NFT owner to grant an active manager access. Renews instance TTL.
 pub(crate) fn add_delegate(env: &Env, caller: Address, account_id: u64, delegate: Address) {
     storage::renew_controller_instance(env);
     set_account_delegate(env, &caller, account_id, &delegate, true);
 }
 
-/// Requires the NFT owner to revoke manager access; renews instance TTL.
+/// Requires the NFT owner to revoke manager access. Renews instance TTL.
 pub(crate) fn remove_delegate(env: &Env, caller: Address, account_id: u64, delegate: Address) {
     storage::renew_controller_instance(env);
     set_account_delegate(env, &caller, account_id, &delegate, false);
 }
 
-/// Authenticates the NFT owner and updates delegates; grants require an active
-/// manager. Emits an event only when the current owner's delegate list changes.
+/// Authenticates the NFT owner and updates delegates. Grants require an active manager. Emits an
+/// event only when the current owner's delegate list changes.
 fn set_account_delegate(
     env: &Env,
     caller: &Address,

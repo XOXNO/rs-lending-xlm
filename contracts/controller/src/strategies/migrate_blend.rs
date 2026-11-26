@@ -70,7 +70,7 @@ pub(crate) fn process_migrate_blend(
         &mut cache,
     );
 
-    // Both Blend balance types become hub supply; deduplicate their assets.
+    // Both Blend balance types become hub supply. Deduplicate their assets.
     let mut withdraw_assets: Vec<Address> = Vec::new(env);
     for asset in collateral_assets.iter().chain(supply_assets.iter()) {
         push_unique_address(&mut withdraw_assets, asset);

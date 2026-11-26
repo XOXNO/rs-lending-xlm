@@ -9,8 +9,8 @@ use crate::external::pool::pool_flash_loan_call;
 use crate::risk::validation::require_authorized_caller;
 use crate::storage;
 
-/// Runs a pool flash loan under the reentrancy guard. The pool funds the
-/// receiver, calls it and collects principal plus fee before returning.
+/// Runs a pool flash loan under the reentrancy guard. The pool funds the receiver, calls it, and
+/// collects principal plus fee before the call returns.
 pub(crate) fn process_flash_loan(
     env: &Env,
     caller: &Address,

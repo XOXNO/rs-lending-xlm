@@ -1,19 +1,20 @@
 # Extraction crates, trusted models and Aeneas workarounds
 
-How the controller and pool proofs get their Lean code. Theorems:
-[controller.md](controller.md), [pool.md](pool.md). Pinned tool versions and
-shared trust assumptions (faithful translation, panic = abort):
+This document describes how the controller and pool proofs get their Lean
+code. The theorems are in [controller.md](controller.md) and
+[pool.md](pool.md). Pinned tool versions and shared trust assumptions
+(faithful translation, panic = abort) are in
 [../README.md](../README.md#trusted-base). Neither library copies the
-rounding specifications (`Spec`, `FloorCeilSpec`, `HalfUpSpec`); both import
+rounding specifications (`Spec`, `FloorCeilSpec`, `HalfUpSpec`). Both import
 them from `lean/FixedPoint/`.
 
 ## Controller
 
 ### Controller extraction crate
 
-`verification/aeneas/controller/`: standalone Cargo workspace (`[workspace]`
-table, members `.` and `shim`), outside the root workspace and every Wasm
-build.
+`verification/aeneas/controller/` is a standalone Cargo workspace
+(`[workspace]` table, members `.` and `shim`). It is outside the root
+workspace and every Wasm build.
 
 **Included verbatim** through `#[path]`:
 
@@ -25,17 +26,19 @@ build.
   as in `common/src/math/mod.rs`, so controller files reach it only through
   the typed `fp` wrappers.
 * `common/src/rates/{scaling,value}.rs` (`src/rates.rs`, with the `pub use`
-  lines of `rates/mod.rs`); `curve`, `index`, `compound`, `simulate` unneeded.
+  lines of `rates/mod.rs`). The crate does not need `curve`, `index`,
+  `compound` and `simulate`.
 * `contracts/controller/src/positions/liquidation/{curve,math,plan,apply}.rs`
   (`src/positions/liquidation/mod.rs`).
 
 **Generated from production.** `controller/gen_totals.py` (run by
 `extract.sh`) copies `contracts/controller/src/risk/totals.rs` to
-`src/risk/totals.rs`, replacing the `fn(&Env, Ray, Ray, Wad) -> Wad`
-argument of `sum_debt_usd_loaded` with an enum `DebtValue { HalfUp, Ceil }`
-whose `apply` calls exactly `position_value` / `position_value_ceil` (the two
-functions production passes); Aeneas cannot translate higher-ranked `fn`
-pointers ([issue 2](#controller-aeneas-issues)). Each of the four
+`src/risk/totals.rs`. It replaces the `fn(&Env, Ray, Ray, Wad) -> Wad`
+argument of `sum_debt_usd_loaded` with an enum `DebtValue { HalfUp, Ceil }`.
+The `apply` method of the enum calls exactly `position_value` and
+`position_value_ceil`, the two functions production passes. Aeneas cannot
+translate higher-ranked `fn` pointers ([issue 2](#controller-aeneas-issues)).
+Each of the four
 substitutions must match exactly once, so a production edit there fails the
 extraction.
 
@@ -53,27 +56,27 @@ resolve to this crate.
   `ScaledPositionRaw` (two `From` impls), `PoolAction`, `PoolWithdrawEntry`,
   `PoolSeizeEntry`, `AssetConfig`, `Account::get_or_create_supply_position`
   (verbatim) and a field-less `PoolPositionMutation`.
-* `src/errors.rs`: the raised variants with production codes; codes are not
-  modelled, every `panic_with_error!` aborts.
+* `src/errors.rs`: the raised variants with production codes. Codes are not
+  modelled, and every `panic_with_error!` aborts.
 * `src/validation.rs`: `expect_invariant`, `require_positive_amount`,
   `require_non_empty_payments`, verbatim.
 * `src/payment_legs.rs` (re-exported as `crate::payments`):
   `aggregate_positive_payments` and `aggregate_payment_amount`, verbatim from
-  `contracts/controller/src/payments.rs`; `transfer_amount_measured` opaque.
+  `contracts/controller/src/payments.rs`. `transfer_amount_measured` is opaque.
 * `src/context.rs`: the [Context model](#controller-trusted-base);
   `spoke_config` is opaque.
-* `src/storage.rs`: `iter_typed_positions` / `iter_debt_positions`.
+* `src/storage.rs`: `iter_typed_positions` and `iter_debt_positions`.
   Production's `map.iter().map(|(k, raw)| (k, From::from(&raw)))` becomes a
-  loop pushing the same items in order and returning the vector's iterator
+  loop that pushes the same items in order and returns the vector's iterator
   (Aeneas translates neither `impl Iterator` returns nor `map`).
 * Opaque (signatures only, Charon `--opaque`, meaning in
   `FunsExternal.lean`):
   * `account_store.rs` (re-exported as `crate::account`):
-    `cleanup_account_if_empty`, `update_or_remove_supply_position`;
-  * `external/{mod,pool}.rs`: `fetch_market_index`, `pool_seize_positions_call`;
+    `cleanup_account_if_empty`, `update_or_remove_supply_position`.
+  * `external/{mod,pool}.rs`: `fetch_market_index`, `pool_seize_positions_call`.
   * `positions/mod.rs`: `enforce_spoke_asset_flags`, `apply_repay_batch`,
     `apply_withdraw_batch` (`make_pool_action`, `get_supply_position_or_panic`,
-    `FreezePolicy`, `WithdrawKind` verbatim);
+    `FreezePolicy`, `WithdrawKind` verbatim).
   * `positions/liquidation/bad_debt.rs`: `execute_bad_debt_cleanup`.
 * Never extracted (signatures for compilation): `risk/validation.rs`,
   `collections.rs` (`push_unique_address`, verbatim), `events.rs`,
@@ -81,22 +84,22 @@ resolve to this crate.
 
 `../check_standins.py`, run first by `run.sh`, compares the copied items in
 `controller/src` (`types.rs`, `cached_price`, payment aggregation,
-`make_pool_action`, ...) with production. An adapted or opaque stand-in
-(`cached_market_index`, `load_markets`, `spoke_config`, ...) pins the hash of
-the item it replaces.
+`make_pool_action` and others) with production. An adapted or opaque stand-in
+(`cached_market_index`, `load_markets`, `spoke_config` and others) pins the
+hash of the item it replaces.
 
 **Scripts.** `controller/extract.sh` lists the roots (`--start-from`) and
 opaque items (`--opaque`) and passes `--inline-anon-consts`
 ([issue 1](#controller-aeneas-issues)). `controller/postextract.sh` applies
-one fix to `Funs.lean` ([issue 3](#controller-aeneas-issues)). Scratch runs:
-`AENEAS_LEAN_DEST=<dir>` redirects output, `KEEP_TEMPLATES=1` keeps
+one fix to `Funs.lean` ([issue 3](#controller-aeneas-issues)). For scratch
+runs, `AENEAS_LEAN_DEST=<dir>` redirects output and `KEEP_TEMPLATES=1` keeps
 `*_Template.lean`.
 
 **Shim** (`controller/shim/`, package `aeneas-soroban-shim`, extended from
 `verification/aeneas/shim`): `Env`, `I256`, `Error`, `panic_with_error!` as
 in the rates crate, plus `assert_with_error!`, `Address`, `Vec<T>` (with
 `VecIter<T>`, `IntoIterator`) and `Map<K, V>`. Charon translates only shim
-signatures; their meaning is in the trusted base.
+signatures. Their meaning is in the trusted base.
 
 ### Controller trusted base
 
@@ -106,57 +109,58 @@ the models in `lean/ControllerAeneas/TypesExternal.lean` and
 
 * **`I256`** and Rust core (`checked_pow`, `abs_diff`,
   `Option::{unwrap_or_else, and_then}`, `?` on `Option`): copied from
-  `RatesAeneas`; exact integers with the host's 256-bit traps.
+  `RatesAeneas`. They are exact integers with the host's 256-bit traps.
 * **`i128::from(u32)`**: same number (always fits).
-* **`Address`**: opaque handle (`Nat`); `clone` is identity; equality of
-  handles.
+* **`Address`**: opaque handle (`Nat`). `clone` is identity. Equality is
+  equality of handles.
 * **`Vec<T>`**: Lean `List T`, index 0 first.
-  * `Vec::new` = `[]`; `push_back v x` = `v ++ [x]`.
-  * `Vec::iter` yields front to back; `VecIter T` is the not-yet-yielded
-    list; `next` pops the head, `None` when empty.
+  * `Vec::new` = `[]`. `push_back v x` = `v ++ [x]`.
+  * `Vec::iter` yields front to back. `VecIter T` is the not-yet-yielded
+    list. `next` pops the head and returns `None` when empty.
   * `clone` returns the same elements (soroban-sdk `Vec` is a host object
     with value semantics: `clone` copies the handle, mutations rebind).
   * `len` (as `u32`), `is_empty`, `get(i)` (`None` out of range), `set(i, x)`
-    (traps out of range), `remove(i)` (shifts later elements down; `None`
-    and unchanged out of range), `append`, `into_iter` (front to back).
-  * Not modelled: the host's `u32::MAX` length limit; `push_back` never
+    (traps out of range), `remove(i)` (shifts later elements down, with `None`
+    and an unchanged list out of range), `append`, `into_iter` (front to back).
+  * Not modelled: the host's `u32::MAX` length limit. `push_back` never
     fails. The only theorem that pushes builds an output no longer than its
     input.
 * **Map model** (`Map<K, V>`): Lean `List (K × V)` in iteration order.
-  * `get k`: value of the first entry with key `k` (compared by value,
-    decided classically); `set k v` replaces it or appends `(k, v)`;
-    `keys`/`iter`/`len`/`is_empty` read the list.
-  * Proofs rely only on `get` after the list is given and on `iter`/`keys`
-    yielding the list.
+  * `get k` returns the value of the first entry with key `k` (compared by
+    value, decided classically). `set k v` replaces it or appends `(k, v)`.
+    `keys`, `iter`, `len` and `is_empty` read the list.
+  * Proofs rely only on `get` after the list is given and on `iter` and `keys`
+    that yield the list.
   * Not modelled: the host's ascending key order and key uniqueness.
     Theorems quantify over all entry lists, so they cover sorted, unique
     ones.
 * **Rust core**, per the Rust docs: `i128::saturating_mul` (exact product
   clamped to `i128`), `Option::map_or`, `Iterator::{all, find}` (front to
-  back, stopping at the first `false` / match).
+  back, with a stop at the first `false` or match).
 * **Context model** (`src/context.rs`): the two caches the extracted code
   reads, `token_prices` (`Map<Address, PriceFeedRaw>`) and `market_indexes`
   (`Map<HubAssetKey, MarketIndexRaw>`).
-  * `cached_price`: production body; aborts when the asset is uncached.
-  * `cached_market_index`: production body, one-key pool fetch as one call.
+  * `cached_price`: production body. It aborts when the asset is uncached.
+  * `cached_market_index`: production body, with the one-key pool fetch as one
+    call.
   * Uninterpreted Lean constants (`opaque` definitions, not axioms) stand for
     the rest of the host state, so theorems hold for every value:
     `poolIndex` (pool's index for a key, used by `fetch_market_index`),
-    `oraclePrice` (`None`: the fetch aborts), `poolAddress`,
+    `oraclePrice` (`None` means the fetch aborts), `poolAddress`,
     `spokeConfigOf`, `spokeAssetConfig`, `spokeExitOk`, `spokeFlagsAllow`,
-    `transferReceived` (measured balance change; any token behaviour).
-  * `load_markets` caches each key's missing asset price (aborting if the
-    oracle has none) and missing index, keeping cached entries; production
-    batches the same fetches.
+    `transferReceived` (measured balance change, for any token behaviour).
+  * `load_markets` caches each key's missing asset price (it aborts if the
+    oracle has none) and missing index, and it keeps cached entries.
+    Production batches the same fetches.
   * `cached_pool_address`, `spoke_config`, `require_spoke_asset`,
     `apply_spoke_exit`, `record_supply_position_update`,
-    `enforce_spoke_asset_flags`: caches unchanged, abort where production
-    can. In production they touch only spoke usage, configuration caches,
+    `enforce_spoke_asset_flags`: they leave caches unchanged and abort where
+    production can. In production they touch only spoke usage, configuration caches,
     event buffers and the pool-address cache.
   * `spoke_config` returns `spokeConfigOf spoke`, and aborts when it is
-    `None`: the spoke does not exist, or the context is bound to another
-    spoke.
-  * `transfer_amount_measured` aborts unless `amount > 0`; returns
+    `None`. That happens when the spoke does not exist or the context is bound
+    to another spoke.
+  * `transfer_amount_measured` aborts unless `amount > 0` and returns
     `transferReceived`.
   * `apply_repay_batch`, `apply_withdraw_batch`, `pool_seize_positions_call`,
     `cleanup_account_if_empty`, `update_or_remove_supply_position`,
@@ -169,17 +173,17 @@ Each extraction has its own copy of the common math, so its proofs exist
 once per library.
 
 * `Host`, `MulDiv` (`mul_div_floor_spec`), `FloorCeilRescale`
-  (`rescale_floor`/`rescale_ceil`), `HalfUp` (`mul_div_half_up_spec`),
+  (`rescale_floor` and `rescale_ceil`), `HalfUp` (`mul_div_half_up_spec`),
   `HalfUpDivInt` (`div_by_int_half_up`): the RatesAeneas files with library,
-  crate and shim names changed, written by `../sync_copies.py`; `run.sh`
+  crate and shim names changed, written by `../sync_copies.py`. `run.sh`
   fails if one is stale.
 * `FloorCeilCore` (`mul_div_ceil_spec`): hand-adapted, without the
-  unextracted `mul_div_floor_saturating` section, which is
+  unextracted `mul_div_floor_saturating` section. That section is
   `Saturating.lean` (copied from `RatesAeneas/Proofs/FloorCeilCore.lean`,
   per its header).
 * `Scaling.lean`: `RatesAeneas/Proofs/FloorCeilScaling.lean` up to
-  `unscale_borrow_ceil_spec`, without `calculate_scaled_*`;
-  `unscale_supply_floor_spec` renamed `unscale_supply_floor_isFloor` because
+  `unscale_borrow_ceil_spec`, without `calculate_scaled_*`. It renames
+  `unscale_supply_floor_spec` to `unscale_supply_floor_isFloor` because
   `Seizure.lean` has its own.
 
 ### Controller rebuild
@@ -206,9 +210,9 @@ ALLOW_DRIFT=1 ./run.sh controller   # extract.sh, then postextract.sh, then lake
 ### Controller Aeneas issues
 
 1. **Internal error on `process_excess_payment`** (`InterpAbs.ml` line 940,
-   reported as `Interp.ml` line 686): a loop condition comparing a
-   derived-`PartialOrd` newtype against a temporary, short-circuiting.
-   Minimal reproduction:
+   reported as `Interp.ml` line 686). The trigger is a short-circuiting loop
+   condition that compares a derived-`PartialOrd` newtype against a
+   temporary. Here is a minimal reproduction:
 
    ```rust
    #[derive(Clone, Copy, PartialEq, PartialOrd)]
@@ -223,44 +227,46 @@ ALLOW_DRIFT=1 ./run.sh controller   # extract.sh, then postextract.sh, then lake
    }
    ```
 
-   Production's condition: `remaining_excess_usd > Wad::ZERO &&
-   current_index > 0`. Charon's `--inline-anon-consts` avoids it
-   (`--no-code-duplication` too, but breaks other functions); `extract.sh`
-   passes it, and diffing `Funs.lean` shows every other function's
-   translation unchanged.
-2. **Higher-ranked `fn` pointers unsupported** ("arrow types with locally
-   quantified regions"), nor coercing a function item to one. `gen_totals.py`
-   avoids it ([crate section](#controller-extraction-crate)). A generic
-   `F: Fn(&Env, ..)` for `position_value` fails too ("lifetime constraint
+   Production's condition is `remaining_excess_usd > Wad::ZERO &&
+   current_index > 0`. Charon's `--inline-anon-consts` avoids the error
+   (`--no-code-duplication` does too, but it breaks other functions).
+   `extract.sh` passes `--inline-anon-consts`, and a diff of `Funs.lean` shows
+   every other function's translation unchanged.
+2. **Higher-ranked `fn` pointers are unsupported** ("arrow types with locally
+   quantified regions"), and so is coercing a function item to one.
+   `gen_totals.py` avoids the problem
+   ([crate section](#controller-extraction-crate)). A generic
+   `F: Fn(&Env, ..)` for `position_value` also fails ("lifetime constraint
    relating a higher-ranked lifetime to a free lifetime").
 3. **Provided `Iterator` methods emitted as instance fields.** For the shim's
    `impl Iterator for VecIter<T>`, Aeneas puts `all` and `find` in the trait
-   instance; the Lean library's `Iterator` has no such fields (Aeneas warns),
+   instance. The Lean library's `Iterator` has no such fields (Aeneas warns),
    so `Funs.lean` does not compile. Calls go to
    `core.iter.traits.iterator.Iterator.{all,find}.default` directly, so
    `controller/postextract.sh` deletes exactly these two fields from that one
-   instance, failing on any other shape.
+   instance, and it fails on any other shape.
 4. **Parameter names shadow module namespaces.** A function with parameter
    `account` (or `payments`) calling `crate::account::f` is emitted as
    `account.f`, which Lean reads as field access. The crate defines those
    items in `account_store` / `payment_legs`, re-exported as `crate::account`
    / `crate::payments`, so generated names differ from the parameters.
 5. **Closures with a mutable capture.** `repays_every_debt_leg`'s
-   `Iterator::all` closure captures `cache: &mut Context`; the generated
+   `Iterator::all` closure captures `cache: &mut Context`. The generated
    `FnMut` instance has type `closure → Item → Result (Bool × closure ×
-   (closure → closure))`, not the library's `FnMut`. Kept opaque.
+   (closure → closure))`, not the library's `FnMut`. The function is kept
+   opaque.
 
 ## Pool
 
 ### Pool extraction crate
 
-`verification/aeneas/pool/`: standalone Cargo workspace (own `[workspace]`
-table), outside the root workspace and every Wasm build.
+`verification/aeneas/pool/` is a standalone Cargo workspace (own
+`[workspace]` table). It is outside the root workspace and every Wasm build.
 
 | Path | Contents |
 |---|---|
-| `pool/Cargo.toml` | Package `pool-aeneas`; `soroban-sdk` renamed to the shim; `[package.metadata.charon]` lists the roots |
-| `pool/src/lib.rs` | Crate root; `#[path]` includes; `extern crate self as common` |
+| `pool/Cargo.toml` | Package `pool-aeneas`. `soroban-sdk` renamed to the shim. `[package.metadata.charon]` lists the roots |
+| `pool/src/lib.rs` | Crate root. `#[path]` includes. `extern crate self as common` |
 | `pool/src/{types,oracle,ownable,storage,time,events}.rs` | [Stand-ins](#pool-stand-ins-and-shim) |
 | `pool/shim/` | `aeneas-pool-shim`: signature-only `soroban-sdk` stand-in (extended from `../shim`) |
 | `pool/shim-macros/` | `aeneas-pool-shim-macros`: identity `#[contracttype]` / `#[contracterror]` |
@@ -280,11 +286,11 @@ table), outside the root workspace and every Wasm build.
   `extern crate self as stellar_access` to the `ownable` stand-in.
 
 **Layout.** The `common` modules sit at the root where `common/src/lib.rs`
-puts them, so their `crate::` paths resolve; `extern crate self as common`
+puts them, so their `crate::` paths resolve. `extern crate self as common`
 resolves the pool files' `common::...` paths to them. The cache module is
 mounted as `market_cache` and re-exported with `use market_cache as cache`,
 so `crate::cache::Cache` and `super::Cache` resolve unchanged. The extra name
-avoids an Aeneas clash: generated Lean refers to `cache.Cache.…` relative to
+avoids an Aeneas clash. Generated Lean refers to `cache.Cache.…` relative to
 the crate namespace, and a parameter named `cache` (in `guards.rs`,
 `interest.rs`, `flash.rs`) shadows it.
 
@@ -293,34 +299,36 @@ the crate namespace, and a parameter named `cache` (in `guards.rs`,
 Charon translates only what these reach (`start_from` in `pool/Cargo.toml`):
 
 * `crate::market_cache::shares`, `crate::market_cache::cash` (minus
-  `transfer_out`, which calls the token client);
-* `crate::guards`;
+  `transfer_out`, which calls the token client).
+* `crate::guards`.
 * `crate::interest::{global_sync, accrue_chunk, add_protocol_revenue, apply_bad_debt_to_supply_index}`
   (`global_sync` needs the `postextract.sh`
-  [workaround](#aeneas-bug-duplicate-parent-clause-field));
-* `crate::ops::flash::{terms, book_fee, finalize}` (`finalize`: the flash
-  loan's tail after the balance checks: fee booking, entry ceiling, commit);
+  [workaround](#aeneas-bug-duplicate-parent-clause-field)).
+* `crate::ops::flash::{terms, book_fee, finalize}` (`finalize` is the flash
+  loan's tail after the balance checks: fee booking, entry ceiling and
+  commit).
 * `crate::rates::scaling`, so the copied RatesAeneas scaling proofs find
-  every function they name;
+  every function they name.
 * each leg at its token-free function: `ops::supply::apply`,
   `ops::borrow::accounting`, `ops::withdraw::accounting`,
   `ops::repay::accounting`, `ops::net_settle::apply`, `ops::seize::apply`,
   `ops::recapitalize::accounting`, `ops::strategy::accounting`,
   `ops::revenue::accounting`.
 
-`opaque = ["crate::storage", "crate::time", "crate::events"]`: signatures
-only, meaning in `FunsExternal.lean` ([trusted base](#pool-trusted-base)).
+`opaque = ["crate::storage", "crate::time", "crate::events"]` keeps
+signatures only. Their meaning is in `FunsExternal.lean`
+([trusted base](#pool-trusted-base)).
 
 Reached through the legs: `Cache::load` (storage reads, `now_ms`),
 `Cache::commit` (storage write), `ttl::renew_instance`, the full
 `global_sync`, and two events: `events::emit_market_value_ceiling`
 (`global_sync`) and `events::emit_market_state` (`flash::finalize`).
 
-Not reached: token transfers (`Cache::transfer_out`, excluded, and the
-`apply` wrappers of borrow/withdraw/repay/recapitalize/strategy/revenue);
-other events; the flash-loan callback and balance checks (`flash::apply`);
-`run_batch`, `market.rs` and the entry points (`lib.rs`, so also
-`get_sync_data`).
+The roots do not reach token transfers (`Cache::transfer_out`, excluded, and
+the `apply` wrappers of borrow, withdraw, repay, recapitalize, strategy and
+revenue), other events, the flash-loan callback and balance checks
+(`flash::apply`), `run_batch`, `market.rs` and the entry points (`lib.rs`, so
+also `get_sync_data`).
 
 ### Pool stand-ins and shim
 
@@ -335,26 +343,26 @@ other events; the flash-loan callback and balance checks (`flash::apply`);
 
 * `src/types.rs`: `types/pool.rs` and `types/shared.rs` verbatim, plus the
   `OracleTolerance` record (fields only) that `validation.rs` names in an
-  unreached function; controller/oracle type files left out.
-* `src/oracle.rs`: the three constants `validation.rs` imports, production
-  values.
+  unreached function. The controller and oracle type files are left out.
+* `src/oracle.rs`: the three constants that `validation.rs` imports, with
+  production values.
 * `src/storage.rs`: production signatures, `unimplemented!()` bodies (never
-  run). Reached: `read_params`, `read_state`, `write_state`, `renew_market`.
-  `market_exists`, `write_params`, `write_rate_model`, `load_state`,
-  `load_sync_data` serve only `market.rs` / type-checking.
+  run). The reached functions are `read_params`, `read_state`, `write_state`
+  and `renew_market`. `market_exists`, `write_params`, `write_rate_model`,
+  `load_state` and `load_sync_data` serve only `market.rs` and type-checking.
 * `src/time.rs`: `now_ms`.
-* `src/events.rs`: five emitter signatures; two reached
-  ([above](#pool-extraction-roots)), the other three called only by the
-  `apply` wrappers, `run_batch` and `market.rs`.
+* `src/events.rs`: five emitter signatures. Two are reached
+  ([above](#pool-extraction-roots)), and the other three are called only by
+  the `apply` wrappers, `run_batch` and `market.rs`.
 * `src/ownable.rs`: `get_owner`, for `ops::revenue::apply` (not a root).
 
 Shim items (`pool/shim`, `pool/shim-macros`) are signature-only. Those that
-reach Lean get a meaning in the trusted base; the rest only type-check the
+reach Lean get a meaning in the trusted base. The rest only type-check the
 verbatim files.
 
 | Shim item | Reaches Lean | Notes |
 |---|---|---|
-| `Env` | Yes | Unit struct; `Unit` in `Types.lean` |
+| `Env` | Yes | Unit struct. `Unit` in `Types.lean` |
 | `I256` and its 7 methods, `PartialEq`, `PartialOrd` | Yes | As in the rates shim |
 | `Address` | Yes (type only) | Stored in `Cache` (`hub_asset`, `params.asset_id`), never inspected |
 | `panic_with_error!`, `assert_with_error!` | — | `panic!` / `if !cond { panic!(..) }`: abort |
@@ -363,13 +371,13 @@ verbatim files.
 | `Storage`, `Instance`, `Env::storage`, `Storage::instance`, `Instance::extend_ttl` | Yes | For verbatim `common/src/ttl.rs` (`renew_instance`, called by `ops::renewed_market`) |
 | Type-check-only (below) | No | Compile the verbatim files |
 
-Type-check-only: `Error`, `Bytes`, `BytesN`, `Symbol`, `String`, `Val`,
+The type-check-only items are `Error`, `Bytes`, `BytesN`, `Symbol`, `String`, `Val`,
 `IntoVal`, `TryFromVal`, `Vec` (`new`, `is_empty`, `iter`, `contains`,
 `push_back`), `Executable`, `Address::executable`,
-`Env::{current_contract_address, invoke_contract}`, `token::Client` (incl.
+`Env::{current_contract_address, invoke_contract}`, `token::Client` (including
 `try_transfer`). They serve `validation.rs`, `cash.rs::transfer_out`, the
-token/callback half of `flash.rs`, `ops::run_batch` and `withdraw::apply`;
-`TryFromVal`, the three `Vec` methods and `try_transfer` serve `ops/mod.rs` /
+token/callback half of `flash.rs`, `ops::run_batch` and `withdraw::apply`.
+`TryFromVal`, the three `Vec` methods and `try_transfer` serve `ops/mod.rs` and
 `withdraw.rs`.
 
 ### Pool trusted base
@@ -381,24 +389,24 @@ model copied from RatesAeneas.
 | Item | Models | Definition |
 |---|---|---|
 | `aeneas_pool_shim.I256` | Host 256-bit integer | `Int` (RA) |
-| `I256.{from_i128, to_i128, add, sub, mul, div, rem_euclid, eq, partial_cmp}`, `MIN`, `MAX`, `checked` | Host I256 arithmetic | Exact, trapping outside `[-2^255, 2^255)`; truncating `div`, Euclidean `rem_euclid`, zero divisor traps (RA) |
+| `I256.{from_i128, to_i128, add, sub, mul, div, rem_euclid, eq, partial_cmp}`, `MIN`, `MAX`, `checked` | Host I256 arithmetic | Exact, trapping outside `[-2^255, 2^255)`. Truncating `div`, Euclidean `rem_euclid`, zero divisor traps (RA) |
 | `core.num.I128.checked_pow`, `core.num.U32.abs_diff`, `Option::{unwrap_or_else, map_or, and_then}`, `?` on `Option`, `Range::contains` | Rust core | Per the Rust docs (RA) |
-| `aeneas_pool_shim.Address` | `soroban_sdk::Address` | `Nat` handle (as in the controller); only stored and cloned |
+| `aeneas_pool_shim.Address` | `soroban_sdk::Address` | `Nat` handle (as in the controller). Only stored and cloned |
 | `core.array.iter.IntoIter T N` | `core::array::IntoIter` | `List T`, not yet yielded |
 | `Array…IntoIterator.into_iter` | `<[T; N]>::into_iter` | Elements in order |
-| `IntoIter…Iterator.next` | `<array::IntoIter>::next` | Head and tail; `None` when exhausted |
+| `IntoIter…Iterator.next` | `<array::IntoIter>::next` | Head and tail. `None` when exhausted |
 | `I128.Insts.CoreConvertFromU32.from` | `impl From<u32> for i128` | Same integer (always fits) |
 | `I128.Insts.CoreConvertFromU64.from` | `impl From<u64> for i128` | Same integer ([note](#from-u64-model)) |
-| `core.num.niche_types.NonZeroU64Inner` (type) | `core::num::niche_types::NonZeroU64Inner` | `Std.U64`, the wrapped value; never inspected |
+| `core.num.niche_types.NonZeroU64Inner` (type) | `core::num::niche_types::NonZeroU64Inner` | `Std.U64`, the wrapped value. Never inspected |
 | `core.num.nonzero.NonZero T Inner` (type) | `core::num::NonZero<T>` | Bare `T` ([note](#nonzero-model)) |
-| `core.num.nonzero.NonZero.new` | `NonZero::<u64>::new` | `ok (if x = 0 then none else some x)`; never panics |
+| `core.num.nonzero.NonZero.new` | `NonZero::<u64>::new` | `ok (if x = 0 then none else some x)`. Never panics |
 | `core.num.nonzero.NonZero.get` | `NonZero::<u64>::get` | `ok x` |
-| `NonZeroU64Inner.Insts.CoreCloneClone.clone` | `<NonZeroU64Inner as Clone>::clone` | `ok x`; only in the generated `Copy` instance |
+| `NonZeroU64Inner.Insts.CoreCloneClone.clone` | `<NonZeroU64Inner as Clone>::clone` | `ok x`. Only in the generated `Copy` instance |
 | `pool/postextract.sh` | Fix of generated code | Renames the duplicated `ZeroablePrimitive` field ([bug](#aeneas-bug-duplicate-parent-clause-field)) |
 | `aeneas_pool_shim.Storage`, `aeneas_pool_shim.Instance` (types) | Storage handles | `Unit` (only TTL extension is called) |
 | `Env.Insts.CoreCloneClone.clone`, `Address.Insts.CoreCloneClone.clone` | `Clone` of env / address | `ok` of the same value |
 | `Env.storage`, `Storage.instance` | Handle accessors | `ok ()` |
-| `Instance.extend_ttl` | Instance TTL (`common::ttl::renew_instance`) | `ok ()`; TTL and host resource traps not modelled |
+| `Instance.extend_ttl` | Instance TTL (`common::ttl::renew_instance`) | `ok ()`. TTL and host resource traps not modelled |
 | `ledgerNowMs` (`opaque`), `time.now_ms` | Ledger ms (`time::now_ms` aborts on `u64` overflow) | Uninterpreted `Result U64` ([note](#storage-and-time)) |
 | `storedParams`, `storedState` (`opaque`), `storage.read_params`, `storage.read_state` | Market params/state reads (abort for a missing market) | Uninterpreted functions of the key ([note](#storage-and-time)) |
 | `storage.renew_market` | Market TTL extension | `ok ()` |
@@ -406,7 +414,7 @@ model copied from RatesAeneas.
 | `events.emit_market_value_ceiling` | `MarketValueCeilingEvent` (`interest::global_sync`, when the ceiling held interest) | `ok ()` ([note](#events)) |
 | `events.emit_market_state` | Market state snapshot (`ops::flash::finalize`, after commit) | `ok ()` ([note](#events)) |
 
-The array iterator items are reached through `rates::compound`:
+The array iterator items are reached through `rates::compound`.
 `compound_interest_spec` loops over the array's seven divisors in order.
 
 #### From u64 model
@@ -420,23 +428,23 @@ which its Lean library lacks. Reached only via
 
 #### NonZero model
 
-`NonZero T Inner` is the bare `T`: the non-zero invariant is not in the
+`NonZero T Inner` is the bare `T`. The non-zero invariant is not in the
 type, but the model's only constructor (`new`) yields `Some` only for a
 non-zero value, as in Rust. `NonZero.new` is modelled at `u64`, the one
-instance reached (`NonZeroU64::new(remaining)` in `global_sync`); the
+instance reached (`NonZeroU64::new(remaining)` in `global_sync`). The
 generic call elaborates against it.
 
 #### Storage and time
 
-* `ledgerNowMs` is a Lean `opaque` constant (not an axiom); theorems hold for
+* `ledgerNowMs` is a Lean `opaque` constant (not an axiom). Theorems hold for
   every value, including failure.
-* Leg theorems never inspect `storedParams`/`storedState`: they name the
+* Leg theorems never inspect `storedParams` or `storedState`. They name the
   synced cache by `ops.synced_market env k = ok c`, and `load_ok` relates
   the loaded cache to stored state.
-* A read as a function of the key is sound per leg: each leg loads its
+* A read as a function of the key is sound per leg, because each leg loads its
   market once.
 * The written state is the committed cache (`commit_eq`:
-  `commit c = ok (snapOf c)`); no leg reads storage after its commit. Host
+  `commit c = ok (snapOf c)`). No leg reads storage after its commit. Host
   write traps (resource limits) are not modelled.
 
 #### Events
@@ -448,14 +456,15 @@ cache (`commit_eq`), described by `flash_finalize_keeps_ceiling`.
 
 ### Aeneas bug: duplicate parent-clause field
 
-Affected: Aeneas `nightly-2026.11.12-0d21a9e`, bundled Charon `454586e`.
+This bug affects Aeneas `nightly-2026.11.12-0d21a9e` with its bundled Charon
+`454586e`.
 
 **Bug.** A trait with two parent clauses for the *same* trait (here two
 `Copy` bounds) gets two structure fields of the same name, which Lean
 rejects. `core::num::nonzero::ZeroablePrimitive` is
-`trait ZeroablePrimitive: Sized + Copy + Sealed { type NonZeroInner: Sized + Copy; }`;
-Charon turns the associated type into a parameter, giving parent clauses
-`Self: Copy` and `Self::NonZeroInner: Copy`, and Aeneas emits:
+`trait ZeroablePrimitive: Sized + Copy + Sealed { type NonZeroInner: Sized + Copy; }`.
+Charon turns the associated type into a parameter, which gives the parent
+clauses `Self: Copy` and `Self::NonZeroInner: Copy`, and Aeneas emits:
 
 ```lean
 structure core.num.nonzero.ZeroablePrimitive (Self : Type _) (Self_NonZeroInner : Type _) where
@@ -463,7 +472,7 @@ structure core.num.nonzero.ZeroablePrimitive (Self : Type _) (Self_NonZeroInner 
   markerCopyInst : core.marker.Copy Self_NonZeroInner   -- error: already declared
 ```
 
-`global_sync` reaches it through `NonZeroU64::new`/`get`. Charon's
+`global_sync` reaches it through `NonZeroU64::new` and `get`. Charon's
 `--hide-marker-traits`, `--remove-unused-clauses`, `--opaque` and
 `--exclude` (on the trait) do not avoid it.
 
@@ -479,18 +488,19 @@ pub fn use_it(x: u64) -> u64 { get(x) }
 `charon cargo --preset=aeneas` then `aeneas -backend lean` produce
 `structure Zeroable (Self) (Self_Inner) where coremarkerCopyInst : core.marker.Copy Self;
 coremarkerCopyInst : core.marker.Copy Self_Inner` and an instance with the
-duplicated field; `lake env lean` reports
-``Field `coremarkerCopyInst` has already been declared``. Expected: distinct
-names (e.g. a numeric suffix, as Aeneas does for other clashes).
+duplicated field. `lake env lean` reports
+``Field `coremarkerCopyInst` has already been declared``. The expected result
+is distinct names (for example a numeric suffix, as Aeneas does for other
+clashes).
 
 **Workaround.** `pool/postextract.sh` (run by `run.sh` after Aeneas, before
 the build) renames the *second* field to `markerCopyInst1` in exactly three
 places: the structure declaration and its `parentClauses` attribute
 (`Types.lean`), and `u64`'s instance
 `U64.Insts.CoreNumNonzeroZeroablePrimitiveNonZeroU64Inner` (`Funs.lean`).
-Semantics are preserved: field names are labels (types, order and values
-unchanged); no generated function reads either field (`Copy` marker
-instances, no computational content); `NonZero::new`/`get` are external
+Semantics are preserved. Field names are labels (types, order and values
+unchanged). No generated function reads either field (`Copy` marker
+instances, no computational content). `NonZero::new` and `get` are external
 models that ignore the instance. Each substitution must match exactly once
 or the script fails, so changed Aeneas output is noticed. Production code
 stays verbatim.
@@ -500,9 +510,9 @@ stays verbatim.
 **Generated copies.** `Host`, `MulDiv`, `Scaling`, `FloorCeilCore`,
 `FloorCeilRescale`, `FloorCeilRoundTrip`, `HalfUp`, `HalfUpDivInt`: the
 same-named files in `lean/RatesAeneas/Proofs/`, renamed
-`RatesAeneas`→`PoolAeneas`, `rates_aeneas`→`pool_aeneas`,
-`aeneas_soroban_shim`→`aeneas_pool_shim`, `constants.production.`→`constants.`,
-written by `../sync_copies.py`; `run.sh` fails if one is stale.
+`RatesAeneas` to `PoolAeneas`, `rates_aeneas` to `pool_aeneas`,
+`aeneas_soroban_shim` to `aeneas_pool_shim`, `constants.production.` to `constants.`,
+written by `../sync_copies.py`. `run.sh` fails if one is stale.
 
 **Hand-adapted copies** (same renaming, provenance comment each):
 `FloorCeilScaling`, `FloorCeilResolve`, `Withdrawal`.
@@ -511,20 +521,20 @@ written by `../sync_copies.py`; `run.sh` fails if one is stale.
   `mul_div_ceil_spec`, `mul_div_half_up_spec`,
   `mul_div_floor_saturating_spec`, `ray_mul_floor_spec`, `ray_mul_ceil_spec`,
   `ray_div_floor_spec`, `ray_div_ceil_spec`, `ray_to_asset_floor_spec`,
-  `unscale_supply_floor_spec`, `from_asset_spec`; for the legs,
+  `unscale_supply_floor_spec` and `from_asset_spec`. For the legs, they supply
   `resolve_repay_spec`, `resolve_net_settle_spec` and
-  `resolve_withdrawal_spec` (with `exists_isFloor`/`exists_isCeil`).
+  `resolve_withdrawal_spec` (with `exists_isFloor` and `exists_isCeil`).
 * `FloorCeilResolve` omits `i128_saturating_sub_val` and
   `protocol_fee_shares_spec` (the pool's own are in `Accrual.lean`).
 * `Withdrawal` keeps only `resolve_withdrawal_spec` and its two arithmetic
-  lemmas; it imports the pool's `RatesHalfUpWrappers`/`RatesIndex` and opens
-  `PoolAeneas.RatesProofs` for `ray_mul_spec`/`ray_to_asset_spec`.
+  lemmas. It imports the pool's `RatesHalfUpWrappers` and `RatesIndex` and
+  opens `PoolAeneas.RatesProofs` for `ray_mul_spec` and `ray_to_asset_spec`.
 
 **Accrual copies.** `RatesHalfUpWrappers`, `RatesCurveBase`, `RatesCurve`,
 `RatesCurveRates`, `RatesIndex` copy `HalfUpWrappers`, `CurveBase`, `Curve`,
 `CurveRates`, `Index`, with the same renaming plus
-`types.MarketParams`→`types.pool.MarketParams`, in namespace
-`PoolAeneas.RatesProofs` because names clash with pool lemmas (e.g.
+`types.MarketParams` to `types.pool.MarketParams`, in namespace
+`PoolAeneas.RatesProofs` because names clash with pool lemmas (for example
 `ray_checked_add_spec`, `ray_eq_eq`, `bps_val`). They supply
 `calculate_borrow_rate_spec`, `utilization_spec`, `update_borrow_index_spec`,
 `calculate_supplier_rewards_spec`, `ray_mul_spec` and the `Ray` `Ord`
@@ -535,7 +545,7 @@ min/max specs `accrue_step_spec` uses. `RatesCurveRates` omits
 **Pool-local differences:**
 
 * `RatesHalfUpWrappers.lean` adds `ray_div_spec` (`utilization` calls
-  `Ray::div`); omits `ray_try_div_spec` (`Ray::try_div` not extracted) and
+  `Ray::div`). It omits `ray_try_div_spec` (`Ray::try_div` not extracted) and
   `ray_try_mul_spec` (the pool's copy is in `Wrappers.lean`).
 * `RatesCurveBase.lean` adds `utilization_spec` (result in `[0, RAY]`) and
   `ray_ge_eq`.
@@ -561,5 +571,5 @@ lake build PoolAeneas
 Charon reads the roots and the `transfer_out` exclusion from
 `[package.metadata.charon]` in `pool/Cargo.toml`. The `*_Template.lean`
 files list the external declarations whose meanings live in
-`FunsExternal.lean` and `TypesExternal.lean`; after a re-extraction, diff
+`FunsExternal.lean` and `TypesExternal.lean`. After a re-extraction, diff
 them against those files before deleting them.

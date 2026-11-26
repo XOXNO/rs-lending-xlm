@@ -1,6 +1,6 @@
 //! Market mutation operations invoked from the pool's public interface.
 //!
-//! Each submodule implements one logical action (supply, borrow, …). Shared
+//! Each submodule implements one logical action (supply, borrow, and others). Shared
 //! helpers here load an interest-synced [`Cache`], run multi-leg batches, and
 //! emit market state events after each batch.
 
@@ -53,8 +53,8 @@ pub(crate) fn load_leg(env: &Env, action: &PoolAction) -> (Cache, Ray) {
 /// market state batch event (none for an empty batch).
 ///
 /// Each leg returns a result `R` plus a [`MarketStateSnapshot`] for the event batch.
-/// With `unique_markets`, a batch that repeats a market panics with `InvalidPayments`:
-/// each leg carries a position read before the batch, so a second leg would be stale.
+/// With `unique_markets`, a batch that repeats a market panics with `InvalidPayments`.
+/// Each leg carries a position read before the batch, so a second leg would be stale.
 pub(crate) fn run_batch<E, R>(
     env: &Env,
     entries: Vec<E>,

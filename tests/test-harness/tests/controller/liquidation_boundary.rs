@@ -139,9 +139,9 @@ fn test_liquidation_bonus_monotone_in_mild_underwater_band() {
         "every sample must be liquidatable, else a cell silently vanishes: {bonuses:?}"
     );
 
-    // Not monotone despite the name: the curve bonus rises as HF falls until the
-    // HF-neutral cap binds, and the cap falls with HF. The realized series is
-    // 0.118 -> 0.134 -> 0.132 -> 0.103. The liquidator receives the cap net of
+    // The bonus is not monotone despite the name. The curve bonus rises as HF falls
+    // until the HF-neutral cap binds, and the cap falls with HF. The realized series is
+    // 0.118, 0.134, 0.132, 0.103. The liquidator receives the cap net of
     // the bonus-only protocol fee, so the bound is `cap * (1 - fee)`.
     for (cents, bonus, hf_before, hf_after) in &bonuses {
         let neutral_cap = (hf_before / 0.80 - 1.0) * (1.0 - fee_frac);

@@ -151,7 +151,7 @@ fn test_mul_div_half_up_overflow_panics() {
 fn test_mul_div_floor_rounds_toward_negative_infinity() {
     let env = Env::default();
 
-    // -7/3 = -2.33 -> floor is -3, not the -2 that truncation would give.
+    // -7/3 = -2.33, so floor is -3, not the -2 that truncation would give.
     assert_eq!(mul_div_floor(&env, -7, 1, 3), -3);
 
     // Exact quotients are unaffected by the rounding direction.
@@ -189,7 +189,7 @@ fn test_mul_div_ceil_rounds_toward_positive_infinity() {
 
     assert_eq!(mul_div_ceil(&env, 7, 1, 3), 3);
 
-    // -7/3 = -2.33 -> ceil is -2.
+    // -7/3 = -2.33, so ceil is -2.
     assert_eq!(mul_div_ceil(&env, -7, 1, 3), -2);
 
     assert_eq!(mul_div_ceil(&env, -6, 1, 3), -2);
@@ -339,7 +339,7 @@ fn test_rescale_same_decimals_returns_input() {
 #[test]
 fn test_rescale_downscale_factor_larger_than_i128_saturates_to_zero() {
     let env = Env::default();
-    // 10^39 does not fit i128, so it exceeds every representable `a`: the
+    // 10^39 does not fit i128, so it exceeds every representable `a`. The
     // quotient is 0 for floor and half-up, and 1 for ceil on a positive `a`.
     assert_eq!(rescale_half_up(&env, 0, 50, 11), 0);
     assert_eq!(rescale_half_up(&env, i128::MAX, 50, 11), 0);
@@ -534,9 +534,9 @@ fn mul_div_floor_saturating_matches_floor_below_saturation() {
         (WAD, WAD, WAD),
         (RAY, 3, 7),
         (i128::MAX, 1, 1),
-        // Exact division: no rounding either way.
+        // Exact division needs no rounding either way.
         (100, 10, 5),
-        // Inexact: floor must truncate, not round.
+        // An inexact division must truncate under floor, not round.
         (99, 10, 7),
     ] {
         assert_eq!(
@@ -547,8 +547,8 @@ fn mul_div_floor_saturating_matches_floor_below_saturation() {
     }
 }
 
-/// Checks `rescale_half_up`, `rescale_floor` and `rescale_ceil` against reference bodies
-/// across negative, zero, exact-multiple and half-boundary inputs in both directions.
+/// Checks `rescale_half_up`, `rescale_floor`, and `rescale_ceil` against reference bodies
+/// across negative, zero, exact-multiple, and half-boundary inputs in both directions.
 #[test]
 fn test_rescale_variants_match_their_pre_refactor_bodies() {
     let env = Env::default();
@@ -664,7 +664,7 @@ fn test_small_mul_div_floor_and_ceil_need_no_host_division() {
 // ---------------------------------------------------------------------------
 // Exact differential tests.
 //
-// Each test compares a primitive with the exact rational result on every
+// Each test compares a function with the exact rational result on every
 // combination of the edge values and on seeded random operands of every
 // magnitude and sign. `test_support` states the expected rounding through
 // inequalities on exact 256-bit products, so a result passes only if it is the
@@ -912,23 +912,23 @@ fn exact_rescale_matches_each_rounding_rule_or_reports_overflow() {
     }
 }
 
-/// Each reference predicate accepts exactly one integer: the neighbours of the
+/// Each reference predicate accepts exactly one integer. The neighbours of the
 /// correct result fail, including at an exact half and beyond `i128` products.
 #[test]
 fn exact_reference_predicates_reject_the_neighbouring_integers() {
     let n = Wide::from;
-    // -7 / 3 = -2.33..: the floor is -3 and the ceiling is -2.
+    // -7 / 3 = -2.33.., so the floor is -3 and the ceiling is -2.
     assert!(is_floor(-3, n(-7), 3) && !is_floor(-2, n(-7), 3) && !is_floor(-4, n(-7), 3));
     assert!(is_ceil(-2, n(-7), 3) && !is_ceil(-3, n(-7), 3) && !is_ceil(-1, n(-7), 3));
     // 7 / -3 is the same quotient through a negative divisor.
     assert!(is_floor(-3, n(7), -3) && !is_floor(-2, n(7), -3));
     assert!(is_ceil(-2, n(7), -3) && !is_ceil(-3, n(7), -3));
-    // 5 / 2 is an exact half: half up gives 3, and -5 / 2 rounds away to -3.
+    // 5 / 2 is an exact half. Half up gives 3, and -5 / 2 rounds away to -3.
     assert!(is_half_up(3, n(5), 2) && !is_half_up(2, n(5), 2));
     assert!(is_half_away(-3, n(-5), 2) && !is_half_away(-2, n(-5), 2));
-    // 4 / 9 is just below a half and rounds down.
+    // 4 / 9 is below a half and rounds down.
     assert!(is_half_up(0, n(4), 9) && !is_half_up(1, n(4), 9));
-    // MAX * MAX / MAX is exactly MAX; dividing by MAX - 1 no longer fits.
+    // MAX * MAX / MAX is exactly MAX. Dividing by MAX - 1 no longer fits.
     let square = Wide::product(i128::MAX, i128::MAX);
     assert!(is_floor(i128::MAX, square, i128::MAX));
     assert!(!is_floor(i128::MAX - 1, square, i128::MAX));
@@ -983,7 +983,7 @@ fn exact_reference_quotients_match_their_predicates_and_native_division() {
             );
         }
     }
-    // 5 / 2 is an exact half and rounds up; 4 / 9 is below a half.
+    // 5 / 2 is an exact half and rounds up. 4 / 9 is below a half.
     assert_eq!(half_up_of(5, 1, 2), Some(3));
     assert_eq!(half_up_of(4, 1, 9), Some(0));
     // The largest quotient is found, and one unit more no longer fits.

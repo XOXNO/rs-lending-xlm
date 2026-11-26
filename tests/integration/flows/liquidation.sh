@@ -71,7 +71,7 @@ flow_liq_single() {
     save_state LIQ1_ACCT "$acct"
 }
 
-# Snapshot before submission; evaluate with indexes committed by that transaction.
+# Snapshot before submission. Evaluate with indexes committed by that transaction.
 liq_transfer_leg() {
     local leg="$1" acct="$2" offered="$3" positions supply debt expected paid gross fee
     local payer cash recipient holdings revenue collateral remaining
@@ -199,7 +199,7 @@ flow_liq_credit() {
     save_state LIQCR_RECV "$recv2"
 }
 
-# Credit reclassifies exact RAY shares; it never transfers collateral tokens.
+# Credit reclassifies exact RAY shares. It never transfers collateral tokens.
 liq_credit_leg() {
     local leg="$1" acct="$2" target="$3" paid="$4" recv key
     local before after receiving_before='[{},{}]' receiving_after pool_before pool_after debt attrs
@@ -257,7 +257,7 @@ flow_liq_credit_rejections() {
             --debt_payments "$(pay_vec "$PRIMARY_HUB_ID" "$SAC_LIQB" $((10 * LIQ_UNIT)))"
     fi
 
-    # A liquidator-owned account in a different spoke: an account's spoke sets
+    # A liquidator-owned account in a different spoke. An account's spoke sets
     # the risk configuration of every position it holds.
     if [ -n "${SPOKE_ID:-}" ]; then
         local carol_other
@@ -271,10 +271,10 @@ flow_liq_credit_rejections() {
     fi
 }
 
-# `set_spoke_asset_flags`, `set_spoke_liquidation_curve` and `get_spoke_usage`.
+# `set_spoke_asset_flags`, `set_spoke_liquidation_curve`, and `get_spoke_usage`.
 #
 # Order matters. `set_spoke_asset_flags` only tightens flags and no later flow
-# relaxes LIQG, so the seizure halt lasts for the rest of the run: this flow
+# relaxes LIQG, so the seizure halt lasts for the rest of the run. This flow
 # runs after flow_liq_credit is done with LIQG. The curve change targets
 # SPOKE_ID (from flow_liq_spoke), so primary-spoke liquidations do not change.
 flow_spoke_flags_and_curve() {
@@ -284,7 +284,7 @@ flow_spoke_flags_and_curve() {
     local liqg_key
     liqg_key=$(hub_key "$PRIMARY_HUB_ID" "$SAC_LIQG")
 
-    # Spoke usage holds per-spoke cap consumption; the credit flow moved supply.
+    # Spoke usage holds per-spoke cap consumption. The credit flow moved supply.
     # It returns a SpokeUsageRaw struct, so this checks a field, not an int.
     local usage supplied_ray
     usage=$(view sf_usage "$CONTROLLER" -- get_spoke_usage \
@@ -324,7 +324,7 @@ flow_spoke_flags_and_curve() {
 # `force_socialize_bad_debt` (owner-only) and `recapitalize` (permissionless).
 #
 # Runs after flow_clean_bad_debt, which tests the permissionless cleanup on its
-# own account; this flow builds a separate position and socializes it through
+# own account. This flow builds a separate position and socializes it through
 # the owner override.
 recapitalization_reference() {
     local basis="$1"
@@ -384,7 +384,7 @@ flow_force_socialize_and_recap() {
         --borrows "$(pay_vec "$PRIMARY_HUB_ID" "$SAC_LIQD" $((12 * LIQ_UNIT)))" --to null >/dev/null
 
     dual_px "$SAC_LIQC" LIQC $((WAD / 100 * 30)) fs_crash || return 1
-    # $9 collateral exceeds the $5 permissionless dust threshold; ~$12 debt.
+    # $9 collateral exceeds the $5 permissionless dust threshold. The debt is about $12.
     xfail fs_permissionless_denied 'Error\(Contract, #114\)' "$BOB" "$CONTROLLER" -- clean_bad_debt --caller "$BOB_ADDR" --account_id "$acct" || return 1
     xfail fs_owner_required "Missing signing key for account $ADMIN_ADDR" "$BOB" "$CONTROLLER" -- force_socialize_bad_debt --account_id "$acct" || return 1
     local cash_before collateral_before
@@ -450,9 +450,9 @@ flow_clean_bad_debt() {
 # spoke can hold live positions forever. Liquidation stays open there for a
 # liquidator with no account in that spoke: `Credit(0)` creates the receiver
 # inside the deprecated spoke, while supply into a new account there fails.
-# Runs last in the liquidation block, so its LIQE/LIQF price moves do not
-# affect earlier flows. Teardown drains the two accounts it leaves; that needs
-# no active spoke.
+# Runs last in the liquidation block, so its LIQE and LIQF price moves do not
+# affect earlier flows. Teardown drains the two accounts it leaves, and that drain
+# needs no active spoke.
 flow_liq_deprecated_spoke_credit() {
     phase liq_deprecated_spoke
     if [ -n "${DEPR_SPOKE_DONE:-}" ]; then

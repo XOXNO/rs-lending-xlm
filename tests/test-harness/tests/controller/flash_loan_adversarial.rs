@@ -43,8 +43,8 @@ fn assert_reentry_fails(t: &mut LendingTest, mode: FlashLoanMode) {
     );
     // Every mode here re-enters the controller from inside its own frame, so the
     // Soroban host re-entry rule (`Error(Context, InvalidAction)`) fires before
-    // the protocol's flash guard can. Pinning the exact error keeps a wildcard
-    // `is_err()` from passing on an unrelated revert -- see
+    // the protocol's flash guard can. The exact error is pinned so that a wildcard
+    // `is_err()` cannot pass on an unrelated revert. See
     // `bad_debt_netting_and_exit_timing::flash_callback_cannot_reach_any_controller_entrypoint`.
     let host_reentry = soroban_sdk::Error::from_type_and_code(
         soroban_sdk::xdr::ScErrorType::Context,

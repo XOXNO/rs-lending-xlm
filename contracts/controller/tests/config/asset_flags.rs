@@ -146,7 +146,7 @@ fn set_spoke_asset_flags_tightens_pause_and_freeze() {
         let after_both = storage::get_spoke_asset(&env, 1, &hub(&asset)).unwrap();
         assert!(after_both.paused);
         assert!(after_both.frozen);
-        // Risk params must be untouched by the flags-only path.
+        // The flags-only path must leave the risk parameters untouched.
         assert_eq!(after_both.loan_to_value, 8_000);
         assert_eq!(after_both.supply_cap, 1_000_000);
     });
@@ -174,7 +174,7 @@ fn set_spoke_asset_flags_rejects_unfreeze() {
 
     env.as_contract(&contract, || {
         seed_listing(&env, 1, &asset, true, true, false);
-        // Keep pause; clear freeze only — still a relaxation.
+        // Keep pause and clear freeze only. This is still a relaxation.
         set_spoke_asset_flags(&env, 1, hub(&asset), true, false, false);
     });
 }
@@ -219,8 +219,9 @@ fn set_spoke_asset_flags_rejects_clearing_no_seize() {
 
     env.as_contract(&contract, || {
         seed_listing(&env, 1, &asset, false, false, true);
-        // The guardian ratchet is one-way for every flag, `no_seize` included:
-        // reopening seizure stays timelocked through `relax_spoke_asset_flags`.
+        // The guardian can only tighten flags. That rule holds for every flag,
+        // including `no_seize`. `relax_spoke_asset_flags` stays timelocked and is the
+        // only way to reopen seizure.
         set_spoke_asset_flags(&env, 1, hub(&asset), false, false, false);
     });
 }
@@ -234,8 +235,8 @@ fn flag_ratchet_rejects_an_idempotent_tighten() {
 
     env.as_contract(&contract, || {
         seed_listing(&env, 1, &asset, true, true, false);
-        // Re-asserting the same flags is not a relaxation, but it changes
-        // nothing and must not advance the epoch.
+        // Setting the same flags again is not a relaxation. It changes nothing and
+        // must not advance the epoch.
         set_spoke_asset_flags(&env, 1, hub(&asset), true, true, false);
     });
 }
@@ -323,7 +324,7 @@ fn guardian_flag_writes_advance_the_epoch_once_per_tightening() {
 
         set_spoke_asset_flags(&env, 1, hub(&asset), true, true, true);
         assert_eq!(epoch(&env, &asset), 3);
-        // Every flag is set: no further guardian write can advance the epoch.
+        // Every flag is set, so no further guardian write can advance the epoch.
     });
 }
 

@@ -23,8 +23,8 @@ pub(crate) fn setup_position_nft(env: &Env, controller: &Address) -> Address {
     nft
 }
 
-/// Mints an NFT to `owner` and writes matching account metadata; returns the
-/// account id (== token id).
+/// Mints an NFT to `owner` and writes matching account metadata. Returns the
+/// account id, which equals the token id.
 pub(crate) fn seed_account(env: &Env, controller: &Address, nft: &Address, owner: &Address) -> u64 {
     let account_id = u64::from(position_nft::PositionNftClient::new(env, nft).mint(owner));
     env.as_contract(controller, || {
@@ -224,7 +224,7 @@ fn require_account_owner_rejects_active_delegate() {
         storage::set_position_manager(&env, &manager, &PositionManagerConfig { is_active: true });
         storage::add_delegate(&env, account_id, &owner, &manager);
 
-        // Owner-only: delegates must not pass even when fully opted-in/active.
+        // Owner-only. Delegates must not pass even when fully opted in and active.
         let _ = require_account_owner(&env, account_id, &manager);
     });
 }
@@ -457,10 +457,10 @@ fn transfer_revokes_prior_owner_and_delegates() {
     env.as_contract(&contract_id, || {
         let owner = crate::storage::account_owner(&env, account_id);
         assert_eq!(owner, bob);
-        // Old owner and the grant they made are both dead.
+        // The old owner and the grant that owner made are both rejected.
         assert!(!is_owner_or_delegate(&env, account_id, &alice, &owner));
         assert!(!is_owner_or_delegate(&env, account_id, &manager, &owner));
-        // New owner works, and a fresh grant by the new owner works.
+        // The new owner passes, and a fresh grant by the new owner passes.
         assert!(is_owner_or_delegate(&env, account_id, &bob, &owner));
         assert!(crate::storage::add_delegate(
             &env, account_id, &bob, &manager
@@ -518,8 +518,8 @@ fn cleanup_empty_account_burns_nft() {
 #[test]
 #[should_panic(expected = "Error(Contract, #53)")]
 fn account_creation_before_nft_deploy_fails_closed() {
-    // A spoke exists but the position NFT is not set (no `setup_position_nft`
-    // call). `create_account` fails with `PositionNftNotSet` (#53).
+    // A spoke exists, but the test never calls `setup_position_nft`, so the position
+    // NFT is not set. `create_account` fails with `PositionNftNotSet` (#53).
     let env = Env::default();
     env.mock_all_auths();
     let admin = Address::generate(&env);

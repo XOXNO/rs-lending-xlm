@@ -177,8 +177,8 @@ fn withdraw_that_lands_exactly_on_max_utilization_passes_and_one_unit_more_fails
     t.supply(ALICE, "USDC", 100_000.0);
     t.supply(BOB, "ETH", 1_000.0);
     t.borrow(BOB, "USDC", 40_000.0);
-    // Supplied 100_000, borrowed 40_000. Utilization hits 80 percent when
-    // supplied falls to 50_000: ALICE may withdraw exactly 50_000.
+    // ALICE supplied 100_000 and BOB borrowed 40_000. Utilization hits 80 percent when
+    // supplied falls to 50_000, so ALICE may withdraw exactly 50_000.
     let unit = 10_000_000i128;
     let exact = 50_000 * unit;
     assert_contract_error(

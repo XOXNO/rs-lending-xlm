@@ -23,9 +23,8 @@ pub(crate) fn add_asset_to_spoke(env: &Env, args: &SpokeAssetArgs) {
     upsert_spoke_asset(env, args, SpokeAssetMutation::Add);
 }
 
-/// Updates a listed market after validating risk parameters and caps.
-/// Allows deprecated spokes so existing positions remain configurable.
-/// Flags may stay or tighten; clearing one reverts.
+/// Updates a listed market after validating risk parameters and caps. Allows deprecated spokes so
+/// existing positions remain configurable. Flags may stay or tighten. Clearing one reverts.
 pub(crate) fn edit_asset_in_spoke(env: &Env, args: &SpokeAssetArgs) {
     upsert_spoke_asset(env, args, SpokeAssetMutation::Edit);
 }
@@ -109,8 +108,8 @@ fn flags(config: &SpokeAssetConfig) -> (bool, bool, bool) {
 
 /// Tightens paused, frozen, and no-seize flags on a listed asset, advances
 /// its flags epoch, and emits the new config. Rejects any true-to-false
-/// transition, and rejects a write that changes no flag: the epoch advances
-/// only on a genuine tightening, so a pending `relax_spoke_asset_flags` can
+/// transition, and rejects a write that changes no flag. The epoch advances
+/// only on a tightening, so a pending `relax_spoke_asset_flags` can
 /// be invalidated at most once per flag (ADR-0007).
 pub(crate) fn set_spoke_asset_flags(
     env: &Env,

@@ -105,7 +105,7 @@ fn authorized_call(env: &Env, function: &str) -> bool {
     env.auths().iter().any(|(_, root)| walk(root, &target))
 }
 
-/// Router, A→B Aquarius pool holding 500 B, and a sender holding 500 A.
+/// Router, an Aquarius pool from A to B holding 500 B, and a sender holding 500 A.
 struct Swap<'a> {
     env: &'a Env,
     router: RouterClient<'a>,
@@ -139,7 +139,7 @@ impl Swap<'_> {
         self.a.admin.mint(sender, &500);
     }
 
-    /// One-hop A→B payload with a 400 minimum; `referral_id` 0 means none.
+    /// One-hop A-to-B payload with a 400 minimum. A `referral_id` of 0 means none.
     fn payload(&self, referral_id: u64) -> soroban_sdk::Bytes {
         strategy_xdr_with_referral(
             self.env,
@@ -158,7 +158,7 @@ impl Swap<'_> {
         )
     }
 
-    /// Asserts the router published the `SwapEvent` for a 500-unit A→B swap.
+    /// Asserts the router published the `SwapEvent` for a 500-unit A-to-B swap.
     fn assert_swap_event(
         &self,
         sender: &Address,
@@ -281,7 +281,7 @@ fn swap_with_existing_output_trustline_needs_no_trust_auth() {
     let out = s.router.execute_strategy(&sender, &500, &s.payload(0));
 
     assert_eq!(out, 500);
-    // `env.auths()` holds only the last invocation: the swap itself.
+    // `env.auths()` holds only the last invocation, the swap itself.
     assert!(!authorized_call(&env, "trust"));
     assert_eq!(token::Client::new(&env, &s.b.address).balance(&sender), 500);
 }
@@ -327,7 +327,7 @@ fn swap_to_output_issuer_ignores_failed_trust() {
     s.a.admin.trust(&issuer);
     s.a.admin.mint(&issuer, &500);
 
-    // `trust` errors for the issuer; the payout to the issuer still succeeds.
+    // `trust` errors for the issuer. The payout to the issuer still succeeds.
     let out = s.router.execute_strategy(&issuer, &500, &s.payload(0));
 
     assert_eq!(out, 500);

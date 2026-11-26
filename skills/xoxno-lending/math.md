@@ -1,11 +1,11 @@
 # XOXNO Lending math reference
 
-Formulas for raw contract state and liquidation sizing. Integer pseudocode;
-round (`floor`, `ceil`, `half_up`) the whole fraction `x * y / d`. Keep
-intermediates exact (`I256` on-chain, `BigInt` off-chain), never
-floating-point `Number`.
+This page gives formulas for raw contract state and liquidation sizing. The
+pseudocode uses integers. Round the whole fraction `x * y / d` with `floor`,
+`ceil`, or `half_up`. Keep intermediates exact, with `I256` on-chain and
+`BigInt` off-chain. Never use floating-point `Number`.
 
-Sources: [`docs/reference/formulas.md`](https://github.com/XOXNO/rs-lending-xlm/blob/main/docs/reference/formulas.md), `common/src/{constants,math,rates}`, `contracts/{pool,controller}`. Worked numbers recomputed with exact integers.
+The sources are [`docs/reference/formulas.md`](https://github.com/XOXNO/rs-lending-xlm/blob/main/docs/reference/formulas.md), `common/src/{constants,math,rates}`, and `contracts/{pool,controller}`. The worked numbers are recomputed with exact integers.
 
 ## Units
 
@@ -27,7 +27,7 @@ Sources: [`docs/reference/formulas.md`](https://github.com/XOXNO/rs-lending-xlm/
 
 ## Rounding vocabulary
 
-`common/src/math/fp_core.rs`:
+The rounding functions are in `common/src/math/fp_core.rs`:
 
 ```text
 floor(x, y, d)   = ⌊x·y / d⌋
@@ -37,7 +37,7 @@ half_up(x, y, d) = ⌊(x·y + ⌊d/2⌋) / d⌋          // x, y ≥ 0, d > 0
 
 ## Shares and token amounts
 
-Positions store shares (`scaled_amount`, RAY); value = shares × index, rounded twice before a token transfer ([formulas.md#shares-and-token-amounts](https://github.com/XOXNO/rs-lending-xlm/blob/main/docs/reference/formulas.md#shares-and-token-amounts)). Rounding per boundary (`common/src/rates/scaling.rs`, `contracts/pool/src/cache/scale.rs`):
+Positions store shares (`scaled_amount`, RAY). The value is shares × index, rounded twice before a token transfer ([formulas.md#shares-and-token-amounts](https://github.com/XOXNO/rs-lending-xlm/blob/main/docs/reference/formulas.md#shares-and-token-amounts)). The table shows the rounding per boundary (`common/src/rates/scaling.rs`, `contracts/pool/src/cache/scale.rs`):
 
 | Boundary | Function | Direction |
 |---|---|---|
@@ -51,10 +51,10 @@ Positions store shares (`scaled_amount`, RAY); value = shares × index, rounded 
 
 Full-close rules (`resolve_withdrawal`, `resolve_repay`):
 
-- Withdrawal `≥` half-up displayed balance burns **all** shares and pays the **floor** balance; smaller pays exactly the request and burns `ceil` shares. If floor < half-up, a request sized from the floor is partial and leaves dust.
-- Repayment `≥` ceiled debt burns **all** debt shares and refunds the excess; smaller burns `floor` shares.
-- Positive supply, borrow, gross withdrawal, net repayment and net settlement must move at least one share, else `SupplyRoundsToZeroShares`, `BorrowRoundsToZeroShares`, `WithdrawRoundsToZeroShares`, `RepayRoundsToZeroShares`, or `NetSettleRoundsToZeroShares` (`contracts/pool/src/ops/*.rs`).
-- `withdraw` amount `i128::MAX` = whole position: any amount at or above the position's half-up value withdraws all of it (`resolve_withdrawal`, `common/src/rates/scaling.rs`). Pass `i128::MAX` to close rather than computing a balance. Amount `0` fails with `AmountMustBePositive` (`aggregate_positive_payments`, `payments.rs`). Two `i128::MAX` legs for the same hub asset overflow the aggregated sum and fail with `MathOverflow`.
+- A withdrawal `≥` the half-up displayed balance burns **all** shares and pays the **floor** balance. A smaller withdrawal pays exactly the request and burns `ceil` shares. If floor < half-up, a request sized from the floor is partial and leaves dust.
+- A repayment `≥` the ceiled debt burns **all** debt shares and refunds the excess. A smaller repayment burns `floor` shares.
+- Positive supply, borrow, gross withdrawal, net repayment, and net settlement must move at least one share. Otherwise the call fails with `SupplyRoundsToZeroShares`, `BorrowRoundsToZeroShares`, `WithdrawRoundsToZeroShares`, `RepayRoundsToZeroShares`, or `NetSettleRoundsToZeroShares` (`contracts/pool/src/ops/*.rs`).
+- A `withdraw` amount of `i128::MAX` means the whole position. Any amount at or above the position's half-up value withdraws all of it (`resolve_withdrawal`, `common/src/rates/scaling.rs`). Pass `i128::MAX` to close rather than computing a balance. An amount of `0` fails with `AmountMustBePositive` (`aggregate_positive_payments`, `payments.rs`). Two `i128::MAX` legs for the same hub asset overflow the aggregated sum and fail with `MathOverflow`.
 
 ### Worked example: USDC (7 decimals)
 
@@ -75,7 +75,7 @@ tokens half-up = 10_314_285_714   // what get_collateral_amount displays
 tokens ceil    = 10_314_285_715
 ```
 
-Withdrawing 500 USDC burns `ceil(5e9 × 10^20 × RAY / 1.083e27) = 461_680_517_082_179_132_040_627_885_504` shares (floor: `…503`). To close, request `≥ 10_314_285_714` (half-up) or `0`; payout `10_314_285_714`.
+Withdrawing 500 USDC burns `ceil(5e9 × 10^20 × RAY / 1.083e27) = 461_680_517_082_179_132_040_627_885_504` shares (floor: `…503`). To close, request `≥ 10_314_285_714` (half-up) or `0`. The payout is `10_314_285_714`.
 
 ### Worked example: USST (18 decimals) debt
 
@@ -98,14 +98,15 @@ Repaying 100 USST burns `floor(100e27 × RAY / 1.1315e27) = 88_378_258_948_298_7
 
 ### Portfolio API amounts
 
-Wallet display uses v1 `LendingPosition` arrays: `amountRaw` is a base-unit
-string, `amount` a decimal whole-token string; no RAY conversion (share
-formulas apply only to raw contract positions). Missing values, prices, APYs,
-pagination: [SDK reads](../xoxno-lending-sdk/reads.md#units-and-missing-data).
+Wallet display uses v1 `LendingPosition` arrays. `amountRaw` is a base-unit
+string. `amount` is a decimal whole-token string. No RAY conversion applies,
+because share formulas apply only to raw contract positions. For missing
+values, prices, APYs, and pagination, see
+[SDK reads](../xoxno-lending-sdk/reads.md#units-and-missing-data).
 
 ## Utilization
 
-`common/src/rates/curve.rs::utilization`, `contracts/pool/src/cache/scale.rs::calculate_utilization`:
+The utilization code is in `common/src/rates/curve.rs::utilization` and `contracts/pool/src/cache/scale.rs::calculate_utilization`:
 
 ```text
 supply_value_ray = half_up(total_supplied_shares × supply_index / RAY)
@@ -115,10 +116,10 @@ utilization_ray  = supply_value_ray == 0 ? 0
                  : half_up(debt_value_ray × RAY / supply_value_ray)      // always in [0, RAY]
 ```
 
-`get_utilisation` returns the stored ratio; reproduce it from `get_sync_data`
+`get_utilisation` returns the stored ratio. Reproduce it from `get_sync_data`
 shares and indexes. Spokes on one hub-asset market share its rate.
 
-Example: 10,000,000 USDC supplied value, 6,500,000 USDC borrowed value → `utilization_ray = 650_000_000_000_000_000_000_000_000` (0.65).
+Example: 10,000,000 USDC supplied value and 6,500,000 USDC borrowed value give `utilization_ray = 650_000_000_000_000_000_000_000_000` (0.65).
 
 `max_utilization` (RAY) is a pool guard, not a curve input, checked after a
 borrow, user withdrawal, or revenue claim:
@@ -127,16 +128,16 @@ borrow, user withdrawal, or revenue claim:
 ceil(debt_value_ray) ≤ floor(floor(supply_value_ray) × max_utilization / RAY)
 ```
 
-Zero debt or zero supplied shares pass; positive debt against supply value
-flooring to zero fails (`UtilizationAboveMax`). Borrows and strategy openings
+Zero debt or zero supplied shares pass. Positive debt against supply value
+that floors to zero fails (`UtilizationAboveMax`). Borrows and strategy openings
 are always checked, so at `max_utilization = RAY` debt cannot exceed supply.
-User withdrawals and revenue claims skip it when `max_utilization ≥ RAY`;
-liquidation withdrawals always skip it. Source: `contracts/pool/src/guards.rs::require_utilization_below_max`
+User withdrawals and revenue claims skip it when `max_utilization ≥ RAY`.
+Liquidation withdrawals always skip it. The source is `contracts/pool/src/guards.rs::require_utilization_below_max`
 and `require_exit_utilization_below_max`.
 
 ## Borrow-rate curve
 
-`calculate_annual_borrow_rate` (`common/src/rates/curve.rs`) with `MarketParams { base_borrow_rate, slope1, slope2, slope3, mid_utilization, optimal_utilization, max_borrow_rate }` (all RAY):
+`calculate_annual_borrow_rate` (`common/src/rates/curve.rs`) takes `MarketParams { base_borrow_rate, slope1, slope2, slope3, mid_utilization, optimal_utilization, max_borrow_rate }`, all in RAY:
 
 ```text
 u = min(utilization_ray, RAY)
@@ -146,17 +147,17 @@ else:                  rate = base + slope1 + slope2 + half_up((u − optimal) �
 rate = min(rate, max_borrow_rate)
 ```
 
-Each slope is its segment's total rise (`slope1`: 0→`mid`, `slope2`: `mid`→`optimal`, `slope3`: `optimal`→100%).
+Each slope is its segment's total rise: `slope1` covers 0 to `mid`, `slope2` covers `mid` to `optimal`, and `slope3` covers `optimal` to 100%.
 
-Validation:
+The rate model must satisfy these rules:
 
 - `max_borrow_rate ≤ MAX_BORROW_RATE_RAY = 2 RAY` (200% APR).
-- `base + slope1 + slope2 + slope3 ≤ max_borrow_rate` (cap never flattens the curve before 100%).
-- `slope1 / mid ≤ slope2 / (optimal − mid) ≤ slope3 / (1 − optimal)` (equality allowed): steepness never falls at a kink.
+- `base + slope1 + slope2 + slope3 ≤ max_borrow_rate` (the cap never flattens the curve before 100%).
+- `slope1 / mid ≤ slope2 / (optimal − mid) ≤ slope3 / (1 − optimal)` (equality allowed). Steepness never falls at a kink.
 
-Result: **annual RAY fraction** (`get_borrow_rate`, `i128`).
+The result is an **annual RAY fraction** (`get_borrow_rate`, `i128`).
 
-Illustrative parameters (live ones: pool `get_sync_data`): base 0.005, slope1 0.03, slope2 0.095, slope3 1.0, mid 0.60, optimal 0.85, max 1.25 (all × RAY):
+Illustrative parameters follow. For live parameters, read pool `get_sync_data`. The values are base 0.005, slope1 0.03, slope2 0.095, slope3 1.0, mid 0.60, optimal 0.85, max 1.25, all × RAY:
 
 | utilization | segment | annual borrow rate |
 |---|---|---|
@@ -178,7 +179,7 @@ rate_x_util      = half_up(utilization_ray × borrow_rate_ray / RAY)
 deposit_rate_ray = half_up(rate_x_util × (BPS − reserve_factor_bps) / BPS)
 ```
 
-Same time unit as the input; `get_deposit_rate` returns annual RAY.
+The result has the same time unit as the input. `get_deposit_rate` returns annual RAY.
 
 Example at utilization 0.65, borrow rate 0.054, `reserve_factor = 1500`:
 
@@ -189,8 +190,8 @@ deposit_rate = 29_835_000_000_000_000_000_000_000        // 0.029835 = 2.9835% A
 
 ## APR to APY
 
-Views return simple annual rates: label them APR (`get_deposit_rate / 1e27`
-is an APR) and compounded estimates APY:
+Views return simple annual rates. Label them APR (`get_deposit_rate / 1e27`
+is an APR) and label compounded estimates APY:
 
 ```text
 apr        = rate_ray / 1e27
@@ -198,10 +199,10 @@ apy_cont   = e^apr − 1                                   // idealized constant
 apy_daily  = (1 + apr × 86_400_000 / 31_556_926_000)^365 − 1   // API APY estimate
 ```
 
-The API computes the daily estimate from the curve at market utilization;
-supply APY compounds the supply APR, not borrow APY. The contract instead
+The API computes the daily estimate from the curve at market utilization.
+Supply APY compounds the supply APR, not borrow APY. The contract instead
 runs the [Index accrual](#index-accrual) Taylor step, so realized growth
-depends on update cadence, rate changes, and rounding; use that algorithm for
+depends on update cadence, rate changes, and rounding. Use that algorithm for
 contract-equivalent results.
 
 | Rate | APR | `e^apr − 1` | daily compounding |
@@ -213,10 +214,10 @@ contract-equivalent results.
 
 Pool mutations accrue. Projection views (`get_bulk_indexes`,
 `get_market_index`, `get_market_indexes_detailed`) and account balance and
-risk views use indexes projected to now; metadata and raw-position views do
+risk views use indexes projected to now. Metadata and raw-position views do
 not.
 
-Per step of `delta_ms ≤ MILLISECONDS_PER_YEAR` (`MAX_COMPOUND_DELTA_MS`; longer gaps are chunked, each chunk recomputing utilization with the revenue shares minted by the previous chunk):
+Each step has `delta_ms ≤ MILLISECONDS_PER_YEAR` (`MAX_COMPOUND_DELTA_MS`). The pool chunks longer gaps, and each chunk recomputes utilization with the revenue shares minted by the previous chunk. The formulas for one step are:
 
 ```text
 per_ms     = half_up(annual_borrow_rate_ray / 31_556_926_000)          // calculate_borrow_rate
@@ -235,11 +236,11 @@ revenue_shares = min(floor((fee + shortfall) × RAY / supply_index'), i128::MAX 
 Monotonicity:
 
 - Borrow index only grows, up to `MAX_BORROW_INDEX_RAY`, where interest stops.
-- Accrual never reverts on market value: at `MAX_MARKET_VALUE_RAY` total debt or supply value, interest stops and the pool emits `MarketValueCeilingEvent`; repay, withdraw, and liquidate still work.
-- Only **bad-debt socialization** lowers the supply index (floor `SUPPLY_INDEX_FLOOR_RAW = 10^24`); a drop means a write-down, not an accrual bug.
+- Accrual never reverts on market value. At `MAX_MARKET_VALUE_RAY` total debt or supply value, interest stops and the pool emits `MarketValueCeilingEvent`. Repay, withdraw, and liquidate still work.
+- Only **bad-debt socialization** lowers the supply index (floor `SUPPLY_INDEX_FLOOR_RAW = 10^24`). A drop means a write-down, not an accrual bug.
 - Revenue shares are in `supplied` and earn the supply index.
 
-Example: borrow rate 0.054 annual, 30 days (`2_592_000_000` ms):
+The example uses a borrow rate of 0.054 annual and 30 days (`2_592_000_000` ms):
 
 ```text
 per_ms  = 1_711_193_289_232_291
@@ -250,7 +251,7 @@ borrow_index 1.1315e27 → 1_136_529_816_226_176_127_118_459_533
 
 ## Valuation to USD WAD
 
-One rounding direction throughout (`common/src/rates/value.rs`):
+The code in `common/src/rates/value.rs` uses one rounding direction throughout:
 
 ```text
 asset_value_ray = round(shares × index / RAY)
@@ -265,16 +266,16 @@ usd_value_wad   = round(asset_value_wad × price_wad / WAD)
 | `position_value_ceil` | ceil | debt in risk checks |
 
 `price_wad` (USD per whole token, `MarketIndexView.price_wad`) is usable only
-when `valid`; valid prices are at most `MAX_REASONABLE_PRICE_WAD = 10^9 × WAD`,
-refused diagnostic values can exceed it. Risk numbers come from strict views
+when `valid`. Valid prices are at most `MAX_REASONABLE_PRICE_WAD = 10^9 × WAD`.
+Refused diagnostic values can exceed it. Risk numbers come from strict views
 (`get_health_factor`, `get_total_collateral_usd`).
 
 ## Health factor and LTV weighting
 
-Risk uses each position's stored `loan_to_value` and `liquidation_threshold`
-(health factor: the threshold). Borrow, withdrawal, strategy risk checks, and
+Risk uses each position's stored `loan_to_value` and `liquidation_threshold`.
+The health factor uses the threshold. Borrow, withdrawal, strategy risk checks, and
 `get_ltv_collateral_usd` first refresh listed collateral LTVs plus any
-liquidation tuple not favoring liquidators; supply and non-liquidation
+liquidation tuple not favoring liquidators. Supply and non-liquidation
 withdrawal also refresh eligible liquidation parameters.
 
 A refresh never stores LTV at or above the stored threshold. When the stored
@@ -287,17 +288,18 @@ refreshed_ltv_bps = stored_lt_bps >= listed_lt_bps
   : max(listed_ltv_bps − (listed_lt_bps − stored_lt_bps), 0)
 ```
 
-Case: a listing edit raises the threshold but favors liquidators (higher
-bonus or lower fee), so the stored threshold stays. Stored `ltv 7500 / lt 8000`,
-listed `ltv 8000 / lt 8500` with higher bonus: a borrow keeps
-`ltv 7500 / lt 8000`. Same for `update_account_threshold` with
+Consider a listing edit that raises the threshold but favors liquidators, with
+a higher bonus or lower fee. The stored threshold stays. For example, the
+stored values are `ltv 7500 / lt 8000`, and the listed values are
+`ltv 8000 / lt 8500` with a higher bonus. A borrow then keeps
+`ltv 7500 / lt 8000`. The same holds for `update_account_threshold` with
 `has_risks = false`, which never changes the stored threshold.
 
-`update_account_threshold` refreshes LTV; with `has_risks = true`, also
-threshold, bonus, and fees. A liquidator-favoring change needs hypothetical
-health factor `≥ 1.05 WAD`; with `has_risks = true` it fails with
-`HealthFactorTooLow` only if the refresh drops health factor below both
-`1.05 WAD` and its prior value.
+`update_account_threshold` refreshes LTV. With `has_risks = true`, it also
+refreshes threshold, bonus, and fees. A liquidator-favoring change needs a
+hypothetical health factor `≥ 1.05 WAD`. With `has_risks = true`, the call
+fails with `HealthFactorTooLow` only if the refresh drops the health factor
+below both `1.05 WAD` and its prior value.
 
 ```text
 for each supply position:
@@ -320,8 +322,8 @@ health_factor_wad = total_debt == 0 ? i128::MAX : floor(weighted_collateral × W
 Borrow capacity (USD WAD) is `max(ltv_collateral − total_debt, 0)` after the
 LTV refresh.
 
-Illustrative parameters (not live): XLM `ltv 7500 / lt 7800`, USDC
-`ltv 7600 / lt 8000`.
+These parameters are illustrative and not live. XLM has `ltv 7500 / lt 7800`,
+and USDC has `ltv 7600 / lt 8000`.
 
 | Position | value (floor / half-up, WAD) | LTV-weighted | threshold-weighted |
 |---|---|---|---|
@@ -329,7 +331,7 @@ Illustrative parameters (not live): XLM `ltv 7500 / lt 7800`, USDC
 | 1,031.4285714 USDC @ $1 (shares from the USDC example, index 1.083) | 1_031_428_571_428_571_428_571 / …571 | 783_885_714_285_714_285_713 | 825_142_857_142_857_142_856 |
 | **totals** | total_collateral 2_051_428_571_428_571_428_571 | ltv_collateral 1_548_885_714_285_714_285_713 | weighted 1_620_742_857_142_857_142_856 |
 
-Debt: 252.566964… USST (ceil) at $1.0897 → `total_debt = 275_222_220_982_142_857_144` (ceil; half-up display `…143`).
+The debt is 252.566964… USST (ceil) at $1.0897, which gives `total_debt = 275_222_220_982_142_857_144` (ceil). The half-up display is `…143`.
 
 ```text
 HF = floor(1_620_742_857_142_857_142_856 × 1e18 / 275_222_220_982_142_857_144) = 5_888_851_748_086_195_444   // 5.8889
@@ -339,8 +341,8 @@ available borrow = 1_548_885_714_285_714_285_713 − 275_222_220_982_142_857_144
 
 ## Post-action risk gate
 
-Borrow, withdrawal, and strategy completion on an account with debt; listing,
-cap, halt, cash, and utilization checks also apply.
+The gate runs for borrow, withdrawal, and strategy completion on an account
+with debt. Listing, cap, halt, cash, and utilization checks also apply.
 
 ```text
 ltv_collateral   ≥ total_debt                      // else InsufficientCollateral
@@ -350,14 +352,15 @@ low_decimal_collateral_base_units ≥ 2             // each supplied market belo
 ```
 
 `get_min_borrow_collateral_usd` returns the USD floor (default `5 × WAD`).
-Two base units are 2 tokens at zero decimals, 0.2 at one, 0.02 at two. To
-close an account, repay debt before withdrawing collateral.
+Two base units are 2 tokens at zero decimals, 0.2 tokens at one decimal, and
+0.02 tokens at two decimals. To close an account, repay debt before you
+withdraw collateral.
 
-Example (account above): `1_548.89e18 ≥ 275.22e18`, `HF 5.89 ≥ 1`, `1_548.89e18 ≥ 5e18` → passes; withdrawing all USDC leaves `ltv_collateral = 765e18 ≥ 275.22e18`, still passing. The $5 floor binds on LTV-weighted collateral: XLM at 75% LTV needs at least $6.67 (`5 / 0.75`) while any debt remains.
+Example for the account above: the three checks are `1_548.89e18 ≥ 275.22e18`, `HF 5.89 ≥ 1`, and `1_548.89e18 ≥ 5e18`. All three hold, so the check passes. Withdrawing all USDC leaves `ltv_collateral = 765e18 ≥ 275.22e18`, still passing. The $5 floor binds on LTV-weighted collateral: XLM at 75% LTV needs at least $6.67 (`5 / 0.75`) while any debt remains.
 
 ## Liquidation: bonus, close amount, seizure, fees
 
-`contracts/controller/src/positions/liquidation/{curve.rs, math.rs}`. Symbols, all USD WAD unless stated: `D` risk debt (ceil), `C` unweighted collateral (half-up), `W` threshold-weighted collateral (floor), `HF`, `H` target health factor, `b` bonus in BPS.
+The code is in `contracts/controller/src/positions/liquidation/{curve.rs, math.rs}`. The symbols are USD WAD unless stated. `D` is risk debt (ceil), `C` is unweighted collateral (half-up), `W` is threshold-weighted collateral (floor), `HF` is the health factor, `H` is the target health factor, and `b` is the bonus in BPS.
 
 ### Blended threshold and bonus bounds
 
@@ -394,22 +397,22 @@ if 0 < D − ideal < 5 WAD: ideal = D                                          /
 ```
 
 `get_liquidation_estimate` returns `max_payment_wad` (`ideal`, capped by the
-offer; each debt leg at most its ceiled balance) and `bonus_rate_bps`.
+offer, with each debt leg at most its ceiled balance) and `bonus_rate_bps`.
 
-A partial offer in the full-close band uses the capped bonus; rounding can
-change the ratio and low-decimal rules can reject it. Simulate the write.
+A partial offer in the full-close band uses the capped bonus. Rounding can
+change the ratio, and low-decimal rules can reject it. Simulate the write.
 
-Full-debt quote: the controller pulls each merged offer and the pool refunds
-the excess above each leg's ceiled debt. Legs are pulled at the rounded-up
-ceiling but credited the floor value cleared, so the closing fraction buys no
-collateral and `max_payment_wad ≤ D`.
+For a full-debt quote, the controller pulls each merged offer and the pool
+refunds the excess above each leg's ceiled debt. The controller pulls legs at
+the rounded-up ceiling but credits the floor value cleared, so the closing
+fraction buys no collateral and `max_payment_wad ≤ D`.
 
-Other quotes: the planner trims from the last leg backward, flooring the
-refund on a solvent account (a kept leg can round up one base unit) or the
-kept amount on an insolvent one, and drops empty legs; none left →
-`InvalidPayments`.
+For other quotes, the planner trims from the last leg backward. On a solvent
+account, it floors the refund, and a kept leg can round up one base unit. On an
+insolvent account, it floors the kept amount. The planner also drops empty
+legs. If no leg is left, the call reverts with `InvalidPayments`.
 
-Worked example (spoke defaults `H = 1.1`, `hf_for_max_bonus = 0.8`, `factor = 10_000`; single XLM collateral with stamped bonus 900, threshold 7800):
+Worked example (spoke defaults `H = 1.1`, `hf_for_max_bonus = 0.8`, `factor = 10_000`, with a single XLM collateral with stamped bonus 900, threshold 7800):
 
 ```text
 C = 1_000 WAD, W = 780 WAD, D = 800 WAD → HF = 0.975, p = 0.78
@@ -451,14 +454,14 @@ bonus_scaled  = min(floor(bonus_ray × RAY / supply_index), seized_scaled)
 fee_scaled    = ceil(bonus_scaled × fees_bps / BPS)
 ```
 
-Under-delivery (measured repayment USD below plan) scales every seizure field
-by `received / planned` (floored) and caps each transfer at its scaled shares'
-floor value; Credit fees are recomputed. With a seized leg below 3 decimals it
-reverts `InvalidPayments`.
+Under-delivery means that the measured repayment USD is below plan. It scales
+every seizure field by `received / planned` (floored) and caps each transfer at
+its scaled shares' floor value. Credit fees are recomputed. With a seized leg
+below 3 decimals, the call reverts with `InvalidPayments`.
 
-Planning drops legs rounding to zero tokens or shares. Collateral below 3
+Planning drops legs that round to zero tokens or shares. Collateral below 3
 decimals is the account's only supplied market. Full-debt repayment rounds
-seizure up to base units; partial rounds down, trimmed to backed value. A
+seizure up to base units. Partial repayment rounds down and trims to backed value. A
 low-decimal plan with no seizure fails `InvalidPayments`. The 2-base-unit
 [post-action minimum](#post-action-risk-gate) does not apply to repayment or
 liquidation.
@@ -476,8 +479,9 @@ Credit:   seized shares 2_497_331_910_352_187_833_512_000_000_000, fee shares 43
 ### Low-decimal collateral quotes
 
 Below 3 decimals, one quote unit is one base unit (0.01 token at two
-decimals), worth `U` USD WAD. Requires `C ≥ D`, a curve quote below `D`, and
-at least one base unit in the sole supply position. First matching rule:
+decimals), worth `U` USD WAD. These rules need `C ≥ D`, a curve quote below `D`, and
+at least one base unit in the sole supply position. The first matching rule
+applies:
 
 ```text
 R             = Σ over debt legs of the WAD USD value of one base unit of that debt token
@@ -490,33 +494,33 @@ else:                                                          ideal unchanged
 ```
 
 The raised seizure takes one base unit and refunds the unseized margin in
-debt base units, rounded down. It is a ceiling (smaller offers are not
-raised) and is never promoted to full debt, so remaining debt can be below
-`5 WAD`. An offer below one unit's backed value fails `InvalidPayments`; one
+debt base units, rounded down. It is a ceiling, and smaller offers are not
+raised. It is never promoted to full debt, so remaining debt can be below
+`5 WAD`. An offer below one unit's backed value fails `InvalidPayments`. An offer
 between `U / one_plus_b` and `raised` still seizes one unit.
 
 The cap uses the rounded health factor and proportion, so rounding can change
 the resulting ratio. In the band `unit_at_bonus − R < D ≤ raised` no rule
-applies; if the curve quote backs less than one unit, every offer fails until
+applies. If the curve quote backs less than one unit, every offer fails until
 accrual or a price change.
 
-A rule-1 full close trades debt `D` for one unit worth `U`: effective bonus
-`U / D − 1`, reported bonus still `b`; for `k` held units and threshold `LT`,
-about `1 / (k × LT) − 1` when `HF < 1`. The borrower loses
+A rule-1 full close trades debt `D` for one unit worth `U`. The effective bonus is
+`U / D − 1`, and the reported bonus is still `b`. For `k` held units and threshold `LT`,
+the effective bonus is about `1 / (k × LT) − 1` when `HF < 1`. The borrower loses
 `U − D × one_plus_b / WAD` beyond the normal bonus. Listings below 3 decimals
 have no liquidation fee. Size with `get_liquidation_estimate`, not the curve
 alone.
 
 ## Bad-debt socialization
 
-Eligibility (`is_socializable_bad_debt`):
+`is_socializable_bad_debt` defines eligibility:
 
 - Permissionless `clean_bad_debt` and the check after `liquidate` require `total_debt > total_collateral` and `total_collateral ≤ 5 WAD` (`BAD_DEBT_USD_THRESHOLD`).
 - Owner-only `force_socialize_bad_debt` drops the collateral cap.
 
 `contracts/pool/src/interest.rs::apply_bad_debt_to_supply_index` then lowers only the affected market's supply index ([formulas.md#bad-debt](https://github.com/XOXNO/rs-lending-xlm/blob/main/docs/reference/formulas.md#bad-debt)).
 
-Example: 2,000,000 USDC of shares at index 1.083 (`total_supply_ray = 2_166_000e27`), bad debt 30,000 USDC:
+The example has 2,000,000 USDC of shares at index 1.083 (`total_supply_ray = 2_166_000e27`) and bad debt of 30,000 USDC:
 
 ```text
 reduction = 986_149_584_487_534_626_038_781_163   // 0.98615
@@ -525,20 +529,20 @@ index 1.083e27 → 1_067_999_999_999_999_999_999_999_999   // ≈ 1.068
 
 ## Liquidation buffer
 
-Every debt mint (`borrow`, strategy openings, gross of fee) keeps 200 bps of floored supplied token value in cash, else `InsufficientLiquidity` (INV-ACCT-07, `contracts/pool/src/guards.rs::require_liquidation_buffer`). The backing-shortfall gate on supply entry is in [formulas.md#backing-and-cash-constraints](https://github.com/XOXNO/rs-lending-xlm/blob/main/docs/reference/formulas.md#backing-and-cash-constraints).
+Every debt mint (`borrow`, strategy openings, gross of fee) keeps 200 bps of floored supplied token value in cash. Otherwise the call fails with `InsufficientLiquidity` (INV-ACCT-07, `contracts/pool/src/guards.rs::require_liquidation_buffer`). The backing-shortfall gate on supply entry is in [formulas.md#backing-and-cash-constraints](https://github.com/XOXNO/rs-lending-xlm/blob/main/docs/reference/formulas.md#backing-and-cash-constraints).
 
 ```text
 reserved    = ceil(floor_supply_tokens × 200 / BPS)
 cash − draw ≥ reserved
 ```
 
-Example: supplied claim 9,999,999.9999999 USDC (floor), cash 3,500,000 USDC → `reserved = 200_000 USDC`; the largest single borrow draw is `3_300_000 USDC` (`33_000_000_000_000` base units) before `max_utilization` is considered.
+Example: supplied claim 9,999,999.9999999 USDC (floor), cash 3,500,000 USDC gives `reserved = 200_000 USDC`. The largest single borrow draw is `3_300_000 USDC` (`33_000_000_000_000` base units) before `max_utilization` is considered.
 
 ## Caps in the scaled domain
 
 `SpokeAssetConfig.supply_cap` and `borrow_cap` are per-spoke base units,
-enforced on regular entries (liquidation credits bypass the supply cap). Zero
-closes that side, not unlimited; `i128::MAX` is rejected. Entries compare
+enforced on regular entries. Liquidation credits bypass the supply cap. Zero
+closes that side and is not unlimited. `i128::MAX` is rejected. Entries compare
 shares:
 
 ```text
@@ -548,7 +552,7 @@ usage + new_shares ≤ cap_scaled   else SpokeSupplyCapReached | SpokeBorrowCapR
 headroom_tokens = floor(floor((cap_scaled − usage) × index / RAY) / 10^(27−d))
 ```
 
-Exits skip caps. Conversion saturates at `i128::MAX`; the cap maximum is `MAX_MARKET_ENTRY_RAY / 10^(27−d)` (`max_cap_for_decimals`), about 21.27 billion whole tokens. The pool applies that ceiling to market total supply and debt after every supply, borrow, strategy opening and flash loan (`MarketCeilingReached`, 136).
+Exits skip caps. Conversion saturates at `i128::MAX`. The cap maximum is `MAX_MARKET_ENTRY_RAY / 10^(27−d)` (`max_cap_for_decimals`), about 21.27 billion whole tokens. The pool applies that ceiling to market total supply and debt after every supply, borrow, strategy opening and flash loan (`MarketCeilingReached`, 136).
 
 Example: USDC `supply_cap = 50_000_000_000_000` (5,000,000 USDC), usage 4,000,000 USDC of shares, index 1.083:
 
@@ -560,17 +564,17 @@ headroom   = 923_361_034_164_358_264_081_255_771_006_463 shares → 9_999_999_99
 
 ## Flash-loan and strategy fees
 
-`Bps::flash_loan_fee_on` (`common/src/math/fp.rs`), used by `contracts/pool/src/ops/flash.rs` and `ops/strategy.rs`:
+`Bps::flash_loan_fee_on` (`common/src/math/fp.rs`) is used by `contracts/pool/src/ops/flash.rs` and `ops/strategy.rs`:
 
 ```text
 fee = half_up(principal × fee_bps / BPS);  if fee_bps > 0 and fee == 0: fee = 1
 ```
 
-`flashloan_fee ≤ MAX_FLASHLOAN_FEE_BPS = 500`. Strategies charge it only with `charge_fee` (`multiply`, `swap_debt`), reverting `StrategyFeeExceeds` if `fee > principal`; `flash_position` and `migrate_from_blend` are fee-free. Example at 9 bps: 1,000 USDC → `9_000_000` base units (0.9 USDC); 100 base units → 1 base unit.
+`flashloan_fee ≤ MAX_FLASHLOAN_FEE_BPS = 500`. Strategies charge it only with `charge_fee` (`multiply`, `swap_debt`) and revert with `StrategyFeeExceeds` if `fee > principal`. `flash_position` and `migrate_from_blend` are fee-free. Example at 9 bps: 1,000 USDC gives a fee of `9_000_000` base units (0.9 USDC). 100 base units give a fee of 1 base unit.
 
 ## Numeric limits
 
-Arithmetic bounds (decimals, index ceiling and floor, rate cap, token→RAY input maximum, overflow behaviour): [formulas.md#numeric-limits](https://github.com/XOXNO/rs-lending-xlm/blob/main/docs/reference/formulas.md#numeric-limits). Controller limits:
+The arithmetic bounds are in [formulas.md#numeric-limits](https://github.com/XOXNO/rs-lending-xlm/blob/main/docs/reference/formulas.md#numeric-limits). They cover decimals, index ceiling and floor, rate cap, token-to-RAY input maximum, and overflow behaviour. The controller limits are:
 
 | Bound | Value | Consequence |
 |---|---|---|
@@ -579,17 +583,17 @@ Arithmetic bounds (decimals, index ceiling and floor, rate cap, token→RAY inpu
 
 ## Which view rounds how
 
-| View | Contract | Rounding / unit |
+| View | Contract | Rounding and unit |
 |---|---|---|
 | `get_collateral_amount`, `get_borrow_amount` | controller | half-up both steps, base units, projected index |
 | `get_supplied_amount`, `get_borrowed_amount`, `get_revenue` | pool | half-up (revenue: floor), base units, stored index |
 | `get_reserves` | pool | raw `cash`, no rounding |
-| `get_health_factor`, `get_liquidation_collateral`, `get_ltv_collateral_usd` | controller | floor-valued collateral, ceil debt, WAD; `get_ltv_collateral_usd` refreshes LTV stamps first |
+| `get_health_factor`, `get_liquidation_collateral`, `get_ltv_collateral_usd` | controller | floor-valued collateral, ceil debt, WAD. `get_ltv_collateral_usd` refreshes LTV stamps first |
 | `is_liquidatable` | controller | bool: debt present and HF < WAD |
-| `get_total_collateral_usd`, `get_total_borrow_usd` | controller | half-up, WAD (display; not the ceiled risk debt) |
+| `get_total_collateral_usd`, `get_total_borrow_usd` | controller | half-up, WAD (display, not the ceiled risk debt) |
 | `get_borrow_rate`, `get_deposit_rate` | pool | annual RAY fraction, stored index |
 | `get_utilisation` | pool | RAY, stored index |
-| `get_market_index`, `get_bulk_indexes`, `get_market_indexes_detailed` | controller / pool | RAY indexes projected to now |
+| `get_market_index`, `get_bulk_indexes`, `get_market_indexes_detailed` | controller and pool | RAY indexes projected to now |
 | `get_liquidation_estimate` | controller | `max_payment_wad` WAD, `bonus_rate_bps` BPS, seizure in base units (`Transfer`) or RAY shares (`Credit`) |
 | `get_min_borrow_collateral_usd` | controller | WAD |
 | `get_spoke_usage` | controller | RAY shares |

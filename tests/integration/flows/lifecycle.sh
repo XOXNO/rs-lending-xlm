@@ -92,7 +92,7 @@ print(paid)
 PYCASH
 }
 
-# Same submission helper, with caller/pool/controller cash and share predicates.
+# Same submission helper, with caller, pool, and controller cash and share predicates.
 lifecycle_inv() { lifecycle_checked inv "$@"; }
 
 lifecycle_checked() {
@@ -155,7 +155,7 @@ flow_lifecycle() {
     # Caller gate (require_authorized_caller): the CLI signs auth entries for
     # every address argument it holds a secret for, so the victim must be an
     # address whose secret lives only in a throwaway config dir. Friendbot
-    # funds it so the simulated supply runs end to end; the only thing the
+    # funds it so the simulated supply runs end to end. The only thing the
     # CLI cannot produce is the victim's signature.
     local victim_dir victim
     victim_dir=$(mktemp -d)
@@ -219,7 +219,7 @@ view indexes_view "$CONTROLLER" -- get_market_indexes_detailed \
     ltv_wad=$(_view_int ltv_usd_pre_edge get_ltv_collateral_usd --account_id "$acct")
     debt_wad=$(_view_int borrow_usd_pre_edge get_total_borrow_usd --account_id "$acct")
     # USD is WAD-scaled (1e18) and USDC has 7 decimals, so 1 USDC unit == 1e11.
-    # Borrow 90% of the headroom: enough to leave the limit within reach, with
+    # Borrow 90% of the headroom. That leaves the limit within reach, with
     # room for a price tick between this read and the transaction.
     headroom_usdc=$(python3 -c 'import sys;print((int(sys.argv[1])-int(sys.argv[2]))*9//10**12)' "$ltv_wad" "$debt_wad")
     if [ -z "$headroom_usdc" ] || [ "$headroom_usdc" -lt 1000000 ]; then

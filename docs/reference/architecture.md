@@ -17,8 +17,8 @@ account.
 A **spoke** defines which markets an account can use and their risk settings.
 Account creation binds the spoke for the account's lifetime. Existing positions
 store risk parameters, so a listing change does not immediately replace every
-stored value; threshold updates and relevant position flows refresh them under
-their risk checks.
+stored value. Threshold updates and relevant position flows refresh the stored
+values under their risk checks.
 
 An **account** holds supply and debt positions, one hub asset each, and is
 represented by a position NFT. The NFT's owner controls the whole account,
@@ -34,7 +34,7 @@ approvals and delegate permissions.
 | Governance | Typed administrative proposals, delayed execution, roles, and restricted immediate actions |
 | Controller | Account state, authorization, position risk, liquidation, and strategies |
 | Pool | Token custody and market accounting; mutations require its owner |
-| Position NFT | Account ownership, holder/approved transfers, and controller-authorized mint, burn, and upgrade |
+| Position NFT | Account ownership, holder transfers, approved transfers, and controller-authorized mint, burn, and upgrade |
 | Price aggregator | Source configuration, validated price reads, and owner-authorized upgrades |
 | XOXNO oracle | Authenticated signer submissions and threshold-based aggregation |
 | Swap aggregator | Route execution, fees, and venue calls |
@@ -46,20 +46,20 @@ and price aggregator. Run `deploy_controller` first: `deploy_price_aggregator`
 then calls `set_price_aggregator` on the existing controller. In the other
 order, a timelocked `SetPriceAggregator` operation connects them. The
 controller deploys one pool and one position NFT with itself as their
-authority. The pool has no ownership-transfer endpoint;
-governance and controller ownership can transfer, which changes this authority
-chain.
+authority. The pool has no ownership-transfer endpoint. Governance ownership
+and controller ownership can transfer. A transfer of either changes this
+authority chain.
 
 The curator lets third-party registrars run hubs, spokes, and markets through
-governance, which owns the curator and stays the controller's owner. The
-curator holds the governance `CURATOR`, `PROPOSER`, and `CANCELLER` roles:
+governance. Governance owns the curator and stays the controller's
+owner. The curator holds the governance `CURATOR`, `PROPOSER`, and `CANCELLER` roles:
 
-- Immediate registrar calls (create hubs, spokes, and markets; tighten listing
-  flags) go through `CURATOR`.
-- New listings, listing edits, rate changes, and flag relaxations wait on the
-  governance timelock, queued under `PROPOSER`.
-- A registrar cancels a queued curator operation that names a hub or spoke it
-  owns, under `CANCELLER`.
+- Immediate registrar calls go through `CURATOR`. They create hubs, spokes, and
+  markets, and they tighten listing flags.
+- New listings, listing edits, rate changes, and flag relaxations wait for the
+  governance timelock. They are queued under `PROPOSER`.
+- A registrar cancels a queued curator operation that names a hub or spoke the
+  registrar owns. The cancellation runs under `CANCELLER`.
 - The governance owner revokes `CURATOR` immediately with
   `revoke_role_immediate`. Queued operations and `PROPOSER` stay in place.
 
@@ -75,55 +75,56 @@ has a fixed constructor configuration and no administrative rescue interface.
 
 The pool tracks cash in an accounting book. For supply, repayment, and
 recapitalization, the controller measures the balance change of each transfer
-into the pool and passes that amount; the pool credits the amount it is given.
-A token that delivers less than requested therefore books the smaller amount,
-and direct donations do not increase booked cash. Measurement cannot establish that an arbitrary token is
+into the pool and passes that amount. The pool credits the amount it is given.
+A token that delivers less than requested therefore books the smaller amount.
+Direct donations do not increase booked cash. Measurement cannot establish that
+an arbitrary token is
 safe.
 
 The same token can appear in multiple hubs. Its markets keep separate books
-but share one physical pool balance, so a malicious token contract can affect
+but share one physical pool balance. A malicious token contract can therefore affect
 more than one market. See
 [token assumptions](../explanation/threat-model.md#token-assumptions).
 
 ## Position lifecycle
 
-1. **Supply:** tokens enter the pool and supply shares are credited. A
+1. **Supply.** Tokens enter the pool and supply shares are credited. A
    third-party top-up cannot create a new asset position in another owner's
    account.
-2. **Borrow or withdraw:** the caller needs owner-or-delegate authority. Risk
-   and liquidity checks apply; a healthy account does not guarantee available
+2. **Borrow or withdraw.** The caller needs owner or delegate authority. Risk
+   and liquidity checks apply. A healthy account does not guarantee available
    cash.
-3. **Accrue interest:** market indexes update supply claims and debt values.
-4. **Repay or liquidate:** anyone can fund a repayment. An unhealthy account can
+3. **Accrue interest.** Market indexes update supply claims and debt values.
+4. **Repay or liquidate.** Anyone can fund a repayment. An unhealthy account can
    be liquidated, subject to prices and listing restrictions.
-5. **Resolve bad debt:** eligible cleanup converts remaining account supply to
-   protocol revenue and writes off gross debt through the affected supply
+5. **Resolve bad debt.** Eligible cleanup converts remaining account supply to
+   protocol revenue. It writes off gross debt through the affected supply
    indexes, even when the account supplies the same market.
 
 Liquidation can pay collateral tokens or credit net supply shares to an
-authorized account in the same spoke, avoiding a collateral cash payout.
+authorized account in the same spoke, so no collateral cash is paid out.
 Receiver and listing restrictions still apply, and the protocol fee is
 reclassified as pool revenue. The [formula reference](formulas.md) defines
-valuation, rounding, and loss allocation; the [event reference](events.md)
+valuation, rounding, and loss allocation. The [event reference](events.md)
 defines gross and net amounts.
 
 ## Prices and external execution
 
 Valuation-dependent operations collect required prices in an operation
 context, and an invalid required price aborts the operation. A dual-source
-configuration needs both sources to pass its checks; one usable source cannot
+configuration needs both sources to pass their checks. One usable source cannot
 substitute for a failed one.
 
 | Operation | Settlement |
 |---|---|
-| Cash flash loan | Sends principal to a contract receiver, then pulls principal plus fee through allowance with exact pool-balance checks; creates no account debt |
+| Cash flash loan | Sends principal to a contract receiver, then pulls principal plus fee through allowance with exact pool-balance checks. Creates no account debt |
 | Router strategy | Measures input and output changes, refunds controller-held unused input, then checks final account risk |
 | Flash position | Creates debt without an origination fee, receives declared collateral from a callback, and leaves an open solvent account |
 
-For a router strategy the controller authorizes one exact input-transfer
+For a router strategy, the controller authorizes one exact input-transfer
 invocation, the router enforces the route's minimum output, and the controller
 checks positive measured output and final account risk. These checks do not
-guarantee route quality; the
+guarantee route quality. The
 [external integration section](../explanation/threat-model.md#routes-callbacks-and-external-integrations)
 covers this boundary and callback assumptions.
 

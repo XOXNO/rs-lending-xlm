@@ -42,7 +42,7 @@ impl Cache {
 
     /// Transfers `amount` of the market asset from the pool to `recipient`.
     ///
-    /// Rejects negative amounts; zero is a no-op. Does not adjust accounting cash.
+    /// Rejects negative amounts. A zero amount is a no-op. Does not adjust accounting cash.
     pub(crate) fn transfer_out(&self, recipient: &Address, amount: i128) {
         require_nonneg_amount(&self.env, amount);
         if amount == 0 {

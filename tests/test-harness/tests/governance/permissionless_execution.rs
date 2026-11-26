@@ -1,5 +1,5 @@
 //! GH-26. Execution names no executor and checks no role, by design (audit
-//! finding I-02). Under enforcing auth: anyone executes a ready operation, and
+//! finding I-02). Under enforcing auth, anyone executes a ready operation, and
 //! nobody executes one that is not ready or has expired.
 
 use controller::types::PositionLimits;
@@ -9,7 +9,7 @@ use soroban_sdk::{BytesN, IntoVal, Symbol};
 use test_harness::errors::GenericError;
 use test_harness::{assert_contract_error, errors, LendingTest};
 
-/// `governance::constants::TIMELOCK_OPERATION_GRACE_LEDGERS`, which is private
+/// Mirrors `governance::constants::TIMELOCK_OPERATION_GRACE_LEDGERS`, which is private
 /// to the contract crate.
 const GRACE: u32 = 120_960;
 

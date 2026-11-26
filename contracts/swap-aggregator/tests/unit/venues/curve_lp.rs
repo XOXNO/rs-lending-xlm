@@ -56,7 +56,7 @@ fn assert_reserves(f: &Fixture) {
 }
 
 /// Mints LP from each coin, then burns LP to each coin. An `i128::MAX` floor must fail and
-/// roll back everything; a floor of one must credit exactly the measured deltas and leave the
+/// roll back everything. A floor of one must credit exactly the measured deltas and leave the
 /// router's reserves untouched. The burn passes with no auth beyond the user's input transfer.
 #[test]
 fn curve_lp_real_one_sided_mint_and_one_coin_burn_each_coin_floor_rollback_and_reserve_isolation() {

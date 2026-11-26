@@ -371,7 +371,7 @@ if (init_run); then exit 1; fi
 print('Attempt retention, strict retries, and cancellation summary regressions passed')
 
 # Lost CLI response: committed SUCCESS recovers exactly once from native proof,
-# while raw rc/output remain immutable in attempts.jsonl.
+# while raw rc and output remain immutable in attempts.jsonl.
 receipt=json.loads((HERE/'fixtures/receipt.json').read_text())
 receipt_hash=receipt['result']['txHash']
 contract='CDDVDGITCUZTHQSYFRV37AC3263SMK2FZYYVJ74EBLESTFFF5UOVODZW'
@@ -412,7 +412,7 @@ if inv failed admin {contract} -- deploy_controller; then exit 1; fi
     assert len(attempts)==1 and actions[0]['status']=='FAIL'
 
 # run_deploy applies the same terminal-success reconciliation, then still checks
-# candidate bytes. Native deployment/return binding is covered in test_receipts.
+# candidate bytes. Native deployment and return binding is covered in test_receipts.
 attempts,outputs,actions=shell(f'''
 n=0
 cli_deploy() {{ n=$((n+1)); echo 'Signing transaction: {receipt_hash}' >&2; echo SendRequest >&2; return 1; }}
@@ -427,7 +427,7 @@ assert len(attempts)==1 and attempts[0]['cli_exit']==1 and outputs==['']
 print('Confirmed-success recovery preserves failed CLI evidence and never resubmits')
 
 # Only read-only bytecode fetch retries transport failure. A successful read with
-# wrong bytes remains a distinct mismatch; no retry can conceal it.
+# wrong bytes remains a distinct mismatch. No retry can conceal it.
 for mismatch in [False,True]:
     attempts,outputs,actions=shell(f'''
 INTEG_DIR="{HERE}"
@@ -460,8 +460,8 @@ if run_deploy "$LOG_DIR/deploy.out" "$LOG_DIR/deploy.err" -- cli_deploy; then ex
     assert len(attempts)==1 and actions[0]['status']=='FAIL'
 print('Failed/unknown submitted deployments remain sticky without return recovery')
 
-# Every native upload/deploy receives the declared policy before constructors.
-# A matching caller flag is canonicalized; conflicts/duplicates never submit.
+# Every native upload or deploy receives the declared policy before constructors.
+# A matching caller flag is canonicalized. Conflicts and duplicates never submit.
 import shlex
 policy_shapes=[
     ['upload','--wasm','/tmp/pool with spaces.wasm','--source','admin','--network','testnet'],
@@ -761,7 +761,8 @@ gate_attempts || exit 5
 assert [a['status'] for a in actions] == ['retry', 'ok', 'ok'] and [a['action_seq'] for a in attempts] == [1, 1, 3]
 print('Group jobs replay in spawn order with contiguous attempt ids, mapped action_seq and the drift pair')
 
-# G3: a job killed after signing keeps the group marker, fails the group, and the summary names its hash.
+# G3: a job killed after signing keeps the group marker, fails the group, and the summary
+# names its hash.
 attempts, _, actions = shell(GROUP_SETUP + r'''
 case_files
 stellar() {
@@ -956,7 +957,8 @@ PY
 ''', interrupted=True)
 print('A failed job, a lane exit and an open group all fail closed and leave no live job')
 
-# G13: parent writes while a group is open are refused, and an open group at case return aborts the case.
+# G13: parent writes while a group is open are refused. An open group at case return aborts
+# the case.
 attempts, _, actions = shell(GROUP_SETUP + r'''
 source "{HERE}/flows/sdk.sh"; source "{HERE}/flows/production.sh"
 REPO_ROOT="$RUN_DIR/repo"; mkdir -p "$REPO_ROOT/configs"; printf 'echo script.sh >> %q\n' "$RUN_DIR/calls" > "$REPO_ROOT/configs/script.sh"
@@ -1016,7 +1018,8 @@ cmp <(sed -n 2p "$RUN_DIR/evidence.tsv" | cut -f2-) <(sed -n 4p "$RUN_DIR/eviden
 [ "$(sed -n 4p "$ACTIONS_TSV" | cut -f11)" = "$note" ] || exit 5
 ''')
 
-# G15: under /bin/bash and set -u, a read group needs no channels and a write group refuses without them.
+# G15: under /bin/bash and set -u, a read group needs no channels. A write group refuses
+# without them.
 attempts, _, actions = shell(GROUP_SETUP + r'''
 unset CHANNELS
 INTEG_DIR="$RUN_DIR"
@@ -1053,7 +1056,8 @@ assert [(a['label'], a['status'], a['note']) for a in actions] == [
     ('group_g_untracked', 'FAIL', 'group_spawn jobf in a subshell; group_spawn jobf in a subshell; group_spawn jobf in a subshell'),
     ('c', 'FAIL', 'case returned 1')], actions
 
-# G17: a job spawned by a subshell that bypasses the guard, or a job that leaves a live process, keeps the marker.
+# G17: a job spawned by a subshell that bypasses the guard keeps the marker. A job that
+# leaves a live process also keeps the marker.
 for spawn, gap in [('( GROUP_SUBSHELL=$BASH_SUBSHELL; group_spawn jobf )', 'job directories [1] differ from the 0 spawned jobs'),
                    ('group_spawn bgjob', 'job 1 left a live process')]:
     attempts, _, actions = shell(GROUP_SETUP + r"""
@@ -1098,7 +1102,8 @@ assert [(a['label'], a['status']) for a in actions] == [('group_g_untracked', 'F
 assert actions[2]['note'] == actions[3]['note'] == 'an unfinished group marker is still active' and not attempts, actions
 print('Untracked spawns, live job processes and kept group markers fail the case and keep the marker')
 
-# G19: mock-oracle, mock-RedStone and SAC deployments in a job sign with the job's channel and replay as deployments with sidecar resources.
+# G19: mock-oracle, mock-RedStone, and SAC deployments in a job sign with the job's channel.
+# They replay as deployments with sidecar resources.
 SAC = 'C' + 'A'*54 + 'B'
 MOCK_ID = 'C' + 'A'*54 + 'C'
 MOCKRS_ID = 'C' + 'A'*54 + 'D'
@@ -1139,7 +1144,8 @@ assert [(a['label'], a['status'], a['fn'], a['instructions'], a['read_bytes'], a
 assert [a['label'] for a in attempts] == ['deploy_mock', 'deploy_mockrs', 'sac_USDC'] and len({a['hash'] for a in actions}) == 3 and all(a['hash'] for a in actions)
 print('Grouped mock-oracle, mock-RedStone and SAC deployments sign with the job channel and replay as deployments with sidecar resources')
 
-# R1: a read group records its ledger floor, then replays each view in spawn order with contiguous attempts.
+# R1: a read group records its ledger floor. It then replays each view in spawn order with
+# contiguous attempts.
 attempts, _, actions = shell(GROUP_SETUP + r'''
 stellar() {
     local n; n=$(( $(cat "$RUN_DIR/count.$E2E_JOB" 2>/dev/null || echo 0) + 1 )); echo "$n" > "$RUN_DIR/count.$E2E_JOB"
@@ -1156,7 +1162,8 @@ assert [(a['label'], a['status'], a['fn']) for a in actions] == [('g_ledger_floo
 assert actions[0]['note'] == 'latest=1 floor=0', actions
 assert [(a['label'], a['attempt'], a['cli_exit'], a['action_seq']) for a in attempts] == [('v1', 1, 0, 2), ('v2', 1, 1, 3), ('v2', 2, 0, 3), ('v3', 1, 0, 4)], attempts
 
-# R2: the floor is the highest committed ledger over CLI and SDK receipts, and the group waits until the RPC reaches it.
+# R2: the floor is the highest committed ledger over CLI and SDK receipts. The group waits
+# until the RPC reaches it.
 R_SETUP = GROUP_SETUP + r'''
 source "{HERE}/flows/sdk.sh"
 export LOG_DIR
@@ -1225,7 +1232,8 @@ if readf; then exit 1; fi
 assert [(a['label'], a['status'], a['note']) for a in actions] == [('g_ledger_floor', 'FAIL', 'unreadable receipt ledgers in the lane logs')], actions
 print('Read groups wait for the ledger floor of every CLI and SDK receipt, and fail closed before any view')
 
-# O1-O3: owner_submit signs the owner auth entry through stdin, logs the hash before its single send, and takes the return from the receipt.
+# O1-O3: owner_submit signs the owner auth entry through stdin and logs the hash before its
+# single send. It takes the return from the receipt.
 OWNER_SETUP = r'''
 ADMIN_ADDR=GADMIN; E2E_SRC=chan1; export RUN_DIR
 latest_ledger() { echo 100; }

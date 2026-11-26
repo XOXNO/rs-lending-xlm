@@ -1,7 +1,7 @@
 # Live migrate_from_blend coverage against a Blend v2 pool that each run deploys.
 # Request types (Blend v2): 0 supply, 1 withdraw, 2 supply-collateral,
 # 3 withdraw-collateral, 4 borrow, 5 repay.
-# Run pool XLM and USDC: c_factor/l_factor 0.98, rates scaled by 1e12.
+# Run pool XLM and USDC: c_factor and l_factor 0.98, rates scaled by 1e12.
 
 # Reserve settings copied from testnet pool CAPBMXIQ...5PRW.
 blend_reserve_config() {
@@ -152,7 +152,7 @@ blend_seed() {
     return 1
 }
 
-# Capture shares, identity and unrelated state, never projected asset amounts.
+# Capture shares, identity, and unrelated state, never projected asset amounts.
 blend_snapshot() {
     local label="$1" caller="$2" acct="$3" other="$4" owner="$5"
     local source positions attrs unrelated owner_source controller_usdc caller_usdc controller_xlm pool_xlm caller_xlm owner_xlm owner_usdc pool_usdc
@@ -194,7 +194,7 @@ blend_snapshot() {
 }
 
 # All rates below come from the committed migration receipt. Blend get_reserve
-# accrues in simulation, so its later b_rate/d_rate cannot price this transaction.
+# accrues in simulation, so its later b_rate and d_rate cannot price this transaction.
 blend_assert_migration() {
     local label="$1"; shift
     if ! python3 - "$INTEG_DIR" "$@" <<'PYBLEND'
@@ -362,7 +362,7 @@ flow_blend_allowlist() {
         trustline "$wallet" "${line%%:*}" "${line##*:}" || return 1
     done
 
-    # Reserve names in config are descriptive; the pool's on-chain list binds
+    # Reserve names in config are descriptive. The pool's on-chain list binds
     # each position-map index to its real token address (including Blend USDC).
     local reserves asset reserve index=0 mapping='[]'
     reserves=$(view blend_reserve_addresses "$BLEND_POOL" -- get_reserve_list) || return 1
@@ -531,15 +531,15 @@ flow_blend_migrate() {
     _is_uint "${ctrl_xlm_before:-}" || { _assert_fail blend_controller_snapshot "invalid controller balance"; return 1; }
     log "controller XLM before migrates=$ctrl_xlm_before"
 
-    # Real Blend burns bTokens on withdraw; a listed asset with 0 balance
-    # reverts InvalidBTokenBurnAmount (#1217). The mock no-ops this path.
+    # Real Blend burns bTokens on withdraw. A listed asset with 0 balance
+    # reverts InvalidBTokenBurnAmount (#1217). The mock makes this path a no-op.
     xfail blend_zero_blend_balance 'Error\(Contract, #1217\)' "$EVE" "$CONTROLLER" -- migrate_from_blend \
         --caller "$EVE_ADDR" --account_id 0 --spoke_id "$PRIMARY_SPOKE_ID" \
         --hub_id "$PRIMARY_HUB_ID" --blend_pool "$BLEND_POOL" \
         --collateral_assets "$xlm_coll" --supply_assets "$empty" --debt_caps "$empty"
 
-    # Zero Blend liability + hub debt cap: live Blend rejects a dToken burn of 0
-    # (#1219). Position is unchanged, then a coll-only migrate must still work.
+    # Zero Blend liability with a hub debt cap. Live Blend rejects a dToken burn of 0
+    # (#1219). The position is unchanged. A collateral-only migrate must still work.
     blend_seed blend_seed_eve_coll "$EVE" "$EVE_ADDR" "$coll_amt" 0 0 || return 1
     xfail blend_zero_liab_cap 'Error\(Contract, #1219\)' "$EVE" "$CONTROLLER" -- migrate_from_blend \
         --caller "$EVE_ADDR" --account_id 0 --spoke_id "$PRIMARY_SPOKE_ID" \
@@ -573,7 +573,7 @@ flow_blend_migrate() {
     fi
     log "alice blend liabilities=$(blend_map_sum "$alice_pos" liabilities) seed_debt=$debt_amt cap=$debt_cap"
 
-    # No caller-mismatch xfail here: stellar-cli signs an auth entry for any
+    # No caller-mismatch xfail exists here. stellar-cli signs an auth entry for any
     # address argument whose secret is in the local keystore, whatever --source
     # is, so a lane wallet cannot act as the victim. A victim without a local
     # secret has no Blend position to migrate, so lifecycle.sh proves the same
@@ -680,7 +680,7 @@ flow_blend_migrate() {
     # no-collateral and min-borrow gates are distinguishable from hub #100.
     # A further Blend borrow then enters the window between c_factor 0.98 and
     # hub LTV 0.70.
-    # The hub has no "cap too low" guard: a debt cap only bounds the
+    # The hub has no "cap too low" guard. A debt cap only bounds the
     # flash-borrowed repay, so Blend's dust floor (#1219) rejects a 1-stroop cap
     # and the hub never books a partial migration.
     local frank_has_debt=0 frank_unhealthy=0
@@ -728,7 +728,7 @@ flow_blend_migrate() {
 }
 
 # Obtain the run pool's USDC by borrowing against real XLM. The run issues this
-# USDC for its own pool; the protocol USDC cannot satisfy this fixture.
+# USDC for its own pool. The protocol USDC cannot satisfy this fixture.
 flow_blend_multireserve() {
     phase blend_multireserve
     [ "$NETWORK" = testnet ] || return 1
@@ -750,7 +750,7 @@ flow_blend_multireserve() {
     save_state BLEND_USDC "$token"
     record blend_multireserve_fixture ok assert "" "" "" "" "" "run pool reserve=$token; distinct protocol USDC=$USDC_SAC; decimals=$decimals"
 
-    # SACs need trustlines; contract tokens have no CODE:ISSUER name.
+    # SACs need trustlines. Contract tokens have no CODE:ISSUER name.
     line=$(view blend_usdc_name "$token" -- name | jq -r .) || return 1
     if [[ "$line" = *:* ]]; then
         code="${line%%:*}"; issuer="${line##*:}"

@@ -5,7 +5,7 @@ use crate::test_support::{hub, init_ledger};
 use crate::{LiquidityPool, LiquidityPoolClient};
 use common::constants::{MAX_MARKET_ENTRY_RAY, MAX_MARKET_VALUE_RAY, MILLISECONDS_PER_YEAR, RAY};
 // `src/interest.rs` calls the shared `accrue_step`; these tests rebuild the step
-// from its primitives to check it.
+// from the `common::rates` functions to check it.
 use common::rates::{
     calculate_borrow_rate, calculate_supplier_rewards, compound_interest,
     supply_index_reward_shortfall, update_borrow_index, update_supply_index,
@@ -188,9 +188,9 @@ fn test_simulate_matches_global_sync_over_multi_year_delta() {
     use common::types::PoolSyncData;
 
     // Both accrual paths run the shared `accrue_step`, so they must agree on
-    // indexes. They differ only in where the step's revenue shares land: the
-    // pool books them on revenue *and* total supply, the simulator folds them
-    // into supply alone. A starting revenue balance keeps that split honest.
+    // indexes. They differ only in where the step's revenue shares land. The
+    // pool books them on revenue *and* total supply, and the simulator folds
+    // them into supply alone. A nonzero starting revenue balance exposes that split.
     for (label, revenue) in [("no prior revenue", 0), ("prior revenue", 7 * RAY)] {
         let t = TestSetup::new();
         t.as_contract(|| {
@@ -899,8 +899,8 @@ const LEDGER_MS: u64 = 5_000;
 
 const YEAR_MS: i128 = common::constants::MILLISECONDS_PER_YEAR as i128;
 
-/// Span measured by the cadence harness. One day keeps the per-second path
-/// (the ledger timestamp resolution) at 86_400 accruals, which fits a unit test.
+/// Span measured by the cadence tests. One day keeps the per-second path
+/// (the ledger timestamp resolution) at 86_400 accruals. That count fits a unit test.
 const CADENCE_SPAN_MS: u64 = DAY_MS;
 
 /// Cadence fixture: ~$1M of borrowed principal at ~10% APR (utilization 45%
@@ -914,7 +914,7 @@ struct CadenceMarket {
     borrowed_units: i128,
 }
 
-/// 45% utilization => 10% APR on the `TestSetup` curve.
+/// 45% utilization gives 10% APR on the `TestSetup` curve.
 const CADENCE_MARKETS: [CadenceMarket; 2] = [
     CadenceMarket {
         label: "7dp stablecoin: 1_000_000 borrowed / 2_222_222 supplied (~$1M @ ~10% APR)",
@@ -954,7 +954,7 @@ struct CadenceResult {
     supplier_claim_units: i128,
     /// Claimable protocol revenue, floor-rounded to asset units.
     revenue_claim_units: i128,
-    /// Supplier claim, revenue claim and debt at full RAY precision, to expose
+    /// Supplier claim, revenue claim, and debt at full RAY precision, to expose
     /// sub-unit drift.
     supplier_claim_ray: i128,
     revenue_claim_ray: i128,
@@ -966,9 +966,9 @@ struct CadenceResult {
 }
 
 impl CadenceResult {
-    /// Interest that borrowers owe but nobody can claim — the rounding residual
-    /// left behind by this cadence. Positive means the books are conservative
-    /// (claims under-count debt); negative would mean claims were inflated
+    /// Interest that borrowers owe but nobody can claim, the rounding residual
+    /// left behind by this cadence. A positive value means the books are conservative
+    /// (claims under-count debt). A negative value would mean claims were inflated
     /// beyond the interest actually charged.
     fn unattributed_ray(&self) -> i128 {
         self.interest_ray - self.attributed_ray
@@ -990,7 +990,7 @@ impl CadenceResult {
 /// (`global_sync`) and reports the terminal split.
 ///
 /// Only the initial `Cache::load` touches storage, so only it runs inside a
-/// contract frame; the accrual loop is pure math on the cache. This keeps the
+/// contract frame. The accrual loop is pure math on the cache. That design keeps the
 /// loop clear of the SDK's per-invocation resource limits, which on-chain
 /// callers never hit because each `update_indexes` is its own transaction.
 fn run_cadence(
@@ -1115,7 +1115,7 @@ fn assert_cadence_never_leaks(
 
     // Residual: interest charged to borrowers that nobody can claim. It must
     // never go negative (that would mean claims outran the interest actually
-    // charged, i.e. the pool minted value) and must stay negligible.
+    // charged, so the pool minted value) and must stay negligible.
     for r in results.iter() {
         let residual = r.unattributed_ray();
         assert!(
@@ -1148,7 +1148,7 @@ fn assert_cadence_never_leaks(
 /// `supply_index_reward_shortfall` re-books every rounding residual that cannot
 /// lift the supply index as protocol revenue.
 ///
-/// One-day horizon, down to a 1 s cadence (the ledger timestamp resolution).
+/// The horizon is one day, down to a 1 s cadence (the ledger timestamp resolution).
 #[test]
 fn test_accrual_cadence_never_leaks_supplier_or_total_value() {
     let cadences = [
@@ -1165,7 +1165,7 @@ fn test_accrual_cadence_never_leaks_supplier_or_total_value() {
 /// compounding have time to accumulate. `MAX_COMPOUND_DELTA_MS` is one year, so
 /// the baseline here is still a single compounding chunk. Per-second cadence is
 /// not runnable at this horizon (31.5M accruals), so this covers hourly and
-/// daily; the one-day test covers the sub-minute end.
+/// daily. The one-day test covers the sub-minute end.
 #[test]
 fn test_year_horizon_accrual_cadence_never_leaks_supplier_or_total_value() {
     let year_ms = YEAR_MS as u64;
@@ -1179,7 +1179,7 @@ fn test_year_horizon_accrual_cadence_never_leaks_supplier_or_total_value() {
     }
 }
 
-/// A fast cadence must not round the protocol fee to zero: at each cadence the
+/// A fast cadence must not round the protocol fee to zero. At each cadence the
 /// treasury captures 990..=1_010 bps of interest (reserve factor 1_000 bps).
 #[test]
 fn test_frequent_accrual_does_not_round_protocol_fee_to_zero() {
@@ -1242,7 +1242,7 @@ fn value_ceiling_events(env: &Env) -> usize {
 
 /// The audit's S-04 state at cache level: a market at the entry ceiling left
 /// alone for twenty years. `global_sync` used to panic with `MathOverflow`
-/// once the debt value passed `i128`; it now holds interest at the ceiling,
+/// once the debt value passed `i128`. It now holds interest at the ceiling,
 /// advances the timestamp, and reports the ceiling once.
 #[test]
 fn test_global_sync_holds_interest_at_the_value_ceiling() {
@@ -1269,7 +1269,7 @@ fn test_global_sync_holds_interest_at_the_value_ceiling() {
         assert!(supply > MAX_MARKET_VALUE_RAY / 100 * 99);
         assert!(cache.revenue() <= cache.supplied());
 
-        // Ten more years: nothing accrues, time still advances.
+        // Ten more years pass. Nothing accrues, and time still advances.
         let (bi, si, supplied) = (cache.borrow_index(), cache.supply_index(), cache.supplied());
         cache.set_current_timestamp(30 * MILLISECONDS_PER_YEAR);
         global_sync(&t.env, &mut cache);

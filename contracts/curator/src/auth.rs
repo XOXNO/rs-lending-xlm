@@ -28,7 +28,7 @@ pub(crate) fn require_admin(env: &Env, caller: &Address, registrar: u32) {
     assert_with_error!(env, caller == &admin, CuratorError::RoleMissing);
 }
 
-/// Admin, or any account holding a bit in `mask`.
+/// Passes for the admin or any account that holds a bit in `mask`.
 pub(crate) fn require_role(env: &Env, caller: &Address, registrar: u32, mask: u32) {
     authenticate(env, caller);
     let admin = require_registrar(env, registrar);

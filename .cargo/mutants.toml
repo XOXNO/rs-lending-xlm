@@ -104,11 +104,14 @@ exclude_re = [
     "program.rs:[0-9]+:60: replace \\+ with \\* in Program::decode",
 
     # --- EQUIVALENT: comparison the surrounding logic already decided ---------
-    # Column 42 is `ctx.hop.token_in < ctx.hop.token_out`, which picks the pair's
-    # reserve orientation. `HopContext::new` panics with `SameToken` before the
-    # adapter runs, so the two operands are never equal and `<` and `<=` agree on
-    # every reachable input.
-    "soroswap.rs:[0-9]+:42: replace < with <= in swap",
+    # Column 42 is `ctx.hop.token_in < ctx.hop.token_out` in `reserves` and in
+    # `swap_for`, which picks the pair's reserve or output orientation. Every
+    # path to either function builds `HopContext::new` first: `dispatch_hop`
+    # through `swap`, and `venues/reverse.rs` through `required_input` and
+    # `swap_for`. `HopContext::new` panics with `SameToken` for equal tokens.
+    # The two operands are never equal, so `<` and `<=` agree on every
+    # reachable input.
+    "soroswap.rs:[0-9]+:42: replace < with <= in (reserves|swap_for)$",
 
     # --- OUT OF SCOPE: not in the deployed contract ---------------------------
     # Both are `#[cfg(feature = "certora")]` entry points in

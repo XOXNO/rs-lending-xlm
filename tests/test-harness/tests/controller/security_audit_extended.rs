@@ -83,7 +83,7 @@ fn poc_global_pause_blocks_risk_increasing_allows_exit_and_liq() {
         errors::CONTRACT_PAUSED,
     );
 
-    // Exit paths must not merely return `Ok` - they must move the value they claim to.
+    // An exit path must move the value it claims to. Returning `Ok` is not enough.
     let bob_wallet_before = t.token_balance_raw(BOB, "USDC");
     let bob_supply_before = t.supply_balance_raw(BOB, "USDC");
     let w = t.try_withdraw(BOB, "USDC", 10.0);

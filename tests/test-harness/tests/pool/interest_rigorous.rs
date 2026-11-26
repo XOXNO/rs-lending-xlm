@@ -219,7 +219,7 @@ fn test_scaled_amount_times_index_equals_actual() {
         "get_borrow_amount must be the half-up unscaling of scaled x index"
     );
 
-    // ADR-0003: the amount owed rounds up. One stroop under the ceil value
+    // ADR-0003 rounds the amount owed up. One stroop under the ceil value
     // leaves the position open, and the residual stroop closes it.
     let computed_actual = common::rates::unscale_borrow_ceil(&t.env, scaled, index, 7);
     t.repay_raw(ALICE, "ETH", computed_actual - 1);

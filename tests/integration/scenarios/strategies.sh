@@ -2,7 +2,7 @@
 
 # Focused live-testnet exercise of cash `flash_loan` and the strategy
 # entrypoints (multiply, swap_debt, swap_collateral, repay_debt_with_collateral).
-# Deploys current controller/pool wasm plus the adversarial flash-loan receiver.
+# Deploys current controller and pool wasm plus the adversarial flash-loan receiver.
 
 set -uo pipefail
 

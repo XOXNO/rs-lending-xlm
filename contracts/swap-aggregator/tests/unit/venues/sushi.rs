@@ -160,8 +160,8 @@ fn sushi_direction_requires_exact_pair_match() {
 ///
 /// Two 50% Sushi paths make the second hop start with the first hop's proceeds
 /// in the router, so `before_out` in `venues::dispatch_hop` is non-zero. It is
-/// the only Sushi test that fails if `checked_sub` becomes `checked_add` there:
-/// the second hop would credit 450 instead of 150.
+/// the only Sushi test that fails if `checked_sub` becomes `checked_add` there.
+/// The second hop would credit 450 instead of 150.
 #[test]
 fn sushi_split_credits_only_the_delta_of_each_hop() {
     let env = Env::default();
@@ -209,7 +209,7 @@ fn sushi_split_credits_only_the_delta_of_each_hop() {
 
     let out = RouterClient::new(&env, &router_addr).execute_strategy(&sender, &300, &swap_xdr);
 
-    // 150 per leg at the mock's 1:1 rate -- not 150 + (300 + 150).
+    // 150 per leg at the mock's 1:1 rate, not 150 + (300 + 150).
     assert_eq!(out, 300);
     assert_eq!(token::Client::new(&env, &token_a).balance(&sender), 700);
     assert_eq!(token::Client::new(&env, &token_b).balance(&sender), 300);

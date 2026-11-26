@@ -31,8 +31,8 @@ use crate::storage;
 /// eligible residual bad debt. Owners may self-liquidate but cannot credit
 /// seized shares back to the liquidated account.
 ///
-/// `Transfer` pays underlying from pool cash. `Credit` moves supply shares,
-/// requiring no collateral cash. Returns the credit receiver id, or zero for transfer.
+/// `Transfer` pays underlying from pool cash. `Credit` moves supply shares and requires no
+/// collateral cash. Returns the credit receiver id, or zero for transfer.
 pub(crate) fn process_liquidation(
     env: &Env,
     liquidator: &Address,
@@ -220,9 +220,9 @@ pub(crate) fn process_clean_bad_debt(env: &Env, caller: &Address, account_id: u6
 /// Admission condition for bad-debt socialization.
 #[derive(Clone, Copy, PartialEq)]
 enum BadDebtGate {
-    /// Permissionless: insolvent *and* collateral at or below the dust threshold.
+    /// Permissionless. Requires an insolvent account and collateral at or below the dust threshold.
     DustCapped,
-    /// Owner-only: insolvent alone, with no cap on the collateral left behind.
+    /// Owner-only. Requires only insolvency, with no cap on the collateral left behind.
     InsolventOnly,
 }
 

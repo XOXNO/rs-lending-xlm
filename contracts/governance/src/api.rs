@@ -1,7 +1,7 @@
 //! Implements `GovernanceInterface` for `Governance`. Most methods delegate
 //! to a `pub(crate)` function in the module that owns the corresponding
 //! behavior (`access`, `deploy`, `op`, `storage`, `validate`, or a
-//! `timelock::*` submodule); a few thin accessors call
+//! `timelock::*` submodule). A few thin accessors call
 //! `stellar_access::access_control` or `stellar_governance::timelock`
 //! directly. Some methods carry an `#[only_owner]` guard. Owner gating lives
 //! on these methods rather than on the delegates, so the check runs at the
@@ -51,8 +51,8 @@ impl GovernanceInterface for Governance {
     }
 
     /// Executes a ready, non-expired scheduled op against `target` (not this
-    /// contract). Permissionless: anyone may execute a ready op; the delay
-    /// and the cancellers protect it. Clears scheduled state on success.
+    /// contract). Permissionless, so anyone may execute a ready op. The delay
+    /// and the cancellers protect the operation. Clears scheduled state on success.
     fn execute(
         env: Env,
         target: Address,
@@ -114,7 +114,7 @@ impl GovernanceInterface for Governance {
     }
 
     /// Schedules `op` for later execution and returns its operation id.
-    /// Requires the caller to hold the proposer role; some operations also
+    /// Requires the caller to hold the proposer role. Some operations also
     /// require the caller to be the owner.
     fn propose(env: Env, proposer: Address, op: AdminOperation, salt: BytesN<32>) -> BytesN<32> {
         lifecycle::propose(&env, &proposer, &op, salt)
@@ -127,7 +127,7 @@ impl GovernanceInterface for Governance {
     }
 
     /// Tightens the paused, frozen, and no-seize flags for `hub_asset` in spoke
-    /// `spoke_id`; clearing a set flag fails. Requires the caller to hold the
+    /// `spoke_id`. Clearing a set flag fails. Requires the caller to hold the
     /// guardian role or the curator role.
     fn set_spoke_asset_flags(
         env: Env,
@@ -143,8 +143,8 @@ impl GovernanceInterface for Governance {
         )
     }
 
-    /// Tightens the sanity-check price band for `key` on the price aggregator;
-    /// widening fails. Requires the caller to hold the oracle role.
+    /// Tightens the sanity-check price band for `key` on the price aggregator.
+    /// Widening fails. Requires the caller to hold the oracle role.
     fn set_sanity_band(env: Env, caller: Address, key: PriceKey, min_wad: i128, max_wad: i128) {
         immediate::set_sanity_band(&env, &caller, &key, min_wad, max_wad)
     }
@@ -173,25 +173,25 @@ impl GovernanceInterface for Governance {
     }
 
     /// Suspends `registrar` on `curator`, which must hold the curator role.
-    /// Requires the caller to hold the guardian role; resuming stays timelocked.
+    /// Requires the caller to hold the guardian role. Resuming stays timelocked.
     fn suspend_curator_registrar(env: Env, caller: Address, curator: Address, registrar: u32) {
         immediate::suspend_curator_registrar(&env, &caller, &curator, registrar)
     }
 
     /// Deactivates a position manager on the controller. Requires the caller
-    /// to hold the guardian role; activation stays timelocked.
+    /// to hold the guardian role. Activation stays timelocked.
     fn deactivate_position_manager(env: Env, caller: Address, manager: Address) {
         immediate::deactivate_position_manager(&env, &caller, &manager)
     }
 
     /// Revokes a Blend migration source on the controller. Requires the
-    /// caller to hold the guardian role; approval stays timelocked.
+    /// caller to hold the guardian role. Approval stays timelocked.
     fn revoke_blend_pool(env: Env, caller: Address, pool: Address) {
         immediate::revoke_blend_pool(&env, &caller, &pool)
     }
 
     /// Revokes `role` from `account` without going through the timelock.
-    /// Restricted to the owner; only the guardian, oracle and curator roles
+    /// Restricted to the owner. Only the guardian, oracle, and curator roles
     /// can be revoked this way.
     #[only_owner]
     fn revoke_role_immediate(env: Env, account: Address, role: Symbol) {

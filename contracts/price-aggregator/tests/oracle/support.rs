@@ -141,8 +141,8 @@ fn twap_history(env: &Env) -> Vec<ReflectorPriceData> {
     )
 }
 
-/// Mainnet CEX/DEX shape: a round skipped, so two samples sit two periods
-/// apart — fewer entries than asked for, window still covered.
+/// Mainnet CEX and DEX shape. A round is skipped, so two samples sit two periods apart.
+/// The answer has fewer entries than asked for, and the window is still covered.
 #[contract]
 pub(crate) struct GappedReflector;
 

@@ -55,9 +55,9 @@ pub(crate) fn deploy_controller(env: &Env, wasm_hash: BytesN<32>) -> Address {
 }
 
 /// Deploys the price aggregator contract from `wasm_hash`, constructed with
-/// this contract's address, records its address in storage, and, if a
-/// controller is already deployed, invokes `set_price_aggregator` on it to
-/// register the new price aggregator. Publishes a
+/// this contract's address, and records its address in storage. If a
+/// controller is already deployed, the function invokes `set_price_aggregator`
+/// on it to register the new price aggregator. Publishes a
 /// `DeployPriceAggregatorEvent`. Panics with `GenericError::InvalidWasmHash`
 /// if `wasm_hash` is all zero, and with `GenericError::PoolAlreadyDeployed`
 /// if a price aggregator is already deployed.

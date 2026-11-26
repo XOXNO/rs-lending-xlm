@@ -1,10 +1,10 @@
 #![no_std]
 #![allow(clippy::too_many_arguments)]
 
-//! Test-only script runner. Issues a sequence of controller calls from its own
+//! Test-only script runner. It issues a sequence of controller calls from its own
 //! frame, so a test can prove what one attacker contract can do in one
-//! transaction: every leg commits or none does. Not for production. It has no
-//! callback role; the two receiver mocks cover callback shapes.
+//! transaction. Every leg commits or none does. Do not use it in production. It has no
+//! callback role. The two receiver mocks cover callback shapes.
 
 use common::token::authorize_transfer_as_current;
 use common::types::{HubAssetKey, PaymentTuple, PositionMode, SeizeMode};
@@ -15,9 +15,9 @@ use soroban_sdk::{
     IntoVal, Vec,
 };
 
-/// Sentinel account id: resolves to the account the script last opened
+/// Sentinel account id. It resolves to the account the script last opened
 /// (`Supply` or `Multiply` whose account id resolves to `0`) or credited
-/// (`Liquidate` in `Credit` mode). Lets one script open an account and act on
+/// (`Liquidate` in `Credit` mode). It lets one script open an account and act on
 /// it.
 pub const LAST_CREATED: u64 = u64::MAX;
 
@@ -109,7 +109,7 @@ pub struct MultiplyOp {
     pub debt: HubAssetKey,
     pub mode: PositionMode,
     pub swap: Bytes,
-    /// Empty for none; one `(asset, amount)` leg for an initial payment.
+    /// Leave empty for none, or give one `(asset, amount)` leg for an initial payment.
     pub initial_payment: Vec<(HubAssetKey, i128)>,
 }
 
@@ -267,7 +267,7 @@ impl ScriptRunner {
                 }
                 Op::Liquidate(o) => {
                     let account_id = resolve(o.account_id, last_created);
-                    // `Credit(0)` keeps its own meaning: open a fresh account.
+                    // `Credit(0)` keeps its own meaning and opens a fresh account.
                     let seize_mode = match o.seize_mode {
                         SeizeMode::Credit(id) => SeizeMode::Credit(resolve(id, last_created)),
                         mode => mode,

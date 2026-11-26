@@ -1,4 +1,4 @@
-//! Pool-layer probes: the mocked owner supplies authentic positions and funded
+//! Pool-layer probes. The mocked owner supplies authentic positions and funded
 //! amounts. These verify accounting composition, not controller authorization.
 
 use common::constants::{RAY, SUPPLY_INDEX_FLOOR_RAW};
@@ -118,8 +118,8 @@ fn pool_all_money_paths_preserve_books_and_shared_token_custody() {
     assert_eq!(token.balance(&receiver), 100 * UNIT);
     assert_eq!(check(supply, debt, "borrow").cash, 900 * UNIT);
 
-    // Partial and excessive payments both use funded amounts; refund must go
-    // to payer while receiver's earlier proceeds remain untouched.
+    // Partial and excessive payments both use funded amounts. The refund must go
+    // to the payer, while the receiver's earlier proceeds remain untouched.
     for (payment, expected_used) in [(40 * UNIT, 40 * UNIT), (100 * UNIT, 60 * UNIT)] {
         market.token_admin.mint(&payer, &payment);
         let before = token.balance(&payer);
@@ -322,7 +322,7 @@ fn pool_loss_floor_recapitalization_returns_only_unused_funding() {
     assert_eq!(token.balance(&market.pool), 0);
 
     // Claims are 900 tokens * 0.001 = 0.9 token. Fill 0.4, then offer
-    // another 2.0: only 0.5 must stay; payer receives exactly 1.5 back.
+    // another 2.0. Only 0.5 must stay, and the payer receives exactly 1.5 back.
     for (payment, applied) in [(400_000, 400_000), (2 * UNIT, 500_000)] {
         market.token_admin.mint(&payer, &payment);
         let before = token.balance(&payer);
@@ -358,7 +358,7 @@ fn pool_loss_floor_recapitalization_returns_only_unused_funding() {
     assert_eq!(token.balance(&market.pool), 0);
 }
 
-// Uses a real SAC and no market storage injection.
+// The tests use a real SAC and no market storage injection.
 #[cfg(test)]
 mod fee_headroom {
     use common::constants::{MAX_MARKET_ENTRY_RAY, RAY};
@@ -376,12 +376,12 @@ mod fee_headroom {
 
     /// The largest supply the pool admits is the entry ceiling, an eighth of
     /// the share range, so a liquidation fee always has share headroom to
-    /// book into: `protocol_fee_shares` never caps it. One unit above the
-    /// ceiling is refused, so a share total next to `i128::MAX`, where the
-    /// fee could only book into the headroom freed by the supply burn, can no
-    /// longer be built by a supply (the pool crate's unit test
+    /// book into. `protocol_fee_shares` never caps it. One unit above the
+    /// ceiling is refused. A supply can therefore no longer build a share
+    /// total next to `i128::MAX`, where the fee could only book into the
+    /// headroom freed by the supply burn. The pool crate's unit test
     /// `test_liquidation_withdraw_uses_post_burn_fee_headroom_and_final_debt_guard`
-    /// keeps that ordering covered on an injected state).
+    /// keeps that ordering covered on an injected state.
     #[test]
     fn liquidation_fee_books_in_full_at_the_entry_ceiling() {
         let env = new_env();

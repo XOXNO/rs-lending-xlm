@@ -2,7 +2,7 @@
 //! contract's operation tiers.
 
 /// Floor, in ledgers (about 2 days), below which a delay update cannot lower
-/// the minimum delay. Also the suggested constructor `min_delay`; construction
+/// the minimum delay. Also the suggested constructor `min_delay`. Construction
 /// does not enforce it, and an update may still raise a smaller delay.
 pub const TIMELOCK_MIN_DELAY_LEDGERS: u32 = 34_560;
 
@@ -11,7 +11,7 @@ pub const TIMELOCK_MIN_DELAY_LEDGERS: u32 = 34_560;
 pub const TIMELOCK_MAX_DELAY_LEDGERS: u32 = 241_920;
 
 /// Floor, in ledgers (about 7 days), applied to the delay for sensitive-tier
-/// operations: the configured minimum delay is raised to at least this value
+/// operations. The configured minimum delay is raised to at least this value
 /// for that tier.
 ///
 /// The `short-timelock` feature lowers it to 12 ledgers (about one minute)
@@ -26,7 +26,7 @@ pub const TIMELOCK_SENSITIVE_MIN_DELAY_LEDGERS: u32 = 12;
 /// remains executable before it is treated as expired.
 pub const TIMELOCK_OPERATION_GRACE_LEDGERS: u32 = 120_960;
 
-/// Floor, in ledgers, applied to the delay for recovery-tier operations:
-/// the configured minimum delay is raised to at least this value for that
+/// Floor, in ledgers, applied to the delay for recovery-tier operations.
+/// The configured minimum delay is raised to at least this value for that
 /// tier.
 pub const TIMELOCK_RECOVERY_MIN_DELAY_LEDGERS: u32 = 518_400;

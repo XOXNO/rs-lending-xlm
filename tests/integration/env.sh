@@ -3,7 +3,7 @@ REPO_ROOT="$(cd "$INTEG_DIR/../.." && pwd)"
 
 NETWORK="${NETWORK:-testnet}"
 # Controlled Credit 5+5 replay measured >11m extra CPU across a ledger boundary.
-# Keep native preparation aligned; the full resource/headroom gate still applies.
+# Keep native preparation aligned. The full resource and headroom gate still applies.
 export INSTRUCTION_LEEWAY="${INSTRUCTION_LEEWAY:-20000000}"
 [ "$INSTRUCTION_LEEWAY" = 20000000 ] || { echo 'E2E requires the recorded 20000000 instruction leeway policy' >&2; exit 1; }
 [ "$NETWORK" = testnet ] || { echo "E2E transactions are restricted to testnet" >&2; exit 1; }
@@ -12,8 +12,7 @@ AGGREGATOR_API="${AGGREGATOR_API:-https://testnet-stellar-swap.xoxno.com/api/v1}
 
 NETWORKS_FILE="${NETWORKS_FILE:-$REPO_ROOT/configs/networks.json}"
 
-# An unknown NETWORK must fail here, never fall through to another network's
-# addresses.
+# An unknown NETWORK must fail here. It must not use another network's addresses.
 if ! jq -e --arg n "$NETWORK" 'has($n)' "$NETWORKS_FILE" >/dev/null 2>&1; then
     echo "env.sh: NETWORK '$NETWORK' has no entry in $NETWORKS_FILE" >&2
     echo "        known: $(jq -r 'keys | join(", ")' "$NETWORKS_FILE" 2>/dev/null)" >&2
@@ -22,7 +21,7 @@ fi
 
 net_field() { jq -r --arg n "$NETWORK" --arg f "$1" '.[$n][$f] // empty' "$NETWORKS_FILE" 2>/dev/null; }
 
-# Default to the network config's RPC: the public RPC drops heavy multi-hop swap
+# Default to the network config's RPC. The public RPC drops heavy multi-hop swap
 # submissions.
 RPC_URL="${RPC_URL:-$(net_field rpc_url)}"
 : "${RPC_URL:?no rpc_url for network '$NETWORK' in $NETWORKS_FILE}"
@@ -47,10 +46,10 @@ EURC_SAC="${EURC_SAC:-CCUUDM434BMZMYWYDITHFXHDMIVTGGD6T2I5UKNX5BSLXLW7HVR4MCGZ}"
 FIXTURE_WASM_DIR="${FIXTURE_WASM_DIR:-$REPO_ROOT/artifacts/wasm/fixtures}"
 CURVE_FIXTURE_DIR="${CURVE_FIXTURE_DIR:-$REPO_ROOT/contracts/swap-aggregator/tests/fixtures/curve}"
 WASM_DIR="${WASM_DIR:-$REPO_ROOT/artifacts/wasm/deploy}"
-# Governance built with `short-timelock`: a 12-ledger sensitive delay floor in
+# Governance is built with `short-timelock`, a 12-ledger sensitive delay floor in
 # place of the candidate's 7 days, so a live run can execute sensitive
-# operations. Every run deploys this build; the candidate governance.wasm is
-# covered by the native tests only.
+# operations. Every run deploys this build. Only the native tests cover the
+# candidate governance.wasm.
 GOVERNANCE_E2E_WASM="${GOVERNANCE_E2E_WASM:-$FIXTURE_WASM_DIR/governance_e2e.wasm}"
 
 RUN_TS="${RUN_TS:?set RUN_TS=<unique-run-name> (e.g. \$(date +%Y%m%d-%H%M%S))}"

@@ -73,7 +73,7 @@ fn leftover_cash_cannot_be_borrowed_against_zero_supply() {
     }
 }
 
-/// The next supplier reopens the market: borrows work again, and the
+/// The next supplier reopens the market. Borrows work again, and the
 /// supplier can leave in full once the debt is repaid.
 #[test]
 fn a_new_supplier_reopens_the_emptied_market() {

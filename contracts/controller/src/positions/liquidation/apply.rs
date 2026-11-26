@@ -28,8 +28,8 @@ use common::errors::{GenericError, SpokeError};
 /// Repays from measured pool receipts. Returns WAD USD receipt value, capped
 /// per planned leg and floor-scaled when a token under-delivers.
 ///
-/// With `offered` (a full-close plan), each leg pulls the merged offered amount
-/// and the pool refunds what exceeds the debt; otherwise it pulls the planned amount.
+/// With `offered` (a full-close plan), each leg pulls the merged offered amount, and the pool
+/// refunds what exceeds the debt. Otherwise each leg pulls the planned amount.
 pub(crate) fn apply_liquidation_repayments(
     env: &Env,
     liquidator: &Address,
@@ -128,12 +128,12 @@ pub(crate) fn apply_liquidation_seizures(
     );
 }
 
-/// Debits seized shares `S`, credits `S - fee`, and reclassifies `fee` as revenue.
-/// No tokens move; pool supply and cash remain unchanged. Moving scaled shares
-/// also avoids supply-index drift between planning and application.
+/// Debits seized shares `S`, credits `S - fee`, and reclassifies `fee` as revenue. No tokens move.
+/// Pool supply and cash remain unchanged. Moving scaled shares also avoids supply-index drift
+/// between planning and application.
 ///
-/// The pool reclassifies the fee shares (`absorb_supply_as_revenue`); minting
-/// them would create claims without backing cash.
+/// The pool reclassifies the fee shares (`absorb_supply_as_revenue`). Minting them would create
+/// claims without backing cash.
 pub(crate) fn apply_liquidation_share_credit(
     env: &Env,
     account: &mut Account,
@@ -159,8 +159,8 @@ pub(crate) fn apply_liquidation_share_credit(
             Ray::from(entry.bonus_scaled),
             entry.liquidation_fees,
         );
-        // Same-spoke usage nets to `-S + (S - fee) = -fee`. An entry/exit pair
-        // would incorrectly let the supply cap block liquidation.
+        // Same-spoke usage nets to `-S + (S - fee) = -fee`. A separate entry and exit would let the
+        // supply cap block liquidation.
         assert_with_error!(
             env,
             receiver.spoke_id == account.spoke_id,
@@ -172,7 +172,7 @@ pub(crate) fn apply_liquidation_share_credit(
             GenericError::InternalError
         );
 
-        // Checked subtraction prevents over-seizure; liquidation preserves risk stamps.
+        // Checked subtraction prevents over-seizure. Liquidation preserves risk stamps.
         let mut position = get_supply_position_or_panic(env, account, &entry.hub_asset);
         position.scaled_amount = position.scaled_amount.checked_sub(env, seized_scaled);
         update_or_remove_supply_position(account, &entry.hub_asset, &position);
@@ -210,9 +210,9 @@ pub(crate) fn apply_liquidation_share_credit(
     }
 }
 
-/// Credits shares using the receiver's existing risk tuple or the current
-/// listing for a new position. Never imports the liquidated account's potentially
-/// more generous stamps. Seizure bypasses collateral permissions and supply caps.
+/// Credits shares using the receiver's existing risk tuple, or the current listing for a new
+/// position. The function never imports the potentially more generous stamps of the liquidated
+/// account. Seizure bypasses collateral permissions and supply caps.
 fn credit_supply_shares(
     env: &Env,
     receiver: &mut Account,
@@ -234,8 +234,8 @@ fn credit_supply_shares(
     update_or_remove_supply_position(receiver, hub_asset, &position);
 }
 
-/// Buffers receiver deltas after publishing the liquidated account's batch,
-/// keeping the two accounts' events separate and ordered.
+/// Buffers receiver deltas after the function publishes the batch of the liquidated account. This
+/// keeps the events of the two accounts separate and ordered.
 pub(crate) fn record_share_credit_updates(
     env: &Env,
     receiver: &Account,
@@ -250,7 +250,7 @@ pub(crate) fn record_share_credit_updates(
         let position = get_supply_position_or_panic(env, receiver, &entry.hub_asset);
         let supply_index = Ray::from(entry.market_index.supply_index);
         cache.record_supply_position_update(
-            // Receiver credit is net of fees; the liquidated account's seizure is gross.
+            // Receiver credit is net of fees. The seizure from the liquidated account is gross.
             events::PositionAction::LiqCredit,
             &entry.hub_asset,
             entry.market_index.supply_index,
@@ -262,10 +262,10 @@ pub(crate) fn record_share_credit_updates(
     }
 }
 
-/// Enforces receiver position limits to preserve the liquidation resource bound.
-/// A `fresh` (`Credit(0)`) receiver skips the governed limit: its legs are a
-/// subset of the liquidated account's, so a lowered limit cannot block the
-/// seizure. Whole-unit isolation applies to every receiver.
+/// Enforces receiver position limits to preserve the liquidation resource bound. A `fresh`
+/// (`Credit(0)`) receiver skips the governed limit. Its legs are a subset of the legs of the
+/// liquidated account, so a lowered limit cannot block the seizure. Whole-unit isolation applies to
+/// every receiver.
 pub(crate) fn require_credit_position_limit(
     env: &Env,
     receiver: &Account,

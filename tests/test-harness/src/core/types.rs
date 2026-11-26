@@ -80,7 +80,7 @@ pub struct LendingTest {
     pub position_nft_wasm_hash: soroban_sdk::BytesN<32>,
     pub users: HashMap<String, UserState>,
     pub markets: HashMap<String, MarketState>,
-    /// Approved MockBlend pool for `migrate_from_blend` fuzz/unit helpers.
+    /// The approved `MockBlend` pool that the `migrate_from_blend` fuzz and unit helpers use.
     /// `None` until `ensure_approved_blend` registers one.
     pub blend_pool: Option<Address>,
 }

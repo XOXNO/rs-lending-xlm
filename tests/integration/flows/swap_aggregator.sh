@@ -10,7 +10,7 @@ flow_swap_aggregator_admin() {
     local agg="$OWNED_AGGREGATOR"
 
     # Every setter below is owner-only. `admin` and `get_owner` must both
-    # return ADMIN; `admin` panics with NotAdmin (#20) when no owner is set.
+    # return ADMIN. `admin` panics with NotAdmin (#20) when no owner is set.
     assert_view_eq_at "$agg" sa_owner_initial "$ADMIN_ADDR" get_owner
     assert_view_eq_at "$agg" sa_admin_initial "$ADMIN_ADDR" admin
 
@@ -19,7 +19,8 @@ flow_swap_aggregator_admin() {
     inv sa_set_fee "$ADMIN" "$agg" -- set_static_fee --fee_bps 50 >/dev/null
     assert_view_eq_at "$agg" sa_fee_after_set 50 static_fee_bps
 
-    # FEE_CAP (1000 BPS) bounds the owner's fee: above it reverts FeeTooHigh.
+    # FEE_CAP (1000 BPS) bounds the owner's fee. Above it, the call reverts
+    # with FeeTooHigh.
     xfail sa_fee_above_cap 'Error\(Contract, #21\)' "$ADMIN" "$agg" -- set_static_fee \
         --fee_bps $((SA_FEE_CAP + 1))
     # At the cap exactly it must still be accepted.
@@ -31,7 +32,7 @@ flow_swap_aggregator_admin() {
     xfail sa_fee_not_owner "Missing signing key for account $ADMIN_ADDR" "$BOB" "$agg" -- set_static_fee --fee_bps 10
 
     # --- whitelist ---
-    # XLM_SAC, not a LIQ* asset: deploy_protocol sets XLM_SAC in every lane,
+    # Use XLM_SAC, not a LIQ* asset. deploy_protocol sets XLM_SAC in every lane,
     # but only the `liq-*` lanes run flow_liq_setup. An unset SAC_LIQA aborts the
     # `agg-gov` lane under `set -u`.
     local tok="$XLM_SAC"
@@ -47,7 +48,7 @@ flow_swap_aggregator_admin() {
         _assert_fail sa_wl_list_contains "whitelisted_tokens missing $tok: $wl"
     fi
 
-    # Idempotent: adding twice must not duplicate the entry.
+    # The call is idempotent. Adding twice must not duplicate the entry.
     inv sa_wl_add_again "$ADMIN" "$agg" -- add_to_whitelist --token "$tok" >/dev/null
     local wl_count
     wl_count=$(view sa_wl_list_again "$agg" -- whitelisted_tokens | jq 'length')
@@ -90,7 +91,7 @@ flow_swap_aggregator_admin() {
     inv sa_ref_set_fee "$ADMIN" "$agg" -- set_referral_fee --id "$ref_id" --fee_bps 40 --protocol_fee_bps 25 >/dev/null
     inv sa_ref_deactivate "$ADMIN" "$agg" -- set_referral_active --id "$ref_id" --active false >/dev/null
     ref=$(view sa_ref_after_updates "$agg" -- referral --id "$ref_id")
-    # `.active` is read without `// empty`: jq's `//` treats `false` as absent,
+    # `.active` is read without `// empty`. jq's `//` treats `false` as absent,
     # so `.active // empty` yields nothing for exactly the value under test.
     if [ "$(jq -r '.protocol_fee_bps' <<<"$ref")" = "25" ] \
         && [ "$(jq -r '.fee_bps // empty' <<<"$ref")" = "40" ] \
@@ -117,7 +118,7 @@ flow_swap_aggregator_admin() {
     sa_fee_trade "$agg" "$ref_id" output || return 1
 
     # --- fee balances and claims ---
-    # Nonzero claims above cleared the buckets; repeated claims are no-ops.
+    # Nonzero claims above cleared the buckets. Repeated claims are no-ops.
     assert_view_eq_at "$agg" sa_admin_fee_zero 0 admin_fee_balance --token "$tok"
     assert_view_eq_at "$agg" sa_ref_fee_zero 0 referral_fee_balance --id "$ref_id" --token "$tok"
 
@@ -141,10 +142,10 @@ flow_swap_aggregator_admin() {
 sa_fee_trade() {
     local agg="$1" referral="$2" mode="$3" amount=10000000 route token tokens
     local payer recipient returned admin_fee referral_fee gross expected_admin expected_ref
-    local owner_before caller_before reserve_before protected=12345
+    local owner_before caller_before reserve_before protected=12345 static_bps=50 ref_cfg protocol_bps ref_bps
     token="$USDC_SAC"; [ "$mode" != output ] || token="$XLM_SAC"
     tokens=$(jq -nc --arg t "$token" '[$t]')
-    inv "sa_${mode}_static_fee" "$ADMIN" "$agg" -- set_static_fee --fee_bps 50 >/dev/null || return 1
+    inv "sa_${mode}_static_fee" "$ADMIN" "$agg" -- set_static_fee --fee_bps "$static_bps" >/dev/null || return 1
     leg_sa_trade() {
         route=$(agg_route_hex "$USDC_SAC" "$XLM_SAC" "$amount") || return 1
         route=$(agg_referral_route_hex "$route" "$referral") || { _assert_fail "sa_${mode}_route" "candidate referral route incompatible"; return 1; }
@@ -159,8 +160,13 @@ sa_fee_trade() {
     admin_fee=$(view "sa_${mode}_admin_fee" "$agg" -- admin_fee_balance --token "$token" | tr -d '"[:space:]') || return 1
     referral_fee=$(view "sa_${mode}_ref_fee" "$agg" -- referral_fee_balance --id "$referral" --token "$token" | tr -d '"[:space:]') || return 1
     gross="$amount"; [ "$mode" != output ] || gross=$(raw_add "$returned" "$admin_fee" "$referral_fee")
-    expected_admin=$(python3 -c 'import sys;print(int(sys.argv[1])*50//10000)' "$gross") || return 1
-    expected_ref=$(python3 -c 'import sys;print(int(sys.argv[1])*40//10000)' "$gross") || return 1
+    # The admin bucket takes the referral's `protocol_fee_bps`. The static fee
+    # applies only when that field is null (`checked_protocol_fee_bps`).
+    ref_cfg=$(view "sa_${mode}_ref_cfg" "$agg" -- referral --id "$referral") || return 1
+    protocol_bps=$(jq -r --argjson s "$static_bps" '.protocol_fee_bps // $s' <<<"$ref_cfg") || return 1
+    ref_bps=$(jq -r '.fee_bps' <<<"$ref_cfg") || return 1
+    expected_admin=$(python3 -c 'import sys;print(int(sys.argv[1])*int(sys.argv[2])//10000)' "$gross" "$protocol_bps") || return 1
+    expected_ref=$(python3 -c 'import sys;print(int(sys.argv[1])*int(sys.argv[2])//10000)' "$gross" "$ref_bps") || return 1
     _uint_ge "$expected_admin" 1 && _uint_ge "$expected_ref" 1 || { _assert_fail "sa_${mode}_nonzero" "fee fixture rounds to zero"; return 1; }
     assert_raw_within "sa_${mode}_admin_exact" "$admin_fee" "$expected_admin" 0 || return 1
     assert_raw_within "sa_${mode}_ref_exact" "$referral_fee" "$expected_ref" 0 || return 1

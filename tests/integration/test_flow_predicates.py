@@ -1,4 +1,4 @@
-"""Fault injection for risk snapshots, NFT enumeration and route headers."""
+"""Fault injection for risk snapshots, NFT enumeration, and route headers."""
 import hashlib
 import csv
 import json
@@ -76,7 +76,7 @@ exit 1
             result=shell('flows/liquidation.sh','recapitalization_reference "$1" "$2" 7',json.dumps(state),str(offered))
             self.assertEqual(result.returncode,0,result.stderr)
             self.assertEqual(int(result.stdout),want)
-        # Returning all100 instead of expected50 cannot satisfy exact predicate.
+        # Returning all 100 instead of the expected 50 cannot satisfy the exact predicate.
         r=shell('lib/assert.sh','assert_raw_within recap 100 50 0')
         self.assertNotEqual(r.returncode,0)
 
@@ -203,7 +203,7 @@ PROD_OP_TAG="$2" prod_ops setupAll >/dev/null'''
         propose={'function_name':'propose','contract_address':'GOV','args':[{'address':'ADMIN'},{'vec':[]},{'bytes':salt}]}
         def execute(s_,target='CTRL',fn='set_price_aggregator'):
             return {'function_name':'execute','contract_address':'GOV','args':[{'address':target},{'symbol':fn},{'vec':[]},{'bytes':'00'*32},{'bytes':s_}]}
-        # `execute` takes no executor: a receipt with the removed leading
+        # `execute` takes no executor. A receipt with the removed leading
         # argument does not bind the recorded target and function.
         legacy=execute(salt); legacy['args']=['void',*legacy['args']]
         for case,exec_call,record_salt,ok in [('good',execute(salt),salt,True),('salt',execute('ee'*32),salt,False),
@@ -719,7 +719,8 @@ view() {
 }
 run_case flow_liq_bulk flow_liq_bulk
 '''
-        # One-unit synchronized changes intentionally pass; payout/fee accuracy is outside this oracle.
+        # One-unit synchronized changes intentionally pass.
+        # Payout and fee accuracy is outside this oracle.
         for mode,shares,receipts,pools,ok in [
                 ('positive',(99,99),(1001,1001),(999,999),True),
                 ('no_seizure',(100,100),(1000,1000),(1000,1000),False),

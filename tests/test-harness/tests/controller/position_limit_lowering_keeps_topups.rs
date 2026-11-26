@@ -1,6 +1,6 @@
 //! GH-16. Lowering the position limit below an account's current count must
-//! not strand the account: topping up a held asset opens no slot and stays
-//! allowed; opening a new slot is what the limit rejects.
+//! not strand the account. Topping up a held asset opens no slot and stays
+//! allowed. Opening a new slot is what the limit rejects.
 
 use common::types::SeizeMode;
 use test_harness::{
@@ -48,7 +48,7 @@ fn a_new_slot_is_still_rejected_after_the_limit_drops() {
 #[test]
 fn a_credit_liquidation_into_an_over_limit_account_that_holds_the_asset_still_lands() {
     let mut t = two_positions_then_limit_of_one();
-    // LIQUIDATOR holds USDC and ETH; the seized asset is USDC, which it already holds.
+    // LIQUIDATOR holds USDC and ETH. The seized asset is USDC, which it already holds.
     t.set_position_limits(2, 2);
     t.supply(BOB, "ETH", 100.0);
     t.supply(LIQUIDATOR, "USDC", 1_000.0);

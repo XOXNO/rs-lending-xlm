@@ -1,16 +1,16 @@
 # Swap Aggregator
 
-Soroban DEX router running multi-hop, multi-venue routes built off-chain and
-passed as bytes. Used by controller strategies (`multiply`, `swap_collateral`,
-`swap_debt`, `repay_debt_with_collateral`) and callable by anyone for a plain
-swap.
+The swap aggregator is a Soroban DEX router. It runs multi-hop, multi-venue
+routes that are built off-chain and passed as bytes. Controller strategies
+(`multiply`, `swap_collateral`, `swap_debt`, `repay_debt_with_collateral`) use
+it, and anyone can call it for a plain swap.
 
 | | |
 | --- | --- |
 | Owner | OZ `Ownable`, two-step |
 | Trust | Untrusted by the controller, which checks balance deltas |
 | Venues | Aquarius, Comet, Curve, Phoenix, Soroswap, Sushi |
-| Client | [`interfaces/swap-aggregator`](../../interfaces/swap-aggregator); drops `Env` |
+| Client | [`interfaces/swap-aggregator`](../../interfaces/swap-aggregator). It drops `Env` |
 
 ## Swap
 
@@ -21,52 +21,53 @@ execute_strategy(sender, total_in, swap_xdr) -> amount_out
 `swap_xdr` decodes to a `StrategyPayload`:
 
 - `amounts`: amount registry (`total_min_out`, fixed inputs, burn floors,
-  mint min-shares);
-- `assets`: address registry (tokens, pools, LP share tokens);
-- `ops`: packed instructions: a 10-byte header (version, `token_in`,
+  mint min-shares).
+- `assets`: address registry (tokens, pools, LP share tokens).
+- `ops`: packed instructions. They hold a 10-byte header (version, `token_in`,
   `token_out`, `min_out`, `referral_id`, instruction and weight counts), one
   5-byte record per instruction, then u24 split weights. Instructions index the
-  registries by `u8`; layout in `src/program.rs`.
+  registries by `u8`. The layout is in `src/program.rs`.
 
 Settlement overview:
 
 1. Authorize `sender` and pull `total_in`.
-2. Take the fee: input token before the hops, or output token after.
-3. Run the hops. Adapters return nothing; the dispatcher credits only the
+2. Take the fee on the input token before the hops, or on the output token after the hops.
+3. Run the hops. Adapters return nothing. The dispatcher credits only the
    router's **measured** balance change per hop, never a venue report or
    payload amount.
-4. Revert if output < `total_min_out`.
+4. Revert if output is below `total_min_out`.
 5. For a SAC `token_out`, call the SAC `trust` (CAP-73) for `sender`. For a
-   `G...` sender it opens a missing trustline, which needs the sender's
-   signature and 0.5 XLM reserve. For a `C...` sender or an existing trustline
-   it does nothing. A failed call is ignored; step 6 then reverts.
+   `G...` sender, the call opens a missing trustline. The trustline needs the
+   sender's signature and a 0.5 XLM reserve. For a `C...` sender or an existing
+   trustline, the call does nothing. A failed call is ignored. Step 6 then
+   reverts.
 6. Send `token_out` to `sender`.
-7. Move remaining dust to the admin bucket. A residual above its allowance
-   raises `ExcessiveResidual`.
+7. Move remaining dust to the admin bucket. Revert with `ExcessiveResidual` if
+   a residual exceeds its allowance.
 8. Publish `SwapEvent`.
 
 Version 1 sends all net output. Version 2 is reverse-only. The sender authorizes
 `total_in` as a maximum. The router sizes each hop backwards from the requested
 payout plus its output fees, executes the hops forwards, and refunds unspent
 source tokens to the sender before settling fees. The event reports actual
-input spent. Phoenix and Curve may yield extra atomic units; final output dust
-joins the protocol fee and intermediate dust is subject to the residual limit.
+input spent. Phoenix and Curve may yield extra atomic units. Final output dust
+joins the protocol fee, and intermediate dust is subject to the residual limit.
 Comet can supply a source hop. A missing venue quote or insufficient input
 cap reverts the entire swap.
 
 ## Fees
 
-Fee, split and residual formulas:
-[formulas](../../docs/reference/formulas.md#swap-router-fees-and-splits).
+The [formulas](../../docs/reference/formulas.md#swap-router-fees-and-splits)
+list the fee, split, and residual formulas.
 `referral_id == 0`, or an unknown or inactive referral, pays no static or
-referral fee; the off-chain quote model matches. Version 1 charges on input
+referral fee. The off-chain quote model matches. Version 1 charges on input
 unless only the output token is fee-whitelisted. Version 2 calculates both fees
 on the fixed payout and deducts them from gross output. Leftovers go to the
 admin bucket on every swap.
 
-For a 0.50% router fee: `make mainnet setAggregatorFee 5` and
+For a 0.50% router fee, run `make mainnet setAggregatorFee 5` and
 `make mainnet addAggregatorReferral OWNER 45` with the admin signer
-(`SIGNER=ledger` for the mainnet owner); pass the returned ID as `referral_id`
+(`SIGNER=ledger` for the mainnet owner). Pass the returned ID as `referral_id`
 in quote requests. To create a referral with 25 bps each for the partner
 and protocol in one call, use `make testnet addAggregatorReferral OWNER 25 25`.
 Edit both rates with `make testnet setAggregatorReferralFee ID 25 25`.
@@ -76,7 +77,7 @@ referral rate plus the effective protocol rate to be at most 1,000 bps.
 Direct contract callers pass the third
 argument to both `add_referral` and `set_referral_fee` after upgrade.
 DEX pool and network fees are extra.
-`make mainnet addAggregatorWhitelist TOKEN` picks the preferred fee token; it
+`make mainnet addAggregatorWhitelist TOKEN` picks the preferred fee token. It
 does not restrict tradable tokens.
 
 Use `make <network> claimAggregatorReferralFees ID TOKEN... SIGNER=KEY` for
@@ -95,15 +96,16 @@ make view-id NETWORK=mainnet CONTRACT_ID=ROUTER \
 
 `sweep_balance` sends only the balance above fee backing, read from the
 per-token `ReservedTotal` (sum of that token's fee buckets). **Do not upgrade
-in place from a build without this counter**: it reads zero, `sweep_balance`
-treats fee backing as free, and fee claims fail `InternalInvariant`.
+in place from a build without this counter.** The counter then reads zero,
+`sweep_balance` treats fee backing as free, and fee claims fail
+`InternalInvariant`.
 
 ## Entrypoints
 
 Signatures and authority are in the
 [endpoint reference](../../docs/reference/endpoints.md#swap-aggregator).
 `set_static_fee` takes at most `FEE_CAP`. `admin()` panics `NotAdmin` if the
-owner is unset; `get_owner()` returns `None`.
+owner is unset. `get_owner()` returns `None`.
 
 ## Storage and TTL
 
@@ -121,7 +123,7 @@ All keys are variants of `DataKey` in [`src/types.rs`](src/types.rs).
 
 The constructor and state-changing entrypoints renew the instance TTL
 (`renew_instance`). Persistent entries extend with `TTL_THRESHOLD_SHARED` /
-`TTL_BUMP_SHARED` on read and on fee-bucket change; an emptied bucket is
+`TTL_BUMP_SHARED` on read and on fee-bucket change. An emptied bucket is
 removed.
 
 ## Events

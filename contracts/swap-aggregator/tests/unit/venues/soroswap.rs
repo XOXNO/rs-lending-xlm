@@ -214,7 +214,7 @@ fn large_reserve_pair_does_not_trap() {
         ),],
     );
 
-    // in_less = 997e15; 997e15 * 5e24 / (5e24 + 997e15), floored.
+    // in_less = 997e15. Expected output: 997e15 * 5e24 / (5e24 + 997e15), floored.
     let expected: i128 = 996_999_801_198_239_641;
     let out =
         RouterClient::new(&env, &router_addr).execute_strategy(&sender, &amount_in, &swap_xdr);

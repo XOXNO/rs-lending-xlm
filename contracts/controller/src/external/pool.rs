@@ -49,8 +49,8 @@ pub(crate) fn pool_create_strategy_call(
     LiquidityPoolClient::new(env, pool_addr).create_strategy(receiver, &action, &charge_fee)
 }
 
-/// Burns supply and sends underlying to `receiver`. Liquidation skips utilization
-/// caps and may withhold protocol fees; returned amounts are gross of fees.
+/// Burns supply and sends underlying to `receiver`. Liquidation skips utilization caps and may
+/// withhold protocol fees. Returned amounts are gross of fees.
 pub(crate) fn pool_withdraw_call(
     env: &Env,
     pool_addr: &Address,
@@ -81,8 +81,8 @@ pub(crate) fn pool_net_settle_call(
     LiquidityPoolClient::new(env, pool_addr).net_settle(entry)
 }
 
-/// Seizes positions: debt losses reduce the supply index; seized supply shares
-/// become protocol revenue.
+/// Seizes positions. Debt losses reduce the supply index. Seized supply shares become protocol
+/// revenue.
 pub(crate) fn pool_seize_positions_call(
     env: &Env,
     pool_addr: &Address,
@@ -115,8 +115,8 @@ pub(crate) fn pool_update_indexes_call(
     LiquidityPoolClient::new(env, pool_addr).update_indexes(hub_assets)
 }
 
-/// Claims accrued revenue to the pool owner (the controller). Returns the pool
-/// mutation; callers must measure the controller's actual receipt.
+/// Claims accrued revenue to the pool owner (the controller). Returns the pool mutation. Callers
+/// must measure the actual receipt of the controller.
 pub(crate) fn pool_claim_revenue_call(
     env: &Env,
     pool_addr: &Address,
@@ -125,8 +125,8 @@ pub(crate) fn pool_claim_revenue_call(
     LiquidityPoolClient::new(env, pool_addr).claim_revenue(hub_asset)
 }
 
-/// Applies prefunded cash up to the backing shortfall and refunds excess to
-/// `payer`. Returns the amount credited; does not pull funds from `payer`.
+/// Applies prefunded cash up to the backing shortfall and refunds excess to `payer`. Returns the
+/// amount credited. Does not pull funds from `payer`.
 pub(crate) fn pool_recapitalize_call(
     env: &Env,
     pool_addr: &Address,

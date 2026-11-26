@@ -15,7 +15,7 @@ pub(crate) fn bps_i128_to_u32(env: &Env, v: i128) -> u32 {
 }
 
 /// Computes the upper and lower bounds of the price ratio range implied by
-/// `tolerance_bps`: the upper bound is `BPS + tolerance_bps`, and the lower
+/// `tolerance_bps`. The upper bound is `BPS + tolerance_bps`, and the lower
 /// bound is `BPS * BPS / upper_bound`, rounded half up. Panics with
 /// `GenericError::MathOverflow` if the upper bound addition overflows.
 pub(crate) fn calculate_tolerance_range(env: &Env, tolerance_bps: u32) -> (i128, i128) {

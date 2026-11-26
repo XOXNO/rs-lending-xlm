@@ -2,7 +2,7 @@ use test_harness::{
     errors, usd, usd_cents, LendingTest, PositionType, ALICE, BOB, CAROL, LIQUIDATOR,
 };
 
-/// An indebted account cannot open a leg on a stale feed; a debt-free account
+/// An indebted account cannot open a leg on a stale feed. A debt-free account
 /// and a top-up of an existing leg need no price, unless the listing refresh
 /// gate applies. A leg planted before the outage still shields the account
 /// until the feed recovers.

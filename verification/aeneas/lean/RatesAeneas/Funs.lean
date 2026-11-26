@@ -215,55 +215,55 @@ def constants.production.shared.POSITION_LIMIT_MAX : Std.U32 := 5#u32
 def constants.production.shared.MIN_TOLERANCE : Std.U32 := 150#u32
 
 /-- [rates_aeneas::constants::production::shared::MIN_SANITY_BAND_BPS]
-    Source: 'src/../../../common/src/constants/shared.rs', lines 56:0-56:41
+    Source: 'src/../../../common/src/constants/shared.rs', lines 57:0-57:41
     Visibility: public -/
 @[global_simps, irreducible]
 def constants.production.shared.MIN_SANITY_BAND_BPS : Std.I128 := 50#i128
 
 /-- [rates_aeneas::constants::production::shared::MAX_TOLERANCE]
-    Source: 'src/../../../common/src/constants/shared.rs', lines 59:0-59:37
+    Source: 'src/../../../common/src/constants/shared.rs', lines 60:0-60:37
     Visibility: public -/
 @[global_simps, irreducible]
 def constants.production.shared.MAX_TOLERANCE : Std.U32 := 2500#u32
 
 /-- [rates_aeneas::constants::production::shared::MS_PER_SECOND]
-    Source: 'src/../../../common/src/constants/shared.rs', lines 62:0-62:37
+    Source: 'src/../../../common/src/constants/shared.rs', lines 63:0-63:37
     Visibility: public -/
 @[global_simps, irreducible]
 def constants.production.shared.MS_PER_SECOND : Std.U64 := 1000#u64
 
 /-- [rates_aeneas::constants::production::shared::ONE_DAY_LEDGERS]
-    Source: 'src/../../../common/src/constants/shared.rs', lines 66:0-66:47 -/
+    Source: 'src/../../../common/src/constants/shared.rs', lines 67:0-67:47 -/
 @[global_simps, irreducible]
 def constants.production.shared.ONE_DAY_LEDGERS : Std.U32 := 17280#u32
 
 /-- [rates_aeneas::constants::production::shared::TTL_THRESHOLD_USER_DAYS]
-    Source: 'src/../../../common/src/constants/shared.rs', lines 68:0-68:40 -/
+    Source: 'src/../../../common/src/constants/shared.rs', lines 69:0-69:40 -/
 @[global_simps, irreducible]
 def constants.production.shared.TTL_THRESHOLD_USER_DAYS : Std.U32 := 30#u32
 
 /-- [rates_aeneas::constants::production::shared::TTL_THRESHOLD_SAFETY_DAYS]
-    Source: 'src/../../../common/src/constants/shared.rs', lines 73:0-73:42 -/
+    Source: 'src/../../../common/src/constants/shared.rs', lines 74:0-74:42 -/
 @[global_simps, irreducible]
 def constants.production.shared.TTL_THRESHOLD_SAFETY_DAYS : Std.U32 := 30#u32
 
 /-- [rates_aeneas::constants::production::shared::TTL_BUMP_INSTANCE_DAYS]
-    Source: 'src/../../../common/src/constants/shared.rs', lines 74:0-74:40 -/
+    Source: 'src/../../../common/src/constants/shared.rs', lines 75:0-75:40 -/
 @[global_simps, irreducible]
 def constants.production.shared.TTL_BUMP_INSTANCE_DAYS : Std.U32 := 180#u32
 
 /-- [rates_aeneas::constants::production::shared::TTL_BUMP_SHARED_DAYS]
-    Source: 'src/../../../common/src/constants/shared.rs', lines 75:0-75:38 -/
+    Source: 'src/../../../common/src/constants/shared.rs', lines 76:0-76:38 -/
 @[global_simps, irreducible]
 def constants.production.shared.TTL_BUMP_SHARED_DAYS : Std.U32 := 180#u32
 
 /-- [rates_aeneas::constants::production::shared::TTL_BUMP_USER_DAYS]
-    Source: 'src/../../../common/src/constants/shared.rs', lines 76:0-76:36 -/
+    Source: 'src/../../../common/src/constants/shared.rs', lines 77:0-77:36 -/
 @[global_simps, irreducible]
 def constants.production.shared.TTL_BUMP_USER_DAYS : Std.U32 := 120#u32
 
 /-- [rates_aeneas::constants::production::shared::TTL_THRESHOLD_INSTANCE]
-    Source: 'src/../../../common/src/constants/shared.rs', lines 79:0-79:84
+    Source: 'src/../../../common/src/constants/shared.rs', lines 80:0-80:84
     Visibility: public -/
 @[global_simps, irreducible]
 def constants.production.shared.TTL_THRESHOLD_INSTANCE : Result Std.U32 :=
@@ -271,7 +271,7 @@ def constants.production.shared.TTL_THRESHOLD_INSTANCE : Result Std.U32 :=
     constants.production.shared.TTL_THRESHOLD_SAFETY_DAYS
 
 /-- [rates_aeneas::constants::production::shared::TTL_BUMP_INSTANCE]
-    Source: 'src/../../../common/src/constants/shared.rs', lines 81:0-81:76
+    Source: 'src/../../../common/src/constants/shared.rs', lines 82:0-82:76
     Visibility: public -/
 @[global_simps, irreducible]
 def constants.production.shared.TTL_BUMP_INSTANCE : Result Std.U32 :=
@@ -279,7 +279,7 @@ def constants.production.shared.TTL_BUMP_INSTANCE : Result Std.U32 :=
     constants.production.shared.TTL_BUMP_INSTANCE_DAYS
 
 /-- [rates_aeneas::constants::production::shared::TTL_THRESHOLD_SHARED]
-    Source: 'src/../../../common/src/constants/shared.rs', lines 84:0-84:82
+    Source: 'src/../../../common/src/constants/shared.rs', lines 85:0-85:82
     Visibility: public -/
 @[global_simps, irreducible]
 def constants.production.shared.TTL_THRESHOLD_SHARED : Result Std.U32 :=
@@ -287,7 +287,7 @@ def constants.production.shared.TTL_THRESHOLD_SHARED : Result Std.U32 :=
     constants.production.shared.TTL_THRESHOLD_SAFETY_DAYS
 
 /-- [rates_aeneas::constants::production::shared::TTL_BUMP_SHARED]
-    Source: 'src/../../../common/src/constants/shared.rs', lines 86:0-86:72
+    Source: 'src/../../../common/src/constants/shared.rs', lines 87:0-87:72
     Visibility: public -/
 @[global_simps, irreducible]
 def constants.production.shared.TTL_BUMP_SHARED : Result Std.U32 :=
@@ -295,7 +295,7 @@ def constants.production.shared.TTL_BUMP_SHARED : Result Std.U32 :=
     constants.production.shared.TTL_BUMP_SHARED_DAYS
 
 /-- [rates_aeneas::constants::production::shared::TTL_THRESHOLD_USER]
-    Source: 'src/../../../common/src/constants/shared.rs', lines 89:0-89:78
+    Source: 'src/../../../common/src/constants/shared.rs', lines 90:0-90:78
     Visibility: public -/
 @[global_simps, irreducible]
 def constants.production.shared.TTL_THRESHOLD_USER : Result Std.U32 :=
@@ -303,7 +303,7 @@ def constants.production.shared.TTL_THRESHOLD_USER : Result Std.U32 :=
     constants.production.shared.TTL_THRESHOLD_USER_DAYS
 
 /-- [rates_aeneas::constants::production::shared::TTL_BUMP_USER]
-    Source: 'src/../../../common/src/constants/shared.rs', lines 91:0-91:68
+    Source: 'src/../../../common/src/constants/shared.rs', lines 92:0-92:68
     Visibility: public -/
 @[global_simps, irreducible]
 def constants.production.shared.TTL_BUMP_USER : Result Std.U32 :=

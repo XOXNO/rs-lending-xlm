@@ -13,7 +13,7 @@ pub trait AquariusPool {
     fn get_reserves(env: Env) -> Vec<u128>;
     /// Returns the pool's underlying token addresses.
     fn get_tokens(env: Env) -> Vec<Address>;
-    /// Returns the pool's type symbol, e.g. `stable` or `constant_product`.
+    /// Returns the pool's type symbol, for example `stable` or `constant_product`.
     fn pool_type(env: Env) -> Symbol;
     /// Returns the address of the pool's LP share token.
     fn share_id(env: Env) -> Address;

@@ -1,7 +1,7 @@
 //! Contract error codes returned via `panic_with_error!`.
 //!
-//! Codes 2, 6, 8, 10, 14-19, 23 and 24 are unused. Codes are part of the
-//! contract's observable interface: never backfill a gap, always append.
+//! Codes 2, 6, 8, 10, 14-19, 23, and 24 are unused. Codes are part of the
+//! contract's observable interface. Never backfill a gap. Always append.
 
 use soroban_sdk::contracterror;
 
@@ -46,8 +46,8 @@ pub enum Error {
     MinAmountsNotMet = 28,
     /// Leftover vault balance exceeds residual allowance.
     ExcessiveResidual = 29,
-    /// A contract-internal invariant no longer holds; the call fails closed.
-    /// Unreachable on a fresh deployment of this build. An in-place upgrade
+    /// A contract-internal invariant no longer holds, and the call fails closed.
+    /// No code path reaches this error on a fresh deployment of this build. An in-place upgrade
     /// from a build without `DataKey::ReservedTotal` is unsupported and
     /// surfaces this code on fee claims.
     InternalInvariant = 30,

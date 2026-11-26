@@ -1,9 +1,9 @@
 # Curve pool fixtures
 
-Curve StableSwap pool executables (`stableswap-pool` 0.1.0, soroban-sdk
-26.1.1) fetched from Stellar testnet; upstream repository and commit
-unrecorded. They test the router's Curve venue, the price aggregator's
-`CurveStableLp` provider and harness Curve LP collateral.
+These files are Curve StableSwap pool executables (`stableswap-pool` 0.1.0,
+soroban-sdk 26.1.1). They were fetched from Stellar testnet. The upstream
+repository and commit are unrecorded. They test the router's Curve venue, the
+price aggregator's `CurveStableLp` provider, and harness Curve LP collateral.
 
 | File | Source contract | SHA-256 |
 |---|---|---|
@@ -18,7 +18,7 @@ Tests build fresh local pool storage and liquidity, not deployed balances. The d
 
 ## Allowlists
 
-Only `configs/testnet/curve_reviewed_pools.json` names these executables; the
+Only `configs/testnet/curve_reviewed_pools.json` names these executables. The
 mainnet allowlist is empty.
 
 ## Mainnet replay
@@ -32,10 +32,11 @@ network's `curve_reviewed_pools.json`.
 
 ## Factory
 
-Both executables share one pool ABI. [`factory.rs`](factory.rs), used by router,
-price-aggregator and harness tests, imports the two-coin spec once and deploys
-the executable matching the coin count through a small native factory.
+Both executables share one pool ABI. [`factory.rs`](factory.rs) is used by the router,
+price-aggregator, and harness tests. It imports the two-coin spec once and
+deploys the executable that matches the coin count through a small native
+factory.
 
-Router setup and swaps mock only exact account authorization trees; contract
+Router setup and swaps mock only exact account authorization trees. Contract
 transfer authorization comes from the production router. The tests write
 nothing on-chain.

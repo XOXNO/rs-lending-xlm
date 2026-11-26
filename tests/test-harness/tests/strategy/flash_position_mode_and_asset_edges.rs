@@ -1,6 +1,6 @@
 //! GH-18, GH-19, GH-20. `flash_position` accepts only the three strategy
 //! modes and refuses a market whose flash loans are disabled. A debt asset
-//! declared as collateral books as ordinary collateral: alone it fails the
+//! declared as collateral books as ordinary collateral. Alone it fails the
 //! solvency gate, and next to other collateral the position opens.
 
 use common::types::HubAssetKey;
@@ -129,7 +129,8 @@ fn declaring_the_debt_asset_as_the_only_collateral_fails_the_solvency_gate() {
     let mut t = LendingTest::new().standard_two_asset().build();
     t.supply(BOB, "ETH", 100.0);
     let receiver = t.deploy_flash_position_receiver();
-    // The receiver pushes back exactly the debt it received: supply 1 ETH against 1 ETH of debt.
+    // The receiver pushes back exactly the debt it received. The result is a supply of
+    // 1 ETH against 1 ETH of debt.
     let result = t.try_flash_position(
         ALICE,
         0,

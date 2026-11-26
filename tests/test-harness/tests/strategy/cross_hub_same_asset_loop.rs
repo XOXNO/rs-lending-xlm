@@ -1,6 +1,6 @@
 //! GH-21. The same token listed on two hubs can be looped through `multiply`
 //! in `Multiply` mode: borrow on one hub, deposit on the other. Every book
-//! must stay consistent and the loop must unwind cleanly.
+//! must stay consistent and the loop must unwind.
 
 use common::types::HubAssetKey;
 use controller::constants::WAD;
@@ -90,7 +90,7 @@ fn borrowing_usdc_on_hub_two_against_usdc_on_hub_one_keeps_both_books_straight()
         "no borrowers on hub one, no supplier yield"
     );
 
-    // Unwind: repay hub-2 debt with one unit of overpayment, withdraw hub-1 collateral.
+    // Unwind. Repay hub-2 debt with one unit of overpayment, then withdraw hub-1 collateral.
     let debt_units = t.ctrl_client().get_borrow_amount(&account, &debt) + 1;
     t.resolve_market("USDC")
         .token_admin

@@ -521,8 +521,8 @@ mod accrue_step_value_ceiling {
         assert!(out.supply_index.raw() > RAY);
     }
 
-    /// The audit's S-04 state: a market whose value is near `i128::MAX`. One
-    /// year of interest would take the debt value past it; the step used to
+    /// The audit's S-04 state is a market whose value is near `i128::MAX`. One
+    /// year of interest would take the debt value past it. The step used to
     /// panic with `MathOverflow` and now holds the growth at the ceiling.
     #[test]
     fn a_step_that_would_cross_the_ceiling_is_held_at_it() {
@@ -671,7 +671,7 @@ mod accrue_step_value_ceiling {
         }
     }
 
-    /// Any non-negative totals and any stored indexes: the step returns, keeps
+    /// For any non-negative totals and any stored indexes, the step returns, keeps
     /// both indexes monotone, and never takes a total across the ceiling.
     #[test]
     fn no_state_overflows_and_no_step_crosses_the_ceiling() {
@@ -738,7 +738,7 @@ mod accrue_step_value_ceiling {
                 continue;
             };
             if debt.max(supply) >= MAX_MARKET_VALUE_RAY {
-                // Without debt the borrow index still moves; it prices nothing.
+                // Without debt the borrow index still moves. It prices nothing.
                 assert!(borrowed == 0 || bi == borrow_index, "{case:?}");
                 assert_eq!((si, revenue), (supply_index, 0), "{case:?}");
                 continue;
@@ -758,7 +758,7 @@ mod accrue_step_value_ceiling {
     }
 
     /// A market at the entry ceiling accrues a full year at the 200% maximum
-    /// rate without reaching the value ceiling: the headroom factor is 8 and
+    /// rate without reaching the value ceiling. The headroom factor is 8 and
     /// one year at that rate multiplies debt by less than `e^2`.
     #[test]
     fn the_entry_headroom_covers_a_year_at_the_maximum_rate() {

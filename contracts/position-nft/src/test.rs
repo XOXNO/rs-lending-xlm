@@ -15,7 +15,8 @@ fn setup(env: &Env) -> (Address, PositionNftClient<'_>) {
 
 fn setup_with_id(env: &Env) -> (Address, Address, PositionNftClient<'_>) {
     let controller = Address::generate(env);
-    // Mirrors the Makefile deploy defaults (POSITION_NFT_URI/NAME/SYMBOL).
+    // Mirrors the Makefile deploy defaults (`POSITION_NFT_URI`, `POSITION_NFT_NAME`,
+    // `POSITION_NFT_SYMBOL`).
     let id = env.register(
         PositionNft,
         (
@@ -69,7 +70,7 @@ fn metadata_is_set() {
 #[test]
 fn mint_requires_controller_auth() {
     let env = Env::default();
-    // No auth mocking: the controller's require_auth must fail.
+    // No auth mocking. The controller's `require_auth` must fail.
     let (_controller, client) = setup(&env);
     let user = Address::generate(&env);
     assert!(client.try_mint(&user).is_err());
@@ -168,8 +169,8 @@ fn approved_operator_can_transfer_and_approval_is_cleared() {
 
 #[test]
 fn operator_for_all_can_move_every_token_and_grant_is_per_owner_and_revocable() {
-    // `approve_for_all` is the broadest authority grant: account id == token
-    // id, so moving a token moves the account.
+    // `approve_for_all` is the broadest authority grant. The account id equals the
+    // token id, so moving a token moves the account.
     let env = Env::default();
     env.mock_all_auths();
     let (_controller, client) = setup(&env);
@@ -178,7 +179,7 @@ fn operator_for_all_can_move_every_token_and_grant_is_per_owner_and_revocable() 
     let operator = Address::generate(&env);
     let recipient = Address::generate(&env);
 
-    // owner_a holds two positions; owner_b holds one.
+    // owner_a holds two positions. owner_b holds one.
     let a1 = client.mint(&owner_a);
     let a2 = client.mint(&owner_a);
     let b1 = client.mint(&owner_b);
@@ -277,8 +278,9 @@ fn renew_extends_owner_entry_ttl_to_user_window() {
     let user = Address::generate(&env);
     let token_id = client.mint(&user);
 
-    // mint sets the Owner entry to the user window; age the ledger until its
-    // remaining TTL drops below renew's threshold, where renew must restore it.
+    // `mint` sets the `Owner` entry to the user window. Age the ledger until its
+    // remaining TTL drops below the threshold of `renew`, where `renew` must
+    // restore it.
     env.ledger()
         .with_mut(|l| l.sequence_number += TTL_BUMP_USER - TTL_THRESHOLD_USER / 2);
     env.as_contract(&id, || {
@@ -314,7 +316,7 @@ fn renew_nonexistent_token_fails() {
 #[test]
 fn upgrade_requires_controller_auth() {
     let env = Env::default();
-    // No auth mocking: the controller's require_auth must fail before any
+    // No auth mocking. The controller's `require_auth` must fail before any
     // wasm validation happens.
     let (_controller, client) = setup(&env);
     let fake_hash = BytesN::from_array(&env, &[7u8; 32]);
@@ -360,7 +362,7 @@ fn token_uri_of_missing_token_fails() {
 /// `token_uri` builds its result in a fixed 256-byte buffer: base + up to 10
 /// digits of a u32 id + the 28-byte suffix. OZ `set_metadata` caps `base_uri`
 /// at `MAX_BASE_URI_LEN` (200), so the worst case is 238 bytes. These two tests
-/// pin that bound: a longer suffix or a raised OZ cap fails here instead of as
+/// pin that bound. A longer suffix or a raised OZ cap fails here instead of as
 /// an out-of-bounds panic in `token_uri`.
 #[test]
 #[should_panic(expected = "Error(Contract, #211)")]
@@ -474,7 +476,7 @@ fn upgrade_to_a_real_wasm_signed_by_a_stranger_is_a_host_auth_error() {
     );
     assert_host_auth_error("upgrade", || client.upgrade(&real_hash));
 
-    // Control: the controller can upgrade to the same hash.
+    // Control case. The controller can upgrade to the same hash.
     env.mock_all_auths();
     client.upgrade(&real_hash);
 }
