@@ -432,8 +432,8 @@ fn test_one_whole_token_normalizes_to_one_ray_at_every_decimals() {
 
 // --- index ceiling reachability (`docs/reference/formulas.md#numeric-limits`) -----
 //
-// `MAX_BORROW_INDEX_RAY` is a clamp, not an overflow guard: at the ceiling the
-// borrow index stops moving and debt stops accruing, silently. The tests below
+// `MAX_BORROW_INDEX_RAY` is a clamp, not an overflow guard. At the ceiling the
+// borrow index stops moving and debt stops accruing without an error. The tests below
 // pin how far away that is, so a rate-cap or chunking change that brings it
 // closer has to move a number here.
 
@@ -526,13 +526,13 @@ fn test_supply_index_shares_the_borrow_index_ceiling() {
     assert_eq!(MAX_SUPPLY_INDEX_RAY, MAX_BORROW_INDEX_RAY);
     // Both indexes start at one RAY, so the ceiling is a 1e9x growth budget.
     assert_eq!(MAX_BORROW_INDEX_RAY / RAY, 1_000_000_000);
-    // And the floor is 1e-3, so the supply index spans twelve decades.
+    // The floor is 1e-3, so the supply index spans twelve decades.
     assert_eq!(RAY / SUPPLY_INDEX_FLOOR_RAW, 1_000);
 }
 
-/// `update_supply_index` as documented: the half-up supplied value plus the
-/// rewards, divided back by the shares rounding down and saturating, then
-/// held between the old index and the ceiling.
+/// `update_supply_index` as documented. It adds the rewards to the half-up supplied
+/// value, divides the sum by the shares with rounding down and saturation, and holds
+/// the result between the old index and the ceiling.
 fn exact_supply_index(supplied: i128, old_index: i128, rewards: i128) -> Option<i128> {
     if supplied == 0 || rewards == 0 {
         return Some(old_index);
@@ -550,7 +550,7 @@ fn exact_supply_index(supplied: i128, old_index: i128, rewards: i128) -> Option<
 }
 
 /// `supply_index_reward_shortfall` as documented: the rewards less the growth
-/// in half-up supplied value. `None` when a value does not fit or either
+/// in half-up supplied value. It returns `None` when a value does not fit or either
 /// difference would be negative.
 fn exact_shortfall(
     supplied: i128,
@@ -565,8 +565,8 @@ fn exact_shortfall(
         .then(|| rewards - distributed)
 }
 
-/// `calculate_supplier_rewards` as documented: the growth in half-up debt
-/// value, split by a half-up reserve-factor fee. Returns `(rewards, fee)`.
+/// `calculate_supplier_rewards` as documented. It splits the growth in half-up debt
+/// value into the rewards and a half-up reserve-factor fee. Returns `(rewards, fee)`.
 fn exact_interest_split(
     borrowed: i128,
     new_index: i128,
@@ -597,7 +597,7 @@ fn exact_index_updates_round_as_documented_or_report_overflow() {
 
         let (supplied, rewards) = (sampler.non_negative(), sampler.non_negative());
         // One case in eight starts from any value, including one above the
-        // ceiling, which the clamp must still handle.
+        // ceiling. The clamp must still handle that case.
         let old_index = if sampler.below(8) == 0 {
             sampler.non_negative()
         } else {

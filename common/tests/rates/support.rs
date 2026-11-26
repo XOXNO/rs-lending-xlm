@@ -66,7 +66,7 @@ pub fn sample_params(env: &Env, sampler: &mut Sampler) -> MarketParams {
 }
 
 /// An index between the supply-index floor and the index ceiling: a boundary
-/// value, a value just above one, or any value in the range.
+/// value, a value slightly above one, or any value in the range.
 pub fn sample_index(sampler: &mut Sampler) -> i128 {
     const BOUNDARIES: [i128; 4] = [SUPPLY_INDEX_FLOOR_RAW, RAY, RAY + 1, MAX_BORROW_INDEX_RAY];
     match sampler.below(4) {

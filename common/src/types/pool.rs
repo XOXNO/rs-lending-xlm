@@ -13,7 +13,7 @@ use crate::types::shared::AccountPositionType;
 use soroban_sdk::{assert_with_error, contracttype, panic_with_error, Address, Env};
 
 /// Wire form of a market's interest-rate model and asset configuration. Rates and utilization
-/// breakpoints are raw RAY `i128` values; `reserve_factor` and `flashloan_fee` are BPS.
+/// breakpoints are raw RAY `i128` values. `reserve_factor` and `flashloan_fee` are BPS.
 #[contracttype]
 #[derive(Clone, Debug)]
 pub struct MarketParamsRaw {
@@ -80,7 +80,7 @@ impl MarketParamsRaw {
     }
 }
 
-/// Typed, in-memory form of `MarketParamsRaw`, with rates as `Ray`/`Bps` values.
+/// Typed, in-memory form of `MarketParamsRaw`, with rates as `Ray` and `Bps` values.
 #[derive(Clone, Debug)]
 pub struct MarketParams {
     pub max_borrow_rate: Ray,
@@ -165,18 +165,23 @@ pub struct InterestRateModel {
 }
 
 impl InterestRateModel {
-    /// Validates that the rate curve is well-formed: a non-negative base rate, non-negative
-    /// `slope1`, `slope2` and `slope3`, each slope at most the max
-    /// borrow rate, a max rate within bounds and above the base rate, a curve whose rate at
-    /// full utilization (`base + slope1 + slope2 + slope3`) stays at or below the max rate,
-    /// a utilization breakpoint sequence that is strictly increasing through
-    /// `optimal_utilization` and non-decreasing to `max_utilization`
-    /// (`0 < mid < optimal < RAY`, `optimal <= max <= RAY`), a curve whose steepness per unit
-    /// of utilization does not fall at either kink, a reserve factor below 100%, and a
-    /// flashloan fee within the configured maximum. Panics if any of these checks fails.
+    /// Validates that the rate curve is well-formed. Panics if any check fails. The checks
+    /// require:
+    ///
+    /// - A non-negative base rate.
+    /// - Non-negative `slope1`, `slope2`, and `slope3`, each at most the max borrow rate.
+    /// - A max rate within bounds and above the base rate.
+    /// - A rate at full utilization (`base + slope1 + slope2 + slope3`) at or below the
+    ///   max rate.
+    /// - A utilization breakpoint sequence that is strictly increasing through
+    ///   `optimal_utilization` and non-decreasing to `max_utilization`
+    ///   (`0 < mid < optimal < RAY`, `optimal <= max <= RAY`).
+    /// - A curve whose steepness per unit of utilization does not fall at either kink.
+    /// - A reserve factor below 100%.
+    /// - A flashloan fee within the configured maximum.
     ///
     /// Each slope is the rise across its whole segment, so the steepness of a segment is its
-    /// slope divided by its width: `slope1 / mid`, `slope2 / (optimal - mid)` and
+    /// slope divided by its width: `slope1 / mid`, `slope2 / (optimal - mid)`, and
     /// `slope3 / (RAY - optimal)`. Comparing the slopes themselves would accept a curve that
     /// flattens at a kink and reject one that steepens across a narrow segment.
     pub fn verify(&self, env: &Env) {
@@ -227,7 +232,7 @@ impl InterestRateModel {
         if self.max_utilization < self.optimal_utilization || self.max_utilization > RAY {
             panic_with_error!(env, CollateralError::InvalidUtilRange);
         }
-        // Both widths are positive: `mid < optimal < RAY` was checked above.
+        // Both widths are positive, because `mid < optimal < RAY` was checked above.
         let optimal_width = self.optimal_utilization - self.mid_utilization;
         let top_width = RAY - self.optimal_utilization;
         if !steepness_does_not_fall(
@@ -254,9 +259,9 @@ impl InterestRateModel {
 }
 
 /// Whether `rise / width` is at most `next_rise / next_width`, exactly. Both rises are RAY
-/// rates and non-negative; both widths are positive RAY utilizations, as raw `i128`.
+/// rates and non-negative. Both widths are positive RAY utilizations, as raw `i128`.
 ///
-/// Compares `rise * next_width <= next_rise * width` without rounding: for an integer
+/// Compares `rise * next_width <= next_rise * width` without rounding. For an integer
 /// `rise`, that holds exactly when `rise <= floor(next_rise * width / next_width)`. A
 /// quotient beyond `i128` saturates, and `rise` fits in `i128`, so the comparison never
 /// aborts and stays exact.
@@ -278,7 +283,7 @@ fn steepness_does_not_fall(
 /// Wire form of a supply position: ray-scaled amount plus the risk parameters stamped on the
 /// position (basis points as raw `u32`). The stamp is seeded when the position is opened and
 /// re-synced against the current spoke asset config on later supply legs and by
-/// `update_account_threshold`; changes that favour the liquidator are gated for accounts
+/// `update_account_threshold`. Changes that favour the liquidator are gated for accounts
 /// carrying debt (see `apply_gated_liquidation_params`).
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -425,7 +430,7 @@ impl From<&MarketIndex> for MarketIndexRaw {
 }
 
 /// Point-in-time snapshot of a market's committed state for the market state event: interest
-/// indices, cash (token amount), and the scaled supplied, borrowed and revenue totals (RAY).
+/// indices, cash (token amount), and the scaled supplied, borrowed, and revenue totals (RAY).
 #[contracttype]
 #[derive(Clone, Debug)]
 pub struct MarketStateSnapshot {

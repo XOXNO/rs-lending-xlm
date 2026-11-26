@@ -1,5 +1,5 @@
 //! Types used by the controller contract: hub/spoke and asset risk configuration, account
-//! and position storage shapes, liquidation inputs/outputs, and the `ControllerKey` storage
+//! and position storage shapes, liquidation inputs and outputs, and the `ControllerKey` storage
 //! key enum.
 
 use crate::math::fp::{Bps, Ray};
@@ -40,9 +40,9 @@ impl From<&SpokeAssetConfig> for AssetConfig {
 }
 
 /// Lightweight projection of an account's spoke and position mode, omitting the owner
-/// address and position maps carried by `Account`. Structurally identical to the stored
-/// `AccountMeta` it is built from; kept as a separate type so the view surface is decoupled
-/// from storage.
+/// address and position maps carried by `Account`. The type is structurally identical
+/// to the stored `AccountMeta` it is built from. It stays a separate type so the view type
+/// is decoupled from storage.
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct AccountAttributes {
@@ -61,7 +61,7 @@ pub struct AccountMeta {
 }
 
 /// A delegate list stamped with the owner who granted it. The grant is live only while
-/// `granted_by` owns the account's NFT: after an NFT transfer, `get_delegates` reads it as
+/// `granted_by` owns the account's NFT. After an NFT transfer, `get_delegates` reads it as
 /// empty for the new owner. The new owner's next `add_delegate` or `remove_delegate`
 /// overwrites or deletes the stale entry. If the NFT returns to `granted_by` before such a
 /// write, the original delegate list is live again.
@@ -103,7 +103,7 @@ pub struct SpokeConfig {
 /// The three halt flags are independent and gate different legs: `paused` blocks entry and
 /// exit legs, `frozen` blocks entry but allows exit, and `no_seize` blocks only the
 /// liquidation seizure leg. `paused` does not gate seizure, because seizure is pro-rata
-/// across an account's whole collateral set: pausing one collateral would otherwise halt
+/// across an account's whole collateral set. Pausing one collateral would otherwise halt
 /// liquidation of every account holding it. See ADR-0008.
 #[contracttype]
 #[derive(Clone, Debug)]
@@ -160,7 +160,7 @@ pub struct SpokeUsageRaw {
 }
 
 /// View of a market's current interest indices and resolved price, including the individual
-/// primary/anchor legs and staleness/deviation/validity flags reported by the oracle.
+/// primary and anchor legs, and the staleness, deviation, and validity flags the oracle reports.
 #[contracttype]
 #[derive(Clone, Debug)]
 pub struct MarketIndexView {
@@ -193,7 +193,7 @@ pub struct PositionLimits {
     pub max_supply_positions: u32,
 }
 
-/// An asset/amount pair used across payment, refund, and liquidation views.
+/// An asset and amount pair used across payment, refund, and liquidation views.
 #[contracttype]
 #[derive(Clone, Debug)]
 pub struct PaymentTuple {
@@ -206,9 +206,9 @@ pub struct PaymentTuple {
 /// fees per asset, any refunded payments, the USD value (WAD) of the planned repayment, and
 /// the applied bonus rate (BPS).
 ///
-/// `seized_collaterals` is gross of `protocol_fees`: the liquidator ends up with
+/// `seized_collaterals` is gross of `protocol_fees`. The liquidator ends up with
 /// `seized_collaterals - protocol_fees`. Both are reported in the units the requested
-/// `SeizeMode` moves — asset units for `Transfer`, RAY-scaled supply shares for `Credit`.
+/// `SeizeMode` moves: asset units for `Transfer`, RAY-scaled supply shares for `Credit`.
 #[contracttype]
 #[derive(Clone, Debug)]
 pub struct LiquidationEstimate {
@@ -236,7 +236,7 @@ pub enum SeizeMode {
 
     /// The seized supply shares are credited to a controller account instead of being
     /// withdrawn. `0` creates a fresh account owned by the liquidator and bound to the
-    /// liquidated account's spoke; any other id must already exist, not be the liquidated
+    /// liquidated account's spoke. Any other id must already exist, not be the liquidated
     /// account itself, be owned by (or delegated to) the liquidator, sit in the liquidated
     /// account's spoke, and be in `PositionMode::Normal`.
     Credit(u64),
@@ -244,20 +244,20 @@ pub enum SeizeMode {
 
 /// One collateral asset seized during a liquidation.
 ///
-/// Two parallel representations of the same seizure are carried, because the two seize modes
+/// The entry carries two representations of the same seizure, because the two seize modes
 /// consume different ones:
 ///
-/// - `amount` / `protocol_fee` are asset units and drive `SeizeMode::Transfer`, which routes
-///   through the pool's withdraw leg. `amount` is gross: the whole seizure the liquidated
-///   account gives up, with `protocol_fee` still inside it. The liquidator is paid
-///   `amount - protocol_fee`; the pool withholds the fee from the outbound transfer and
+/// - `amount` and `protocol_fee` are asset units and drive `SeizeMode::Transfer`, which
+///   routes through the pool's withdraw leg. `amount` is gross. It is the whole seizure the
+///   liquidated account gives up, with `protocol_fee` still inside it. The liquidator is paid
+///   `amount - protocol_fee`. The pool withholds the fee from the outbound transfer and
 ///   books it as revenue.
-/// - `scaled_amount` / `bonus_scaled` / `liquidation_fees` are the RAY-scaled supply shares and
-///   the fee rate that drive `SeizeMode::Credit`, which moves shares between accounts without
-///   touching pool cash. `scaled_amount` is gross on the same footing — the receiving account is
+/// - `scaled_amount`, `bonus_scaled`, and `liquidation_fees` are the RAY-scaled supply shares
+///   and the fee rate that drive `SeizeMode::Credit`, which moves shares between accounts
+///   without touching pool cash. `scaled_amount` is also gross. The receiving account is
 ///   credited `scaled_amount` minus the fee share `split_seized_shares` derives.
 ///   `bonus_scaled` is the share-denominated bonus portion the protocol fee
-///   is charged on; `liquidation_fees` is the seized position's own stamped fee rate in basis
+///   is charged on. `liquidation_fees` is the seized position's own stamped fee rate in basis
 ///   points, carried on the entry so every site derives the same credit-mode split.
 #[contracttype]
 #[derive(Clone, Debug)]

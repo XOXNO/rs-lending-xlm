@@ -43,9 +43,9 @@ pub fn require_non_empty_payments<T>(env: &Env, payments: &Vec<T>) {
 /// (INV-ACCT-11), converted to asset units and rounded down.
 ///
 /// Returns 0 when `asset_decimals > RAY_DECIMALS`, since the ray form is not
-/// representable in that case. Enforced by
-/// [`require_cap_within_asset_domain`], so a stored cap never overflows the
-/// asset→ray rescale and leaves the pool's headroom for interest.
+/// representable in that case. [`require_cap_within_asset_domain`] enforces
+/// this cap, so a stored cap never overflows the asset-to-ray rescale and
+/// leaves the pool's headroom for interest.
 pub fn max_cap_for_decimals(asset_decimals: u32) -> i128 {
     let Some(exp) = RAY_DECIMALS.checked_sub(asset_decimals) else {
         return 0;
@@ -91,7 +91,7 @@ pub fn validate_liquidation_fees(env: &Env, fees_bps: u32) {
 }
 
 /// Asserts that `threshold` exceeds `ltv` and does not exceed `BPS`, and
-/// that `threshold * (BPS + bonus)` does not exceed `BPS * BPS`; panics with
+/// that `threshold * (BPS + bonus)` does not exceed `BPS * BPS`. Panics with
 /// `CollateralError::InvalidLiqThreshold` if either check fails.
 pub fn validate_risk_bounds(env: &Env, ltv: u32, threshold: u32, bonus: u32) {
     let ltv = i128::from(ltv);
@@ -111,7 +111,7 @@ pub fn validate_risk_bounds(env: &Env, ltv: u32, threshold: u32, bonus: u32) {
 
 /// Asserts that `target_hf_wad` lies in `(WAD, MAX_LIQUIDATION_TARGET_HF_WAD]`,
 /// that `hf_for_max_bonus_wad` lies in `(0, target_hf_wad)`, and that
-/// `bonus_factor_bps` lies in `(0, BPS]`; panics with
+/// `bonus_factor_bps` lies in `(0, BPS]`. Panics with
 /// `CollateralError::InvalidLiquidationCurve` if any check fails.
 pub fn validate_liquidation_curve(
     env: &Env,
@@ -138,8 +138,8 @@ pub fn validate_liquidation_curve(
 
 /// Asserts that `tolerance.upper_ratio_bps` and `tolerance.lower_ratio_bps`
 /// fall within their configured bounds around `BPS`, and that
-/// `lower_ratio_bps` equals the half-up value of `BPS * BPS / upper_ratio_bps`;
-/// panics with `OracleError::BadLastTolerance` otherwise.
+/// `lower_ratio_bps` equals the half-up value of `BPS * BPS / upper_ratio_bps`.
+/// Panics with `OracleError::BadLastTolerance` otherwise.
 pub fn validate_oracle_tolerance(env: &Env, tolerance: &OracleTolerance) {
     let bps = BPS as u32;
     assert_with_error!(
@@ -186,7 +186,7 @@ pub fn validate_sanity_bounds(env: &Env, min_wad: i128, max_wad: i128) {
     );
 }
 
-/// No-op when `is_dual` is true. Otherwise asserts that the sanity band
+/// Does nothing when `is_dual` is true. Otherwise asserts that the sanity band
 /// width between `min_wad` and `max_wad`, in basis points, does not exceed
 /// `MAX_SINGLE_SOURCE_SANITY_BAND_BPS`, panicking with
 /// `OracleError::SanityBandTooWideForSingleSource` otherwise.

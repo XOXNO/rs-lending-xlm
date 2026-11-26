@@ -205,7 +205,7 @@ fn test_rate_model_verify_body_is_not_a_noop() {
     let env = Env::default();
     let mut m = valid_rate_model();
     // slope1 rises 10% over 50% of utilization, so slope2 must rise at least
-    // 6% over the next 30%; one raw unit less flattens the curve at mid.
+    // 6% over the next 30%. One raw unit less flattens the curve at mid.
     m.slope2 = m.slope1 * 3 / 5 - 1;
     m.verify(&env);
 }
@@ -526,7 +526,7 @@ fn pct_model(
 #[should_panic(expected = "#129")]
 fn test_rate_model_verify_rejects_a_curve_that_flattens_at_mid() {
     // Audit I-08 follow-up: slope1 rises 0.5 per unit of utilization and slope2
-    // only 0.3, although slope2 > slope1. The increments are ordered; the
+    // rises only 0.3, although slope2 > slope1. The increments are ordered. The
     // steepness is not.
     let env = Env::default();
     pct_model(1, [10, 15, 15], 100, 20, 70).verify(&env);
@@ -544,14 +544,14 @@ fn test_rate_model_verify_accepts_a_curve_that_steepens_across_a_narrow_segment(
 #[test]
 #[should_panic(expected = "#129")]
 fn test_rate_model_verify_rejects_a_curve_that_flattens_at_optimal() {
-    // slope2 rises 0.25 per unit over 40%; slope3 rises 0.2 per unit over 20%.
+    // slope2 rises 0.25 per unit over 40%. Slope3 rises 0.2 per unit over 20%.
     let env = Env::default();
     pct_model(0, [2, 10, 4], 20, 40, 80).verify(&env);
 }
 
 #[test]
 fn test_rate_model_verify_accepts_equal_steepness_at_both_kinks() {
-    // A straight line from 0% to 100%: every live mainnet curve has equal
+    // A straight line from 0% to 100%. Every live mainnet curve has equal
     // steepness at mid, and the zero-rate markets at both kinks.
     let env = Env::default();
     pct_model(0, [2, 4, 4], 10, 20, 60).verify(&env);
@@ -651,8 +651,8 @@ fn a_second_slope_above_a_zero_rate_cap_is_reported_as_nonmonotonic() {
 #[test]
 #[should_panic(expected = "#129")]
 fn test_rate_model_verify_rejects_a_steep_first_segment_one_unit_wide() {
-    // slope1 over a 1-raw-unit segment is a steepness of 10^25 per raw unit;
-    // the comparison saturates instead of overflowing and still rejects.
+    // slope1 over a 1-raw-unit segment is a steepness of 10^25 per raw unit.
+    // The comparison saturates instead of overflowing and still rejects.
     let env = Env::default();
     let mut m = valid_rate_model();
     m.mid_utilization = 1;
@@ -735,7 +735,7 @@ fn test_steepness_comparison_is_exact_across_magnitudes() {
 #[test]
 fn test_rate_model_verify_accepts_example_two_from_the_cap_up() {
     // slopes 13/5/60% with mid 70% and optimal 80% reach 79% at full
-    // utilization; any max from there up to the 200% bound is accepted.
+    // utilization. Any max from there up to the 200% bound is accepted.
     let env = Env::default();
     pct_model(1, [13, 5, 60], 79, 70, 80).verify(&env);
     pct_model(1, [13, 5, 60], 200, 70, 80).verify(&env);
@@ -755,7 +755,7 @@ fn test_rate_model_verify_rejects_example_two_one_raw_unit_under_the_cap() {
 fn test_rate_model_verify_rejects_a_flat_top_segment_after_a_rising_one() {
     // Audit I-08 recommendation 1 asks for `base + slope1 + slope2 < max`, so
     // the top segment has room. With `slope3 = 0` the steepness rule leaves
-    // only `slope1 = slope2 = 0`; any rise before optimal is rejected.
+    // only `slope1 = slope2 = 0`. Any rise before optimal is rejected.
     let env = Env::default();
     pct_model(0, [2, 4, 0], 6, 20, 60).verify(&env);
 }

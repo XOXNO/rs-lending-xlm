@@ -26,8 +26,9 @@ fn calculate_scaled_cap_floors_and_saturates() {
     let expected = Ray::from_asset(&env, cap, 0).div_floor(&env, index);
     assert_eq!(scaled, expected);
 
-    // Overflow path: ray form fits i128, but × RAY / 1 saturates instead of panicking.
-    // 1e11 asset units @ 0 decimals → 1e38 ray (fits); 1e38 * RAY overflows mul_div.
+    // Overflow path. The ray form fits i128, but the multiply by RAY / 1 saturates instead of
+    // panicking. 1e11 asset units at 0 decimals give 1e38 ray, which fits. 1e38 * RAY
+    // overflows mul_div.
     let large_cap = 100_000_000_000i128;
     let tiny_index = Ray::from(1);
     let saturated = calculate_scaled_cap(&env, large_cap, 0, tiny_index);
@@ -117,19 +118,19 @@ fn unscale_supply_and_borrow_match_inline_half_up_mul_to_asset() {
 #[test]
 fn unscale_half_up_exact_half_residue_rounds_away_from_zero() {
     let env = Env::default();
-    // At 0 decimals and index 1, `scaled = 1.5 RAY` is 1.5 tokens: half-up gives 2.
+    // At 0 decimals and index 1, `scaled = 1.5 RAY` is 1.5 tokens. Half-up gives 2.
     let scaled_half = Ray::from(RAY + RAY / 2);
     assert_eq!(unscale_supply(&env, scaled_half, Ray::ONE, 0), 2);
     assert_eq!(unscale_borrow(&env, scaled_half, Ray::ONE, 0), 2);
     assert_eq!(unscale_supply_floor(&env, scaled_half, Ray::ONE, 0), 1);
     assert_eq!(unscale_borrow_ceil(&env, scaled_half, Ray::ONE, 0), 2);
 
-    // Just below half: 1.4 → 1 half-up, 2 ceil.
+    // Below half, 1.4 gives 1 half-up and 2 ceil.
     let scaled_below = Ray::from(RAY + RAY * 4 / 10);
     assert_eq!(unscale_supply(&env, scaled_below, Ray::ONE, 0), 1);
     assert_eq!(unscale_borrow(&env, scaled_below, Ray::ONE, 0), 1);
 
-    // Just above half: 1.6 → 2 half-up, 1 floor.
+    // Above half, 1.6 gives 2 half-up and 1 floor.
     let scaled_above = Ray::from(RAY + RAY * 6 / 10);
     assert_eq!(unscale_supply(&env, scaled_above, Ray::ONE, 0), 2);
     assert_eq!(unscale_borrow(&env, scaled_above, Ray::ONE, 0), 2);
@@ -214,12 +215,12 @@ fn resolve_net_settle_partial_keeps_directed_rounding() {
     );
 }
 
-// --- what the supply-index floor buys (`docs/reference/formulas.md#numeric-limits`) --
+// --- what the supply-index floor does (`docs/reference/formulas.md#numeric-limits`) --
 //
 // `SUPPLY_INDEX_FLOOR_RAW` (RAY / 1_000) is the value
 // `apply_bad_debt_to_supply_index` clamps to. It keeps the share conversions
-// well defined — `calculate_scaled_supply` divides by the index — and bounds
-// share inflation to 1_000x, which in turn costs three decades of deposit
+// well defined, because `calculate_scaled_supply` divides by the index, and
+// bounds share inflation to 1_000x. That costs three decades of deposit
 // headroom in a fully written-down market.
 
 #[test]
@@ -236,7 +237,7 @@ fn supply_index_floor_bounds_share_inflation_to_one_thousand_x() {
     let at_floor = calculate_scaled_supply(&env, amount, decimals, floor);
 
     assert_eq!(at_floor.raw(), at_one.raw() * 1_000);
-    // The value the shares represent is unchanged; only the share count moved.
+    // The value the shares represent is unchanged. Only the share count moved.
     assert_eq!(unscale_supply(&env, at_floor, floor, decimals), amount);
 }
 
@@ -366,11 +367,11 @@ fn resolve_repay_at_index_ceiling_still_closes() {
 
 // --- exact reference for every conversion ----------------------------------
 //
-// The reference states each conversion as `docs/reference/formulas.md` does:
-// native units scale up to RAY exactly, and each division rounds in the one
+// The reference states each conversion as `docs/reference/formulas.md` does.
+// Native units scale up to RAY exactly, and each division rounds in the one
 // direction the function is named for.
 
-/// Rounds `x * y / d`: one of the exact reference quotients.
+/// Rounds `x * y / d` with one of the exact reference quotients.
 type Rounder = fn(i128, i128, i128) -> Option<i128>;
 
 /// Asset decimals from the smallest to the largest the protocol lists.
@@ -397,8 +398,8 @@ fn sample_decimals(sampler: &mut Sampler) -> u32 {
     DECIMALS[sampler.below(DECIMALS.len() as u32) as usize]
 }
 
-/// A native amount: within the asset's cap three times in four, otherwise any
-/// non-negative value.
+/// A native amount. It is within the asset's cap three times in four, and any
+/// non-negative value otherwise.
 fn sample_amount(sampler: &mut Sampler, decimals: u32) -> i128 {
     if sampler.below(4) == 0 {
         sampler.non_negative()
@@ -408,7 +409,7 @@ fn sample_amount(sampler: &mut Sampler, decimals: u32) -> i128 {
 }
 
 /// Shares worth an amount within the asset's cap at `index`, plus dust so the
-/// floor, half-up and ceiling values differ. Any non-negative value when that
+/// floor, half-up, and ceiling values differ. Any non-negative value when that
 /// share count does not fit.
 fn sample_position(sampler: &mut Sampler, decimals: u32, index: i128) -> i128 {
     let amount = sampler.at_most(max_cap_for_decimals(decimals) / 4);
@@ -469,7 +470,7 @@ fn exact_share_conversions_round_in_their_named_direction() {
             |env| scaled_to_original(env, Ray::from(scaled), Ray::from(index)).raw(),
             case,
         );
-        // The cap's rescale to RAY still overflows; only its division saturates.
+        // The cap's rescale to RAY still overflows. Only its division saturates.
         assert_exact(
             &env,
             amount
@@ -524,8 +525,8 @@ fn exact_mint_then_redeem_never_favours_the_account() {
     }
 }
 
-/// `resolve_withdrawal` as documented: a request of at least the half-up
-/// balance burns the position and pays its floor value; a smaller one burns
+/// `resolve_withdrawal` as documented. A request of at least the half-up
+/// balance burns the position and pays its floor value. A smaller request burns
 /// ceiling shares and pays the request. Returns `(burned, paid)`.
 fn exact_withdrawal(
     amount: i128,
@@ -542,8 +543,8 @@ fn exact_withdrawal(
     }
 }
 
-/// `resolve_repay` as documented: a payment of at least the ceiling debt
-/// burns the position and returns the excess; a smaller one burns floor
+/// `resolve_repay` as documented. A payment of at least the ceiling debt
+/// burns the position and returns the excess. A smaller payment burns floor
 /// shares. Returns `(burned, excess)`.
 fn exact_repay(amount: i128, position: i128, index: i128, decimals: u32) -> Option<(i128, i128)> {
     let owed = exact_tokens(position, index, decimals, ceil_of)?;
@@ -609,7 +610,7 @@ fn exact_withdrawal_and_repay_split_at_the_documented_boundary() {
                 case,
             );
             if let Some((burned, excess)) = repay {
-                // The debt cancelled, valued rounding up, never exceeds the
+                // The debt cancelled, valued with rounding up, never exceeds the
                 // payment kept, and a partial payment leaves a share behind.
                 let burned_value = exact_tokens(burned, index, decimals, ceil_of);
                 assert!(

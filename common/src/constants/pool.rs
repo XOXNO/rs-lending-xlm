@@ -5,8 +5,8 @@
 use crate::constants::RAY;
 
 /// Minimum value the supply index is clamped to when bad debt is written down against
-/// suppliers, in raw ray units. Interest accrual does not apply this floor; it only guarantees
-/// the index never decreases.
+/// suppliers, in raw ray units. Interest accrual does not apply this floor. Accrual only
+/// guarantees the index never decreases.
 pub const SUPPLY_INDEX_FLOOR_RAW: i128 = RAY / 1_000;
 
 /// Upper bound accepted for a pool's configured maximum borrow rate, in raw ray units.
@@ -20,11 +20,11 @@ pub const LIQUIDATION_BUFFER_BPS: i128 = 200;
 pub const MAX_BORROW_INDEX_RAY: i128 = 1_000_000_000_000_000_000_000_000_000_000_000_000;
 
 /// Ceiling the supply index is clamped to after growth, in raw ray units.
-/// Equal to [`MAX_BORROW_INDEX_RAY`].
+/// The value equals [`MAX_BORROW_INDEX_RAY`].
 pub const MAX_SUPPLY_INDEX_RAY: i128 = MAX_BORROW_INDEX_RAY;
 
 /// Ceiling on a market's total supply value and on its total debt value
-/// (`shares * index`, half up), in raw ray units: one whole token below
+/// (`shares * index`, half up), in raw ray units. The value is one whole token below
 /// `i128::MAX`.
 ///
 /// Accrual holds interest at this ceiling instead of overflowing
@@ -39,7 +39,7 @@ pub const MARKET_ENTRY_HEADROOM: i128 = 8;
 
 /// Ceiling that supply, borrow, strategy and flash-loan entries enforce on a
 /// market's total supply and total debt, both as a share count and as a
-/// value, in raw ray units (INV-ACCT-11). About 21.27 billion whole tokens.
+/// value, in raw ray units (INV-ACCT-11). The value is about 21.27 billion whole tokens.
 ///
 /// The share count is bounded too because a supply index written down to
 /// `SUPPLY_INDEX_FLOOR_RAW` mints 1,000 shares per unit of value.

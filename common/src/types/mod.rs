@@ -1,6 +1,6 @@
 //! Shared type definitions re-exported for use across the lending protocol's contracts:
-//! composable-oracle configuration, controller state, oracle feed/status types, pool state,
-//! and shared cross-cutting types.
+//! composable-oracle configuration, controller state, oracle feed and status types, pool state,
+//! and shared scalar and tuple types.
 
 mod composable_oracle;
 mod controller;
