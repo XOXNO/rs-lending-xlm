@@ -3,7 +3,7 @@
 import tomllib
 import unittest
 
-from check_fp_boundary import ROOT, violations
+from check_fp_boundary import CONTROLLER_RAW_BOUNDARIES, ROOT, violations
 
 
 class FpBoundaryTest(unittest.TestCase):
@@ -51,6 +51,24 @@ class FpBoundaryTest(unittest.TestCase):
         self.assertEqual(violations(file, "U256::from_u128(env, n)"), [])
         self.assertTrue(violations(file, "fp_core::mul_div_floor(env, a, b, c)"))
         self.assertTrue(violations("common/src/rates/compound.rs", "I256::from_i128(env, n)"))
+
+    def test_controller_raw_extraction_needs_a_reviewed_boundary(self):
+        errors = violations(
+            "contracts/controller/src/risk/unreviewed.rs",
+            "let unhealthy = health_factor.raw() < WAD;",
+        )
+        self.assertTrue(any("reviewed serialization boundary" in error for error in errors))
+
+    def test_reviewed_controller_raw_boundary_inventory_matches_source(self):
+        for relative in CONTROLLER_RAW_BOUNDARIES:
+            with self.subTest(relative=relative):
+                source = (ROOT / relative).read_text()
+                raw_errors = [
+                    error
+                    for error in violations(relative, source)
+                    if "raw fixed-point" in error or "reviewed raw boundary" in error
+                ]
+                self.assertEqual(raw_errors, [])
 
 
 if __name__ == "__main__":
